@@ -1,0 +1,422 @@
+# Case Management Suite - Corrected Database Architecture
+
+## Core Principle: Single Source of Truth for Clients
+
+**ONE client creation → Propagates everywhere via client_id foreign key**
+
+---
+
+## Database Structure & Ownership
+
+### 1. **core_clients.db** (MASTER DATABASE)
+**Owner**: Case Management Module  
+**Purpose**: Single source of truth for all client data  
+**Accessed by**: ALL modules (read-only except Case Management)
+
+```sql
+-- MASTER CLIENTS TABLE
+clients (
+    client_id TEXT PRIMARY KEY,           -- UUID
+    first_name TEXT NOT NULL,
+    last_name TEXT NOT NULL, 
+    date_of_birth DATE,
+    phone TEXT,
+    email TEXT,
+    address TEXT,
+    emergency_contact_name TEXT,
+    emergency_contact_phone TEXT,
+    risk_level TEXT CHECK (risk_level IN ('low', 'medium', 'high')),
+    case_status TEXT CHECK (case_status IN ('active', 'inactive', 'completed')),
+    case_manager_id TEXT,
+    intake_date DATE DEFAULT CURRENT_DATE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CLIENT GOALS & BARRIERS
+client_goals (
+    goal_id TEXT PRIMARY KEY,
+    client_id TEXT REFERENCES clients(client_id),
+    goal_type TEXT, -- 'housing', 'employment', 'legal', 'benefits'
+    description TEXT,
+    status TEXT CHECK (status IN ('pending', 'in_progress', 'completed')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+client_barriers (
+    barrier_id TEXT PRIMARY KEY,
+    client_id TEXT REFERENCES clients(client_id),
+    barrier_type TEXT,
+    description TEXT,
+    severity TEXT CHECK (severity IN ('low', 'medium', 'high')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CASE NOTES
+case_notes (
+    note_id TEXT PRIMARY KEY,
+    client_id TEXT REFERENCES clients(client_id),
+    note_type TEXT,
+    content TEXT,
+    created_by TEXT, -- case_manager_id
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+### 2. **housing.db**
+**Owner**: Housing Module  
+**Accesses**: core_clients.db (read-only)  
+**Purpose**: Housing-specific data only
+
+```sql
+-- CLIENT HOUSING PROFILES
+client_housing_profiles (
+    profile_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    preferred_counties TEXT, -- JSON array
+    max_rent INTEGER,
+    bedroom_preference INTEGER,
+    background_friendly_only BOOLEAN DEFAULT 1,
+    transportation_access BOOLEAN,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- HOUSING APPLICATIONS
+housing_applications (
+    application_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    property_id TEXT,
+    property_name TEXT,
+    property_address TEXT,
+    application_status TEXT CHECK (status IN ('submitted', 'under_review', 'approved', 'denied')),
+    submitted_date DATE,
+    follow_up_date DATE
+);
+
+-- HOUSING INVENTORY (no client reference needed)
+housing_inventory (
+    property_id TEXT PRIMARY KEY,
+    property_name TEXT,
+    address TEXT,
+    rent_amount INTEGER,
+    background_friendly BOOLEAN,
+    bedrooms INTEGER,
+    available_date DATE
+);
+```
+
+---
+
+### 3. **benefits.db**
+**Owner**: Benefits Module  
+**Accesses**: core_clients.db (read-only)  
+**Purpose**: Benefits and disability data
+
+```sql
+-- CLIENT BENEFITS PROFILES
+client_benefits_profiles (
+    profile_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    household_size INTEGER,
+    monthly_income DECIMAL,
+    has_disability BOOLEAN,
+    disability_assessment_completed BOOLEAN DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- DISABILITY ASSESSMENTS
+disability_assessments (
+    assessment_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    medical_conditions TEXT, -- JSON array
+    functional_limitations TEXT, -- JSON array
+    approval_probability DECIMAL,
+    assessment_date DATE,
+    recommended_benefits TEXT -- JSON array
+);
+
+-- BENEFITS APPLICATIONS
+benefits_applications (
+    application_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    benefit_type TEXT CHECK (benefit_type IN ('SNAP', 'Medicaid', 'SSI', 'SSDI', 'TANF')),
+    application_status TEXT,
+    submitted_date DATE,
+    approval_amount DECIMAL
+);
+```
+
+---
+
+### 4. **legal.db**
+**Owner**: Legal Module  
+**Accesses**: core_clients.db (read-only)  
+**Purpose**: All legal matters including expungement
+
+```sql
+-- LEGAL CASES
+legal_cases (
+    case_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    case_type TEXT CHECK (case_type IN ('expungement', 'compliance', 'court_matter', 'other')),
+    case_status TEXT,
+    court_name TEXT,
+    case_number TEXT,
+    attorney_name TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- EXPUNGEMENT SPECIFIC
+expungement_eligibility (
+    eligibility_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    eligibility_score DECIMAL,
+    conviction_types TEXT, -- JSON array
+    time_since_conviction INTEGER, -- months
+    compliance_status TEXT,
+    eligible BOOLEAN
+);
+
+-- COURT DATES
+court_dates (
+    court_date_id TEXT PRIMARY KEY,
+    case_id TEXT REFERENCES legal_cases(case_id),
+    client_id TEXT,  -- FK to core_clients.clients
+    court_date DATETIME,
+    court_type TEXT,
+    status TEXT CHECK (status IN ('scheduled', 'completed', 'rescheduled'))
+);
+```
+
+---
+
+### 5. **employment.db**
+**Owner**: Employment/Resume Module  
+**Accesses**: core_clients.db (read-only)  
+**Purpose**: Employment and resume data
+
+```sql
+-- CLIENT EMPLOYMENT PROFILES
+client_employment_profiles (
+    profile_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    work_history TEXT, -- JSON
+    skills TEXT, -- JSON array
+    education TEXT, -- JSON
+    preferred_industries TEXT, -- JSON array
+    background_friendly_only BOOLEAN DEFAULT 1,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- RESUMES
+resumes (
+    resume_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    template_type TEXT,
+    content TEXT, -- JSON
+    pdf_path TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- JOB APPLICATIONS
+job_applications (
+    application_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    job_title TEXT,
+    company_name TEXT,
+    application_status TEXT,
+    applied_date DATE
+);
+```
+
+---
+
+### 6. **services.db**
+**Owner**: Services Directory Module  
+**Accesses**: core_clients.db (read-only)  
+**Purpose**: Service referrals and provider network
+
+```sql
+-- SERVICE PROVIDERS (no client reference)
+service_providers (
+    provider_id TEXT PRIMARY KEY,
+    provider_name TEXT,
+    service_type TEXT,
+    contact_info TEXT, -- JSON
+    background_check_policy TEXT,
+    rating DECIMAL
+);
+
+-- CLIENT REFERRALS
+client_referrals (
+    referral_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    provider_id TEXT REFERENCES service_providers(provider_id),
+    referral_date DATE,
+    status TEXT CHECK (status IN ('pending', 'contacted', 'engaged', 'completed')),
+    outcome TEXT
+);
+```
+
+---
+
+### 7. **reminders.db** (CROSS-DATABASE ACCESS)
+**Owner**: Reminder System  
+**Accesses**: ALL databases (read-only)  
+**Purpose**: Task management across all modules
+
+```sql
+-- SMART REMINDERS
+reminders (
+    reminder_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    module_source TEXT, -- 'housing', 'benefits', 'legal', etc.
+    task_type TEXT,
+    description TEXT,
+    due_date DATE,
+    priority_score INTEGER, -- calculated
+    status TEXT CHECK (status IN ('pending', 'completed', 'overdue')),
+    assigned_to TEXT, -- case_manager_id
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- PROCESS TEMPLATES
+process_templates (
+    template_id TEXT PRIMARY KEY,
+    template_name TEXT,
+    module_type TEXT,
+    steps TEXT, -- JSON array
+    default_timeline INTEGER -- days
+);
+```
+
+---
+
+### 8. **ai_assistant.db** (CROSS-DATABASE ACCESS)
+**Owner**: AI Assistant Module  
+**Accesses**: ALL databases (read-only)  
+**Purpose**: AI conversations and analytics
+
+```sql
+-- AI CONVERSATIONS
+ai_conversations (
+    conversation_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients (optional)
+    user_id TEXT, -- case_manager_id
+    messages TEXT, -- JSON array
+    context_data TEXT, -- JSON from other databases
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- CLIENT ANALYTICS
+client_analytics (
+    analytics_id TEXT PRIMARY KEY,
+    client_id TEXT,  -- FK to core_clients.clients
+    risk_factors TEXT, -- JSON
+    success_probability DECIMAL,
+    recommended_actions TEXT, -- JSON array
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+### 9. **cache.db**
+**Owner**: System Cache  
+**Accesses**: None (passive)  
+**Purpose**: Query optimization and temporary data
+
+```sql
+search_cache (
+    cache_key TEXT PRIMARY KEY,
+    cache_data TEXT, -- JSON
+    expires_at DATETIME
+);
+```
+
+---
+
+## Data Flow Architecture
+
+### Client Creation Flow:
+```
+1. Case Manager creates client in Case Management UI
+2. POST /api/case-management/clients
+3. Client record created in core_clients.db
+4. client_id returned and used for all subsequent operations
+5. No other module creates clients directly
+```
+
+### Service Module Data Flow:
+```
+1. User navigates to Housing/Benefits/Legal/etc.
+2. Module queries core_clients.db for client list
+3. User selects existing client OR is redirected to create new client
+4. Module-specific data stored in module database with client_id FK
+5. All cross-references use client_id
+```
+
+### Reminder System Data Flow:
+```
+1. Reminder system reads from ALL module databases
+2. Identifies tasks/deadlines across modules
+3. Calculates priority scores
+4. Creates unified task list in reminders.db
+5. No duplication - just references to source data
+```
+
+### AI Assistant Data Flow:
+```
+1. AI assistant has read access to ALL databases
+2. Can query client data across modules
+3. Provides unified view of client status
+4. Stores conversations and insights in ai_assistant.db
+```
+
+---
+
+## Database Access Matrix
+
+| Database | Case Mgmt | Housing | Benefits | Legal | Employment | Services | Reminders | AI |
+|----------|-----------|---------|----------|-------|------------|----------|-----------|----| 
+| core_clients.db | **WRITE** | READ | READ | READ | READ | READ | READ | READ |
+| housing.db | READ | **WRITE** | - | - | - | READ | READ | READ |
+| benefits.db | READ | - | **WRITE** | - | - | READ | READ | READ |
+| legal.db | READ | - | - | **WRITE** | - | READ | READ | READ |
+| employment.db | READ | - | - | - | **WRITE** | READ | READ | READ |
+| services.db | READ | READ | READ | READ | READ | **WRITE** | READ | READ |
+| reminders.db | READ | READ | READ | READ | READ | READ | **WRITE** | READ |
+| ai_assistant.db | READ | READ | READ | READ | READ | READ | READ | **WRITE** |
+| cache.db | READ | READ | READ | READ | READ | READ | READ | READ |
+
+---
+
+## Implementation Steps
+
+### Phase 1: Database Consolidation
+1. Create new core_clients.db with master clients table
+2. Migrate all client data from module databases to core_clients.db
+3. Update module databases to remove client tables, add client_id FKs
+4. Implement foreign key constraints
+
+### Phase 2: API Refactoring  
+1. Update Case Management API to be sole client creator
+2. Modify all module APIs to reference core_clients.db
+3. Add database access layer with proper permissions
+4. Implement cross-database query optimization
+
+### Phase 3: Frontend Updates
+1. Update client creation flow to use Case Management only
+2. Add client selection dropdowns to all modules
+3. Implement client switching between modules
+4. Add unified client dashboard
+
+### Phase 4: Testing & Validation
+1. Comprehensive data integrity testing
+2. Performance testing with proper indexing
+3. Referential integrity validation
+4. End-to-end workflow testing
+
+This architecture eliminates data duplication, creates clear ownership boundaries, and enables proper cross-module integration while maintaining data integrity.

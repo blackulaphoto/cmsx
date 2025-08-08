@@ -1,0 +1,1 @@
+# Legal Case Management module for Second Chance Jobs Platform

@@ -1,0 +1,22 @@
+{
+  "start_time": "2025-08-07T13:00:47.430057",
+  "end_time": "2025-08-07T13:00:47.475324",
+  "duration_seconds": 0.045267,
+  "fixes_applied": {
+    "case_management_violations": 0,
+    "resumes_violations": 0,
+    "unified_platform_violations": 0,
+    "schema_updates": 0,
+    "total_fixes": 0
+  },
+  "verification": {
+    "databases_checked": 3,
+    "violations_remaining": 60,
+    "clean_databases": 1
+  },
+  "errors": [
+    "case_management: no such column: user_id",
+    "missing_columns: Cannot add a column with non-constant default"
+  ],
+  "success": false
+}

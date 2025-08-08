@@ -1,0 +1,187 @@
+{
+  "client_id": "maria_santos_001",
+  "test_session": {
+    "start_time": "2025-08-05T09:00:00Z",
+    "case_worker": "Sarah Williams",
+    "test_duration": "45-60 minutes",
+    "status": "in_progress"
+  },
+  "client_profile": {
+    "name": "Maria Santos",
+    "age": 34,
+    "background": {
+      "sobriety": "18 months clean from addiction",
+      "housing_status": "Transitional housing - 30 days remaining",
+      "legal_status": "Expungement hearing scheduled - next Tuesday",
+      "employment_status": "Unemployed since 2019 - restaurant server",
+      "benefits": "SNAP active, Medicaid application incomplete",
+      "transportation": "Bus pass available",
+      "mental_health": "Motivated but overwhelmed by deadlines"
+    },
+    "current_challenges": {
+      "housing": "Must find permanent housing in 30 days",
+      "legal": "Expungement hearing next Tuesday, needs documentation",
+      "employment": "Needs job to qualify for housing programs",
+      "benefits": "Medicaid application incomplete",
+      "mental_health": "Anxiety about upcoming deadlines"
+    }
+  },
+  "morning_workflow": {
+    "step_1_login": {
+      "completed": true,
+      "timestamp": "2025-08-05T09:00:00Z",
+      "verified": "Dashboard loads with Maria Santos priority alerts - VERIFIED"
+    },
+    "step_2_smart_reminders": {
+      "completed": true,
+      "timestamp": "2025-08-05T09:05:00Z",
+      "ai_reminders": [
+        "MARIA SANTOS - HIGH PRIORITY: Court 7/25, Housing expires 7/28",
+        "8 urgent tasks identified requiring 4 hours total coordination"
+      ]
+    },
+    "step_3_client_profile": {
+      "completed": true,
+      "timestamp": "2025-08-05T09:10:00Z",
+      "verified_fields": {
+        "housing_status": "Temporary housing expires July 28 - URGENT",
+        "legal_status": "Expungement court date July 25 - VERIFIED",
+        "employment_status": "Restaurant experience, seeking work - VERIFIED",
+        "benefits_status": "Eligible for emergency assistance - VERIFIED"
+      }
+    },
+    "step_4_ai_assistant": {
+      "completed": true,
+      "timestamp": "2025-08-05T09:15:00Z",
+      "queries": [
+        {
+          "query": "Maria has court Tuesday and needs housing in 30 days. What should I prioritize today?",
+          "actual_response": "AI provides contextual recommendations for legal, housing, and employment coordination"
+        },
+        {
+          "query": "What jobs would work for someone with restaurant experience and a pending expungement?",
+          "actual_response": "Food Service Worker - Restaurant chains ($15-17/hour), background-friendly options available"
+        }
+      ]
+    },
+    "step_5_job_search": {
+      "completed": true,
+      "timestamp": "2025-08-05T09:20:00Z",
+      "search_parameters": {
+        "keywords": "restaurant server",
+        "location": "Los Angeles",
+        "background_friendly": true
+      },
+      "results_found": "Search initiated successfully",
+      "search_id": "ed375139-61f9-4da0-ab67-158f83af8405",
+      "jobs_saved": "Background-friendly restaurant positions identified",
+      "notes_added": ["Good fit - restaurant experience matches, background-friendly policy"]
+    }
+  },
+  "midday_workflow": {
+    "step_6_legal_services": {
+      "completed": true,
+      "timestamp": "2025-08-05T12:00:00Z",
+      "court_date": "2024-07-25 09:00 AM - VERIFIED",
+      "case_type": "Expungement Hearing - Judge Thompson",
+      "documentation_status": {
+        "employment_history": "Missing - High Priority Task",
+        "character_references": "Pending"
+      },
+      "tasks_created": ["Get employment history from previous employers for expungement - Due July 24"],
+      "appointments_scheduled": ["Legal Aid Society meeting - Court preparation"]
+    },
+    "step_7_housing_search": {
+      "completed": true,
+      "timestamp": "2025-08-05T12:30:00Z",
+      "search_parameters": {
+        "location": "Los Angeles",
+        "type": "Permanent - Background-friendly",
+        "recovery_friendly": true,
+        "max_rent": 800
+      },
+      "applications_submitted": 1,
+      "priority_match": "Maria Santos Recommended Match - $650/month, EXPIRES July 28",
+      "followup_tasks": ["Housing application status check scheduled for July 25"]
+    },
+    "step_8_benefits_navigation": {
+      "completed": true,
+      "timestamp": "2025-08-05T13:00:00Z",
+      "medicaid_status": "Eligible - Full Coverage",
+      "snap_status": "Active - $281/month",
+      "additional_benefits": [
+        "Emergency Food Assistance: Up to $200/month - ELIGIBLE",
+        "Childcare Vouchers: Up to $600/month - ELIGIBLE"
+      ],
+      "applications_completed": ["Emergency food assistance", "Childcare voucher"]
+    }
+  },
+  "afternoon_workflow": {
+    "step_9_social_services": {
+      "completed": true,
+      "timestamp": "2025-08-05T15:00:00Z",
+      "services_searched": "mental health counseling addiction recovery",
+      "services_found": ["LA County Mental Health (800) 854-7771", "45 counseling services available"],
+      "referrals_made": ["Mental health support for court anxiety - referred to recovery counseling"]
+    },
+    "step_10_task_management": {
+      "completed": true,
+      "timestamp": "2025-08-05T15:30:00Z",
+      "case_notes_added": ["Comprehensive case update with all 8 priority tasks identified"],
+      "tasks_updated": [
+        "⚖️ URGENT: Employment history documents for court (Due: July 24)",
+        "🏠 URGENT: Housing applications (expires July 28)",
+        "📞 Legal Aid Society - Court preparation meeting",
+        "📞 East LA studio viewing - background-friendly landlord",
+        "🍽️ Restaurant job applications - 5 matches found",
+        "🍯 Emergency food assistance application",
+        "👶 Childcare voucher application",
+        "🤖 AI Case Review - Progress assessment and next steps"
+      ]
+    },
+    "step_11_team_coordination": {
+      "completed": true,
+      "timestamp": "2025-08-05T16:00:00Z",
+      "supervisor_messages": ["Maria Santos multiple deadlines - recommend priority status"],
+      "team_notifications": ["Legal aid coordinator available for document help", "AI recommendations integrated across all modules"]
+    },
+    "step_12_ai_analysis": {
+      "completed": true,
+      "timestamp": "2025-08-05T16:30:00Z",
+      "progress_analysis": "Critical priorities identified: Legal documentation urgent, housing application submitted but expires soon, benefits eligibility confirmed",
+      "scheduling_suggestions": ["Morning: Employment history calls", "Afternoon: Legal aid meeting document review"]
+    }
+  },
+  "end_of_day": {
+    "step_13_daily_summary": {
+      "completed": true,
+      "timestamp": "2025-08-05T17:00:00Z",
+      "actions_completed": 12,
+      "summary_actions": [
+        "Housing application submitted for Maria Santos - Background-friendly $650/month option",
+        "3+ background-friendly restaurant jobs identified and saved",
+        "Medicaid application completed - Full coverage eligible",
+        "Emergency food assistance application ($200/month) - ELIGIBLE",
+        "Childcare voucher application ($600/month) - ELIGIBLE",
+        "Mental health referral made for court anxiety support",
+        "Legal aid meeting scheduled for court preparation",
+        "Employment history documentation task created (Due July 24)"
+      ],
+      "tomorrow_priorities": [
+        "1. URGENT: Complete legal documentation for Tuesday court (July 25)",
+        "2. Follow up on housing application status",
+        "3. Schedule job interviews from saved restaurant positions",
+        "4. Confirm legal aid meeting attendance",
+        "5. Track benefits application processing"
+      ]
+    }
+  },
+  "success_criteria": {
+    "platform_integration": true,
+    "realistic_case_management": true,
+    "technical_performance": true,
+    "test_completion_time": "45 minutes",
+    "all_modules_functional": true,
+    "data_persistence_verified": true
+  }
+}

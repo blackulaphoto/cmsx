@@ -1,0 +1,291 @@
+I'll provide a detailed explanation and implementation plan for both standardizing database schemas and adding WebSocket integration.
+
+Let me first analyze the current database structure and WebSocket requirements:
+Ran tool
+Ran tool
+Let me create a detailed plan for both requirements:
+
+# 1. Database Schema Standardization
+
+## Current Issues:
+1. Inconsistent primary key naming (`id` vs `client_id`)
+2. Missing audit columns in some tables
+3. Inconsistent foreign key relationships
+4. Schema variations across different databases
+
+## Standardization Plan:
+
+### A. Core Schema Standards
+
+```sql
+-- Base table template for all entities
+CREATE TABLE base_template (
+    id VARCHAR PRIMARY KEY,  -- UUID format
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR REFERENCES users(id),
+    updated_by VARCHAR REFERENCES users(id),
+    is_active BOOLEAN DEFAULT true,
+    version INTEGER DEFAULT 1
+);
+
+-- Example standardized client table
+CREATE TABLE clients (
+    id VARCHAR PRIMARY KEY,
+    first_name VARCHAR NOT NULL,
+    last_name VARCHAR NOT NULL,
+    email VARCHAR UNIQUE,
+    phone VARCHAR,
+    status VARCHAR DEFAULT 'active',
+    risk_level VARCHAR,
+    -- Audit columns
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR REFERENCES users(id),
+    updated_by VARCHAR REFERENCES users(id),
+    is_active BOOLEAN DEFAULT true,
+    version INTEGER DEFAULT 1
+);
+```
+
+### B. Schema Migration Steps
+
+1. **Create Migration Script**:
+```python
+from alembic import op
+import sqlalchemy as sa
+
+def upgrade():
+    # Add missing audit columns
+    for table in ['clients', 'tasks', 'appointments', 'saved_jobs', 'resumes']:
+        op.add_column(table, sa.Column('updated_by', sa.String()))
+        op.add_column(table, sa.Column('version', sa.Integer(), default=1))
+        op.add_column(table, sa.Column('is_active', sa.Boolean(), default=True))
+    
+    # Standardize foreign keys
+    op.create_foreign_key(
+        'fk_tasks_updated_by_users',
+        'tasks', 'users',
+        ['updated_by'], ['id']
+    )
+```
+
+2. **Data Migration Script**:
+```python
+def migrate_data():
+    """Migrate data to new schema standards"""
+    for table in tables_to_migrate:
+        # Add version numbers
+        execute(f"UPDATE {table} SET version = 1")
+        # Set is_active based on status
+        execute(f"UPDATE {table} SET is_active = (status != 'inactive')")
+        # Set updated_by to created_by where null
+        execute(f"UPDATE {table} SET updated_by = created_by WHERE updated_by IS NULL")
+```
+
+# 2. WebSocket Integration
+
+## A. WebSocket Implementation
+
+1. **Create WebSocket Manager**:
+```python
+# backend/services/websocket_manager.py
+from fastapi import WebSocket
+from typing import Dict, Set
+import asyncio
+import json
+
+class WebSocketManager:
+    def __init__(self):
+        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        
+    async def connect(self, websocket: WebSocket, client_id: str):
+        await websocket.accept()
+        if client_id not in self.active_connections:
+            self.active_connections[client_id] = set()
+        self.active_connections[client_id].add(websocket)
+        
+    async def disconnect(self, websocket: WebSocket, client_id: str):
+        self.active_connections[client_id].remove(websocket)
+        
+    async def broadcast_to_client(self, client_id: str, message: dict):
+        if client_id in self.active_connections:
+            for connection in self.active_connections[client_id]:
+                await connection.send_json(message)
+```
+
+2. **Create WebSocket Routes**:
+```python
+# backend/services/websocket_routes.py
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from .websocket_manager import WebSocketManager
+
+router = APIRouter()
+manager = WebSocketManager()
+
+@router.websocket("/ws/{client_id}")
+async def websocket_endpoint(websocket: WebSocket, client_id: str):
+    await manager.connect(websocket, client_id)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            # Handle real-time updates
+            await manager.broadcast_to_client(client_id, {
+                "type": "update",
+                "data": data
+            })
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket, client_id)
+```
+
+3. **Implement Real-time Event Handlers**:
+```python
+# backend/services/realtime_events.py
+from typing import Dict, Any
+from .websocket_manager import WebSocketManager
+
+class RealtimeEventHandler:
+    def __init__(self, ws_manager: WebSocketManager):
+        self.ws_manager = ws_manager
+        
+    async def handle_task_update(self, client_id: str, task_data: Dict[str, Any]):
+        await self.ws_manager.broadcast_to_client(client_id, {
+            "type": "task_update",
+            "data": task_data
+        })
+        
+    async def handle_appointment_update(self, client_id: str, appointment_data: Dict[str, Any]):
+        await self.ws_manager.broadcast_to_client(client_id, {
+            "type": "appointment_update",
+            "data": appointment_data
+        })
+```
+
+## B. Frontend Integration
+
+1. **WebSocket Hook**:
+```typescript
+// frontend/src/hooks/useWebSocket.ts
+import { useEffect, useRef } from 'react';
+import { useQueryClient } from 'react-query';
+
+export const useWebSocket = (clientId: string) => {
+  const ws = useRef<WebSocket | null>(null);
+  const queryClient = useQueryClient();
+  
+  useEffect(() => {
+    ws.current = new WebSocket(`ws://localhost:8000/ws/${clientId}`);
+    
+    ws.current.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      
+      // Handle different update types
+      switch (data.type) {
+        case 'task_update':
+          queryClient.invalidateQueries(['tasks', clientId]);
+          break;
+        case 'appointment_update':
+          queryClient.invalidateQueries(['appointments', clientId]);
+          break;
+      }
+    };
+    
+    return () => {
+      ws.current?.close();
+    };
+  }, [clientId]);
+  
+  return ws.current;
+};
+```
+
+2. **Component Integration**:
+```jsx
+// frontend/src/components/ClientDashboard.jsx
+import { useWebSocket } from '../hooks/useWebSocket';
+
+export const ClientDashboard = ({ clientId }) => {
+  const ws = useWebSocket(clientId);
+  
+  // Real-time updates will automatically trigger re-renders
+  const { data: tasks } = useQuery(['tasks', clientId], fetchTasks);
+  const { data: appointments } = useQuery(['appointments', clientId], fetchAppointments);
+  
+  return (
+    <div>
+      <TaskList tasks={tasks} />
+      <AppointmentList appointments={appointments} />
+    </div>
+  );
+};
+```
+
+## C. Real-time Features to Implement
+
+1. **Task Updates**:
+- Task status changes
+- New task assignments
+- Task completion notifications
+- Priority changes
+
+2. **Appointment Updates**:
+- New appointments
+- Status changes
+- Cancellations
+- Reminders
+
+3. **Client Status Updates**:
+- Case status changes
+- Document uploads
+- Service referrals
+- Assessment updates
+
+4. **Job Application Updates**:
+- New job matches
+- Application status changes
+- Interview scheduling
+- Offer notifications
+
+## Implementation Steps:
+
+1. **Database Schema Updates**:
+```bash
+# Run migration scripts
+python -m alembic revision --autogenerate -m "standardize_schemas"
+python -m alembic upgrade head
+
+# Verify data integrity
+python check_db_structure.py
+```
+
+2. **WebSocket Setup**:
+```bash
+# Install dependencies
+pip install websockets
+
+# Create WebSocket files
+mkdir -p backend/services/websocket
+touch backend/services/websocket/{__init__,manager,routes,events}.py
+```
+
+3. **Frontend Integration**:
+```bash
+# Install WebSocket dependencies
+cd frontend
+npm install @tanstack/react-query@latest
+```
+
+4. **Testing**:
+```bash
+# Create WebSocket tests
+python -m pytest tests/test_websocket.py
+```
+
+This implementation provides:
+- Standardized database schemas across all modules
+- Real-time updates for critical features
+- Efficient WebSocket connection management
+- Automatic frontend state updates
+- Proper error handling and reconnection logic
+
+The changes can be implemented incrementally, starting with schema standardization followed by WebSocket integration for key features.

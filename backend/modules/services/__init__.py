@@ -1,0 +1,1 @@
+# Social Services Coordination module for Second Chance Jobs Platform

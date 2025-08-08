@@ -1,0 +1,28 @@
+{
+  "start_time": "2025-08-07T13:32:49.098976",
+  "end_time": "2025-08-07T13:32:49.223284",
+  "duration_seconds": 0.124308,
+  "fixes_applied": {
+    "users_created": 0,
+    "case_management_violations": 32,
+    "unified_platform_violations": 0,
+    "schema_updates": 1,
+    "total_fixes": 33
+  },
+  "verification": {
+    "databases_checked": 3,
+    "violations_remaining": 60,
+    "clean_databases": 1,
+    "details": {
+      "case_management": 58,
+      "resumes": 0,
+      "unified_platform": 2
+    }
+  },
+  "errors": [
+    "default_users: table users has no column named full_name",
+    "case_management: no such column: id",
+    "unified_platform: NOT NULL constraint failed: benefits_applications.client_id"
+  ],
+  "success": false
+}

@@ -1,0 +1,22 @@
+{
+  "name": "case_manager_suite2",
+  "version": "1.0.0",
+  "description": "A comprehensive case management platform for reentry services, consolidating the best features from multiple codebases.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.54.2"
+  }
+}
