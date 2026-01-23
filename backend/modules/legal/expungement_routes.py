@@ -55,6 +55,73 @@ class DocumentGenerationRequest(BaseModel):
     document_type: str
     template_data: Dict[str, Any]
 
+class EligibilityCheckRequest(BaseModel):
+    conviction_data: Dict[str, Any]
+
+def _build_assessment_from_complete_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize full eligibility result to UI assessment shape"""
+    success_likelihood = result.get("success_likelihood", "Unknown")
+    confidence_map = {"High": 90.0, "Medium": 60.0, "Low": 40.0}
+    confidence_score = confidence_map.get(success_likelihood, 50.0)
+
+    estimated_days = result.get("estimated_timeline_days", 0) or 0
+    estimated_timeline = f"{estimated_days} days" if estimated_days else "Unknown"
+
+    assessment = {
+        "eligible": bool(result.get("eligible")),
+        "eligibility_date": datetime.now().isoformat() if result.get("eligible") else None,
+        "wait_period_days": 0,
+        "requirements": result.get("recommendations", []),
+        "disqualifying_factors": result.get("disqualifying_factors", []),
+        "estimated_timeline": estimated_timeline,
+        "estimated_cost": result.get("estimated_cost", 0.0),
+        "next_steps": result.get("next_steps", []),
+        "confidence_score": confidence_score
+    }
+
+    return assessment
+
+def _map_quiz_to_conviction_data(quiz_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Map quiz responses to conviction data expected by the eligibility engine"""
+    conviction_date = quiz_data.get("conviction_date")
+    conviction_year = None
+    if conviction_date:
+        try:
+            conviction_year = datetime.fromisoformat(conviction_date).year
+        except ValueError:
+            conviction_year = None
+
+    conviction_data = {
+        "conviction_date": conviction_date,
+        "conviction_year": conviction_year,
+        "offense_code": quiz_data.get("offense_code", ""),
+        "offense_type": quiz_data.get("offense_type", ""),
+        "conviction_type": quiz_data.get("offense_type", ""),
+        "county": quiz_data.get("county", ""),
+        "probation_granted": quiz_data.get("probation_granted"),
+        "probation_completed": quiz_data.get("probation_completed"),
+        "early_termination_granted": quiz_data.get("early_termination_granted"),
+        "served_state_prison": quiz_data.get("served_state_prison"),
+        "sentence_completion_date": quiz_data.get("sentence_completion_date"),
+        "currently_on_probation": quiz_data.get("currently_on_probation"),
+        "currently_serving_sentence": quiz_data.get("currently_serving_sentence"),
+        "pending_charges": quiz_data.get("pending_charges"),
+        "fines_total": quiz_data.get("fines_total", 0.0),
+        "fines_paid": quiz_data.get("fines_paid"),
+        "restitution_total": quiz_data.get("restitution_total", 0.0),
+        "restitution_paid": quiz_data.get("restitution_paid"),
+        "court_costs_paid": quiz_data.get("court_costs_paid"),
+        "community_service_hours": quiz_data.get("community_service_hours", 0),
+        "community_service_completed": quiz_data.get("community_service_completed"),
+        "counseling_required": quiz_data.get("counseling_required"),
+        "counseling_completed": quiz_data.get("counseling_completed"),
+        "requires_sex_offender_registration": quiz_data.get("requires_sex_offender_registration"),
+        "is_violent_felony": quiz_data.get("is_violent_felony"),
+        "is_wobbler": quiz_data.get("is_wobbler")
+    }
+
+    return conviction_data
+
 @router.get("/")
 async def expungement_dashboard():
     """Expungement dashboard overview"""
@@ -84,24 +151,47 @@ async def run_eligibility_quiz(request: EligibilityQuizRequest):
         
         # Run eligibility assessment
         assessment = eligibility_engine.run_eligibility_quiz(request.client_id, quiz_responses)
-        
+        assessment_dict = {
+            'eligible': assessment.eligible,
+            'eligibility_date': assessment.eligibility_date,
+            'wait_period_days': assessment.wait_period_days,
+            'requirements': assessment.requirements,
+            'disqualifying_factors': assessment.disqualifying_factors,
+            'estimated_timeline': assessment.estimated_timeline,
+            'estimated_cost': assessment.estimated_cost,
+            'next_steps': assessment.next_steps,
+            'confidence_score': assessment.confidence_score
+        }
+
+        # If we captured additional fields, run full eligibility engine
+        quiz_data = eligibility_engine._process_quiz_responses(quiz_responses)
+        conviction_data = _map_quiz_to_conviction_data(quiz_data)
+        if any(value is not None and value != "" for value in conviction_data.values()):
+            complete_result = eligibility_engine.check_eligibility_complete(conviction_data)
+            assessment_dict = _build_assessment_from_complete_result(complete_result)
+
         return {
             'success': True,
-            'assessment': {
-                'eligible': assessment.eligible,
-                'eligibility_date': assessment.eligibility_date,
-                'wait_period_days': assessment.wait_period_days,
-                'requirements': assessment.requirements,
-                'disqualifying_factors': assessment.disqualifying_factors,
-                'estimated_timeline': assessment.estimated_timeline,
-                'estimated_cost': assessment.estimated_cost,
-                'next_steps': assessment.next_steps,
-                'confidence_score': assessment.confidence_score
-            }
+            'assessment': assessment_dict
         }
         
     except Exception as e:
         logger.error(f"Eligibility quiz error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/check-eligibility")
+async def check_expungement_eligibility(request: EligibilityCheckRequest):
+    """Run full eligibility assessment using conviction data"""
+    try:
+        conviction_data = request.conviction_data or {}
+        complete_result = eligibility_engine.check_eligibility_complete(conviction_data)
+        assessment = _build_assessment_from_complete_result(complete_result)
+        return {
+            "success": True,
+            "assessment": assessment
+        }
+    except Exception as e:
+        logger.error(f"Check eligibility error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/quiz-questions")
@@ -226,69 +316,25 @@ async def create_expungement_case(case_data: ExpungementCaseCreate):
 async def get_expungement_cases(client_id: Optional[str] = Query(None)):
     """Get expungement cases"""
     try:
-        # For demo, return sample expungement cases
-        sample_cases = [
-            {
-                'expungement_id': 'exp_001',
-                'client_id': 'maria_santos_001',
-                'client_name': 'Maria Santos',
-                'case_number': '2019-CR-001234',
-                'jurisdiction': 'CA',
-                'court_name': 'Los Angeles Superior Court',
-                'offense_type': 'misdemeanor',
-                'offense_description': 'Petty theft',
-                'conviction_date': '2019-03-15',
-                'eligibility_status': 'eligible',
-                'process_stage': 'document_preparation',
-                'service_tier': 'assisted',
-                'hearing_date': '2024-07-25',
-                'hearing_time': '09:00 AM',
-                'progress_percentage': 75,
-                'estimated_completion': '2024-08-15',
-                'next_actions': [
-                    'Submit employment verification documents',
-                    'Schedule legal aid meeting',
-                    'Prepare for court hearing'
-                ],
-                'total_cost': 150.0,
-                'amount_paid': 0.0,
-                'created_at': '2024-06-01T10:00:00Z'
-            },
-            {
-                'expungement_id': 'exp_002',
-                'client_id': 'client_002',
-                'client_name': 'John Smith',
-                'case_number': '2020-CR-005678',
-                'jurisdiction': 'CA',
-                'court_name': 'Van Nuys Courthouse',
-                'offense_type': 'felony_probation',
-                'offense_description': 'Burglary (2nd degree)',
-                'conviction_date': '2020-08-22',
-                'eligibility_status': 'conditional',
-                'process_stage': 'eligibility_review',
-                'service_tier': 'full_service',
-                'hearing_date': None,
-                'hearing_time': None,
-                'progress_percentage': 25,
-                'estimated_completion': '2024-12-01',
-                'next_actions': [
-                    'Complete probation requirements',
-                    'Pay remaining fines ($500)',
-                    'Wait 6 months after probation completion'
-                ],
-                'total_cost': 1500.0,
-                'amount_paid': 500.0,
-                'created_at': '2024-05-15T14:30:00Z'
-            }
-        ]
-        
-        if client_id:
-            sample_cases = [case for case in sample_cases if case['client_id'] == client_id]
-        
+        db_cases = workflow_manager.db.get_expungement_cases(client_id=client_id)
+        cases = []
+        for case in db_cases:
+            case_dict = case.to_dict()
+            offense_description = case_dict.get('offense_description')
+            if not offense_description:
+                offense_description = case_dict.get('offense_type') or 'Unknown offense'
+            cases.append({
+                **case_dict,
+                'client_name': case_dict.get('client_name', 'Unknown Client'),
+                'offense_description': offense_description,
+                'progress_percentage': round(case.document_completion_percentage, 2),
+                'next_actions': []
+            })
+
         return {
             'success': True,
-            'cases': sample_cases,
-            'total_count': len(sample_cases)
+            'cases': cases,
+            'total_count': len(cases)
         }
         
     except Exception as e:
@@ -303,55 +349,7 @@ async def get_expungement_case(expungement_id: str):
         progress = workflow_manager.get_case_progress(expungement_id)
         
         if not progress:
-            # Return demo data for Maria Santos case
-            if expungement_id == 'exp_001':
-                return {
-                    'success': True,
-                    'case': {
-                        'expungement_id': 'exp_001',
-                        'client_id': 'maria_santos_001',
-                        'client_name': 'Maria Santos',
-                        'case_number': '2019-CR-001234',
-                        'jurisdiction': 'CA',
-                        'court_name': 'Los Angeles Superior Court',
-                        'offense_type': 'misdemeanor',
-                        'offense_description': 'Petty theft',
-                        'conviction_date': '2019-03-15',
-                        'eligibility_status': 'eligible',
-                        'process_stage': 'document_preparation',
-                        'service_tier': 'assisted',
-                        'hearing_date': '2024-07-25',
-                        'hearing_time': '09:00 AM',
-                        'hearing_location': 'Los Angeles Superior Court - Department 42',
-                        'attorney_assigned': 'Legal Aid Society',
-                        'case_manager_assigned': 'Sarah Williams',
-                        'total_cost': 150.0,
-                        'amount_paid': 0.0,
-                        'created_at': '2024-06-01T10:00:00Z'
-                    },
-                    'progress_percentage': 75,
-                    'total_tasks': 8,
-                    'completed_tasks': 6,
-                    'overdue_tasks': 1,
-                    'next_actions': [
-                        {
-                            'task_title': 'Submit Employment Verification',
-                            'due_date': '2024-07-24',
-                            'priority': 'urgent',
-                            'assigned_to': 'client'
-                        },
-                        {
-                            'task_title': 'Legal Aid Meeting - Court Prep',
-                            'due_date': '2024-07-24',
-                            'priority': 'high',
-                            'assigned_to': 'attorney'
-                        }
-                    ],
-                    'document_completion': 80.0,
-                    'estimated_completion': '2024-08-15'
-                }
-            else:
-                raise HTTPException(status_code=404, detail="Expungement case not found")
+            raise HTTPException(status_code=404, detail="Expungement case not found")
         
         return {
             'success': True,
@@ -372,71 +370,14 @@ async def get_expungement_tasks(
 ):
     """Get expungement tasks"""
     try:
-        # For demo, return sample tasks
-        sample_tasks = [
-            {
-                'task_id': 'task_001',
-                'expungement_id': 'exp_001',
-                'client_id': 'maria_santos_001',
-                'task_type': 'document_collection',
-                'task_title': 'Submit Employment Verification',
-                'task_description': 'Obtain employment verification letters from previous restaurant employers',
-                'priority': 'urgent',
-                'status': 'pending',
-                'due_date': '2024-07-24',
-                'assigned_to': 'client',
-                'assigned_type': 'client',
-                'estimated_hours': 2.0,
-                'is_overdue': True,
-                'days_until_due': -1
-            },
-            {
-                'task_id': 'task_002',
-                'expungement_id': 'exp_001',
-                'client_id': 'maria_santos_001',
-                'task_type': 'hearing_preparation',
-                'task_title': 'Legal Aid Meeting - Court Prep',
-                'task_description': 'Meet with Legal Aid attorney to prepare for expungement hearing',
-                'priority': 'high',
-                'status': 'scheduled',
-                'due_date': '2024-07-24',
-                'scheduled_date': '2024-07-24T10:00:00Z',
-                'assigned_to': 'attorney',
-                'assigned_type': 'attorney',
-                'estimated_hours': 1.5,
-                'is_overdue': False,
-                'days_until_due': 1
-            },
-            {
-                'task_id': 'task_003',
-                'expungement_id': 'exp_001',
-                'client_id': 'maria_santos_001',
-                'task_type': 'court_appearance',
-                'task_title': 'Attend Expungement Hearing',
-                'task_description': 'Appear in court for expungement hearing with attorney',
-                'priority': 'urgent',
-                'status': 'scheduled',
-                'due_date': '2024-07-25',
-                'scheduled_date': '2024-07-25T09:00:00Z',
-                'assigned_to': 'client',
-                'assigned_type': 'client',
-                'estimated_hours': 3.0,
-                'is_overdue': False,
-                'days_until_due': 2
-            }
-        ]
-        
-        # Filter tasks based on parameters
-        filtered_tasks = sample_tasks
-        
-        if expungement_id:
-            filtered_tasks = [t for t in filtered_tasks if t['expungement_id'] == expungement_id]
-        
-        if client_id:
-            filtered_tasks = [t for t in filtered_tasks if t['client_id'] == client_id]
-        
+        db_tasks = workflow_manager.db.get_expungement_tasks(
+            expungement_id=expungement_id,
+            client_id=client_id
+        )
+        filtered_tasks = [task.to_dict() for task in db_tasks]
+
         if status:
-            filtered_tasks = [t for t in filtered_tasks if t['status'] == status]
+            filtered_tasks = [t for t in filtered_tasks if t.get('status') == status]
         
         return {
             'success': True,

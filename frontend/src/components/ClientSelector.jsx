@@ -36,53 +36,34 @@ const ClientSelector = ({
     }
   }, [isOpen])
 
+  // Sync selectedClient with parent component when it changes
+  useEffect(() => {
+    if (selectedClient && onClientSelect) {
+      onClientSelect(selectedClient)
+    }
+  }, [selectedClient, onClientSelect])
+
   const fetchClients = async () => {
     try {
       setLoading(true)
       const response = await fetch('/api/clients?limit=100')
       
-      if (response.ok) {
-        const data = await response.json()
-        if (data.success) {
-          setClients(data.clients || [])
-        } else {
-          throw new Error(data.message || 'Failed to fetch clients')
-        }
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: Failed to fetch clients`)
+      }
+      
+      const data = await response.json()
+      if (data.success && Array.isArray(data.clients)) {
+        setClients(data.clients)
+      } else if (Array.isArray(data.clients)) {
+        setClients(data.clients)
       } else {
-        throw new Error('Failed to fetch clients')
+        throw new Error(data.message || 'Invalid response format')
       }
     } catch (error) {
       console.error('Error fetching clients:', error)
-      // Mock data for development
-      setClients([
-        {
-          client_id: 'client_maria',
-          first_name: 'Maria',
-          last_name: 'Santos',
-          phone: '(555) 987-6543',
-          email: 'maria.santos@email.com',
-          risk_level: 'high',
-          case_status: 'active'
-        },
-        {
-          client_id: 'client_john',
-          first_name: 'John',
-          last_name: 'Doe',
-          phone: '(555) 123-4567',
-          email: 'john.doe@email.com',
-          risk_level: 'medium',
-          case_status: 'active'
-        },
-        {
-          client_id: 'client_jane',
-          first_name: 'Jane',
-          last_name: 'Smith',
-          phone: '(555) 456-7890',
-          email: 'jane.smith@email.com',
-          risk_level: 'low',
-          case_status: 'active'
-        }
-      ])
+      toast.error(`Failed to load clients: ${error.message}`)
+      setClients([])
     } finally {
       setLoading(false)
     }

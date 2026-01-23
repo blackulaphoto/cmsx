@@ -1,0 +1,55 @@
+Program,Category,Question,Type,Purpose
+SNAP/CalFresh,Household Composition,How many people live in your household and purchase/prepare food together?,Number,Determines household size for income limits and benefit calculation
+SNAP/CalFresh,Income,What is your household's total monthly gross income (before taxes and deductions)?,Currency,Must be <=200% FPL for most households
+SNAP/CalFresh,Elderly/Disabled,Does your household include anyone who is 60+ years old or has a disability?,Yes/No,Different income limits apply (165% FPL vs 200% FPL)
+SNAP/CalFresh,Residency,Are you a resident of California?,Yes/No,Must be California resident to receive CalFresh
+SNAP/CalFresh,Citizenship,Are you a U.S. citizen or qualified non-citizen?,Multiple Choice,Citizenship/immigration status verification
+SNAP/CalFresh,Work Requirements,"Are you between ages 18-54, able-bodied, and without dependents?",Yes/No,ABAWD work requirements - must work 20+ hours/week
+SNAP/CalFresh,Student Status,Are you a student enrolled at least half-time in college (ages 18-49)?,Yes/No,Students generally ineligible unless meet exemptions
+SNAP/CalFresh,Assets,"Do you have less than $100 in liquid resources (cash, bank accounts)?",Yes/No,May qualify for expedited service
+Medicaid/Medi-Cal,Household,How many people are in your household?,Number,Used to estimate Federal Poverty Level percentage
+Medicaid/Medi-Cal,Income,What is your household's total monthly gross income (before taxes and deductions)?,Currency,"We estimate % FPL from monthly income and household size (<=138% adults, <=266% children)"
+Medicaid/Medi-Cal,Age,What is your age?,Number,Different eligibility pathways by age
+Medicaid/Medi-Cal,Pregnancy,Are you currently pregnant?,Yes/No,Pregnant women have special eligibility pathway
+Medicaid/Medi-Cal,Disability,Do you have a disability as defined by Social Security Administration?,Yes/No,People with disabilities eligible regardless of age
+Medicaid/Medi-Cal,Categorical Eligibility,"Do you currently receive SSI, CalFresh, or CalWorks benefits?",Multiple Choice,Automatically income-eligible for Medi-Cal
+Medicaid/Medi-Cal,Citizenship,Are you a U.S. citizen or qualified non-citizen?,Multiple Choice,Citizenship/immigration status requirement
+Medicaid/Medi-Cal,Residency,Are you a California resident?,Yes/No,Must be state resident
+SSI,Age/Disability/Blindness,"Are you 65 or older, blind, or disabled?",Multiple Choice,Must meet one of these three criteria
+SSI,Income,"What is your monthly income from non-work sources (pensions, Social Security, etc.)?",Currency,Must be less than $987/month for individuals
+SSI,Work Income,What is your monthly income from work/self-employment?,Currency,"Must be less than $2,019/month for individuals"
+SSI,Resources,"What is the total value of your countable resources (cash, bank accounts, stocks)?",Currency,"Must be less than $2,000 for individuals, $3,000 for couples"
+SSI,Marital Status,Are you married and living with your spouse?,Yes/No,Different limits for couples
+SSI,Citizenship,Are you a U.S. citizen or qualified non-citizen?,Multiple Choice,Citizenship requirement
+SSI,Residency,"Do you live in one of the 50 states, DC, or Northern Mariana Islands?",Yes/No,Geographic eligibility requirement
+SSDI,Work History,How many Social Security work credits have you earned?,Number,Generally need 40 credits total
+SSDI,Recent Work,How many work credits did you earn in the last 10 years?,Number,Generally need 20 credits in last 10 years
+SSDI,Disability Duration,Has your disability lasted or is it expected to last 12 months or more?,Yes/No,Required duration for disability determination
+SSDI,Substantial Gainful Activity,"Are you currently earning more than $1,260 per month from work?",Yes/No,Cannot be performing substantial gainful activity
+SSDI,Severe Impairment,Does your condition significantly limit your ability to do basic work activities?,Yes/No,Must have severe impairment
+SSDI,Age,Are you under full retirement age?,Yes/No,SSDI converts to retirement benefits at full retirement age
+Housing Vouchers/Section 8,Income,Is your household income at or below 50% of the area median income?,Yes/No,Income eligibility requirement
+Housing Vouchers/Section 8,Family Size,How many people are in your household?,Number,Determines income limits and voucher size
+Housing Vouchers/Section 8,Age,Is the head of household at least 18 years old or a legally emancipated minor?,Yes/No,Age requirement for head of household
+Housing Vouchers/Section 8,Citizenship,Are you a U.S. citizen or eligible non-citizen as defined by HUD?,Multiple Choice,Citizenship/immigration status requirement
+Housing Vouchers/Section 8,Criminal Background,Do you have any disqualifying criminal convictions?,Yes/No,Subject to criminal background check
+Housing Vouchers/Section 8,Social Security,Does the head of household have a valid Social Security Number?,Yes/No,SSN required for head of household
+TANF,Children,Do you have dependent children under 18 (or 19 if full-time student)?,Yes/No,Must have dependent children to qualify
+TANF,Income,Is your household's monthly gross income below the state limit for your family size?,Yes/No,Income must be below state-set limits
+TANF,Assets,"Do you have countable assets under $1,000-$2,000 (varies by state)?",Yes/No,Asset limits apply
+TANF,Citizenship,Are you a U.S. citizen or qualified non-citizen who has been in the U.S. for 5+ years?,Multiple Choice,Citizenship and 5-year bar requirements
+TANF,Time Limits,Have you received TANF benefits for less than 48 months in your lifetime?,Yes/No,48-month lifetime limit
+TANF,Work Requirements,Are you able to participate in work activities or do you have an exemption?,Multiple Choice,Work participation requirements
+TANF,School Attendance,Are all children ages 6-17 in your household attending school regularly?,Yes/No,School attendance requirement
+TANF,Child Support,Are you willing to cooperate with child support enforcement?,Yes/No,Must cooperate with child support
+WIC,Category,"Are you pregnant, breastfeeding, postpartum (within 6 months), or do you have children under 5?",Multiple Choice,Must fit into eligible categories
+WIC,Income,Is your household income at or below 185% of the Federal Poverty Level?,Yes/No,Income eligibility requirement
+WIC,Categorical Eligibility,"Do you currently receive Medicaid, SNAP, or TANF?",Multiple Choice,Automatically income-eligible if receiving these benefits
+WIC,Residency,Are you a California resident?,Yes/No,Must be state resident
+WIC,Nutritional Risk,Do you have a medical or dietary condition that puts you at nutritional risk?,Yes/No,Must be at nutritional risk (determined by health professional)
+LIHEAP,Income,Is your household income within LIHEAP guidelines for your area?,Yes/No,Income eligibility varies by provider
+LIHEAP,Age,Is the applicant at least 18 years old?,Yes/No,Age requirement for applicant
+LIHEAP,Priority,"Is your household elderly (60+), disabled, or have children under 6?",Multiple Choice,Priority determination for limited funds
+LIHEAP,Energy Burden,Do you pay a high portion of your income for energy costs?,Yes/No,High energy burden increases priority
+LIHEAP,Crisis,Do you have a disconnection notice or energy-related emergency?,Yes/No,Emergency assistance available
+LIHEAP,Residency,Do you live in the service area of a LIHEAP provider?,Yes/No,Must live in provider's service area

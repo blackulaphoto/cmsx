@@ -197,3 +197,14 @@ class IntelligentReminderEngine:
         except Exception as e:
             logger.error(f"Error generating morning dashboard: {e}")
             return {'error': str(e)}
+
+
+def initialize_db() -> bool:
+    """Initialize reminders database tables."""
+    try:
+        ReminderDatabase('databases/reminders.db')
+        logger.info("Reminders database initialized")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize reminders database: {e}")
+        return False

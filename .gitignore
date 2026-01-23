@@ -21,12 +21,83 @@ wheels/
 *.egg
 MANIFEST
 
-# Virtual environments
-venv/
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
 env/
+venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
 # IDE
 .vscode/
@@ -43,18 +114,18 @@ venv.bak/
 .Trashes
 ehthumbs.db
 Thumbs.db
+nul
 
 # Logs
-*.log
 logs/
-log/
+*.log
 
-# Database files
-*.db
-*.db-shm
-*.db-wal
-*.sqlite
-*.sqlite3
+# Database files (optional - uncomment if you don't want to track them)
+# databases/*.db
+databases/*.db-shm
+databases/*.db-wal
+databases/**/*.json
+backend/services/output/
 
 # Temporary files
 *.tmp
@@ -68,56 +139,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Build outputs
-build/
-dist/
-out/
-
-# Environment variables
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Coverage reports
-htmlcov/
-.coverage
-.coverage.*
-coverage.xml
-*.cover
-.hypothesis/
-.pytest_cache/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# pyenv
-.python-version
-
-# Backup files
-*.backup
-*.backup_*
-backup/
-backups/
-
-# Test results
-test-results/
-playwright-report/
-
-# Static files that might be generated
-static/resumes/
-*.pdf
-*.html
-
-# Database backups
-database_backups/
-routing_backups/
-
-# Configuration files with sensitive data
-config/local.py
-config/production.py
-
-# Cache
-.cache/
-cache.db
+# Frontend build
+frontend/dist/
+frontend/build/

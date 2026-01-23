@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Scale, FileText, CheckCircle, Clock, AlertCircle, Calendar, Plus, Edit, Trash2, X, Save, User } from 'lucide-react'
+import { Scale, FileText, CheckCircle, Clock, AlertCircle, Calendar, Plus, Edit, Trash2, X, Save, User, Sparkles, Zap, TrendingUp, Briefcase, Shield, Gavel } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
 import toast from 'react-hot-toast'
@@ -197,20 +197,20 @@ function Legal() {
 
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
-      case 'completed': return 'bg-green-100 text-green-800'
-      case 'active': return 'bg-blue-100 text-blue-800'
-      case 'pending': return 'bg-yellow-100 text-yellow-800'
-      case 'missing': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
+      case 'completed': return 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-300 border-green-500/30'
+      case 'active': return 'bg-gradient-to-r from-blue-500/20 to-cyan-500/20 text-blue-300 border-blue-500/30'
+      case 'pending': return 'bg-gradient-to-r from-yellow-500/20 to-amber-500/20 text-yellow-300 border-yellow-500/30'
+      case 'missing': return 'bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-300 border-red-500/30'
+      default: return 'bg-gradient-to-r from-gray-500/20 to-slate-500/20 text-gray-300 border-gray-500/30'
     }
   }
 
   const getPriorityColor = (priority) => {
     switch (priority?.toLowerCase()) {
-      case 'high': return 'bg-red-100 text-red-800'
-      case 'medium': return 'bg-yellow-100 text-yellow-800'  
-      case 'low': return 'bg-green-100 text-green-800'
-      default: return 'bg-gray-100 text-gray-800'
+      case 'high': return 'bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-300 border-red-500/30'
+      case 'medium': return 'bg-gradient-to-r from-yellow-500/20 to-amber-500/20 text-yellow-300 border-yellow-500/30'  
+      case 'low': return 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-300 border-green-500/30'
+      default: return 'bg-gradient-to-r from-gray-500/20 to-slate-500/20 text-gray-300 border-gray-500/30'
     }
   }
 
@@ -222,329 +222,447 @@ function Legal() {
   ]
 
   return (
-    <div className="animate-fade-in">
-      {/* Header */}
-      <div className="bg-primary-gradient text-white p-8">
-        <div className="flex items-center gap-4 mb-2">
-          <Scale size={32} />
-          <h1 className="text-3xl font-bold">Legal Services</h1>
-        </div>
-        <p className="text-lg opacity-90">Legal assistance and document preparation</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
+      {/* Animated Background Elements */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        <div className="absolute -bottom-40 right-1/3 w-80 h-80 bg-indigo-500/10 rounded-full blur-3xl animate-pulse delay-2000"></div>
       </div>
 
-      <div className="p-8">
-        {/* Client Selection */}
-        <div className="bg-white rounded-xl shadow-custom-sm p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-            <User className="h-5 w-5" />
-            Select Client
-          </h2>
-          <ClientSelector 
-            onClientSelect={setSelectedClient}
-            placeholder="Select a client to manage legal matters for..."
-            className="max-w-md"
-          />
-          {selectedClient && (
-            <div className="mt-3 p-3 bg-blue-50 rounded-lg">
-              <p className="text-sm text-blue-800">
-                Managing legal matters for: <strong>{selectedClient.first_name} {selectedClient.last_name}</strong>
-              </p>
+      {/* Header */}
+      <div className="relative z-10">
+        <div className="bg-black/20 backdrop-blur-xl border-b border-white/10">
+          <div className="max-w-7xl mx-auto px-6 py-8">
+            <div className="flex items-center gap-4 mb-2">
+              <div className="p-3 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-xl shadow-lg">
+                <Scale className="h-8 w-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-purple-200 to-indigo-200 bg-clip-text text-transparent">
+                  Legal Services
+                </h1>
+                <p className="text-gray-300 text-lg">Legal assistance and document preparation</p>
+              </div>
             </div>
-          )}
+          </div>
         </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {stats.map((stat, index) => (
-            <StatsCard key={index} {...stat} />
-          ))}
-        </div>
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          {/* Client Selection - FIXED with proper z-index */}
+          <div className="group bg-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-purple-500/20 mb-8 relative z-20">
+            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-white">
+              <div className="p-2 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg">
+                <User className="h-5 w-5 text-white" />
+              </div>
+              Select Client
+            </h2>
+            <ClientSelector 
+              onClientSelect={setSelectedClient}
+              placeholder="Select a client to manage legal matters for..."
+              className="max-w-md relative z-30"
+            />
+            {selectedClient && (
+              <div className="mt-3 p-4 bg-gradient-to-r from-purple-500/20 to-indigo-500/20 backdrop-blur-sm rounded-xl border border-purple-500/30">
+                <p className="text-sm text-purple-200">
+                  Managing legal matters for: <strong className="text-white">{selectedClient.first_name} {selectedClient.last_name}</strong>
+                </p>
+              </div>
+            )}
+          </div>
 
-        {/* Tabs */}
-        <div className="bg-white rounded-xl shadow-custom-sm mb-8">
-          <div className="flex border-b border-gray-200">
-            {[
-              { id: 'overview', label: 'Case Overview', icon: Scale },
-              { id: 'calendar', label: 'Court Calendar', icon: Calendar },
-              { id: 'documents', label: 'Documents', icon: FileText },
-              { id: 'tasks', label: 'Tasks', icon: CheckCircle }
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-6 py-4 font-medium transition-colors ${
-                  activeTab === tab.id
-                    ? 'text-primary-600 border-b-2 border-primary-600'
-                    : 'text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                <tab.icon size={20} />
-                {tab.label}
-              </button>
+          {/* Stats Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {stats.map((stat, index) => (
+              <StatsCard key={index} {...stat} />
             ))}
           </div>
 
-          <div className="p-6">
-            {/* Case Overview Tab */}
-            {activeTab === 'overview' && (
-              <div>
-                <h2 className="text-2xl font-bold mb-6">Active Legal Cases</h2>
-                <div className="space-y-6">
-                  {cases.map((legalCase) => (
-                    <div key={legalCase.case_id} className="bg-gray-50 rounded-lg p-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h3 className="text-xl font-semibold text-gray-900">{legalCase.case_type}</h3>
-                          <p className="text-gray-600">Client: {legalCase.client_name}</p>
-                          {legalCase.case_type === 'Expungement' && (
-                            <a 
-                              href="/expungement" 
-                              className="text-purple-600 hover:text-purple-800 text-sm font-medium"
-                            >
-                              → Open in Expungement Module
-                            </a>
-                          )}
-                        </div>
-                        <div className="text-right">
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(legalCase.status)}`}>
-                            {legalCase.status}
-                          </span>
-                          <span className={`ml-2 px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(legalCase.priority)}`}>
-                            {legalCase.priority}
-                          </span>
-                        </div>
-                      </div>
-                      
-                      <p className="text-gray-700 mb-4">{legalCase.description}</p>
-                      
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Court Date:</p>
-                          <p className="text-gray-600">{legalCase.court_date} at {legalCase.court_time}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Attorney:</p>
-                          <p className="text-gray-600">{legalCase.attorney}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Court Location:</p>
-                          <p className="text-gray-600">{legalCase.court_location}</p>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">Next Action:</p>
-                          <p className="text-gray-600">{legalCase.next_action}</p>
-                        </div>
-                      </div>
+          {/* Tabs */}
+          <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl shadow-purple-500/10 mb-8">
+            <div className="flex border-b border-white/10">
+              {[
+                { id: 'overview', label: 'Case Overview', icon: Scale, gradient: 'from-purple-500 to-indigo-500' },
+                { id: 'calendar', label: 'Court Calendar', icon: Calendar, gradient: 'from-blue-500 to-cyan-500' },
+                { id: 'documents', label: 'Documents', icon: FileText, gradient: 'from-emerald-500 to-green-500' },
+                { id: 'tasks', label: 'Tasks', icon: CheckCircle, gradient: 'from-orange-500 to-amber-500' }
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`group flex items-center gap-3 px-8 py-6 font-medium transition-all duration-300 relative ${
+                    activeTab === tab.id
+                      ? 'text-white'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  <div className={`p-2 rounded-lg transition-all duration-300 ${
+                    activeTab === tab.id 
+                      ? `bg-gradient-to-r ${tab.gradient} shadow-lg` 
+                      : 'bg-white/10 group-hover:bg-white/20'
+                  }`}>
+                    <tab.icon className="h-5 w-5 text-white" />
+                  </div>
+                  {tab.label}
+                  {activeTab === tab.id && (
+                    <div className={`absolute bottom-0 left-0 right-0 h-0.5 bg-gradient-to-r ${tab.gradient}`}></div>
+                  )}
+                </button>
+              ))}
+            </div>
 
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-sm font-medium text-gray-700">Progress:</span>
-                        <div className="flex-1 bg-gray-200 rounded-full h-2 max-w-xs">
-                          <div 
-                            className="bg-primary-gradient h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${legalCase.progress}%` }}
-                          ></div>
+            <div className="p-8">
+              {/* Case Overview Tab */}
+              {activeTab === 'overview' && (
+                <div>
+                  <div className="flex items-center gap-3 mb-8">
+                    <div className="p-2 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg">
+                      <Gavel className="h-6 w-6 text-white" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-white">Active Legal Cases</h2>
+                  </div>
+                  
+                  <div className="space-y-6">
+                    {cases.map((legalCase) => (
+                      <div key={legalCase.case_id} className="group bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl p-8 hover:border-white/30 transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-purple-500/20">
+                        <div className="flex items-center justify-between mb-6">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-4 mb-3">
+                              <h3 className="text-2xl font-bold text-white group-hover:text-purple-200 transition-colors">{legalCase.case_type}</h3>
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(legalCase.status)}`}>
+                                {legalCase.status}
+                              </span>
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPriorityColor(legalCase.priority)}`}>
+                                {legalCase.priority} Priority
+                              </span>
+                            </div>
+                            <p className="text-xl text-purple-400 font-semibold mb-3 group-hover:text-purple-300 transition-colors">
+                              Client: {legalCase.client_name}
+                            </p>
+                            {legalCase.case_type === 'Expungement' && (
+                              <a 
+                                href="/expungement" 
+                                className="inline-flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-sm font-medium transition-colors"
+                              >
+                                <Sparkles className="h-4 w-4" />
+                                Open in Expungement Module
+                              </a>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-sm text-gray-600">{legalCase.progress}%</span>
+                        
+                        <p className="text-gray-300 mb-6 leading-relaxed">{legalCase.description}</p>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                          <div className="bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/10">
+                            <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
+                              <Calendar className="h-4 w-4 text-blue-400" />
+                              Court Information
+                            </h4>
+                            <div className="space-y-2 text-sm">
+                              <p className="text-gray-300">
+                                <span className="text-blue-400">Date:</span> {legalCase.court_date} at {legalCase.court_time}
+                              </p>
+                              <p className="text-gray-300">
+                                <span className="text-blue-400">Location:</span> {legalCase.court_location}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          <div className="bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/10">
+                            <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
+                              <Shield className="h-4 w-4 text-emerald-400" />
+                              Case Details
+                            </h4>
+                            <div className="space-y-2 text-sm">
+                              <p className="text-gray-300">
+                                <span className="text-emerald-400">Attorney:</span> {legalCase.attorney}
+                              </p>
+                              <p className="text-gray-300">
+                                <span className="text-emerald-400">Next Action:</span> {legalCase.next_action}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/10">
+                          <div className="flex items-center gap-3 mb-3">
+                            <TrendingUp className="h-4 w-4 text-purple-400" />
+                            <span className="text-sm font-medium text-white">Case Progress</span>
+                            <span className="text-sm text-purple-300">{legalCase.progress}% Complete</span>
+                          </div>
+                          <div className="w-full bg-white/10 rounded-full h-3 overflow-hidden">
+                            <div 
+                              className="bg-gradient-to-r from-purple-500 to-indigo-500 h-3 rounded-full transition-all duration-500 shadow-lg shadow-purple-500/25"
+                              style={{ width: `${legalCase.progress}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Court Calendar Tab */}
+              {activeTab === 'calendar' && (
+                <div>
+                  <div className="flex items-center gap-3 mb-8">
+                    <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
+                      <Calendar className="h-6 w-6 text-white" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-white">Court Calendar</h2>
+                  </div>
+                  
+                  <div className="space-y-6 mb-8" data-testid="court-calendar">
+                    {cases.filter(c => c.court_date).map((legalCase) => (
+                      <div key={legalCase.case_id} className="group bg-gradient-to-br from-blue-500/10 to-cyan-500/5 backdrop-blur-xl border border-blue-500/20 rounded-2xl p-6 hover:border-blue-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-blue-500/20">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-xl font-bold text-white group-hover:text-blue-200 transition-colors">
+                            {legalCase.case_type} - {legalCase.client_name}
+                          </h3>
+                          <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-xl border border-blue-500/30">
+                            <Clock className="h-4 w-4 text-blue-300" />
+                            <span className="text-sm text-blue-200 font-medium">
+                              {legalCase.court_date} at {legalCase.court_time}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-blue-200 mb-3 flex items-center gap-2">
+                          <Scale className="h-4 w-4 text-blue-400" />
+                          {legalCase.court_location}
+                        </p>
+                        <p className="text-blue-300 flex items-center gap-2">
+                          <Zap className="h-4 w-4 text-yellow-400" />
+                          Next Action: {legalCase.next_action}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Schedule Appointment */}
+                  <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-8 border border-white/20">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg">
+                        <Plus className="h-5 w-5 text-white" />
+                      </div>
+                      <h3 className="text-xl font-bold text-white">Schedule Legal Meeting</h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Date</label>
+                        <input
+                          type="date"
+                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white transition-all duration-300"
+                          data-testid="appointment-date"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">Time</label>
+                        <input
+                          type="time"
+                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white transition-all duration-300"
+                          data-testid="appointment-time"
+                        />
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          onClick={() => scheduleAppointment('2024-07-23', '10:00 AM')}
+                          className="group w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-emerald-500/25"
+                          data-testid="confirm-appointment"
+                        >
+                          <Calendar className="h-5 w-5 group-hover:scale-110 transition-transform duration-300" />
+                          Schedule Meeting
+                        </button>
                       </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Court Calendar Tab */}
-            {activeTab === 'calendar' && (
-              <div>
-                <h2 className="text-2xl font-bold mb-6">Court Calendar</h2>
-                <div className="space-y-4" data-testid="court-calendar">
-                  {cases.filter(c => c.court_date).map((legalCase) => (
-                    <div key={legalCase.case_id} className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-blue-900">
-                          {legalCase.case_type} - {legalCase.client_name}
-                        </h3>
-                        <span className="text-sm text-blue-600">
-                          {legalCase.court_date} at {legalCase.court_time}
-                        </span>
-                      </div>
-                      <p className="text-blue-700 text-sm mb-2">{legalCase.court_location}</p>
-                      <p className="text-blue-600 text-sm">Next Action: {legalCase.next_action}</p>
+              {/* Documents Tab */}
+              {activeTab === 'documents' && (
+                <div>
+                  <div className="flex items-center gap-3 mb-8">
+                    <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg">
+                      <FileText className="h-6 w-6 text-white" />
                     </div>
-                  ))}
-                </div>
+                    <h2 className="text-2xl font-bold text-white">Case Documents</h2>
+                  </div>
+                  
+                  <div className="space-y-6 mb-8" data-testid="case-documents">
+                    {documents.map((doc) => (
+                      <div key={doc.doc_id} className="group bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl p-6 hover:border-white/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-emerald-500/10">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-xl font-bold text-white group-hover:text-emerald-200 transition-colors">{doc.document_type}</h3>
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(doc.status)}`}>
+                            {doc.status}
+                          </span>
+                        </div>
+                        <p className="text-emerald-400 font-semibold mb-3">Client: {doc.client_name}</p>
+                        <p className="text-gray-300 mb-3 leading-relaxed">{doc.description}</p>
+                        <div className="flex items-center gap-2 text-sm">
+                          <Clock className="h-4 w-4 text-orange-400" />
+                          <span className="text-orange-300">Required by: {doc.required_by}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
 
-                {/* Schedule Appointment */}
-                <div className="mt-8 bg-gray-50 rounded-lg p-6">
-                  <h3 className="text-lg font-semibold mb-4">Schedule Legal Meeting</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <input
-                      type="date"
-                      className="px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      data-testid="appointment-date"
-                    />
-                    <input
-                      type="time"
-                      className="px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      data-testid="appointment-time"
-                    />
+                  {/* Document Checklist */}
+                  <div className="bg-gradient-to-br from-yellow-500/10 to-amber-500/5 backdrop-blur-xl border border-yellow-500/20 rounded-2xl p-8">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="p-2 bg-gradient-to-r from-yellow-500 to-amber-500 rounded-lg">
+                        <AlertCircle className="h-5 w-5 text-white" />
+                      </div>
+                      <h3 className="text-xl font-bold text-yellow-200">Missing Documents</h3>
+                    </div>
+                    <div className="space-y-4" data-testid="doc-checklist">
+                      {documents.filter(d => d.status === 'Missing').map((doc) => (
+                        <div key={doc.doc_id} className="flex items-center justify-between p-4 bg-gradient-to-r from-red-500/10 to-pink-500/10 backdrop-blur-sm rounded-xl border border-red-500/20">
+                          <span className="text-red-300 font-medium">{doc.document_type} - Missing</span>
+                          <span className="text-red-400 text-sm flex items-center gap-2">
+                            <Clock className="h-4 w-4" />
+                            Due: {doc.required_by}
+                          </span>
+                        </div>
+                      ))}
+                      {documents.filter(d => d.status === 'Pending').map((doc) => (
+                        <div key={doc.doc_id} className="flex items-center justify-between p-4 bg-gradient-to-r from-yellow-500/10 to-amber-500/10 backdrop-blur-sm rounded-xl border border-yellow-500/20">
+                          <span className="text-yellow-300 font-medium">{doc.document_type} - Pending</span>
+                          <span className="text-yellow-400 text-sm flex items-center gap-2">
+                            <Clock className="h-4 w-4" />
+                            Due: {doc.required_by}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tasks Tab */}
+              {activeTab === 'tasks' && (
+                <div>
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg">
+                        <CheckCircle className="h-6 w-6 text-white" />
+                      </div>
+                      <h2 className="text-2xl font-bold text-white">Legal Tasks</h2>
+                    </div>
                     <button
-                      onClick={() => scheduleAppointment('2024-07-23', '10:00 AM')}
-                      className="px-6 py-3 bg-primary-gradient text-white rounded-xl hover:shadow-custom-md transition-all duration-300"
-                      data-testid="confirm-appointment"
+                      onClick={() => setShowTaskModal(true)}
+                      className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-orange-500/25"
+                      data-testid="add-legal-task"
                     >
-                      Schedule Meeting
+                      <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
+                        <Plus className="h-5 w-5" />
+                      </div>
+                      Add Task
                     </button>
                   </div>
-                </div>
-              </div>
-            )}
 
-            {/* Documents Tab */}
-            {activeTab === 'documents' && (
-              <div>
-                <h2 className="text-2xl font-bold mb-6">Case Documents</h2>
-                <div className="space-y-4" data-testid="case-documents">
-                  {documents.map((doc) => (
-                    <div key={doc.doc_id} className="bg-white border border-gray-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-gray-900">{doc.document_type}</h3>
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(doc.status)}`}>
-                          {doc.status}
-                        </span>
+                  <div className="space-y-6">
+                    <div className="group bg-gradient-to-br from-red-500/10 to-pink-500/5 backdrop-blur-xl border border-red-500/20 rounded-2xl p-6 hover:border-red-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-red-500/20">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-xl font-bold text-white group-hover:text-red-200 transition-colors">Get employment history for expungement</h3>
+                        <span className="px-3 py-1 bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-300 rounded-full text-xs font-medium border border-red-500/30">High Priority</span>
                       </div>
-                      <p className="text-gray-600 text-sm mb-2">Client: {doc.client_name}</p>
-                      <p className="text-gray-700 text-sm mb-2">{doc.description}</p>
-                      <p className="text-gray-500 text-xs">Required by: {doc.required_by}</p>
+                      <p className="text-red-200 mb-4 leading-relaxed">Contact previous restaurant employers for employment verification</p>
+                      <div className="flex items-center gap-2 text-sm">
+                        <Clock className="h-4 w-4 text-red-400" />
+                        <span className="text-red-300">Deadline: 2024-07-24</span>
+                      </div>
                     </div>
-                  ))}
-                </div>
-
-                {/* Document Checklist */}
-                <div className="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-                  <h3 className="text-lg font-semibold mb-4 text-yellow-900">Missing Documents</h3>
-                  <div className="space-y-2" data-testid="doc-checklist">
-                    {documents.filter(d => d.status === 'Missing').map((doc) => (
-                      <div key={doc.doc_id} className="flex items-center justify-between">
-                        <span className="text-yellow-800">{doc.document_type} - Missing</span>
-                        <span className="text-yellow-600 text-sm">Due: {doc.required_by}</span>
-                      </div>
-                    ))}
-                    {documents.filter(d => d.status === 'Pending').map((doc) => (
-                      <div key={doc.doc_id} className="flex items-center justify-between">
-                        <span className="text-yellow-800">{doc.document_type} - Pending</span>
-                        <span className="text-yellow-600 text-sm">Due: {doc.required_by}</span>
-                      </div>
-                    ))}
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* Tasks Tab */}
-            {activeTab === 'tasks' && (
-              <div>
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-2xl font-bold">Legal Tasks</h2>
-                  <button
-                    onClick={() => setShowTaskModal(true)}
-                    className="flex items-center gap-2 px-6 py-3 bg-primary-gradient text-white rounded-xl hover:shadow-custom-md transition-all duration-300"
-                    data-testid="add-legal-task"
-                  >
-                    <Plus size={20} />
-                    Add Task
-                  </button>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-semibold text-red-900">Get employment history for expungement</h3>
-                      <span className="px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-medium">High Priority</span>
-                    </div>
-                    <p className="text-red-700 text-sm mb-2">Contact previous restaurant employers for employment verification</p>
-                    <p className="text-red-600 text-xs">Deadline: 2024-07-24</p>
-                  </div>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
+      </div>
 
-        {/* Add Task Modal */}
-        {showTaskModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-xl shadow-custom-lg max-w-md w-full">
-              <div className="p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <h2 className="text-xl font-bold">Add Legal Task</h2>
-                  <button
-                    onClick={() => setShowTaskModal(false)}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    <X size={20} />
-                  </button>
+      {/* Add Task Modal */}
+      {showTaskModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl max-w-md w-full">
+            <div className="p-8">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg">
+                    <Plus className="h-5 w-5 text-white" />
+                  </div>
+                  <h2 className="text-xl font-bold text-white">Add Legal Task</h2>
+                </div>
+                <button
+                  onClick={() => setShowTaskModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Task Description</label>
+                  <textarea
+                    value={taskForm.description}
+                    onChange={(e) => setTaskForm(prev => ({ ...prev, description: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-white placeholder-gray-400 transition-all duration-300"
+                    rows="3"
+                    placeholder="Describe the legal task..."
+                    data-testid="task-description"
+                  />
                 </div>
 
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Task Description</label>
-                    <textarea
-                      value={taskForm.description}
-                      onChange={(e) => setTaskForm(prev => ({ ...prev, description: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      rows="3"
-                      placeholder="Describe the legal task..."
-                      data-testid="task-description"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
-                    <select
-                      value={taskForm.priority}
-                      onChange={(e) => setTaskForm(prev => ({ ...prev, priority: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      data-testid="task-priority"
-                    >
-                      <option value="Low">Low</option>
-                      <option value="Medium">Medium</option>
-                      <option value="High">High</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Deadline</label>
-                    <input
-                      type="date"
-                      value={taskForm.deadline}
-                      onChange={(e) => setTaskForm(prev => ({ ...prev, deadline: e.target.value }))}
-                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                      data-testid="task-deadline"
-                    />
-                  </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Priority</label>
+                  <select
+                    value={taskForm.priority}
+                    onChange={(e) => setTaskForm(prev => ({ ...prev, priority: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-white transition-all duration-300"
+                    data-testid="task-priority"
+                  >
+                    <option value="Low" className="bg-gray-800 text-white">Low</option>
+                    <option value="Medium" className="bg-gray-800 text-white">Medium</option>
+                    <option value="High" className="bg-gray-800 text-white">High</option>
+                  </select>
                 </div>
 
-                <div className="flex gap-3 mt-6">
-                  <button
-                    onClick={addLegalTask}
-                    className="flex items-center gap-2 px-6 py-3 bg-primary-gradient text-white rounded-xl hover:shadow-custom-md transition-all duration-300"
-                    data-testid="save-task"
-                  >
-                    <Save size={20} />
-                    Save Task
-                  </button>
-                  <button
-                    onClick={() => setShowTaskModal(false)}
-                    className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
-                  >
-                    Cancel
-                  </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Deadline</label>
+                  <input
+                    type="date"
+                    value={taskForm.deadline}
+                    onChange={(e) => setTaskForm(prev => ({ ...prev, deadline: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-white transition-all duration-300"
+                    data-testid="task-deadline"
+                  />
                 </div>
+              </div>
+
+              <div className="flex gap-4 mt-8">
+                <button
+                  onClick={addLegalTask}
+                  className="group flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-orange-500/25"
+                  data-testid="save-task"
+                >
+                  <Save className="h-5 w-5 group-hover:scale-110 transition-transform duration-300" />
+                  Save Task
+                </button>
+                <button
+                  onClick={() => setShowTaskModal(false)}
+                  className="px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white hover:border-white/30 transition-all duration-300"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

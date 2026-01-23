@@ -48,17 +48,18 @@ async def search_api_info():
 async def search_jobs(
     query: str = Query(..., description="Job search query"),
     location: str = Query("Los Angeles, CA", description="Search location"),
-    max_results: int = Query(20, description="Maximum number of results")
+    max_results: int = Query(20, description="Maximum number of results"),
+    force_refresh: bool = Query(False, description="Force fresh search bypassing cache")
 ):
     """Search for jobs"""
     try:
-        logger.info(f"🔍 Job search: '{query}' in '{location}'")
+        logger.info(f"Job search: '{query}' in '{location}' | Force: {force_refresh}")
         
         # Update max results
         coordinator = get_coordinator()
         coordinator.max_results = max_results
         
-        result = coordinator.search(query, SearchType.JOBS, location)
+        result = coordinator.search(query, SearchType.JOBS, location, force_refresh=force_refresh)
         return result
         
     except Exception as e:
@@ -66,24 +67,49 @@ async def search_jobs(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/housing")
-async def search_housing(
+async def search_housing_get(
     query: str = Query(..., description="Housing search query"),
     location: str = Query("Los Angeles, CA", description="Search location"),
-    max_results: int = Query(20, description="Maximum number of results")
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(10, ge=1, le=30, description="Results per page"),
+    force_refresh: bool = Query(False, description="Force cache refresh")
 ):
-    """Search for housing"""
+    """Search for housing using dedicated Housing CSE"""
     try:
-        logger.info(f"Housing search: '{query}' in '{location}'")
+        logger.info(f"Housing search: '{query}' in '{location}' (page {page})")
         
-        # Update max results
         coordinator = get_coordinator()
-        coordinator.max_results = max_results
         
-        result = coordinator.search(query, SearchType.HOUSING, location)
+        # Use the new dedicated housing search method
+        result = await coordinator.search_housing(
+            query=query,
+            location=location,
+            page=page,
+            per_page=per_page,
+            force_refresh=force_refresh
+        )
+        
         return result
         
     except Exception as e:
         logger.error(f"Housing search error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/housing")
+async def search_housing_post(request: SearchRequest):
+    """Search for housing using POST request (original working method)"""
+    try:
+        logger.info(f"Housing search POST: '{request.query}' in '{request.location}'")
+        
+        coordinator = get_coordinator()
+        
+        # Use the search method that was working yesterday
+        result = coordinator.search(request.query, SearchType.HOUSING, request.location)
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Housing search POST error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/services")
@@ -150,7 +176,7 @@ async def unified_search(request: SearchRequest):
         
         search_type = search_type_map[request.search_type]
         
-        logger.info(f"🔍 Unified search: '{request.query}' | Type: {request.search_type} | Location: {request.location}")
+        logger.info(f"Unified search: '{request.query}' | Type: {request.search_type} | Location: {request.location}")
         
         # Update max results
         coordinator = get_coordinator()

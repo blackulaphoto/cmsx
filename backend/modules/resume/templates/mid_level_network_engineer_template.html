@@ -1,0 +1,204 @@
+# Mid‑Level Network Engineer Resume Template Conversion
+
+## Design Analysis
+Based on the provided “Mid‑Level Network Engineer” example for Anthony Ramirez, this resume uses a two‑column layout:
+- **Sidebar (left column):** dark charcoal background with light text for name, summary, contact information, and key skills.
+- **Main content (right column):** white background with dark text for professional experience and education sections.
+
+**Color Scheme** (approximate — please confirm precise hex values):
+- Charcoal \(`--primary-accent`: #2C2C2C\)
+- Light Gray Text on Sidebar \(`--text-light`: #F0F0F0\)
+- White Background \(`--bg-light`: #FFFFFF\)
+- Dark Gray Text \(`--text-dark`: #333333\)
+- Accent Divider \(`--border-light`: #DDDDDD\)
+
+**Typography & Hierarchy:**
+- Name: 32px bold Arial or Tahoma
+- Section Titles: uppercase 18px with letter spacing
+- Body text: 14px regular
+
+**Spacing:**
+- Base unit: `--spacing: 16px`
+- Vertical gaps: 24px
+- Column gap: 32px (desktop), stacked on mobile
+
+---
+
+## HTML Template
+```html
+<div class="resume-template mid-level-network-engineer">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <h1 class="full-name">{{full_name}}</h1>
+    <p class="summary">{{professional_summary}}</p>
+
+    <section class="contact">
+      <h2>Contact</h2>
+      <p class="phone">{{phone}}</p>
+      <p class="email">{{email}}</p>
+      <p class="location">{{location}}</p>
+      <p><a href="{{linkedin_url}}" class="link">LinkedIn</a></p>
+    </section>
+
+    <section class="section skills">
+      <h2>Key Skills</h2>
+      <ul>
+        {% for skill in technical_skills %}
+        <li>{{skill}}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <section class="experience">
+      <h2>Professional Experience</h2>
+      {% for job in work_experience %}
+      <div class="job-entry">
+        <h3>{{job.title}} | {{job.company}}, {{job.location}}</h3>
+        <div class="job-dates">{{job.start_date}} – {{job.end_date}}</div>
+        <ul>
+          {% for bullet in job.bullets %}
+          <li>{{bullet}}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    </section>
+
+    <section class="education">
+      <h2>Education</h2>
+      {% for edu in education %}
+      <div class="education-entry">
+        <h3>{{edu.degree}}</h3>
+        <p class="school">{{edu.school}} | {{edu.graduation_month}} {{edu.graduation_year}}</p>
+      </div>
+      {% endfor %}
+    </section>
+  </main>
+</div>
+```
+
+## CSS Styling
+```css
+:root {
+  --primary-accent: #2C2C2C;
+  --text-light: #F0F0F0;
+  --bg-light: #FFFFFF;
+  --text-dark: #333333;
+  --border-light: #DDDDDD;
+  --spacing: 16px;
+}
+
+.resume-template.mid-level-network-engineer {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: calc(var(--spacing) * 2);
+  font-family: Arial, sans-serif;
+  background: var(--bg-light);
+  color: var(--text-dark);
+  padding: var(--spacing);
+}
+
+/* Sidebar */
+.sidebar {
+  background: var(--primary-accent);
+  color: var(--text-light);
+  padding: var(--spacing);
+}
+.sidebar .full-name {
+  font-size: 32px;
+  margin: 0 0 var(--spacing) 0;
+}
+.sidebar .summary {
+  font-size: 14px;
+  margin-bottom: calc(var(--spacing) * 2);
+  line-height: 1.5;
+}
+.sidebar h2 {
+  font-size: 16px;
+  text-transform: uppercase;
+  margin-bottom: var(--spacing);
+  letter-spacing: 1px;
+}
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+.sidebar li {
+  margin-bottom: calc(var(--spacing) / 2);
+}
+.sidebar .link {
+  color: var(--text-light);
+  text-decoration: none;
+}
+
+/* Main Content */
+.main-content {
+  padding: var(--spacing);
+  border-left: 2px solid var(--border-light);
+}
+.main-content h2 {
+  font-size: 18px;
+  text-transform: uppercase;
+  margin-bottom: var(--spacing);
+}
+.job-entry, .education-entry {
+  margin-bottom: calc(var(--spacing) * 2);
+}
+.job-entry h3, .education-entry h3 {
+  font-size: 16px;
+  margin: 0;
+}
+.job-dates, .school {
+  font-size: 14px;
+  opacity: 0.8;
+  margin: 4px 0 var(--spacing) 0;
+}
+.job-entry ul {
+  list-style: disc inside;
+  margin: 0;
+  padding-left: var(--spacing);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .resume-template.mid-level-network-engineer {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    order: 2;
+  }
+  .main-content {
+    order: 1;
+    border-left: none;
+  }
+}
+```
+
+## Template Registration Code
+```python
+from ai_job_platform import TemplateMetadata
+
+'template_mid_level_network_engineer': TemplateMetadata(
+    id='template_mid_level_network_engineer',
+    name='Mid‑Level Network Engineer',
+    description='Two‑column resume with charcoal sidebar for summary, contact, and skills; main content for experience and education',
+    category='professional',
+    industry_focus=['technology', 'network engineering'],
+    color_scheme='charcoal-white',
+    layout_type='two-column',
+    preview_image='/static/images/templates/template_mid_level_network_engineer.png',
+    features=['responsive', 'print-friendly', 'ATS-optimized']
+),
+```
+
+## Installation & Testing
+1. **Add HTML & CSS**: Place the HTML snippet and CSS into your templates directory.
+2. **Register Template**: Add the metadata entry to `templates.py` and restart your server.
+3. **Verify Placeholders**: Render using sample data to confirm that all dynamic fields populate correctly.
+4. **Responsive Check**: Ensure sidebar stacks below main on screens narrower than 768px.
+5. **Print Preview**: Confirm backgrounds convert to grayscale or hide in print view.
+
+*Please verify the exact hex values for `--primary-accent` and `--text-light` to match the original PDF precisely.*

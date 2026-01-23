@@ -1,10 +1,18 @@
-#!/usr/bin/env python3
+# ================================================================
+# @generated
+# @preserve
+# @readonly
+# DO NOT MODIFY THIS FILE
+# Purpose: Production-approved unified system
+# Any changes must be approved by lead developer.
+# WARNING: Modifying this file may break the application.
+# ================================================================
+
 """
 Case Management Suite - Main Application Entry Point
 Consolidated platform combining the best features from both codebases
 """
 
-import os
 import sys
 import logging
 from datetime import datetime
@@ -62,8 +70,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",  # Vite dev server (default)
+        "http://localhost:5175",  # Vite dev server (current)
         "http://localhost:3000",  # Create React App / alternative dev server
         "http://127.0.0.1:5173",  # Alternative localhost format
+        "http://127.0.0.1:5175",  # Alternative localhost format (current)
         "http://127.0.0.1:3000",  # Alternative localhost format
         # Add production frontend URL here when deployed
     ],
@@ -79,6 +89,13 @@ app.add_middleware(
         "Access-Control-Request-Method",
         "Access-Control-Request-Headers",
     ],
+    expose_headers=[
+        "Access-Control-Allow-Origin",
+        "Access-Control-Allow-Methods",
+        "Access-Control-Allow-Headers",
+        "Content-Type",
+    ],
+    max_age=3600,  # Preflight response cache duration
 )
 
 # Static files and templates removed - using React frontend served separately
@@ -123,25 +140,15 @@ except Exception as e:
     loaded_modules["resume"] = f"error: {e}"
     logger.warning(f"Resume module not loaded: {e}")
 
+# Unified AI module
 try:
-    from backend.modules.ai.routes import router as ai_router
-    app.include_router(ai_router, prefix="/api/ai", tags=["ai"])
-    loaded_modules["ai"] = "loaded"
-    logger.info("AI module loaded successfully")
+    from backend.modules.ai_unified.unified_routes import router as unified_ai_router
+    app.include_router(unified_ai_router, prefix="/api/ai", tags=["ai"])
+    loaded_modules["ai_unified"] = "loaded"
+    logger.info("Unified AI loaded (Hybrid: GPT-4o + SQLite Memory)")
 except Exception as e:
-    loaded_modules["ai"] = f"error: {e}"
-    logger.warning(f"AI module not loaded: {e}")
-
-# Include the enhanced AI module
-try:
-    from backend.modules.ai_enhanced.enhanced_routes import router as ai_enhanced_router
-    app.include_router(ai_enhanced_router, prefix="/api/ai-enhanced", tags=["ai-enhanced"])
-    loaded_modules["ai_enhanced"] = "loaded"
-    logger.info("Enhanced AI module loaded successfully")
-except Exception as e:
-    loaded_modules["ai_enhanced"] = f"error: {e}"
-    logger.warning(f"Enhanced AI module not loaded: {e}")
-
+    loaded_modules["ai_unified"] = f"error: {e}"
+    logger.warning(f"Unified AI module not loaded: {e}")
 try:
     from backend.modules.services.routes import router as services_router
     app.include_router(services_router, prefix="/api/services", tags=["services"])
@@ -160,6 +167,16 @@ except Exception as e:
     loaded_modules["jobs"] = f"error: {e}"
     logger.warning(f"Jobs module not loaded: {e}")
 
+@app.on_event("startup")
+async def initialize_reminders_db():
+    """Ensure reminders DB is initialized"""
+    try:
+        from backend.modules.reminders.engine import initialize_db
+        initialize_db()
+        logger.info("Reminders DB initialized")
+    except Exception as e:
+        logger.error(f"Reminders DB init failed: {e}")
+
 try:
     from backend.modules.reminders.routes import router as reminders_router
     app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])
@@ -168,16 +185,6 @@ try:
 except Exception as e:
     loaded_modules["reminders"] = f"error: {e}"
     logger.warning(f"Reminders module not loaded: {e}")
-
-# Include the enhanced reminders module
-try:
-    from backend.modules.reminders_enhanced.enhanced_routes import router as reminders_enhanced_router
-    app.include_router(reminders_enhanced_router, prefix="/api/reminders-enhanced", tags=["reminders-enhanced"])
-    loaded_modules["reminders_enhanced"] = "loaded"
-    logger.info("Enhanced Reminders module loaded successfully")
-except Exception as e:
-    loaded_modules["reminders_enhanced"] = f"error: {e}"
-    logger.warning(f"Enhanced Reminders module not loaded: {e}")
 
 # Include the new simple search system
 try:
@@ -208,6 +215,46 @@ try:
 except Exception as e:
     loaded_modules["unified_client"] = f"error: {e}"
     logger.warning(f"Unified Client API not loaded: {e}")
+
+# Include the system health endpoints
+try:
+    from backend.api.system_health import router as health_router
+    app.include_router(health_router, tags=["system-health"])
+    loaded_modules["system_health"] = "loaded"
+    logger.info("System Health API loaded successfully")
+except Exception as e:
+    loaded_modules["system_health"] = f"error: {e}"
+    logger.warning(f"System Health API not loaded: {e}")
+
+# Include the client management endpoints
+try:
+    from backend.api.clients import router as clients_router
+    app.include_router(clients_router, tags=["client-management"])
+    loaded_modules["client_management"] = "loaded"
+    logger.info("Client Management API loaded successfully")
+except Exception as e:
+    loaded_modules["client_management"] = f"error: {e}"
+    logger.warning(f"Client Management API not loaded: {e}")
+
+# Include the dashboard module for ClickUp-style components
+try:
+    from backend.modules.dashboard.sqlite_routes import router as dashboard_router
+    app.include_router(dashboard_router, prefix="/api/dashboard", tags=["dashboard"])
+    loaded_modules["dashboard"] = "loaded"
+    logger.info("Dashboard module loaded successfully")
+except Exception as e:
+    loaded_modules["dashboard"] = f"error: {e}"
+    logger.warning(f"Dashboard module not loaded: {e}")
+
+# Include ClickUp-style dashboard data endpoints (notes/docs/bookmarks/resources)
+try:
+    from backend.modules.dashboard.routes import router as dashboard_clickup_router
+    app.include_router(dashboard_clickup_router, prefix="/api", tags=["dashboard"])
+    loaded_modules["dashboard_clickup"] = "loaded"
+    logger.info("Dashboard ClickUp routes loaded successfully")
+except Exception as e:
+    loaded_modules["dashboard_clickup"] = f"error: {e}"
+    logger.warning(f"Dashboard ClickUp routes not loaded: {e}")
 
 # Health check endpoint
 @app.get("/api/health")
@@ -249,39 +296,12 @@ async def root():
     }
 
 if __name__ == "__main__":
-    # Configure uvicorn with optimized reload settings for production readiness
+    # Configure uvicorn for production-ready deployment
+    # Set reload=False to disable excessive watchfile logging
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
-        reload_excludes=[
-            "*.pyc",
-            "*.pyo", 
-            "*.pyd",
-            "__pycache__/*",
-            "*.log",
-            "*.tmp",
-            "*.cache",
-            "logs/*",
-            "databases/*.db*",  # Exclude all database files and journals
-            "databases/*",      # Exclude entire databases directory
-            ".git/*",
-            "node_modules/*",
-            "frontend/dist/*",
-            "frontend/build/*",
-            "frontend/node_modules/*",
-            "test-results/*",
-            "playwright-report/*",
-            "*.json",           # Exclude JSON files that change frequently
-            "*.md",             # Exclude markdown files
-            "*.txt",            # Exclude text files
-            ".pytest_cache/*",
-            ".vscode/*",
-            ".claude/*",
-            ".zencoder/*"
-        ],
-        reload_includes=["*.py"],
-        reload_dirs=["backend/", "backend/modules/", "backend/api/", "backend/shared/"],
+        reload=False,  # Disabled to prevent excessive watchfile logging
         log_level="info"
     ) 

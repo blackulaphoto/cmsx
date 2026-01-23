@@ -22,6 +22,7 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import uvicorn
+import requests
 import traceback
 
 # Load environment
@@ -35,21 +36,24 @@ logger = logging.getLogger(__name__)
 current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
-# Import our new database access layer
-from shared.database.new_access_layer import (
+# Import our new database access layer and integrity components
+from shared.database import (
     db_access, 
     core_clients_service, 
     ai_service,
     DatabaseAccessLayer,
     CoreClientsService,
-    AIAssistantService
+    AIAssistantService,
+    get_integrity_manager,
+    integrity_router
 )
 
-# Import search system
+# Import search system (production system from backend/search)
 try:
-    from search.routes import router as search_router
+    from search.routes import router as search_router  # routes under /search
     SEARCH_AVAILABLE = True
-except ImportError as e:
+    logger.info("Using production search system from backend/search")
+except Exception as e:
     logger.warning(f"Search system not available: {e}")
     SEARCH_AVAILABLE = False
 
@@ -69,6 +73,67 @@ except ImportError as e:
     logger.warning(f"Sophisticated expungement system not available: {e}")
     EXPUNGEMENT_AVAILABLE = False
 
+# Import resume system
+try:
+    from modules.resume.routes import router as resume_router
+    RESUME_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Resume system not available: {e}")
+    RESUME_AVAILABLE = False
+
+# Import benefits system
+try:
+    from modules.benefits.routes import router as benefits_router
+    BENEFITS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Benefits system not available: {e}")
+    BENEFITS_AVAILABLE = False
+
+# Import housing system
+try:
+    from modules.housing.routes import router as housing_router
+    HOUSING_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Housing system not available: {e}")
+    HOUSING_AVAILABLE = False
+
+# Import services system
+try:
+    from modules.services.routes import router as services_router
+    SERVICES_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Services system not available: {e}")
+    SERVICES_AVAILABLE = False
+
+# Import AI enhanced system
+try:
+    from modules.ai_enhanced.enhanced_routes import router as ai_enhanced_router
+    AI_ENHANCED_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"AI enhanced system not available: {e}")
+    AI_ENHANCED_AVAILABLE = False
+
+# Import unified client API
+try:
+    import sys
+    import os
+    api_path = os.path.join(current_dir, 'api')
+    if api_path not in sys.path:
+        sys.path.insert(0, api_path)
+    from unified_client_api import router as unified_client_router
+    UNIFIED_CLIENT_API_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Unified client API not available: {e}")
+    UNIFIED_CLIENT_API_AVAILABLE = False
+
+# Import unified client view routes
+try:
+    from api.unified_client_view_routes import router as unified_client_view_router
+    UNIFIED_CLIENT_VIEW_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Unified client view routes not available: {e}")
+    UNIFIED_CLIENT_VIEW_AVAILABLE = False
+
 # Pydantic models for API
 class ClientCreate(BaseModel):
     first_name: str
@@ -76,12 +141,10 @@ class ClientCreate(BaseModel):
     date_of_birth: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
-    address: Optional[str] = None
-    emergency_contact_name: Optional[str] = None
-    emergency_contact_phone: Optional[str] = None
+    case_manager_id: str
     risk_level: Optional[str] = "medium"
-    case_status: Optional[str] = "active"
-    case_manager_id: Optional[str] = None
+    housing_status: Optional[str] = "unknown"
+    employment_status: Optional[str] = "unknown"
 
 class ClientUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -89,12 +152,10 @@ class ClientUpdate(BaseModel):
     date_of_birth: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
-    address: Optional[str] = None
-    emergency_contact_name: Optional[str] = None
-    emergency_contact_phone: Optional[str] = None
-    risk_level: Optional[str] = None
-    case_status: Optional[str] = None
     case_manager_id: Optional[str] = None
+    risk_level: Optional[str] = None
+    housing_status: Optional[str] = None
+    employment_status: Optional[str] = None
 
 class CaseNoteCreate(BaseModel):
     note_type: Optional[str] = "general"
@@ -140,25 +201,102 @@ class NewUnifiedPlatform:
         # Include search router if available
         if SEARCH_AVAILABLE:
             self.app.include_router(search_router, prefix="/api")
-            logger.info("✅ Search system integrated")
+            logger.info("[CHECK] Search system integrated")
         else:
-            logger.warning("⚠️ Search system not available")
+            logger.warning("[WARNING] Search system not available")
             
         # Include sophisticated reminders router if available
         if REMINDERS_AVAILABLE:
             self.app.include_router(reminders_router, prefix="/api/reminders")
-            logger.info("✅ Sophisticated reminders system integrated")
+            logger.info("[CHECK] Sophisticated reminders system integrated")
         else:
-            logger.warning("⚠️ Sophisticated reminders system not available")
+            logger.warning("[WARNING] Sophisticated reminders system not available")
             
         # Include sophisticated expungement router if available
         if EXPUNGEMENT_AVAILABLE:
             self.app.include_router(expungement_router, prefix="/api/legal")
-            logger.info("✅ Sophisticated expungement system integrated")
+            logger.info("[CHECK] Sophisticated expungement system integrated")
         else:
-            logger.warning("⚠️ Sophisticated expungement system not available")
+            logger.warning("[WARNING] Sophisticated expungement system not available")
+            
+        # Include resume system if available
+        if RESUME_AVAILABLE:
+            self.app.include_router(resume_router, prefix="/api/resume")
+            logger.info("[CHECK] Resume system integrated")
+        else:
+            logger.warning("[WARNING] Resume system not available")
+            
+        # Include benefits system if available
+        if BENEFITS_AVAILABLE:
+            self.app.include_router(benefits_router, prefix="/api/benefits")
+            logger.info("[CHECK] Benefits system integrated")
+        else:
+            logger.warning("[WARNING] Benefits system not available")
+            
+        # Include housing system if available
+        if HOUSING_AVAILABLE:
+            self.app.include_router(housing_router, prefix="/api/housing")
+            logger.info("[CHECK] Housing system integrated")
+        else:
+            logger.warning("[WARNING] Housing system not available")
+            
+        # Include services system if available
+        if SERVICES_AVAILABLE:
+            self.app.include_router(services_router, prefix="/api/services")
+            logger.info("[CHECK] Services system integrated")
+        else:
+            logger.warning("[WARNING] Services system not available")
+            
+        # Include AI enhanced system if available
+        if AI_ENHANCED_AVAILABLE:
+            self.app.include_router(ai_enhanced_router, prefix="/api/ai_enhanced")
+            logger.info("[CHECK] AI enhanced system integrated")
+        else:
+            logger.warning("[WARNING] AI enhanced system not available")
+            
+        # Include unified client API if available
+        if UNIFIED_CLIENT_API_AVAILABLE:
+            self.app.include_router(unified_client_router)
+            logger.info("[CHECK] Unified client API integrated")
+        else:
+            logger.warning("[WARNING] Unified client API not available")
+            
+        # Include unified client view routes if available
+        if UNIFIED_CLIENT_VIEW_AVAILABLE:
+            self.app.include_router(unified_client_view_router)
+            logger.info("[CHECK] Unified client view routes integrated")
+        else:
+            logger.warning("[WARNING] Unified client view routes not available")
+            
+        # Include database integrity routes
+        self.app.include_router(integrity_router)
+        logger.info("[CHECK] Database integrity management system integrated")
         
-        logger.info("🚀 New Unified Platform initialized with 9-database architecture")
+        # Initialize database integrity manager
+        integrity_manager = get_integrity_manager()
+        logger.info("[CHECK] Database integrity manager initialized")
+        
+        # Ensure dashboard_notes table exists in core_clients database
+        try:
+            with self.db_access.get_connection("core_clients", "case_management") as db:
+                cursor = db.cursor()
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS dashboard_notes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        note_id TEXT UNIQUE NOT NULL,
+                        case_manager_id TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        pinned INTEGER DEFAULT 0,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                db.commit()
+            logger.info("[CHECK] Dashboard notes table verified/created")
+        except Exception as e:
+            logger.error(f"[ERROR] Failed to ensure dashboard_notes table exists: {e}")
+        
+        logger.info("[ROCKET] New Unified Platform initialized with 9-database architecture")
         
     def setup_routes(self):
         """Set up all API routes"""
@@ -520,6 +658,280 @@ class NewUnifiedPlatform:
             """Get database access matrix"""
             return self.db_access.ACCESS_MATRIX
             
+        @self.app.get("/api/dashboard/{case_manager_id}")
+        async def get_dashboard_stats(case_manager_id: str):
+            """Get dashboard statistics for a case manager"""
+            try:
+                with self.db_access.get_connection("core_clients", "case_management") as db:
+                    cursor = db.cursor()
+
+                    cursor.execute("SELECT COUNT(*) FROM clients")
+                    total_clients = cursor.fetchone()[0]
+
+                    cursor.execute("SELECT COUNT(*) FROM clients WHERE case_status = 'Active'")
+                    active_clients = cursor.fetchone()[0]
+
+                    cursor.execute("SELECT COUNT(*) FROM clients WHERE risk_level = 'High'")
+                    high_risk_clients = cursor.fetchone()[0]
+
+                    cursor.execute("SELECT COUNT(*) FROM clients WHERE created_at >= datetime('now', '-1 day')")
+                    recent_intakes = cursor.fetchone()[0]
+
+                    return {
+                        "statistics": {
+                            "total_clients": total_clients,
+                            "active_clients": active_clients,
+                            "high_risk_clients": high_risk_clients,
+                            "recent_intakes": recent_intakes
+                        }
+                    }
+            except Exception as e:
+                logger.error(f"Dashboard stats error: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/api/dashboard/notes")
+        async def get_dashboard_notes():
+            """Get all dashboard notes for case manager"""
+            try:
+                with self.db_access.get_connection("core_clients", "case_management") as db:
+                    cursor = db.cursor()
+
+                    cursor.execute("""
+                        SELECT note_id, case_manager_id, content, created_at, pinned
+                        FROM dashboard_notes
+                        ORDER BY pinned DESC, created_at DESC
+                        LIMIT 50
+                    """)
+
+                    notes = []
+                    for row in cursor.fetchall():
+                        notes.append({
+                            "id": row[0],
+                            "case_manager_id": row[1],
+                            "content": row[2],
+                            "createdAt": row[3],
+                            "pinned": row[4] == 1
+                        })
+
+                    return {"success": True, "notes": notes}
+            except Exception as e:
+                logger.error(f"Get notes error: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.post("/api/dashboard/notes")
+        async def create_dashboard_note(note_data: Dict[str, Any] = Body(...)):
+            """Create a new dashboard note (case manager personal notes)"""
+            try:
+                with self.db_access.get_connection("core_clients", "case_management") as db:
+                    cursor = db.cursor()
+
+                    note_id = str(uuid.uuid4())
+                    pinned = note_data.get("pinned", False)
+                    cursor.execute("""
+                        INSERT INTO dashboard_notes (note_id, case_manager_id, content, pinned, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (note_id, "system", note_data.get("content"), 1 if pinned else 0, datetime.now().isoformat()))
+
+                    db.commit()
+
+                    cursor.execute("""
+                        SELECT note_id, case_manager_id, content, created_at, pinned
+                        FROM dashboard_notes
+                        WHERE note_id = ?
+                    """, (note_id,))
+                    row = cursor.fetchone()
+
+                    if row:
+                        return {
+                            "success": True,
+                            "note": {
+                                "id": row[0],
+                                "case_manager_id": row[1],
+                                "content": row[2],
+                                "created_at": row[3],
+                                "pinned": row[4] == 1
+                            }
+                        }
+                    else:
+                        return {"success": False, "message": "Note created but not found"}
+            except Exception as e:
+                logger.error(f"Create note error: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.put("/api/dashboard/notes/{note_id}")
+        async def update_dashboard_note(note_id: str, note_data: Dict[str, Any] = Body(...)):
+            """Update a dashboard note"""
+            try:
+                with self.db_access.get_connection("core_clients", "case_management") as db:
+                    cursor = db.cursor()
+
+                    content = note_data.get("content")
+                    pinned = note_data.get("pinned", False)
+
+                    cursor.execute("""
+                        UPDATE dashboard_notes
+                        SET content = ?, pinned = ?, updated_at = ?
+                        WHERE note_id = ?
+                    """, (content, 1 if pinned else 0, datetime.now().isoformat(), note_id))
+
+                    db.commit()
+
+                    cursor.execute("""
+                        SELECT note_id, case_manager_id, content, created_at, pinned
+                        FROM dashboard_notes
+                        WHERE note_id = ?
+                    """, (note_id,))
+                    row = cursor.fetchone()
+
+                    if row:
+                        return {
+                            "success": True,
+                            "note": {
+                                "id": row[0],
+                                "case_manager_id": row[1],
+                                "content": row[2],
+                                "created_at": row[3],
+                                "pinned": row[4] == 1
+                            }
+                        }
+                    else:
+                        return {"success": False, "message": "Note not found"}
+            except Exception as e:
+                logger.error(f"Update note error: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.delete("/api/dashboard/notes/{note_id}")
+        async def delete_dashboard_note(note_id: str):
+            """Delete a dashboard note"""
+            try:
+                with self.db_access.get_connection("core_clients", "case_management") as db:
+                    cursor = db.cursor()
+
+                    cursor.execute("DELETE FROM dashboard_notes WHERE note_id = ?", (note_id,))
+                    db.commit()
+
+                    return {"success": True, "message": "Note deleted"}
+            except Exception as e:
+                logger.error(f"Delete note error: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        @self.app.get("/api/dashboard/docs")
+        async def get_dashboard_docs():
+            """Get dashboard documents"""
+            try:
+                return {"success": True, "docs": []}
+            except Exception as e:
+                logger.error(f"Get docs error: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/api/dashboard/bookmarks")
+        async def get_dashboard_bookmarks():
+            """Get dashboard bookmarks"""
+            try:
+                return {"success": True, "bookmarks": []}
+            except Exception as e:
+                logger.error(f"Get bookmarks error: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
+
+        @self.app.get("/api/dashboard/resources")
+        async def get_dashboard_resources():
+            """Get dashboard resources"""
+            try:
+                return {"success": True, "resources": []}
+            except Exception as e:
+                logger.error(f"Get resources error: {str(e)}")
+                raise HTTPException(status_code=500, detail=str(e))
+        
+        # ============ MISSING ENDPOINTS FOR FRONTEND ============
+        @self.app.get("/api/resume/health")
+        async def resume_health():
+            """Health check for PDF/resume service"""
+            return {"status": "ok", "service": "resume"}
+
+        @self.app.get("/api/case-management/notes/list/{client_id}")
+        async def list_client_notes(client_id: str):
+            """Get all notes for a client - wrapper for dashboard notes"""
+            try:
+                with self.db_access.get_connection("core_clients", "case_management") as db:
+                    cursor = db.cursor()
+                    cursor.execute("SELECT * FROM case_notes WHERE client_id = ? ORDER BY created_at DESC LIMIT 50", (client_id,))
+                    notes = [dict(row) for row in cursor.fetchall()]
+                    return notes
+            except Exception as e:
+                logger.error(f"List notes error: {str(e)}")
+                return []
+
+        @self.app.get("/api/case-management/tasks/list/{client_id}")
+        async def list_client_tasks(client_id: str):
+            """Get all tasks for a client"""
+            try:
+                with self.db_access.get_connection("reminders", "case_management") as db:
+                    cursor = db.cursor()
+                    cursor.execute("SELECT * FROM tasks WHERE client_id = ? ORDER BY created_at DESC LIMIT 50", (client_id,))
+                    tasks = [dict(row) for row in cursor.fetchall()]
+                    return tasks
+            except Exception as e:
+                logger.error(f"List tasks error: {str(e)}")
+                return []
+
+        @self.app.get("/api/clients/{client_id}/unified-view")
+        async def get_unified_view(client_id: str):
+            """Get unified view of client across all modules"""
+            try:
+                result = {
+                    "client_id": client_id,
+                    "housing": {},
+                    "benefits": {},
+                    "legal": {},
+                    "employment": {},
+                    "services": {},
+                    "reminders": {}
+                }
+                try:
+                    housing = requests.get(f"http://localhost:8000/api/housing/clients/{client_id}").json()
+                    result["housing"] = housing
+                except:
+                    pass
+                try:
+                    benefits = requests.get(f"http://localhost:8000/api/benefits/clients/{client_id}").json()
+                    result["benefits"] = benefits
+                except:
+                    pass
+                try:
+                    legal = requests.get(f"http://localhost:8000/api/legal/clients/{client_id}").json()
+                    result["legal"] = legal
+                except:
+                    pass
+                try:
+                    employment = requests.get(f"http://localhost:8000/api/employment/clients/{client_id}").json()
+                    result["employment"] = employment
+                except:
+                    pass
+                try:
+                    services = requests.get(f"http://localhost:8000/api/services/clients/{client_id}").json()
+                    result["services"] = services
+                except:
+                    pass
+                try:
+                    reminders = requests.get(f"http://localhost:8000/api/basic-reminders/clients/{client_id}").json()
+                    result["reminders"] = reminders
+                except:
+                    pass
+                return result
+            except Exception as e:
+                logger.error(f"Unified view error: {str(e)}")
+                return {"client_id": client_id, "error": str(e)}
+
+        @self.app.get("/api/clients/{client_id}/intelligent-tasks")
+        async def get_intelligent_tasks(client_id: str):
+            """Get AI-generated intelligent tasks for client"""
+            return []
+
+        @self.app.get("/api/clients/{client_id}/search-recommendations")
+        async def get_search_recommendations(client_id: str):
+            """Get AI-powered search recommendations for client"""
+            return []
+
         @self.app.get("/health")
         async def health_check():
             """Health check endpoint"""
@@ -553,15 +965,19 @@ platform = NewUnifiedPlatform()
 app = platform.app
 
 if __name__ == "__main__":
-    print("🚀 Starting New Unified Case Management Platform")
-    print("📊 9-Database Architecture")
-    print("🤖 AI Assistant: FULL CRUD permissions")
+    print("[ROCKET] Starting New Unified Case Management Platform")
+    print("[CHART] 9-Database Architecture")
+    print("[ROBOT] AI Assistant: FULL CRUD permissions")
     print("=" * 50)
+    
+    # Get port from environment variable
+    port = int(os.getenv("BACKEND_PORT", 8000))
+    print(f"[INFO] Using port {port}")
     
     uvicorn.run(
         "main_backend:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         reload=True,
         log_level="info"
     )

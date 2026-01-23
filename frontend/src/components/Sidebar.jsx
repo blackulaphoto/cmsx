@@ -11,7 +11,8 @@ import {
   TrendingUp,
   Clock,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Database
 } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
@@ -28,6 +29,7 @@ function Sidebar() {
     { icon: Scale, label: 'Legal Services', path: '/legal' },
     { icon: Heart, label: 'Benefits & Support', path: '/benefits' },
     { icon: Briefcase, label: 'Services Directory', path: '/services' },
+    { icon: Database, label: 'System Integrity', path: '/system-integrity' },
   ]
 
   const quickStats = [

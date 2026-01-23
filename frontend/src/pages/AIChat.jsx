@@ -1,6 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
-import { MessageSquare, Send, Bot, User, Loader2, Sparkles } from 'lucide-react'
+import { MessageSquare, Send, Bot, User, Loader2, Sparkles, Zap, Brain, Stars, Save, BookOpen, StickyNote, Bookmark } from 'lucide-react'
 import toast from 'react-hot-toast'
+
+const SESSION_KEY = 'ai_assistant_session_id'
+
+const getSessionId = () => {
+  const existing = window.localStorage.getItem(SESSION_KEY)
+  if (existing) return existing
+  const created = `session_${crypto.randomUUID()}`
+  window.localStorage.setItem(SESSION_KEY, created)
+  return created
+}
 
 function AIChat() {
   const [messages, setMessages] = useState([])
@@ -8,21 +18,45 @@ function AIChat() {
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState({
     client_id: null,
-    user_id: 'user_123',
-    session_id: 'session_456'
+    user_id: null,
+    session_id: null
   })
-  const messagesEndRef = useRef(null)
+  const [autoSaveResults, setAutoSaveResults] = useState({})
+  const messagesContainerRef = useRef(null)
+  const [isAtBottom, setIsAtBottom] = useState(true)
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  const handleMessagesScroll = () => {
+    const container = messagesContainerRef.current
+    if (!container) return
+    const threshold = 120
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
+    setIsAtBottom(distanceFromBottom <= threshold)
   }
 
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
+    if (!isAtBottom) return
+    const container = messagesContainerRef.current
+    if (!container) return
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+  }, [messages, isAtBottom])
+
+  // EXACT handlers from working debug version
+  const handleInputChange = (e) => {
+    setInputMessage(e.target.value)
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      sendMessage()
+    }
+  }
 
   const sendMessage = async () => {
-    if (!inputMessage.trim()) return
+    if (!inputMessage.trim()) {
+      toast.error('Please enter a message')
+      return
+    }
 
     const userMessage = {
       id: Date.now(),
@@ -37,14 +71,14 @@ function AIChat() {
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/ai-enhanced/chat', {
+      const response = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           message: messageText,
-          context: context
+          case_manager_id: getSessionId()
         })
       })
 
@@ -59,113 +93,48 @@ function AIChat() {
         type: 'ai',
         content: data.response,
         function_calls: data.function_calls,
+        auto_save_results: data.auto_save_results,
         timestamp: new Date().toISOString()
       }
 
       setMessages(prev => [...prev, aiMessage])
+      
+      // Handle auto-save notifications
+      if (data.auto_save_results && data.auto_save_results.analysis?.auto_save_triggered) {
+        const results = data.auto_save_results
+        let saveMessage = "Content automatically saved to dashboard: "
+        const saved = []
+        
+        if (results.notes_saved?.length > 0) {
+          saved.push(`${results.notes_saved.length} note(s)`)
+        }
+        if (results.docs_saved?.length > 0) {
+          saved.push(`${results.docs_saved.length} document(s)`)
+        }
+        if (results.bookmarks_saved?.length > 0) {
+          saved.push(`${results.bookmarks_saved.length} bookmark(s)`)
+        }
+        
+        if (saved.length > 0) {
+          toast.success(saveMessage + saved.join(', '))
+        }
+      }
+      
       toast.success('AI response received')
     } catch (error) {
       console.error('Error sending message:', error)
       
-      // Mock AI responses for comprehensive testing
-      let mockResponse = ''
-      const lowerMessage = messageText.toLowerCase()
-      
-      if (lowerMessage.includes('maria') && lowerMessage.includes('court') && lowerMessage.includes('housing')) {
-        mockResponse = `**AI Analysis for Maria Santos:**
-
-1. **Job search first** - employment improves housing applications
-2. **Complete legal documentation for Tuesday**
-3. **Schedule housing appointments for this week**
-
-**Priority Assessment:**
-- Court date (Tuesday) is most time-sensitive
-- Employment verification needed for both court and housing
-- Multiple deadlines require coordinated approach
-
-**Recommended Actions:**
-- Morning: Contact previous employers for employment history
-- Afternoon: Schedule legal aid meeting for document review`
-      } else if (lowerMessage.includes('jobs') && lowerMessage.includes('restaurant') && lowerMessage.includes('expungement')) {
-        mockResponse = `**Background-Friendly Employment Recommendations:**
-
-For clients with restaurant experience and pending expungement:
-- **Hospitality, retail, or warehouse positions** show highest success rates
-- **Second-chance employers** in food service industry
-- **85% success rate** for clients with similar background
-
-**Specific Recommendations:**
-- Chain restaurants with corporate second-chance policies
-- Warehouse/logistics companies (Amazon, UPS, FedEx)
-- Retail positions at major chains
-- Food service management trainee programs
-
-**Timeline Strategy:**
-- Apply immediately - many positions hire within 48 hours
-- Use current employment gap as transitional housing advantage`
-      } else if (lowerMessage.includes('progress') && lowerMessage.includes('maria')) {
-        mockResponse = `**Maria Santos Case Progress Analysis:**
-
-**Progress made today:**
-- Housing application submitted to recovery-friendly program
-- Medicaid benefits completion processed
-- 3 job prospects identified and saved
-- Mental health referral submitted
-
-**Critical gap identified:**
-- Legal documentation for Tuesday court date still incomplete
-
-**Risk Assessment:**
-- Court date: HIGH PRIORITY - missing employment history
-- Housing deadline: MODERATE - application submitted but backup needed
-- Employment: ON TRACK - multiple prospects identified
-
-**Tomorrow's Priority Recommendations:**
-1. **Priority focus on employment history gathering** - call former employers
-2. Schedule legal aid meeting for document review
-3. Follow up on housing application status`
-      } else if (lowerMessage.includes('schedule') && lowerMessage.includes('tomorrow') && lowerMessage.includes('court')) {
-        mockResponse = `**Optimal Schedule for Tomorrow - Court Preparation:**
-
-**Morning (9:00 AM - 12:00 PM):**
-- 9:00 AM: Employment history calls to previous restaurants
-- 10:00 AM: Follow up with character references
-- 11:00 AM: Gather supporting documentation
-
-**Afternoon (1:00 PM - 5:00 PM):**
-- 1:00 PM: Legal aid meeting - document review
-- 2:30 PM: Housing application follow-up call
-- 3:30 PM: Prepare court appearance materials
-- 4:00 PM: Client check-in and anxiety support
-
-**Backup Plans:**
-- If employment history unavailable: prepare alternative documentation
-- If housing falls through: activate emergency housing contacts`
-      } else {
-        mockResponse = `I can help you with case management tasks, client coordination, and workflow optimization. I have access to housing search, job placement, legal services, and benefits coordination systems.
-
-What specific aspect of your case management work would you like assistance with?`
-      }
-      
-      const aiMessage = {
+      const errorMessage = {
         id: Date.now() + 1,
-        type: 'ai',
-        content: mockResponse,
-        function_calls: [],
+        type: 'system',
+        content: `⚠️ Error: Could not reach AI service\n\nDetails: ${error?.message || 'Unknown error'}\n\nPlease check:\n• Backend server is running\n• API endpoint is accessible at /api/ai/chat\n• Network connection is stable`,
         timestamp: new Date().toISOString()
       }
 
-      setMessages(prev => [...prev, aiMessage])
-      toast.success('AI response received')
+      setMessages(prev => [...prev, errorMessage])
+      toast.error(`Failed to send message: ${error?.message || 'Unknown error'}`)
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      sendMessage()
     }
   }
 
@@ -182,134 +151,205 @@ What specific aspect of your case management work would you like assistance with
   }
 
   return (
-    <div className="animate-fade-in h-full flex flex-col">
-      {/* Header */}
-      <div className="bg-primary-gradient text-white p-8">
-        <div className="flex items-center gap-4 mb-2">
-          <MessageSquare size={32} />
-          <h1 className="text-3xl font-bold">AI Chat Assistant</h1>
-        </div>
-        <p className="text-lg opacity-90">Powered by GPT-4 with enhanced function calling</p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Background Elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -right-40 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute top-1/2 -left-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
+        <div className="absolute -bottom-40 right-1/3 w-80 h-80 bg-pink-500/10 rounded-full blur-3xl animate-pulse delay-2000"></div>
       </div>
 
-      <div className="flex-1 flex flex-col">
-        {/* Quick Actions */}
-        <div className="p-6 border-b border-gray-200">
-          <h3 className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</h3>
-          <div className="flex flex-wrap gap-2">
-            {quickActions.map((action, index) => (
-              <button
-                key={index}
-                onClick={() => handleQuickAction(action)}
-                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm transition-colors"
-              >
-                {action}
-              </button>
-            ))}
+      <div className="relative z-10">
+        {/* Header */}
+        <div className="bg-black/20 border-b border-white/10 backdrop-blur-sm">
+          <div className="max-w-7xl mx-auto px-6 py-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-gradient-to-r from-cyan-500 to-purple-500 rounded-xl shadow-lg">
+                <MessageSquare className="h-8 w-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-cyan-200 to-purple-200 bg-clip-text text-transparent">
+                  AI Chat Assistant
+                </h1>
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                  <span className="text-gray-300">Powered by GPT-4</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
-          {messages.length === 0 ? (
-            <div className="text-center text-gray-500 py-12">
-              <Bot size={48} className="mx-auto mb-4 text-gray-300" />
-              <h3 className="text-lg font-medium mb-2">Welcome to AI Assistant</h3>
-              <p className="text-sm">I can help you with case management, task creation, and more.</p>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex gap-3 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                {message.type === 'ai' && (
-                  <div className="w-8 h-8 bg-primary-gradient rounded-full flex items-center justify-center flex-shrink-0">
-                    <Bot size={16} className="text-white" />
-                  </div>
-                )}
-                
-                <div
-                  className={`max-w-[70%] p-4 rounded-xl ${
-                    message.type === 'user'
-                      ? 'bg-primary-gradient text-white'
-                      : message.type === 'error'
-                      ? 'bg-red-100 text-red-800'
-                      : 'bg-gray-100 text-gray-800'
-                  }`}
-                  data-testid={message.type === 'ai' ? 'ai-response' : `${message.type}-message`}
+        <div className="max-w-7xl mx-auto px-6">
+          {/* Quick Actions */}
+          <div className="py-6 border-b border-white/10">
+            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+              <Zap className="h-5 w-5 text-yellow-400" />
+              Quick Actions
+            </h3>
+            <div className="flex flex-wrap gap-3">
+              {quickActions.map((action, index) => (
+                <button
+                  key={index}
+                  onClick={() => handleQuickAction(action)}
+                  className="px-4 py-3 bg-white/10 border border-white/20 hover:bg-white/20 text-gray-300 hover:text-white rounded-xl text-sm transition-all duration-300"
                 >
-                  <div className="flex items-start gap-2">
-                    {message.type === 'user' && (
-                      <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
-                        <User size={12} className="text-white" />
-                      </div>
-                    )}
-                    <div className="flex-1">
-                      <p className="text-sm">{message.content}</p>
-                      {message.function_calls && message.function_calls.length > 0 && (
-                        <div className="mt-2 p-2 bg-blue-50 rounded-lg">
-                          <div className="flex items-center gap-1 text-xs text-blue-600 mb-1">
-                            <Sparkles size={12} />
-                            Function Calls Executed
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={14} className="text-cyan-400" />
+                    <span>{action}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Messages */}
+          <div
+            className="overflow-y-auto py-6 space-y-6"
+            style={{ height: 'calc(100vh - 400px)', minHeight: '400px' }}
+            ref={messagesContainerRef}
+            onScroll={handleMessagesScroll}
+          >
+            {messages.length === 0 ? (
+              <div className="text-center py-16 bg-white/5 rounded-2xl border border-white/10">
+                <div className="p-6 bg-cyan-500/20 rounded-2xl w-fit mx-auto mb-6">
+                  <Bot size={48} className="text-cyan-400" />
+                </div>
+                <h3 className="text-2xl font-bold text-white mb-3">Welcome to AI Assistant</h3>
+                <p className="text-gray-400 mb-6">I can help you with case management, task creation, and intelligent insights.</p>
+                <div className="flex items-center justify-center gap-2 text-sm text-cyan-400">
+                  <Stars size={16} />
+                  <span>Powered by Advanced AI</span>
+                  <Stars size={16} />
+                </div>
+              </div>
+            ) : (
+              messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`flex gap-4 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+                >
+                  {message.type === 'ai' && (
+                    <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-purple-500 rounded-full flex items-center justify-center flex-shrink-0">
+                      <Bot size={20} className="text-white" />
+                    </div>
+                  )}
+                  
+                  <div className="max-w-[75%]">
+                    <div
+                      className={`p-6 rounded-2xl ${
+                        message.type === 'user'
+                          ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white'
+                          : 'bg-white/10 border border-white/20 text-gray-100'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        {message.type === 'user' && (
+                          <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center flex-shrink-0">
+                            <User size={16} className="text-white" />
                           </div>
-                          {message.function_calls.map((call, index) => (
-                            <div key={index} className="text-xs text-blue-700">
-                              • {call.name}: {call.result}
-                            </div>
-                          ))}
+                        )}
+                        <div className="flex-1">
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                         </div>
-                      )}
-                      <p className="text-xs opacity-70 mt-2">
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2 px-2">
+                      <p className="text-xs text-gray-500">
                         {new Date(message.timestamp).toLocaleTimeString()}
                       </p>
+                      
+                      {/* Auto-save indicators */}
+                      {message.auto_save_results && message.auto_save_results.analysis?.auto_save_triggered && (
+                        <div className="flex items-center gap-1 ml-2">
+                          <Save size={12} className="text-green-400" />
+                          <span className="text-xs text-green-400">Auto-saved</span>
+                          
+                          {/* Show what was saved */}
+                          <div className="flex items-center gap-1 ml-1">
+                            {message.auto_save_results.notes_saved?.length > 0 && (
+                              <div className="flex items-center gap-1">
+                                <StickyNote size={10} className="text-yellow-400" />
+                                <span className="text-xs text-yellow-400">{message.auto_save_results.notes_saved.length}</span>
+                              </div>
+                            )}
+                            {message.auto_save_results.docs_saved?.length > 0 && (
+                              <div className="flex items-center gap-1">
+                                <BookOpen size={10} className="text-blue-400" />
+                                <span className="text-xs text-blue-400">{message.auto_save_results.docs_saved.length}</span>
+                              </div>
+                            )}
+                            {message.auto_save_results.bookmarks_saved?.length > 0 && (
+                              <div className="flex items-center gap-1">
+                                <Bookmark size={10} className="text-green-400" />
+                                <span className="text-xs text-green-400">{message.auto_save_results.bookmarks_saved.length}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
+                  </div>
+
+                  {message.type === 'user' && (
+                    <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
+                      <User size={20} className="text-white" />
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+            
+            {isLoading && (
+              <div className="flex gap-4 justify-start">
+                <div className="w-10 h-10 bg-gradient-to-r from-cyan-500 to-purple-500 rounded-full flex items-center justify-center">
+                  <Bot size={20} className="text-white" />
+                </div>
+                <div className="bg-white/10 border border-white/20 p-6 rounded-2xl">
+                  <div className="flex items-center gap-3">
+                    <Loader2 size={20} className="animate-spin text-cyan-400" />
+                    <span className="text-sm text-white">AI is thinking...</span>
                   </div>
                 </div>
               </div>
-            ))
-          )}
-          
-          {isLoading && (
-            <div className="flex gap-3 justify-start">
-              <div className="w-8 h-8 bg-primary-gradient rounded-full flex items-center justify-center">
-                <Bot size={16} className="text-white" />
-              </div>
-              <div className="bg-gray-100 p-4 rounded-xl">
-                <div className="flex items-center gap-2">
-                  <Loader2 size={16} className="animate-spin text-gray-500" />
-                  <span className="text-sm text-gray-600">AI is thinking...</span>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          <div ref={messagesEndRef} />
-        </div>
+            )}
+          </div>
 
-        {/* Input */}
-        <div className="p-6 border-t border-gray-200">
-          <div className="flex gap-3">
-            <div className="flex-1 relative">
-              <textarea
+          {/* Input Section - EXACT styling from working debug version */}
+          <div className="sticky bottom-0 bg-slate-900 py-6 border-t border-white/10">
+            <div className="flex gap-4">
+              {/* WORKING INPUT - exact same as debug version */}
+              <input
+                type="text"
                 value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Type your message..."
-                className="w-full p-4 pr-12 border border-gray-300 rounded-xl resize-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                rows="1"
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder="Type your message to the AI assistant..."
+                className="flex-1 p-4 bg-white/20 border-2 border-cyan-500 rounded-lg text-white placeholder-gray-300 focus:outline-none focus:border-cyan-300"
                 disabled={isLoading}
                 data-testid="ai-chat-input"
+                autoComplete="off"
+                autoFocus
               />
+              
+              <button
+                onClick={sendMessage}
+                disabled={!inputMessage.trim() || isLoading}
+                className="px-6 py-4 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                data-testid="send-ai-message"
+              >
+                <Send size={20} />
+                <span className="hidden sm:block">Send</span>
+              </button>
             </div>
-            <button
-              onClick={sendMessage}
-              disabled={!inputMessage.trim() || isLoading}
-              className="px-6 py-4 bg-primary-gradient text-white rounded-xl hover:shadow-custom-md transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-              data-testid="send-ai-message"
-            >
-              <Send size={20} />
-            </button>
+            
+            <div className="flex items-center justify-between mt-3 text-xs text-gray-400">
+              <div className="flex items-center gap-2">
+                <div className="w-1 h-1 bg-green-400 rounded-full animate-pulse"></div>
+                <span>AI Assistant is online and ready</span>
+              </div>
+              <span>Press Enter to send</span>
+            </div>
           </div>
         </div>
       </div>
@@ -317,4 +357,4 @@ What specific aspect of your case management work would you like assistance with
   )
 }
 
-export default AIChat 
+export default AIChat

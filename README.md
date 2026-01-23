@@ -1,170 +1,140 @@
-# Case Manager Suite (CMSX)
+# Case Management Suite v2.0
 
-A comprehensive case management platform designed for social workers, legal professionals, and case managers to efficiently manage client cases, benefits, housing, legal services, and more.
+A comprehensive case management platform for reentry services, consolidating the best features from multiple codebases.
 
-## 🚀 Features
+## Project Structure
 
-### Core Modules
-- **Case Management**: Complete client case tracking and management
-- **Benefits Assessment**: Disability and benefits eligibility evaluation
-- **Housing Services**: Housing assistance and resource management
-- **Legal Services**: Expungement and legal case management
-- **Resume Builder**: AI-powered resume creation and optimization
-- **Job Search**: Employment assistance and job matching
+```
+CASE_MANAGER_SUITE2/
+├── main.py                 # Main application entry point
+├── requirements.txt        # Python dependencies
+├── README.md              # This file
+├── backend/               # Backend modules
+│   ├── main_backend.py    # Original unified backend (reference)
+│   ├── modules/           # Feature modules
+│   │   ├── housing/       # Housing search and resources
+│   │   ├── benefits/      # Benefits assistance
+│   │   ├── legal/         # Legal services
+│   │   ├── resume/        # Resume builder
+│   │   ├── ai/           # AI assistant
+│   │   ├── services/     # Social services directory
+│   │   ├── jobs/         # Job search and placement
+│   │   └── reminders/    # Task management and reminders
+│   ├── api/              # API routes
+│   ├── services/         # Business logic services
+│   └── utils/            # Utility functions
+│       ├── database.py   # Database utilities
+│       └── simple_search_replacement.py
+├── frontend/             # Frontend application (to be added)
+├── config/               # Configuration files
+│   ├── config.py         # Main configuration
+│   └── main_config.py    # Original config (reference)
+├── databases/            # SQLite database files
+├── static/               # Static assets (CSS, JS, images)
+├── templates/            # HTML templates
+│   ├── unified_case_manager_platform.html
+│   ├── case_management_dashboard.html
+│   ├── housing_search_dashboard.html
+│   ├── benefits_dashboard.html
+│   ├── resume_builder_dashboard.html
+│   ├── legal_services_dashboard.html
+│   ├── ai_chat_assistant.html
+│   ├── services_directory_dashboard.html
+│   └── smart_daily_dashboard.html
+├── logs/                 # Application logs
+└── 2nd chance ui/        # Legacy UI files (migrated)
+```
+
+## ✅ Completed Features
+
+- **✅ Base Framework**: FastAPI application with modular router structure
+- **✅ Configuration**: Centralized config management
+- **✅ Database Utilities**: Database connection management
+- **✅ Module Integration**: All core modules imported and routed
+- **✅ Frontend Templates**: HTML dashboards migrated and integrated
+- **✅ Static Assets**: CSS, JS, and other assets copied
+- **✅ Database Files**: All SQLite databases copied
+
+## 🔧 Current Status
+
+**Loaded Modules:**
+- ✅ Benefits module
+- ✅ Legal module  
+- ✅ Resume module
+- ✅ AI module
+- ✅ Reminders module
+
+**Modules with Dependencies:**
+- ⚠️ Housing module (missing simple_search_replacement - FIXED)
+- ⚠️ Services module (missing simple_search_replacement - FIXED)
+- ⚠️ Jobs module (missing simple_search_replacement - FIXED)
+
+## Features
+
+- **Case Management**: Complete client management system
+- **Housing Resources**: Housing search and referral system
+- **Benefits Assistance**: Benefits application and tracking
+- **Legal Services**: Legal case management
+- **Resume Builder**: AI-powered resume creation
 - **AI Assistant**: Intelligent case management assistance
-- **Reminders**: Automated task and appointment reminders
+- **Job Search**: Employment services integration
+- **Task Management**: Smart reminders and task optimization
 
-### Advanced Features
-- **AI-Enhanced Services**: Machine learning for case optimization
-- **Multi-Database Architecture**: Scalable data management
-- **Real-time Scrapers**: Automated data collection from various sources
-- **Comprehensive Reporting**: Analytics and insights
-- **Mobile-Responsive UI**: Modern web interface
+## Quick Start
 
-## 🛠️ Technology Stack
-
-- **Backend**: Python (Flask)
-- **Frontend**: React.js
-- **Database**: SQLite (multiple databases for modularity)
-- **AI/ML**: Custom AI services and integrations
-- **PDF Generation**: Resume and document creation
-- **Web Scraping**: Automated data collection
-
-## 📋 Prerequisites
-
-- Python 3.8+
-- Node.js 14+
-- Git
-
-## 🚀 Installation
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/blackulaphoto/cmsx.git
-   cd cmsx
-   ```
-
-2. **Install Python dependencies**
+1. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **Install frontend dependencies**
+2. Set up environment variables:
    ```bash
-   cd frontend
-   npm install
-   cd ..
+   cp .env.example .env
+   # Edit .env with your configuration
    ```
 
-4. **Initialize the database**
+3. Run the application:
    ```bash
-   python init_database.py
+   python main.py
    ```
 
-## 🏃‍♂️ Running the Application
+4. Access the application at: http://localhost:8000
 
-### Option 1: Using the launch script (Recommended)
-```bash
-python launch_platform.py
-```
+## API Endpoints
 
-### Option 2: Manual startup
-```bash
-# Start the backend
-python main.py
+- `/api/health` - Health check with module status
+- `/api/housing/*` - Housing resources
+- `/api/benefits/*` - Benefits assistance
+- `/api/legal/*` - Legal services
+- `/api/resume/*` - Resume builder
+- `/api/ai/*` - AI assistant
+- `/api/services/*` - Social services
+- `/api/jobs/*` - Job search
+- `/api/reminders/*` - Task management
 
-# In another terminal, start the frontend
-cd frontend
-npm start
-```
+## Frontend Pages
 
-The application will be available at:
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:5000
+- `/` - Main unified dashboard
+- `/case-management` - Case management dashboard
+- `/housing` - Housing search dashboard
+- `/benefits` - Benefits dashboard
+- `/resume` - Resume builder dashboard
+- `/legal` - Legal services dashboard
+- `/ai-chat` - AI chat assistant
+- `/services` - Services directory dashboard
+- `/smart-dashboard` - Smart daily dashboard
 
-## 📁 Project Structure
+## Development Status
 
-```
-CASE_MANAGER_SUITE2/
-├── backend/                 # Backend Flask application
-│   ├── api/                # API endpoints
-│   ├── modules/            # Feature modules
-│   │   ├── ai/            # AI services
-│   │   ├── benefits/      # Benefits assessment
-│   │   ├── case_management/ # Case management
-│   │   ├── housing/       # Housing services
-│   │   ├── legal/         # Legal services
-│   │   ├── resume/        # Resume builder
-│   │   └── reminders/     # Reminder system
-│   └── shared/            # Shared utilities
-├── frontend/              # React frontend
-│   ├── src/
-│   │   ├── components/    # React components
-│   │   ├── pages/         # Page components
-│   │   └── api/          # API integration
-├── databases/             # SQLite databases
-├── config/               # Configuration files
-├── docs/                 # Documentation
-├── tests/                # Test files
-└── static/               # Static assets
-```
+This is a consolidated platform combining features from:
+- ✅ Main case management codebase (modules copied)
+- ✅ Second-chance platform (frontend templates integrated)
 
-## 🔧 Configuration
+## Next Steps
 
-The application uses multiple configuration files:
-- `config/main_config.py` - Main application configuration
-- `config/config.py` - Environment-specific settings
-
-## 🧪 Testing
-
-Run the comprehensive test suite:
-```bash
-python -m pytest tests/
-```
-
-For end-to-end testing:
-```bash
-npm test
-```
-
-## 📊 Database Architecture
-
-The platform uses a modular database approach with separate databases for:
-- Case Management
-- Benefits
-- Housing
-- Legal Services
-- AI Assistant
-- Reminders
-- User Authentication
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🆘 Support
-
-For support and questions:
-- Create an issue in the GitHub repository
-- Check the documentation in the `docs/` folder
-- Review the comprehensive testing reports
-
-## 🔄 Updates
-
-The platform is actively maintained with regular updates for:
-- Security patches
-- Feature enhancements
-- Performance improvements
-- Bug fixes
-
----
-
-**Built with ❤️ for case managers and social workers** 
+- [ ] Test all API endpoints
+- [ ] Verify database connectivity
+- [ ] Add authentication system
+- [ ] Implement React frontend integration
+- [ ] Add comprehensive testing
+- [ ] Performance optimization 

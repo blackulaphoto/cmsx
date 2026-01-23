@@ -1,0 +1,113 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume - {{ client.first_name }} {{ client.last_name }}</title>
+    <style>
+        {{ styles }}
+        body { margin: 0; padding: 20px; line-height: 1.4; }
+        .resume-container { max-width: 8.5in; margin: 0 auto; }
+        .section { margin-bottom: 15px; }
+        .job-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+        .skills-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+        .skill-category { margin-bottom: 10px; }
+        .skill-title { font-weight: bold; font-size: 12px; margin-bottom: 3px; color: #7c3aed; }
+        .skill-list { font-size: 11px; }
+    </style>
+</head>
+<body>
+    <div class="resume-container">
+        <header class="header">
+            <div class="name">{{ client.first_name }} {{ client.last_name }}</div>
+            <div class="contact">
+                {{ client.phone }} • {{ client.email }}
+                {% if client.address %} • {{ client.address }}{% endif %}
+            </div>
+        </header>
+
+        {% if resume.career_objective %}
+        <div class="section">
+            <div class="section-title">PROFESSIONAL SUMMARY</div>
+            <p>{{ resume.career_objective }}</p>
+        </div>
+        {% endif %}
+
+        {% if resume.work_history %}
+        <div class="section">
+            <div class="section-title">EXPERIENCE</div>
+            {% for job in resume.work_history %}
+            <div style="margin-bottom: 12px;">
+                <div class="job-header">
+                    <span class="job-title">{{ job.job_title or 'Job Title' }}</span>
+                    <span class="company">{{ job.company or 'Company Name' }}</span>
+                </div>
+                {% if job.location or job.start_date or job.end_date %}
+                <div class="dates">
+                    {% if job.location %}{{ job.location }} • {% endif %}
+                    {{ job.start_date or 'Start Date' }} - {{ job.end_date or 'Present' }}
+                </div>
+                {% endif %}
+                {% if job.description %}
+                <ul>
+                    {% for line in job.description.split('
+') %}
+                        {% if line.strip() %}
+                        <li>{{ line.strip().replace('•', '').strip() }}</li>
+                        {% endif %}
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if resume.skills %}
+        <div class="section">
+            <div class="section-title">CORE COMPETENCIES</div>
+            <div class="skills-grid">
+                {% for skill_cat in resume.skills %}
+                <div class="skill-category">
+                    <div class="skill-title">{{ skill_cat.category or 'Skills' }}</div>
+                    <div class="skill-list">{{ (skill_cat.skill_list or []) | join(', ') }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if resume.education %}
+        <div class="section">
+            <div class="section-title">EDUCATION</div>
+            {% for edu in resume.education %}
+            <div style="margin-bottom: 8px;">
+                <div class="job-title">{{ edu.degree or 'Degree' }}</div>
+                <div class="company">{{ edu.institution or 'Institution' }}</div>
+                <div class="dates">{{ edu.graduation_date or 'Year' }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if resume.certifications %}
+        <div class="section">
+            <div class="section-title">CERTIFICATIONS</div>
+            {% for cert in resume.certifications %}
+            <div style="margin-bottom: 8px;">
+                <div class="job-title">{{ cert.name or 'Certification' }}</div>
+                <div class="company">{{ cert.issuer or 'Issuer' }}</div>
+                <div class="dates">{{ cert.date_obtained or 'Date' }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div style="margin-top: 30px; text-align: center; font-size: 10px; color: #666;">
+            Generated on {{ generation_date }}
+        </div>
+    </div>
+</body>
+</html>
+        

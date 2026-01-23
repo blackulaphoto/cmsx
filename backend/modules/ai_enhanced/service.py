@@ -11,10 +11,13 @@ This service provides comprehensive AI capabilities including:
 import asyncio
 import json
 import logging
+import sqlite3
 from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime, timezone
 import openai
 from openai import AsyncOpenAI
+import os
+import aiosqlite
 
 from ...core.config import settings
 from ...core.container import singleton, IAIService
@@ -37,6 +40,7 @@ class AIService(IAIService):
         self.function_registry: Dict[str, Callable] = {}
         self.conversation_memory: Dict[str, List[Dict[str, Any]]] = {}
         self._initialized = False
+        self.db_path = os.path.join("databases", "ai_assistant.db")
     
     async def initialize(self) -> None:
         """Initialize the AI service with OpenAI client and function registry."""
@@ -51,6 +55,12 @@ class AIService(IAIService):
                 max_retries=3
             )
             
+            # Initialize database for conversation persistence
+            await self._init_database()
+            
+            # Load conversation memory from database
+            await self._load_conversation_memory()
+            
             # Register available functions
             self._register_functions()
             
@@ -60,6 +70,121 @@ class AIService(IAIService):
         except Exception as e:
             logger.error(f"Failed to initialize AI service: {e}")
             raise
+            
+    async def _init_database(self) -> None:
+        """Initialize the database for conversation persistence."""
+        try:
+            # Ensure the databases directory exists
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+            
+            # Create the conversations table if it doesn't exist
+            async with aiosqlite.connect(self.db_path) as db:
+                # Create conversations table
+                await db.execute('''
+                    CREATE TABLE IF NOT EXISTS conversations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT NOT NULL,
+                        role TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        metadata TEXT
+                    )
+                ''')
+                
+                # Create function_calls table to track AI function usage
+                await db.execute('''
+                    CREATE TABLE IF NOT EXISTS function_calls (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT,
+                        function_name TEXT NOT NULL,
+                        parameters TEXT NOT NULL,
+                        result TEXT,
+                        success INTEGER NOT NULL,
+                        error_message TEXT,
+                        timestamp TEXT NOT NULL
+                    )
+                ''')
+                
+                await db.commit()
+                
+            logger.info(f"Database initialized at {self.db_path}")
+        except Exception as e:
+            logger.error(f"Failed to initialize database: {e}")
+            raise
+            
+    async def _load_conversation_memory(self) -> None:
+        """Load conversation memory from database."""
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                
+                # Get all unique user IDs
+                async with db.execute('SELECT DISTINCT user_id FROM conversations') as cursor:
+                    user_ids = [row['user_id'] async for row in cursor]
+                
+                # Load conversations for each user
+                for user_id in user_ids:
+                    async with db.execute(
+                        'SELECT * FROM conversations WHERE user_id = ? ORDER BY timestamp',
+                        (user_id,)
+                    ) as cursor:
+                        conversations = []
+                        async for row in cursor:
+                            metadata = {}
+                            if row['metadata']:
+                                try:
+                                    metadata = json.loads(row['metadata'])
+                                except:
+                                    pass
+                                    
+                            conversations.append({
+                                "role": row['role'],
+                                "content": row['content'],
+                                "timestamp": row['timestamp'],
+                                **metadata
+                            })
+                        
+                        if conversations:
+                            self.conversation_memory[user_id] = conversations
+                
+                logger.info(f"Loaded conversations for {len(user_ids)} users from database")
+        except Exception as e:
+            logger.error(f"Failed to load conversation memory: {e}")
+            # Continue with empty memory if loading fails
+            logger.warning("Continuing with empty conversation memory")
+            
+    async def _save_conversation_to_db(self, user_id: str, message: Dict[str, Any]) -> None:
+        """
+        Save a conversation message to the database.
+        
+        Args:
+            user_id: The user ID associated with the conversation
+            message: The message to save (contains role and content)
+        """
+        try:
+            # Extract metadata (anything that's not role or content)
+            metadata = {k: v for k, v in message.items() if k not in ['role', 'content']}
+            metadata_json = json.dumps(metadata) if metadata else None
+            
+            # Get current timestamp
+            timestamp = datetime.now(timezone.utc).isoformat()
+            
+            # Insert into database
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    '''
+                    INSERT INTO conversations 
+                    (user_id, role, content, timestamp, metadata)
+                    VALUES (?, ?, ?, ?, ?)
+                    ''',
+                    (user_id, message['role'], message['content'], timestamp, metadata_json)
+                )
+                await db.commit()
+                
+            logger.debug(f"Saved {message['role']} message for user {user_id} to database")
+        except Exception as e:
+            logger.error(f"Failed to save conversation to database: {e}")
+            # Continue without saving to database - we still have in-memory copy
     
     def _register_functions(self) -> None:
         """Register all available functions for AI function calling."""
@@ -158,14 +283,23 @@ class AIService(IAIService):
                 if user_id not in self.conversation_memory:
                     self.conversation_memory[user_id] = []
                 
+                # Create message objects
+                user_message = {"role": "user", "content": prompt}
+                assistant_message = {"role": "assistant", "content": ai_response}
+                
+                # Add to in-memory conversation
                 self.conversation_memory[user_id].extend([
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": ai_response}
+                    user_message,
+                    assistant_message
                 ])
                 
                 # Keep only last 50 messages per user
                 if len(self.conversation_memory[user_id]) > 50:
                     self.conversation_memory[user_id] = self.conversation_memory[user_id][-50:]
+                
+                # Persist to database
+                await self._save_conversation_to_db(user_id, user_message)
+                await self._save_conversation_to_db(user_id, assistant_message)
             
             return ai_response
             
@@ -268,14 +402,88 @@ class AIService(IAIService):
         if function_name not in self.function_registry:
             raise ValueError(f"Function '{function_name}' not found in registry")
         
+        # Extract user_id from parameters if available
+        user_id = parameters.get("user_id", None)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        success = 1
+        error_message = None
+        result_data = None
+        
         try:
+            # Execute the function
             function = self.function_registry[function_name]
             result = await function(**parameters)
+            result_data = result
+            
+            # Log successful function call to database
+            await self._log_function_call(
+                user_id=user_id,
+                function_name=function_name,
+                parameters=parameters,
+                result=result,
+                success=True,
+                error_message=None
+            )
+            
             return result
             
         except Exception as e:
+            # Log error
             logger.error(f"Error executing function '{function_name}': {e}")
+            error_message = str(e)
+            success = 0
+            
+            # Log failed function call to database
+            await self._log_function_call(
+                user_id=user_id,
+                function_name=function_name,
+                parameters=parameters,
+                result=None,
+                success=False,
+                error_message=error_message
+            )
+            
             raise
+            
+    async def _log_function_call(self, user_id: str, function_name: str, 
+                               parameters: Dict[str, Any], result: Any,
+                               success: bool, error_message: str = None) -> None:
+        """
+        Log function call to database for tracking and analytics.
+        
+        Args:
+            user_id: User ID (if available)
+            function_name: Name of the function called
+            parameters: Parameters passed to the function
+            result: Result of the function call
+            success: Whether the function call was successful
+            error_message: Error message if the function call failed
+        """
+        try:
+            # Convert parameters and result to JSON
+            parameters_json = json.dumps(parameters)
+            result_json = json.dumps(result) if result is not None else None
+            
+            # Get current timestamp
+            timestamp = datetime.now(timezone.utc).isoformat()
+            
+            # Insert into database
+            async with aiosqlite.connect(self.db_path) as db:
+                await db.execute(
+                    '''
+                    INSERT INTO function_calls 
+                    (user_id, function_name, parameters, result, success, error_message, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (user_id, function_name, parameters_json, result_json, 
+                     1 if success else 0, error_message, timestamp)
+                )
+                await db.commit()
+                
+            logger.debug(f"Logged function call: {function_name} (success: {success})")
+        except Exception as e:
+            logger.error(f"Failed to log function call to database: {e}")
+            # Continue without logging to database
     
     async def generate_smart_reminders(self, client_id: str, context: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """
@@ -601,17 +809,77 @@ class AIService(IAIService):
         return await self.generate_smart_reminders(client_id, {"context": context})
     
     async def _search_resources(self, query: str, resource_type: str = "general", location: str = "") -> List[Dict[str, Any]]:
-        """Search for resources."""
-        # Mock implementation
-        return [
-            {
-                "title": f"Resource for {query}",
-                "type": resource_type,
-                "location": location,
-                "description": f"Helpful resource related to {query}",
-                "contact": "555-0123"
+        """
+        Search for resources using Google Custom Search Engine.
+        
+        Args:
+            query: The search query
+            resource_type: Type of resource to search for (housing, jobs, benefits, legal, general)
+            location: Location for the search
+            
+        Returns:
+            List of search results
+        """
+        try:
+            # Import the search coordinator
+            from ...search.coordinator import SimpleSearchCoordinator, SearchType
+            
+            # Initialize search coordinator
+            coordinator = SimpleSearchCoordinator()
+            
+            # Map resource type to search type
+            search_type_map = {
+                "housing": SearchType.HOUSING,
+                "jobs": SearchType.JOBS,
+                "services": SearchType.SERVICES,
+                "benefits": SearchType.SERVICES,
+                "legal": SearchType.SERVICES,
+                "general": SearchType.GENERAL
             }
-        ]
+            
+            # Get the appropriate search type
+            search_type = search_type_map.get(resource_type.lower(), SearchType.GENERAL)
+            
+            # Set default location if not provided
+            if not location:
+                location = "Los Angeles, CA"
+                
+            logger.info(f"Searching for {resource_type} resources with query: '{query}' in {location}")
+            
+            # Perform the search
+            search_results = coordinator.search(query, search_type, location)
+            
+            # Format the results
+            formatted_results = []
+            for item in search_results.get("results", []):
+                formatted_results.append({
+                    "title": item.get("title", ""),
+                    "description": item.get("description", ""),
+                    "url": item.get("url", ""),
+                    "source": item.get("source", ""),
+                    "type": resource_type,
+                    "location": location,
+                    "confidence_score": item.get("confidence_score", 0.0)
+                })
+                
+            logger.info(f"Found {len(formatted_results)} {resource_type} resources for query: '{query}'")
+            
+            return formatted_results
+            
+        except Exception as e:
+            logger.error(f"Error searching for resources: {e}")
+            # Return a minimal fallback result if search fails
+            return [
+                {
+                    "title": f"Resource for {query}",
+                    "type": resource_type,
+                    "location": location,
+                    "description": f"Helpful resource related to {query}",
+                    "url": "",
+                    "source": "fallback",
+                    "error": str(e)
+                }
+            ]
     
     async def _create_case_note(self, client_id: str, title: str, content: str, note_type: str = "general") -> Dict[str, Any]:
         """Create a case note."""

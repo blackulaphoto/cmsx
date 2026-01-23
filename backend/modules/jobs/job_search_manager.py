@@ -21,19 +21,19 @@ logger = logging.getLogger(__name__)
 
 # Import scrapers - with error handling for missing dependencies
 try:
-    from backend.modules.scrapers.craigslist_scraper import CraigslistScraper
+    from backend.modules.jobs.scrapers.craigslist_scraper import CraigslistScraper
 except ImportError as e:
     logger.warning(f"Failed to import CraigslistScraper: {e}")
     CraigslistScraper = None
 
 try:
-    from backend.modules.scrapers.builtinla_scraper import BuiltInLAScraper
+    from backend.modules.jobs.scrapers.builtinla_scraper import BuiltInLAScraper
 except ImportError as e:
     logger.warning(f"Failed to import BuiltInLAScraper: {e}")
     BuiltInLAScraper = None
 
 try:
-    from backend.modules.scrapers.government_scraper import GovernmentScraper
+    from backend.modules.jobs.scrapers.government_scraper import GovernmentScraper
 except ImportError as e:
     logger.warning(f"Failed to import GovernmentScraper: {e}")
     GovernmentScraper = None
@@ -52,7 +52,11 @@ class JobSearchManager:
         
         # Google Custom Search configuration
         self.google_api_key = os.getenv('GOOGLE_API_KEY')
-        self.custom_search_engine_id = os.getenv('CUSTOM_SEARCH_ENGINE_ID')
+        self.custom_search_engine_id = (
+            os.getenv('GOOGLE_JOBS_CSE_ID')
+            or os.getenv('GOOGLE_CSE_ID')
+            or os.getenv('CUSTOM_SEARCH_ENGINE_ID')
+        )
     
     def _initialize_scrapers(self) -> Dict[str, Any]:
         """Initialize all available job scrapers"""

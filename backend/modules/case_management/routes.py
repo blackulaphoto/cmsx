@@ -10,7 +10,7 @@ from typing import Dict, List, Any, Optional
 import logging
 from datetime import datetime
 
-from .models import Client, CaseNote, Referral
+from .models import Client, Referral
 from .database import CaseManagementDatabase
 
 logger = logging.getLogger(__name__)
@@ -498,6 +498,342 @@ async def _generate_initial_tasks(client: Client):
     except Exception as e:
         logger.error(f"Error generating initial tasks: {e}")
 
+
+# =============================================================================
+# NOTES ENDPOINTS (Progressive Backend Implementation)
+# =============================================================================
+
+class NoteCreateRequest(BaseModel):
+    note_type: str = Field(..., description="Type of note")
+    content: str = Field(..., min_length=1, description="Note content")
+    created_by: str = Field(..., description="User who created the note")
+
+@router.post("/notes/add/{client_id}")
+async def add_client_note(client_id: str, note_data: NoteCreateRequest):
+    """Add a new note for a client (Progressive implementation)"""
+    try:
+        # For now, we'll store notes in a simple JSON file structure
+        # This allows immediate functionality while backend develops
+        
+        import json
+        import os
+        import uuid
+        
+        # Create notes directory if it doesn't exist
+        notes_dir = "databases/notes"
+        os.makedirs(notes_dir, exist_ok=True)
+        
+        # Create note object
+        note = {
+            "note_id": f"note_{str(uuid.uuid4())[:8]}",
+            "client_id": client_id,
+            "note_type": note_data.note_type,
+            "content": note_data.content,
+            "created_by": note_data.created_by,
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        # Load existing notes for this client
+        notes_file = os.path.join(notes_dir, f"{client_id}.json")
+        notes = []
+        if os.path.exists(notes_file):
+            try:
+                with open(notes_file, 'r') as f:
+                    notes = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                notes = []
+        
+        # Add new note
+        notes.append(note)
+        
+        # Save back to file
+        with open(notes_file, 'w') as f:
+            json.dump(notes, f, indent=2)
+        
+        logger.info(f"Added note {note['note_id']} for client {client_id}")
+        
+        return JSONResponse({
+            "success": True,
+            "note_id": note["note_id"],
+            "message": "Note added successfully"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error adding note for client {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/notes/list/{client_id}")
+async def get_client_notes(client_id: str):
+    """Get all notes for a client"""
+    try:
+        import json
+        import os
+        
+        notes_file = f"databases/notes/{client_id}.json"
+        
+        if not os.path.exists(notes_file):
+            return JSONResponse({
+                "success": True,
+                "notes": []
+            })
+        
+        with open(notes_file, 'r') as f:
+            notes = json.load(f)
+        
+        # Sort by created_at descending
+        notes.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+        
+        return JSONResponse({
+            "success": True,
+            "notes": notes
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting notes for client {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/notes/{note_id}")
+async def delete_note(note_id: str):
+    """Delete a specific note (Progressive implementation)"""
+    try:
+        import json
+        import os
+        import glob
+        
+        # Search through all client note files to find the note
+        notes_dir = "databases/notes"
+        if not os.path.exists(notes_dir):
+            raise HTTPException(status_code=404, detail="Note not found")
+        
+        for notes_file in glob.glob(os.path.join(notes_dir, "*.json")):
+            try:
+                with open(notes_file, 'r') as f:
+                    notes = json.load(f)
+                
+                # Find and remove the note
+                original_length = len(notes)
+                notes = [note for note in notes if note.get('note_id') != note_id]
+                
+                if len(notes) < original_length:
+                    # Note was found and removed
+                    with open(notes_file, 'w') as f:
+                        json.dump(notes, f, indent=2)
+                    
+                    logger.info(f"Deleted note {note_id}")
+                    return JSONResponse({
+                        "success": True,
+                        "message": "Note deleted successfully"
+                    })
+                    
+            except (json.JSONDecodeError, FileNotFoundError):
+                continue
+        
+        raise HTTPException(status_code=404, detail="Note not found")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting note {note_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/tasks/add/{client_id}")
+async def add_task(client_id: str, task_data: dict):
+    """Add a new task for a client"""
+    try:
+        import json
+        import os
+        from datetime import datetime
+        
+        # Ensure tasks directory exists
+        tasks_dir = "databases/tasks"
+        os.makedirs(tasks_dir, exist_ok=True)
+        
+        tasks_file = f"{tasks_dir}/{client_id}.json"
+        
+        # Generate task ID
+        task_id = f"task_{int(datetime.now().timestamp())}_{client_id[:8]}"
+        
+        # Create task object
+        new_task = {
+            "task_id": task_id,
+            "client_id": client_id,
+            "title": task_data.get("title", ""),
+            "description": task_data.get("description", ""),
+            "priority": task_data.get("priority", "medium"),
+            "status": "pending",
+            "task_type": task_data.get("task_type", "general"),
+            "due_date": task_data.get("due_date"),
+            "assigned_to": task_data.get("assigned_to", "Current User"),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat()
+        }
+        
+        # Load existing tasks
+        tasks = []
+        if os.path.exists(tasks_file):
+            with open(tasks_file, 'r', encoding='utf-8') as f:
+                tasks = json.load(f)
+        
+        # Add new task
+        tasks.append(new_task)
+        
+        # Save tasks
+        with open(tasks_file, 'w', encoding='utf-8') as f:
+            json.dump(tasks, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Task added for client {client_id}: {task_id}")
+        
+        return JSONResponse({
+            "success": True,
+            "task_id": task_id,
+            "message": "Task added successfully"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error adding task for client {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/tasks/list/{client_id}")
+async def get_client_tasks(client_id: str):
+    """Get all tasks for a client"""
+    try:
+        import json
+        import os
+        
+        tasks_file = f"databases/tasks/{client_id}.json"
+        
+        if not os.path.exists(tasks_file):
+            return JSONResponse({
+                "success": True,
+                "tasks": [],
+                "message": "No tasks found for this client"
+            })
+        
+        with open(tasks_file, 'r', encoding='utf-8') as f:
+            tasks = json.load(f)
+        
+        # Sort tasks by due date
+        tasks.sort(key=lambda x: x.get('due_date', '9999-12-31'))
+        
+        logger.info(f"Retrieved {len(tasks)} tasks for client {client_id}")
+        
+        return JSONResponse({
+            "success": True,
+            "tasks": tasks,
+            "count": len(tasks)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error retrieving tasks for client {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/tasks/update/{task_id}")
+async def update_task(task_id: str, task_data: dict):
+    """Update an existing task"""
+    try:
+        import json
+        import os
+        from datetime import datetime
+        
+        # Find the task file by searching all client task files
+        tasks_dir = "databases/tasks"
+        if not os.path.exists(tasks_dir):
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        task_found = False
+        for filename in os.listdir(tasks_dir):
+            if filename.endswith('.json'):
+                tasks_file = os.path.join(tasks_dir, filename)
+                
+                with open(tasks_file, 'r', encoding='utf-8') as f:
+                    tasks = json.load(f)
+                
+                # Find and update the task
+                for i, task in enumerate(tasks):
+                    if task.get('task_id') == task_id:
+                        # Update task fields
+                        task.update({
+                            "title": task_data.get("title", task.get("title")),
+                            "description": task_data.get("description", task.get("description")),
+                            "priority": task_data.get("priority", task.get("priority")),
+                            "status": task_data.get("status", task.get("status")),
+                            "task_type": task_data.get("task_type", task.get("task_type")),
+                            "due_date": task_data.get("due_date", task.get("due_date")),
+                            "assigned_to": task_data.get("assigned_to", task.get("assigned_to")),
+                            "updated_at": datetime.now().isoformat()
+                        })
+                        
+                        # Add completed_at if status is completed
+                        if task_data.get("status") == "completed" and not task.get("completed_at"):
+                            task["completed_at"] = datetime.now().isoformat()
+                        
+                        tasks[i] = task
+                        task_found = True
+                        
+                        # Save updated tasks
+                        with open(tasks_file, 'w', encoding='utf-8') as f:
+                            json.dump(tasks, f, indent=2, ensure_ascii=False)
+                        
+                        logger.info(f"Task updated: {task_id}")
+                        
+                        return JSONResponse({
+                            "success": True,
+                            "message": "Task updated successfully",
+                            "task": task
+                        })
+        
+        if not task_found:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+    except Exception as e:
+        logger.error(f"Error updating task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/tasks/{task_id}")
+async def delete_task(task_id: str):
+    """Delete a task"""
+    try:
+        import json
+        import os
+        
+        # Find the task file by searching all client task files
+        tasks_dir = "databases/tasks"
+        if not os.path.exists(tasks_dir):
+            raise HTTPException(status_code=404, detail="Task not found")
+        
+        task_found = False
+        for filename in os.listdir(tasks_dir):
+            if filename.endswith('.json'):
+                tasks_file = os.path.join(tasks_dir, filename)
+                
+                with open(tasks_file, 'r', encoding='utf-8') as f:
+                    tasks = json.load(f)
+                
+                # Find and remove the task
+                original_length = len(tasks)
+                tasks = [task for task in tasks if task.get('task_id') != task_id]
+                
+                if len(tasks) < original_length:
+                    task_found = True
+                    
+                    # Save updated tasks
+                    with open(tasks_file, 'w', encoding='utf-8') as f:
+                        json.dump(tasks, f, indent=2, ensure_ascii=False)
+                    
+                    logger.info(f"Task deleted: {task_id}")
+                    
+                    return JSONResponse({
+                        "success": True,
+                        "message": "Task deleted successfully"
+                    })
+        
+        if not task_found:
+            raise HTTPException(status_code=404, detail="Task not found")
+            
+    except Exception as e:
+        logger.error(f"Error deleting task {task_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health")
 async def health_check():

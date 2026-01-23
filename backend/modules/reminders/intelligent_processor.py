@@ -9,6 +9,8 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import uuid
 import json
+import sqlite3
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -496,4 +498,155 @@ class IntelligentTaskProcessor:
         except Exception as e:
             logger.error(f"Error validating task dependencies: {e}")
             return False
+    
+    def _get_database_path(self) -> Path:
+        """Get the path to the reminders database"""
+        return Path("databases/reminders.db")
+    
+    def _save_tasks_to_database(self, client_id: str, tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        NEW METHOD: Persist generated tasks to database
+        FIXED: Uses existing database schema (id, task_type, etc.)
+        """
+        try:
+            db_path = self._get_database_path()
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Clear existing tasks for this client to prevent duplicates
+                cursor.execute("DELETE FROM intelligent_tasks WHERE client_id = ?", (client_id,))
+                
+                # Insert new tasks using EXISTING schema
+                inserted_count = 0
+                for task in tasks:
+                    try:
+                        # Map task fields to EXISTING database schema
+                        task_id = task.get('task_id', str(uuid.uuid4()))
+                        title = task.get('title', 'Untitled Task')
+                        description = task.get('description', '')
+                        task_type = task.get('process_type', 'unknown')  # Maps to task_type column
+                        
+                        due_date = task.get('scheduled_date', self.current_date.isoformat())
+                        priority = task.get('priority', 'medium').lower()
+                        status = task.get('status', 'pending').lower()
+                        estimated_minutes = task.get('estimated_minutes', 45)
+                        created_at = task.get('created_at', self.current_date.isoformat())
+                        
+                        # Use existing schema: id, client_id, task_type, title, description, priority, estimated_minutes, status, created_at, due_date, completed_at
+                        cursor.execute("""
+                            INSERT INTO intelligent_tasks (
+                                id, client_id, task_type, title, description, 
+                                priority, estimated_minutes, status, created_at, due_date, completed_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            task_id, client_id, task_type, title, description,
+                            priority, estimated_minutes, status, created_at, due_date, None
+                        ))
+                        inserted_count += 1
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to insert task {task.get('title', 'unknown')}: {str(e)}")
+                
+                conn.commit()
+                
+                logger.info(f"Successfully persisted {inserted_count}/{len(tasks)} tasks for client {client_id}")
+                
+                return {
+                    "success": True,
+                    "inserted_count": inserted_count,
+                    "total_tasks": len(tasks),
+                    "client_id": client_id
+                }
+                
+        except Exception as e:
+            logger.error(f"Database persistence error for client {client_id}: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "inserted_count": 0
+            }
+    
+    def get_client_tasks_from_database(self, client_id: str) -> List[Dict[str, Any]]:
+        """
+        NEW METHOD: Retrieve persisted tasks from database
+        FIXED: Uses existing database schema
+        """
+        try:
+            db_path = self._get_database_path()
+            
+            with sqlite3.connect(db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Use EXISTING schema: id, client_id, task_type, title, description, priority, estimated_minutes, status, created_at, due_date, completed_at
+                cursor.execute("""
+                    SELECT id, client_id, task_type, title, description, 
+                           priority, estimated_minutes, status, created_at, due_date, completed_at
+                    FROM intelligent_tasks 
+                    WHERE client_id = ?
+                    ORDER BY due_date ASC, 
+                             CASE priority 
+                                 WHEN 'high' THEN 1 
+                                 WHEN 'medium' THEN 2 
+                                 WHEN 'low' THEN 3 
+                                 ELSE 4 
+                             END
+                """, (client_id,))
+                
+                rows = cursor.fetchall()
+                
+                tasks = []
+                for row in rows:
+                    tasks.append({
+                        'task_id': row[0],  # id column
+                        'client_id': row[1],
+                        'process_type': row[2],  # task_type column
+                        'title': row[3],
+                        'description': row[4],
+                        'priority': row[5],
+                        'estimated_minutes': row[6],
+                        'status': row[7],
+                        'created_at': row[8],
+                        'scheduled_date': row[9],  # due_date column mapped to scheduled_date
+                        'due_date': row[9],
+                        'completed_at': row[10],
+                        'dependencies': []  # Not stored in existing schema
+                    })
+                
+                logger.info(f"Retrieved {len(tasks)} persisted tasks for client {client_id}")
+                return tasks
+                
+        except Exception as e:
+            logger.error(f"Error retrieving tasks from database for client {client_id}: {str(e)}")
+            return []
+    
+    def generate_and_persist_process_tasks(self, client_id: str, process_types: List[str] = None) -> List[Dict[str, Any]]:
+        """
+        NEW METHOD: Generate tasks and persist them to database
+        This is the main method that combines generation with persistence
+        """
+        try:
+            # Use all available process types if none specified
+            if process_types is None:
+                process_types = self.get_available_process_types()
+            
+            # Generate tasks using existing logic (preserves all AI optimization)
+            all_tasks = []
+            for process_type in process_types:
+                try:
+                    process_tasks = self.generate_process_tasks(client_id, process_type)
+                    all_tasks.extend(process_tasks)
+                except Exception as e:
+                    logger.warning(f"Error generating {process_type} tasks for client {client_id}: {e}")
+            
+            # Persist tasks to database
+            if all_tasks:
+                persistence_result = self._save_tasks_to_database(client_id, all_tasks)
+                logger.info(f"Task persistence result for client {client_id}: {persistence_result}")
+            
+            return all_tasks
+            
+        except Exception as e:
+            logger.error(f"Error in generate_and_persist_process_tasks for client {client_id}: {e}")
+            return []
 

@@ -1,0 +1,217 @@
+# Medical Social Worker Resume Template Conversion
+
+## Design Analysis
+Based on the provided resume example for Lana Bennett, the layout features a two‑column design:
+- **Sidebar (left column):** teal background with white text for contact details, certifications, and key skills.
+- **Main content (right column):** white background with black/charcoal text for name, summary, experience, and education sections.
+
+**Color Scheme** (approximate—please validate exact hex values):
+- Teal \(`--primary-accent`: #007B8A\)
+- White \(`--bg-light`: #FFFFFF\)
+- Dark Charcoal \(`--text-dark`: #333333\)
+- Sidebar headings slightly lighter teal \(`--accent-light`: #0092A3\)
+
+**Typography:**
+- Headings: Arial, bold, uppercase for section titles
+- Body text: Arial, normal weight
+
+**Spacing & Hierarchy:**
+- 16px base spacing
+- 24px vertical gap between sections
+- 32px gap between columns on desktop; stack on mobile
+
+## HTML Template
+```html
+<div class="resume-template medical-social-worker">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="contact">
+      <h1 class="full-name">{{full_name}}</h1>
+      <p class="title">{{title}}</p>
+      <p class="contact-info">
+        <span class="phone">{{phone}}</span> |
+        <span class="email">{{email}}</span> |
+        <span class="location">{{location}}</span> |
+        <a href="{{linkedin_url}}" class="linkedin">LinkedIn</a>
+      </p>
+    </div>
+
+    <section class="section certifications">
+      <h2>Certifications</h2>
+      <ul>
+        {% for cert in certifications %}
+        <li>{{cert}}</li>
+        {% endfor %}
+      </ul>
+    </section>
+
+    <section class="section skills">
+      <h2>Key Skills</h2>
+      <ul>
+        {% for skill in technical_skills %}
+        <li>{{skill}}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <section class="summary">
+      <h2>Professional Summary</h2>
+      <p>{{professional_summary}}</p>
+    </section>
+
+    <section class="experience">
+      <h2>Professional Experience</h2>
+      {% for job in work_experience %}
+      <div class="job-entry">
+        <h3>{{job.title}} | {{job.company}}, {{job.location}}</h3>
+        <div class="job-dates">{{job.start_date}} – {{job.end_date}}</div>
+        <p>{{job.description}}</p>
+      </div>
+      {% endfor %}
+    </section>
+
+    <section class="education">
+      <h2>Education</h2>
+      {% for edu in education %}
+      <div class="education-entry">
+        <h3>{{edu.degree}}, {{edu.field}}</h3>
+        <div class="school">{{edu.school}} – {{edu.graduation_year}}</div>
+      </div>
+      {% endfor %}
+    </section>
+  </main>
+</div>
+```  
+
+## CSS Styling
+```css
+:root {
+  --primary-accent: #007B8A;
+  --accent-light: #0092A3;
+  --bg-light: #FFFFFF;
+  --text-dark: #333333;
+  --text-light: #F5F5F5;
+  --spacing: 16px;
+}
+
+.resume-template {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: calc(var(--spacing) * 2);
+  font-family: Arial, sans-serif;
+  color: var(--text-dark);
+  background: var(--bg-light);
+  padding: var(--spacing);
+}
+
+/* Sidebar */
+.sidebar {
+  background: var(--primary-accent);
+  color: var(--text-light);
+  padding: var(--spacing);
+}
+.sidebar .section {
+  margin-top: calc(var(--spacing) * 2);
+}
+.sidebar h2 {
+  font-size: 18px;
+  margin-bottom: var(--spacing);
+  text-transform: uppercase;
+}
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+.sidebar li {
+  margin-bottom: var(--spacing);
+}
+.full-name {
+  font-size: 28px;
+  margin: 0;
+}
+.title {
+  font-size: 16px;
+  margin-top: 4px;
+  opacity: 0.8;
+}
+.contact-info {
+  font-size: 14px;
+  margin-top: var(--spacing);
+}
+.contact-info a {
+  color: var(--text-light);
+  text-decoration: none;
+}
+
+/* Main Content */
+.main-content {
+  padding: var(--spacing);
+}
+.main-content h2 {
+  font-size: 20px;
+  border-bottom: 2px solid var(--accent-light);
+  padding-bottom: 4px;
+  margin-bottom: var(--spacing);
+  text-transform: uppercase;
+}
+.job-entry, .education-entry {
+  margin-bottom: calc(var(--spacing) * 2);
+}
+.job-entry h3, .education-entry h3 {
+  font-size: 16px;
+  margin: 0;
+}
+.job-dates, .school {
+  font-size: 14px;
+  opacity: 0.8;
+  margin-bottom: var(--spacing);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .resume-template {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    order: 2;
+  }
+  .main-content {
+    order: 1;
+  }
+}
+```  
+
+## Template Registration Code
+```python
+from ai_job_platform import TemplateMetadata
+
+'template_medical_social_worker': TemplateMetadata(
+    id='template_medical_social_worker',
+    name='Medical Social Worker',
+    description='Two-column resume with teal sidebar for certifications and skills, main content for summary, experience, and education',
+    category='professional',
+    industry_focus=['healthcare', 'social work'],
+    color_scheme='teal-white',
+    layout_type='two-column',
+    preview_image='/static/images/templates/template_medical_social_worker.png',
+    features=['responsive', 'print-friendly', 'ATS-optimized']
+),
+```  
+
+## Installation & Usage Instructions
+1. **Add HTML & CSS**: Copy the HTML into your template directory and include the CSS in your global stylesheet or as a separate file.
+2. **Placeholders**: Ensure your rendering engine replaces all `{{...}}` placeholders correctly.
+3. **Register Template**: Add the registration snippet to your platform’s `templates.py` and restart the server.
+4. **Preview**: Visit the template preview at `/templates/template_medical_social_worker` to verify rendering.
+
+## Testing Checklist
+- [ ] All dynamic placeholders render with sample data.
+- [ ] Sidebar and main content stack correctly on mobile (<768px).
+- [ ] Print preview shows black text on white background, with accent elements hidden or monochrome.
+- [ ] Links (e.g., LinkedIn) are clickable and styled correctly.
+- [ ] No overlapping or truncated text when longer job descriptions are used.
+
+*Note: Please confirm the exact hex values for the teal accent colors to match the original design.*

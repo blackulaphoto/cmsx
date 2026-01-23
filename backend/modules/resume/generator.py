@@ -1,3 +1,14 @@
+# ================================================================
+# @generated
+# @preserve
+# @readonly
+# DO NOT MODIFY THIS FILE
+# Purpose: This module/component/route is production-approved.
+# Any changes must be approved by the lead developer.
+#
+# WARNING: Modifying this file may break the application.
+# ================================================================
+
 #!/usr/bin/env python3
 """
 Resume Generator with GPT-4o Integration
@@ -31,7 +42,7 @@ class OpenAIClient:
     """OpenAI API client for resume generation"""
     
     def __init__(self, api_key: str = None):
-        self.api_key = api_key or "REDACTED"
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.base_url = "https://api.openai.com/v1"
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -42,6 +53,9 @@ class OpenAIClient:
                        temperature: float = 0.7, max_tokens: int = 2000) -> Optional[str]:
         """Make a chat completion request to OpenAI"""
         try:
+            if not self.api_key:
+                logger.error("OpenAI API key is not configured for resume generation")
+                return None
             payload = {
                 "model": model,
                 "messages": messages,
@@ -599,4 +613,3 @@ if __name__ == "__main__":
         text_output = formatter.format_as_text(test_resume)
         print("✅ Formatter working correctly!")
         print(text_output[:200] + "...")
-

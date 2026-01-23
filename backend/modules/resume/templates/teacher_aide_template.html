@@ -1,0 +1,207 @@
+# Teacher Aide Resume Template Conversion
+
+## Design Analysis
+From the “Teacher Aide” example (Emily Grant), the layout features a two‑column design:
+- **Sidebar (left column):** muted blue/teal accent background with white text for contact details and key skills.
+- **Main content (right column):** white background with dark charcoal text for summary, education, and experience.
+
+**Color Scheme** (approximate—please confirm hex values):
+- Muted Teal \(`--primary-accent`: #4A90B0\)
+- White \(`--bg-light`: #FFFFFF\)
+- Dark Charcoal \(`--text-dark`: #2A2A2A\)
+- Light Gray for section separators \(`--border-light`: #E0E0E0\)
+
+**Typography & Hierarchy:**
+- Name: 32px bold Arial
+- Headings: uppercase, 18px, letter-spacing
+- Body text: 14px regular Arial
+
+**Spacing:**
+- Base spacing: 16px
+- Vertical gaps: 24px
+- Column gap: 32px on desktop; stack on mobile
+
+---
+
+## HTML Template
+```html
+<div class="resume-template teacher-aide">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <h1 class="full-name">{{full_name}}</h1>
+    <p class="tagline">{{professional_title}}</p>
+    <section class="contact">
+      <p class="location">{{location}}</p>
+      <p class="phone">{{phone}}</p>
+      <p class="email">{{email}}</p>
+      <p><a href="{{linkedin_url}}" class="link">LinkedIn</a></p>
+    </section>
+
+    <section class="section skills">
+      <h2>Key Skills</h2>
+      <ul>
+        {% for skill in technical_skills %}
+        <li>{{skill}}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <section class="education">
+      <h2>Education</h2>
+      {% for edu in education %}
+      <div class="education-entry">
+        <h3>{{edu.degree}}</h3>
+        <p class="school">{{edu.school}} | {{edu.graduation_month}} {{edu.graduation_year}}</p>
+      </div>
+      {% endfor %}
+    </section>
+
+    <section class="experience">
+      <h2>Professional Experience</h2>
+      {% for job in work_experience %}
+      <div class="job-entry">
+        <h3>{{job.title}} | {{job.company}}, {{job.location}}</h3>
+        <p class="job-dates">{{job.start_date}} – {{job.end_date}}</p>
+        <ul>
+          {% for bullet in job.bullets %}
+          <li>{{bullet}}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endfor %}
+    </section>
+  </main>
+</div>
+```
+
+## CSS Styling
+```css
+:root {
+  --primary-accent: #4A90B0;
+  --bg-light: #FFFFFF;
+  --text-dark: #2A2A2A;
+  --text-light: #F5F5F5;
+  --border-light: #E0E0E0;
+  --spacing: 16px;
+}
+
+.resume-template.teacher-aide {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: calc(var(--spacing) * 2);
+  font-family: Arial, sans-serif;
+  color: var(--text-dark);
+  background: var(--bg-light);
+  padding: var(--spacing);
+}
+
+/* Sidebar */
+.sidebar {
+  background: var(--primary-accent);
+  color: var(--text-light);
+  padding: var(--spacing);
+}
+.sidebar .full-name {
+  font-size: 32px;
+  margin: 0;
+}
+.sidebar .tagline {
+  font-size: 16px;
+  margin-bottom: var(--spacing);
+  opacity: 0.9;
+}
+.sidebar .section {
+  margin-top: calc(var(--spacing) * 2);
+}
+.sidebar h2 {
+  font-size: 18px;
+  text-transform: uppercase;
+  margin-bottom: var(--spacing);
+}
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+.sidebar li {
+  margin-bottom: calc(var(--spacing) / 2);
+}
+.sidebar .contact p {
+  margin: 4px 0;
+  font-size: 14px;
+}
+.sidebar .link {
+  color: var(--text-light);
+  text-decoration: none;
+}
+
+/* Main Content */
+.main-content {
+  padding: var(--spacing);
+  border-left: 2px solid var(--border-light);
+}
+.main-content h2 {
+  font-size: 18px;
+  text-transform: uppercase;
+  margin-bottom: var(--spacing);
+}
+.education-entry, .job-entry {
+  margin-bottom: calc(var(--spacing) * 2);
+}
+.education-entry h3, .job-entry h3 {
+  font-size: 16px;
+  margin: 0;
+}
+.school, .job-dates {
+  font-size: 14px;
+  opacity: 0.8;
+  margin: 4px 0 var(--spacing) 0;
+}
+.job-entry ul {
+  list-style: disc inside;
+  margin: 0;
+  padding-left: var(--spacing);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .resume-template.teacher-aide {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    order: 2;
+  }
+  .main-content {
+    order: 1;
+    border-left: none;
+  }
+}
+```
+
+## Template Registration Code
+```python
+from ai_job_platform import TemplateMetadata
+
+'template_teacher_aide': TemplateMetadata(
+    id='template_teacher_aide',
+    name='Teacher Aide',
+    description='Two-column resume with muted teal sidebar for contact and skills, main content for education and experience',
+    category='professional',
+    industry_focus=['education'],
+    color_scheme='teal-white',
+    layout_type='two-column',
+    preview_image='/static/images/templates/template_teacher_aide.png',
+    features=['responsive', 'print-friendly', 'ATS-optimized']
+),
+```
+
+## Installation & Testing
+1. **Add Files**: Include the HTML snippet in your templates directory and add the CSS.
+2. **Register**: Insert the metadata entry into `templates.py` and restart.
+3. **Validate Placeholders**: Render with example data to ensure all tags populate.
+4. **Responsive Check**: Verify sidebar stacks below main content under 768px.
+5. **Print Mode**: Confirm accent background converts to monochrome or hides when printing.
+
+*Please confirm exact hex values for `--primary-accent` to match the original design.*

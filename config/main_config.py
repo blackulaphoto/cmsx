@@ -34,7 +34,7 @@ class Config:
     
     # AI settings
     OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-    AI_MODEL = os.environ.get('AI_MODEL') or 'gpt-3.5-turbo'
+    AI_MODEL = os.environ.get('AI_MODEL') or 'gpt-4o'
     
     # Email settings (optional)
     MAIL_SERVER = os.environ.get('MAIL_SERVER')

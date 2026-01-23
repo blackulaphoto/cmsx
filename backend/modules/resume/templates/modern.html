@@ -1,0 +1,105 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume - {{ client.first_name }} {{ client.last_name }}</title>
+    <link rel="stylesheet" href="styles/{{ template_type }}.css">
+</head>
+<body>
+    <div class="resume-container">
+        <!-- Header -->
+        <header class="resume-header">
+            <h1>{{ client.first_name }} {{ client.last_name }}</h1>
+            <div class="contact-info">
+                <div class="contact-item">📞 {{ client.phone }}</div>
+                <div class="contact-item">✉️ {{ client.email }}</div>
+                <div class="contact-item">📍 {{ client.address }}</div>
+            </div>
+        </header>
+        
+        <!-- Career Objective -->
+        {% if resume.career_objective %}
+        <section class="section">
+            <h2>Professional Summary</h2>
+            <p>{{ resume.career_objective }}</p>
+        </section>
+        {% endif %}
+        
+        <!-- Work Experience -->
+        {% if resume.work_experience %}
+        <section class="section">
+            <h2>Work Experience</h2>
+            {% for job in resume.work_experience %}
+            <div class="experience-item">
+                <div class="job-header">
+                    <h3>{{ job.job_title }}</h3>
+                    <span class="company">{{ job.company }}</span>
+                    <span class="dates">{{ job.start_date }} - {{ job.end_date or 'Present' }}</span>
+                </div>
+                <p class="job-description">{{ job.description }}</p>
+                {% if job.achievements %}
+                <ul class="achievements">
+                    {% for achievement in job.achievements %}
+                    <li>{{ achievement }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+        
+        <!-- Skills -->
+        {% if resume.skills %}
+        <section class="section">
+            <h2>Skills</h2>
+            {% for skill_category in resume.skills %}
+            <div class="skill-category">
+                <h4>{{ skill_category.category }}</h4>
+                <div class="skill-list">
+                    {% for skill in skill_category.skill_list %}
+                    <span class="skill-tag">{{ skill }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+        
+        <!-- Education -->
+        {% if resume.education %}
+        <section class="section">
+            <h2>Education</h2>
+            {% for edu in resume.education %}
+            <div class="education-item">
+                <h3>{{ edu.degree }}</h3>
+                <span class="institution">{{ edu.institution }}</span>
+                <span class="graduation-date">{{ edu.graduation_date }}</span>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+        
+        <!-- Certifications -->
+        {% if resume.certifications %}
+        <section class="section">
+            <h2>Certifications</h2>
+            {% for cert in resume.certifications %}
+            <div class="certification-item">
+                <h4>{{ cert.name }}</h4>
+                <span class="issuer">{{ cert.issuer }}</span>
+                <span class="cert-date">{{ cert.date_obtained }}</span>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+        
+        <footer class="resume-footer">
+            <p>Generated {{ generated_date }}</p>
+        </footer>
+    </div>
+</body>
+</html>
+            

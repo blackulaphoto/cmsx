@@ -38,11 +38,428 @@ class ExpungementQuizResponse:
     follow_up_needed: bool = False
 
 class ExpungementEligibilityEngine:
-    """AI-powered eligibility assessment engine"""
-    
+    """AI-powered eligibility assessment engine with legally-compliant PC 1203.4 checks"""
+
     def __init__(self):
         self.db = ExpungementDatabase()
         self.jurisdiction_rules = self._load_jurisdiction_rules()
+
+    def check_eligibility_complete(self, conviction_data: Dict) -> Dict[str, Any]:
+        """
+        LEGALLY COMPLIANT eligibility check for PC 1203.4
+
+        Args:
+            conviction_data: Dictionary with all conviction details
+
+        Returns:
+            {
+                "eligible": bool,
+                "pathway": str,  # "PC 1203.4", "PC 1203.42", "PC 1203.4a", "Not Eligible"
+                "disqualifying_factors": List[str],
+                "warnings": List[str],
+                "recommendations": List[str],
+                "next_steps": List[str],
+                "estimated_cost": float,
+                "estimated_timeline_days": int,
+                "success_likelihood": str  # "High", "Medium", "Low"
+            }
+        """
+
+        result = {
+            "eligible": False,
+            "pathway": "Unknown",
+            "disqualifying_factors": [],
+            "warnings": [],
+            "recommendations": [],
+            "next_steps": [],
+            "estimated_cost": 120.0,  # Default filing fee
+            "estimated_timeline_days": 70,
+            "success_likelihood": "Unknown"
+        }
+
+        # STEP 1: Check for PERMANENT disqualifiers (sex offenses)
+        if self._check_sex_offense_disqualifier(conviction_data, result):
+            return result
+
+        # STEP 2: Check probation completion
+        if not self._check_probation_completed(conviction_data, result):
+            result["pathway"] = "Not Yet Eligible - Probation Incomplete"
+            return result
+
+        # STEP 3: Check state prison requirement
+        prison_check = self._check_prison_requirement(conviction_data, result)
+        if prison_check == "DISQUALIFIED":
+            result["pathway"] = "Not Eligible - State Prison"
+            return result
+        elif prison_check == "PC_1203_42":
+            if not self._check_pc_1203_42_eligibility(conviction_data, result):
+                return result
+            result["pathway"] = "PC 1203.42"
+            result["success_likelihood"] = "Medium"
+
+        # STEP 4: Check current legal status
+        if not self._check_current_status(conviction_data, result):
+            result["pathway"] = "Not Eligible - Active Legal Issues"
+            return result
+
+        # STEP 5: Check probation conditions paid/completed
+        if not self._check_probation_conditions(conviction_data, result):
+            result["pathway"] = "Not Yet Eligible - Conditions Incomplete"
+            return result
+
+        # STEP 6: Check for special handling (DUI, violent, etc)
+        self._check_special_offenses(conviction_data, result)
+
+        # STEP 7: Calculate specifics
+        result["estimated_cost"] = self._calculate_county_filing_fee(conviction_data.get("county"))
+        result["estimated_timeline_days"] = self._calculate_timeline(conviction_data)
+
+        if result["pathway"] == "Unknown":
+            result["pathway"] = "PC 1203.4"
+
+        if result["success_likelihood"] == "Unknown":
+            result["success_likelihood"] = self._assess_success_likelihood(conviction_data, result)
+
+        result["next_steps"] = self._generate_next_steps_detailed(conviction_data, result)
+        result["eligible"] = len(result["disqualifying_factors"]) == 0
+
+        return result
+
+    def _check_sex_offense_disqualifier(self, conviction_data: Dict, result: Dict) -> bool:
+        """Check for PC 290 sex offenses - PERMANENT disqualifier"""
+
+        DISQUALIFYING_CODES = [
+            "PC 286(c)", "PC 288", "PC 288a(c)", "PC 261.5(d)",
+            "PC 269", "PC 285", "PC 287"
+        ]
+
+        if conviction_data.get("requires_sex_offender_registration"):
+            result["disqualifying_factors"].append(
+                "PERMANENT DISQUALIFICATION: This conviction requires sex offender "
+                "registration under PC 290. Such convictions are NEVER eligible for "
+                "expungement under PC 1203.4."
+            )
+            result["recommendations"].append(
+                "Consider Certificate of Rehabilitation as alternative relief."
+            )
+            return True
+
+        offense_code = conviction_data.get("offense_code", "")
+        for code in DISQUALIFYING_CODES:
+            if code in offense_code:
+                result["disqualifying_factors"].append(
+                    f"PERMANENT DISQUALIFICATION: {code} requires sex offender registration."
+                )
+                return True
+
+        return False
+
+    def _check_probation_completed(self, conviction_data: Dict, result: Dict) -> bool:
+        """Check if probation has been completed"""
+
+        if conviction_data.get("probation_granted"):
+            if not conviction_data.get("probation_completed"):
+                if not conviction_data.get("early_termination_granted"):
+                    result["disqualifying_factors"].append(
+                        "Probation not completed. Must complete probation OR obtain "
+                        "early termination before filing."
+                    )
+
+                    prob_end = conviction_data.get("probation_end_date")
+                    if prob_end:
+                        if isinstance(prob_end, str):
+                            prob_end = datetime.fromisoformat(prob_end)
+                        days_left = (prob_end - datetime.now()).days
+                        if days_left > 0:
+                            result["next_steps"].append(
+                                f"Wait {days_left} days until probation completes"
+                            )
+
+                    result["recommendations"].append(
+                        "Consider filing for early termination of probation if you've "
+                        "completed at least 50% of your probation with no violations."
+                    )
+                    return False
+        else:
+            # No probation granted - PC 1203.4a pathway
+            conv_date = conviction_data.get("conviction_date")
+            if conv_date:
+                if isinstance(conv_date, str):
+                    conv_date = datetime.fromisoformat(conv_date)
+                years_since = (datetime.now() - conv_date).days / 365.25
+                if years_since < 1:
+                    result["disqualifying_factors"].append(
+                        f"PC 1203.4a requires 1 year wait when no probation granted. "
+                        f"{1 - years_since:.1f} years remaining."
+                    )
+                    return False
+                result["pathway"] = "PC 1203.4a"
+                result["warnings"].append(
+                    "PC 1203.4a: Must show 'honest and upright life' since conviction."
+                )
+
+        return True
+
+    def _check_prison_requirement(self, conviction_data: Dict, result: Dict) -> str:
+        """
+        Check state prison requirement
+        Returns: "OK", "PC_1203_42", or "DISQUALIFIED"
+        """
+
+        if not conviction_data.get("served_state_prison"):
+            return "OK"
+
+        # Served state prison - check for PC 1203.42 exception
+        conv_year = conviction_data.get("conviction_year", 0)
+        offense_code = conviction_data.get("offense_code", "")
+
+        # Post-2011 realignment cases may qualify under PC 1203.42
+        if conv_year >= 2011:
+            # Check if offense would be county jail eligible under Prop 47
+            PROP_47_CODES = ["PC 459", "PC 470", "PC 476a", "PC 484", "PC 487", "PC 496"]
+
+            if any(code in offense_code for code in PROP_47_CODES):
+                result["warnings"].append(
+                    "Served state prison but may qualify under PC 1203.42 "
+                    "(post-realignment offense that would now be county jail)."
+                )
+                return "PC_1203_42"
+
+        # Not eligible for PC 1203.42
+        result["disqualifying_factors"].append(
+            "Served California state prison time. Not eligible under PC 1203.4. "
+            "May qualify for Certificate of Rehabilitation instead."
+        )
+        return "DISQUALIFIED"
+
+    def _check_pc_1203_42_eligibility(self, conviction_data: Dict, result: Dict) -> bool:
+        """Check PC 1203.42 specific requirements (2-year wait)"""
+
+        sentence_complete = conviction_data.get("sentence_completion_date")
+        if not sentence_complete:
+            result["disqualifying_factors"].append(
+                "PC 1203.42: Need sentence completion date to verify 2-year wait."
+            )
+            return False
+
+        if isinstance(sentence_complete, str):
+            sentence_complete = datetime.fromisoformat(sentence_complete)
+
+        years_since = (datetime.now() - sentence_complete).days / 365.25
+
+        if years_since < 2:
+            result["disqualifying_factors"].append(
+                f"PC 1203.42: Must wait 2 years after sentence completion. "
+                f"{2 - years_since:.1f} years remaining."
+            )
+            return False
+
+        result["warnings"].append(
+            "IMPORTANT: PC 1203.42 is discretionary. Judge decides if expungement "
+            "is 'in the interest of justice.' Not guaranteed."
+        )
+        result["recommendations"].append(
+            "PC 1203.42 cases should hire an attorney. Requires showing 'interest of justice.'"
+        )
+
+        return True
+
+    def _check_current_status(self, conviction_data: Dict, result: Dict) -> bool:
+        """Check for current legal issues"""
+
+        has_issues = False
+
+        if conviction_data.get("currently_on_probation"):
+            result["disqualifying_factors"].append(
+                "Currently on probation for another offense. Must complete ALL probation first."
+            )
+            has_issues = True
+
+        if conviction_data.get("currently_serving_sentence"):
+            result["disqualifying_factors"].append(
+                "Currently serving a sentence. Must complete ALL sentences first."
+            )
+            has_issues = True
+
+        if conviction_data.get("pending_charges"):
+            result["disqualifying_factors"].append(
+                "Currently have pending criminal charges. Must resolve ALL charges first."
+            )
+            has_issues = True
+
+        return not has_issues
+
+    def _check_probation_conditions(self, conviction_data: Dict, result: Dict) -> bool:
+        """Check all probation conditions are satisfied"""
+
+        all_complete = True
+
+        # Only check fines if they exist and aren't marked as paid
+        fines_amt = conviction_data.get("fines_total", 0)
+        if fines_amt > 0:
+            if not conviction_data.get("fines_paid"):
+                result["disqualifying_factors"].append(
+                    f"Court fines of ${fines_amt:.2f} not paid. All fines must be paid."
+                )
+                all_complete = False
+
+        # Only check restitution if it exists and isn't marked as paid
+        rest_amt = conviction_data.get("restitution_total", 0)
+        if rest_amt > 0:
+            if not conviction_data.get("restitution_paid"):
+                result["disqualifying_factors"].append(
+                    f"Restitution of ${rest_amt:.2f} not paid. All restitution must be paid."
+                )
+                all_complete = False
+
+        # Only check court costs if explicitly mentioned
+        if "court_costs_paid" in conviction_data:
+            if not conviction_data.get("court_costs_paid"):
+                result["disqualifying_factors"].append(
+                    "Court costs not paid. All court costs must be paid."
+                )
+                all_complete = False
+
+        # Only check community service if hours were assigned
+        hours = conviction_data.get("community_service_hours", 0)
+        if hours > 0:
+            if not conviction_data.get("community_service_completed"):
+                result["disqualifying_factors"].append(
+                    f"Community service ({hours} hours) not completed."
+                )
+                all_complete = False
+
+        # Only check counseling if it was required
+        if conviction_data.get("counseling_required"):
+            if not conviction_data.get("counseling_completed"):
+                result["disqualifying_factors"].append(
+                    "Court-ordered counseling/treatment not completed."
+                )
+                all_complete = False
+
+        return all_complete
+
+    def _check_special_offenses(self, conviction_data: Dict, result: Dict):
+        """Check for offenses requiring special handling"""
+
+        offense_code = conviction_data.get("offense_code", "")
+
+        # DUI - requires "interest of justice" showing
+        DUI_CODES = ["VC 23152", "VC 23153"]
+        if any(dui in offense_code for dui in DUI_CODES):
+            result["warnings"].append(
+                "DUI: Eligible but requires showing expungement is 'in the interest "
+                "of justice' - HIGHER standard than regular cases."
+            )
+            result["recommendations"].append(
+                "DUI cases: STRONGLY recommend hiring an attorney for 'interest of justice' argument."
+            )
+            result["success_likelihood"] = "Medium"
+
+        # Violent felonies may face DA objection
+        if conviction_data.get("is_violent_felony"):
+            result["warnings"].append(
+                "Violent felony: May face DA objection. Prepare strong rehabilitation evidence."
+            )
+
+        # Wobblers - recommend reduction first
+        if conviction_data.get("is_wobbler"):
+            if conviction_data.get("conviction_type") == "felony":
+                result["recommendations"].append(
+                    "WOBBLER: Consider filing for felony reduction to misdemeanor (PC 17(b)) "
+                    "BEFORE or WITH expungement petition. Improves chances."
+                )
+
+    def _calculate_county_filing_fee(self, county: str) -> float:
+        """Get filing fee by county"""
+        fees = {
+            "Los Angeles": 150,
+            "San Diego": 120,
+            "Orange": 145,
+            "Riverside": 130,
+            "San Bernardino": 135,
+            "Ventura": 125,
+            "San Francisco": 140,
+            "Alameda": 135,
+            "Sacramento": 125,
+            "Contra Costa": 130
+        }
+        return fees.get(county, 120)  # Default $120
+
+    def _calculate_timeline(self, conviction_data: Dict) -> int:
+        """Estimate timeline in days"""
+        base_days = 70  # 10 weeks average
+
+        county = conviction_data.get("county", "")
+        if county in ["Los Angeles", "San Bernardino"]:
+            base_days = 90  # Busier courts
+        elif county in ["Orange", "Ventura"]:
+            base_days = 50  # Faster courts
+
+        # PC 1203.42 takes longer (hearing required)
+        if conviction_data.get("pathway") == "PC 1203.42":
+            base_days += 30
+
+        # DUI may require hearing
+        if "VC 23152" in conviction_data.get("offense_code", ""):
+            base_days += 14
+
+        return base_days
+
+    def _assess_success_likelihood(self, conviction_data: Dict, result: Dict) -> str:
+        """Assess likelihood of petition being granted"""
+
+        if conviction_data.get("pathway") == "PC 1203.42":
+            return "Medium"  # Discretionary
+
+        if "DUI" in str(conviction_data.get("offense_code", "")):
+            return "Medium"  # Higher standard
+
+        if conviction_data.get("is_violent_felony"):
+            return "Medium"  # May face objection
+
+        # Clean completion
+        if (conviction_data.get("probation_completed") and
+            conviction_data.get("fines_paid") and
+            conviction_data.get("restitution_paid")):
+            return "High"
+
+        return "High"
+
+    def _generate_next_steps_detailed(self, conviction_data: Dict, result: Dict) -> List[str]:
+        """Generate actionable next steps"""
+
+        steps = []
+
+        if result["eligible"]:
+            steps = [
+                "1. Obtain criminal history from California DOJ",
+                "2. Get court case file (or DOJ CII if purged)",
+                "3. Complete CR-180 form (Petition for Dismissal)",
+                "4. Gather rehabilitation evidence (employment, education, community service)",
+                f"5. Pay ${result['estimated_cost']:.2f} filing fee or request fee waiver (if eligible)",
+                "6. File petition with court clerk",
+                "7. Serve copy to District Attorney",
+                f"8. Wait for court response ({result['estimated_timeline_days']} days average)"
+            ]
+
+            if "hearing" in str(result.get("warnings", "")).lower():
+                steps.append("9. Prepare for court hearing (if required)")
+        else:
+            if "Probation" in str(result["disqualifying_factors"]):
+                steps.append("Complete probation OR file for early termination")
+            if "fines" in str(result["disqualifying_factors"]).lower():
+                steps.append("Pay all outstanding fines")
+            if "restitution" in str(result["disqualifying_factors"]).lower():
+                steps.append("Pay all restitution to victims")
+            if "pending" in str(result["disqualifying_factors"]).lower():
+                steps.append("Resolve all pending criminal charges")
+            if "community service" in str(result["disqualifying_factors"]).lower():
+                steps.append("Complete all court-ordered community service")
+            if "counseling" in str(result["disqualifying_factors"]).lower():
+                steps.append("Complete all court-ordered counseling/treatment programs")
+
+        return steps
     
     def _load_jurisdiction_rules(self) -> Dict[str, EligibilityRuleSet]:
         """Load jurisdiction-specific rules"""
@@ -108,10 +525,50 @@ class ExpungementEligibilityEngine:
                 quiz_data['conviction_date'] = response.answer
             elif response.question_id == "offense_type":
                 quiz_data['offense_type'] = response.answer
+            elif response.question_id == "offense_code":
+                quiz_data['offense_code'] = response.answer
+            elif response.question_id == "county":
+                quiz_data['county'] = response.answer
             elif response.question_id == "probation_completed":
                 quiz_data['probation_completed'] = response.answer
+            elif response.question_id == "probation_granted":
+                quiz_data['probation_granted'] = response.answer
+            elif response.question_id == "early_termination_granted":
+                quiz_data['early_termination_granted'] = response.answer
             elif response.question_id == "fines_paid":
                 quiz_data['fines_paid'] = response.answer
+            elif response.question_id == "fines_total":
+                quiz_data['fines_total'] = response.answer
+            elif response.question_id == "restitution_paid":
+                quiz_data['restitution_paid'] = response.answer
+            elif response.question_id == "restitution_total":
+                quiz_data['restitution_total'] = response.answer
+            elif response.question_id == "court_costs_paid":
+                quiz_data['court_costs_paid'] = response.answer
+            elif response.question_id == "community_service_completed":
+                quiz_data['community_service_completed'] = response.answer
+            elif response.question_id == "community_service_hours":
+                quiz_data['community_service_hours'] = response.answer
+            elif response.question_id == "counseling_required":
+                quiz_data['counseling_required'] = response.answer
+            elif response.question_id == "counseling_completed":
+                quiz_data['counseling_completed'] = response.answer
+            elif response.question_id == "requires_sex_offender_registration":
+                quiz_data['requires_sex_offender_registration'] = response.answer
+            elif response.question_id == "is_violent_felony":
+                quiz_data['is_violent_felony'] = response.answer
+            elif response.question_id == "is_wobbler":
+                quiz_data['is_wobbler'] = response.answer
+            elif response.question_id == "served_state_prison":
+                quiz_data['served_state_prison'] = response.answer
+            elif response.question_id == "sentence_completion_date":
+                quiz_data['sentence_completion_date'] = response.answer
+            elif response.question_id == "currently_on_probation":
+                quiz_data['currently_on_probation'] = response.answer
+            elif response.question_id == "currently_serving_sentence":
+                quiz_data['currently_serving_sentence'] = response.answer
+            elif response.question_id == "pending_charges":
+                quiz_data['pending_charges'] = response.answer
             elif response.question_id == "new_convictions":
                 quiz_data['new_convictions'] = response.answer
             elif response.question_id == "sentence_type":

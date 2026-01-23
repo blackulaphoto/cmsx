@@ -16,6 +16,82 @@ from contextlib import contextmanager
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 DATABASES_DIR = PROJECT_ROOT / "databases"
 
+def get_db_connection(
+    db_name: str,
+    module: str,
+    permission: str
+) -> Optional[sqlite3.Connection]:
+    """
+    Get database connection with permission checking
+    
+    Args:
+        db_name: Database name (e.g., 'core_clients', 'case_management')
+        module: Module requesting access (e.g., 'case_management', 'housing')
+        permission: Permission level ('READ_ONLY', 'READ_WRITE', 'ADMIN')
+    
+    Returns:
+        sqlite3.Connection or None
+    """
+    # Permission matrix
+    permissions = {
+        'case_management': {
+            'core_clients': 'ADMIN',
+            'case_management': 'ADMIN'
+        },
+        'ai_assistant': {
+            # AI has ADMIN access to ALL databases
+            'core_clients': 'ADMIN',
+            'case_management': 'ADMIN',
+            'housing': 'ADMIN',
+            'benefits': 'ADMIN',
+            'legal': 'ADMIN',
+            'employment': 'ADMIN',
+            'services': 'ADMIN',
+            'reminders': 'ADMIN',
+            'ai_assistant': 'ADMIN'
+        },
+        # Other modules have READ_ONLY to core_clients
+        'housing': {'core_clients': 'READ_ONLY', 'housing': 'ADMIN'},
+        'benefits': {'core_clients': 'READ_ONLY', 'benefits': 'ADMIN'},
+        'legal': {'core_clients': 'READ_ONLY', 'legal': 'ADMIN'},
+        'employment': {'core_clients': 'READ_ONLY', 'employment': 'ADMIN'},
+        'services': {'core_clients': 'READ_ONLY', 'services': 'ADMIN'},
+        'reminders': {'core_clients': 'READ_ONLY', 'reminders': 'ADMIN'}
+    }
+    
+    # Check permission
+    if module not in permissions:
+        print(f"⚠️ Module {module} not in permission matrix")
+        return None
+    
+    if db_name not in permissions[module]:
+        print(f"⚠️ Module {module} has no access to {db_name}")
+        return None
+    
+    granted_permission = permissions[module][db_name]
+    
+    # Permission hierarchy: ADMIN > READ_WRITE > READ_ONLY
+    permission_levels = {'READ_ONLY': 1, 'READ_WRITE': 2, 'ADMIN': 3}
+    
+    if permission_levels.get(permission, 0) > permission_levels.get(granted_permission, 0):
+        print(f"⚠️ Module {module} requested {permission} but only has {granted_permission}")
+        return None
+    
+    # Connect to database
+    db_path = DATABASES_DIR / f"{db_name}.db"
+    
+    if not db_path.exists():
+        print(f"❌ Database not found: {db_path}")
+        return None
+    
+    try:
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        return conn
+    except Exception as e:
+        print(f"❌ Database connection error: {e}")
+        return None
+
 class DatabaseAccessLayer:
     """
     Centralized database access layer implementing the 9-database architecture
@@ -156,16 +232,16 @@ class CoreClientsService:
             raise PermissionError(f"Module '{module}' cannot create clients")
             
         client_id = str(uuid.uuid4())
+        current_date = datetime.now().date().isoformat()
         
         with self.db.get_connection('core_clients', module) as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO clients (
                     client_id, first_name, last_name, date_of_birth,
-                    phone, email, address, emergency_contact_name,
-                    emergency_contact_phone, risk_level, case_status,
-                    case_manager_id, intake_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    phone, email, case_manager_id, risk_level,
+                    intake_date, created_at, housing_status, employment_status
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 client_id,
                 client_data.get('first_name', ''),
@@ -173,13 +249,12 @@ class CoreClientsService:
                 client_data.get('date_of_birth'),
                 client_data.get('phone'),
                 client_data.get('email'),
-                client_data.get('address'),
-                client_data.get('emergency_contact_name'),
-                client_data.get('emergency_contact_phone'),
-                client_data.get('risk_level', 'medium'),
-                client_data.get('case_status', 'active'),
                 client_data.get('case_manager_id'),
-                client_data.get('intake_date', datetime.now().date().isoformat())
+                client_data.get('risk_level', 'medium'),
+                client_data.get('intake_date', current_date),
+                current_date,
+                client_data.get('housing_status', 'unknown'),
+                client_data.get('employment_status', 'unknown')
             ))
             conn.commit()
             
@@ -225,7 +300,7 @@ class CoreClientsService:
             return False
             
         values.append(client_id)
-        query = f"UPDATE clients SET {', '.join(set_clauses)}, updated_at = CURRENT_TIMESTAMP WHERE client_id = ?"
+        query = f"UPDATE clients SET {', '.join(set_clauses)} WHERE client_id = ?"
         
         with self.db.get_connection('core_clients', module) as conn:
             cursor = conn.cursor()
@@ -457,5 +532,6 @@ __all__ = [
     'AIAssistantService',
     'db_access',
     'core_clients_service',
-    'ai_service'
+    'ai_service',
+    'get_db_connection'
 ]

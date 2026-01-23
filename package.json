@@ -18,5 +18,8 @@
   "type": "commonjs",
   "devDependencies": {
     "@playwright/test": "^1.54.2"
+  },
+  "dependencies": {
+    "biome": "^0.2.2"
   }
 }
