@@ -138,3 +138,15 @@ This is a consolidated platform combining features from:
 - [ ] Implement React frontend integration
 - [ ] Add comprehensive testing
 - [ ] Performance optimization 
+
+## Deployment (Railway + Vercel)
+
+### Railway (Backend)
+1. Deploy from repo root.
+2. Start command is defined in `railway.json`.
+3. Set required environment variables in Railway (match `.env`).
+
+### Vercel (Frontend)
+1. Deploy from `frontend/`.
+2. Set `VITE_API_BASE_URL` to your Railway backend URL (e.g. `https://your-railway-app.up.railway.app`).
+3. Update `frontend/vercel.json` rewrite `REPLACE_WITH_RAILWAY_URL` to the same backend URL.

@@ -4,7 +4,7 @@
  */
 
 // Base API URL - matches our new backend
-export const API_BASE_URL = 'http://localhost:8000'
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 // API Endpoints for new 9-database architecture
 export const API_ENDPOINTS = {
