@@ -9,6 +9,7 @@ import {
   MessageSquare,
   Building2,
   Calendar,
+  Briefcase,
   TrendingUp,
   AlertCircle,
   Sparkles,
@@ -451,6 +452,15 @@ const EnhancedDashboard = () => {
       gradient: 'from-teal-500 via-cyan-600 to-blue-600',
       stats: 'Local Resources',
       accent: 'bg-teal-500/20 border-teal-500/30'
+    },
+    {
+      title: 'Job Search',
+      description: 'Find employment opportunities and track applications',
+      path: '/jobs',
+      icon: Briefcase,
+      gradient: 'from-emerald-500 via-green-600 to-lime-600',
+      stats: 'Hiring Now',
+      accent: 'bg-emerald-500/20 border-emerald-500/30'
     },
     {
       title: 'Smart Daily Dashboard',
@@ -1023,7 +1033,7 @@ const EnhancedDashboard = () => {
             <div className="flex items-center gap-3 mb-8">
               <h2 className="text-2xl font-bold text-white">Available Services</h2>
               <div className="px-3 py-1 bg-gradient-to-r from-pink-500 to-purple-500 rounded-full">
-                <span className="text-xs font-medium text-white">8 Modules</span>
+                <span className="text-xs font-medium text-white">9 Modules</span>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">

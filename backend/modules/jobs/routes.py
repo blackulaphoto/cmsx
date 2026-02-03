@@ -164,7 +164,7 @@ async def search_jobs_quick(
     location: str = Query("Los Angeles, CA", description="Job search location"),
     background_friendly: bool = Query(False, description="Filter for background-friendly jobs"),
     page: int = Query(1, description="Page number (starts from 1)", ge=1),
-    per_page: int = Query(10, description="Results per page (max 30)", ge=1, le=30)
+    per_page: int = Query(10, description="Results per page (max 40)", ge=1, le=40)
 ):
     """Quick job search with real-time results and pagination"""
     try:
@@ -233,7 +233,7 @@ async def search_jobs_scrapers(
     location: str = Query("Los Angeles, CA", description="Job search location"),
     background_friendly: bool = Query(False, description="Filter for background-friendly jobs only"),
     page: int = Query(1, description="Page number (starts from 1)", ge=1),
-    per_page: int = Query(10, description="Results per page (max 30)", ge=1, le=30),
+    per_page: int = Query(10, description="Results per page (max 40)", ge=1, le=40),
     sources: Optional[str] = Query(None, description="Comma-separated list of scrapers to use (craigslist,builtinla,government,city_la)")
 ):
     """Scraper-based job search with real-time results from specific job sites"""
@@ -400,7 +400,7 @@ async def search_jobs_ai(
     location: str = Query("Los Angeles, CA", description="Job search location"),
     background_friendly: bool = Query(False, description="Filter for background-friendly jobs"),
     page: int = Query(1, description="Page number (starts from 1)", ge=1),
-    per_page: int = Query(10, description="Results per page (max 30)", ge=1, le=30)
+    per_page: int = Query(10, description="Results per page (max 40)", ge=1, le=40)
 ):
     """AI-powered job search with real-time results and pagination"""
     try:

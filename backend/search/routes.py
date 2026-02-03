@@ -40,7 +40,7 @@ async def search_api_info():
             "Unified search interface",
             "Robust API fallbacks",
             "Caching system",
-            "Sample data fallback"
+            "Serper + Google CSE providers"
         ]
     }
 
@@ -141,7 +141,7 @@ async def search_general(
 ):
     """General web search"""
     try:
-        logger.info(f"🌐 General search: '{query}' in '{location}'")
+        logger.info(f"General search: '{query}' in '{location}'")
         
         # Update max results
         coordinator = get_coordinator()
@@ -190,6 +190,11 @@ async def unified_search(request: SearchRequest):
     except Exception as e:
         logger.error(f"Unified search error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/")
+async def unified_search_root(request: SearchRequest):
+    """Unified search endpoint at /api/search (POST)"""
+    return await unified_search(request)
 
 @router.get("/health")
 async def search_health():

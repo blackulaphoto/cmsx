@@ -11,6 +11,7 @@ import requests
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 import json
+from urllib.parse import urlparse
 import sqlite3
 from dataclasses import dataclass
 from enum import Enum
@@ -57,7 +58,9 @@ class SimpleSearchCoordinator:
     
     def __init__(self):
         self.google_api_key = self._normalize_key(os.getenv("GOOGLE_API_KEY"))
-        self.serper_api_key = self._normalize_key(os.getenv("SERPER_API_KEY"))
+        self.serper_api_key = self._normalize_key(
+            os.getenv("SERPAPI_API_KEY") or os.getenv("SERPER_API_KEY")
+        )
         
         # Services CSE (original) - for services and general searches
         self.google_cse_id = self._normalize_key(
@@ -73,7 +76,7 @@ class SimpleSearchCoordinator:
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.cache_db_path = "databases/search_cache.db"
         self.sample_db_path = "databases/sample_data.db"
-        logger.info(f"Serper API Key: {'Loaded' if self.serper_api_key else 'Missing'}")
+        logger.info(f"SerpAPI Key: {'Loaded' if self.serper_api_key else 'Missing'}")
         
         # Debug API key loading
         logger.info(f"Google API Key: {'Loaded' if self.google_api_key else 'Missing'}")
@@ -88,7 +91,7 @@ class SimpleSearchCoordinator:
         # Search configuration
         self.max_results = 20
         self.cache_ttl_hours = 0.1  # 6 minutes for testing scrapers
-        self.fallback_to_samples = True
+        self.fallback_to_samples = False
         
         logger.info("Simple Search Coordinator initialized")
 
@@ -167,43 +170,81 @@ class SimpleSearchCoordinator:
             if results:
                 self._cache_results(query, search_type, location, results)
             
-            # Fallback to sample data if no results (DISABLED FOR HOUSING)
-            if not results and self.fallback_to_samples and search_type != SearchType.HOUSING:
-                logger.warning("No results found, using sample data")
-                results = self._get_sample_data(search_type, query)
-            elif not results and search_type == SearchType.HOUSING:
-                logger.info("Housing search returned no results - no fallback used")
+            # No sample data fallback
+            if not results:
+                logger.info("No results found from live providers")
             
             return self._format_response(results, "fresh_search")
             
         except Exception as e:
             logger.error(f"Search error: {e}")
-            # Return sample data as fallback (DISABLED FOR HOUSING)
-            if search_type != SearchType.HOUSING:
-                sample_results = self._get_sample_data(search_type, query)
-                return self._format_response(sample_results, "fallback_sample")
-            else:
-                # For housing, return empty results instead of sample data
-                return self._format_response([], "error_no_fallback")
+            return self._format_response([], "error_no_fallback")
     
     def _search_jobs(self, query: str, location: str) -> List[SearchResult]:
-        """Search for jobs using dedicated Jobs CSE for better results"""
+        """Search for jobs using Serper first, then Google CSE"""
         results = []
         
         try:
-            # Primary: Use dedicated Jobs CSE for better job-specific results
+            if self.serper_api_key:
+                location_phrase = f" in {location}" if location else ""
+                job_query = f"{query} jobs hiring{location_phrase}"
+                serp_jobs = self._serpapi_jobs_search(job_query, location, 1, self.max_results)
+                serp_items = self._filter_job_results_by_location(serp_jobs.get("results", []), location, strict=False)
+                if serp_items:
+                    for item in serp_items:
+                        link = ""
+                        related_links = item.get("related_links") or []
+                        if related_links:
+                            link = related_links[0].get("link", "")
+                        if not link:
+                            link = item.get("share_link") or item.get("job_id", "")
+                        results.append(SearchResult(
+                            title=item.get('title', ''),
+                            description=item.get('description', ''),
+                            url=link,
+                            source='serpapi_jobs',
+                            type=SearchType.JOBS,
+                            metadata={
+                                'search_engine': 'serpapi_jobs',
+                                'company': item.get('company_name', '')
+                            },
+                            confidence_score=0.9,
+                            timestamp=datetime.now().isoformat()
+                        ))
+
+                if results:
+                    return results[:self.max_results]
+
+                # Fallback to Google engine + domain filter if jobs engine returns nothing
+                job_query = (
+                    f"{query} jobs hiring career employment "
+                    "site:indeed.com OR site:linkedin.com/jobs OR site:glassdoor.com OR "
+                    "site:ziprecruiter.com OR site:monster.com OR site:snagajob.com OR "
+                    "site:craigslist.org OR site:governmentjobs.com OR site:usajobs.gov OR "
+                    "site:caljobs.ca.gov OR site:builtin.com OR site:careerbuilder.com "
+                    "-for rent -lease -commercial -real estate"
+                )
+                serper = self._serpapi_paginated_search(job_query, location, 1, self.max_results)
+                serper_items = self._filter_job_results(serper.get("results", []))
+                serper_items = self._filter_job_results_by_location(serper_items, location, strict=False)
+                serper_results = self._map_serper_results(serper_items, SearchType.JOBS)
+                for item in serper_results:
+                    item.source = "serpapi"
+                    item.metadata = {**item.metadata, "search_engine": "serpapi"}
+                results.extend(serper_results)
+                if results:
+                    return results[:self.max_results]
+
             if self.google_api_key and self.google_jobs_cse_id:
-                # Enhanced query for better job results
                 enhanced_query = f"{query} employment career position hiring"
-                
+
                 logger.info(f"Jobs search: '{enhanced_query}' using Jobs CSE: {self.google_jobs_cse_id}")
-                
-                # Use dedicated jobs CSE
+
                 google_results = self._google_custom_search_with_cse(enhanced_query, location, self.google_jobs_cse_id)
                 logger.info(f"Jobs CSE returned {len(google_results)} results")
-                
-                # Use Google snippets directly (no scraping)
-                for item in google_results:
+
+                filtered_results = self._filter_job_results(google_results)
+                for item in filtered_results:
                     results.append(SearchResult(
                         title=item.get('title', ''),
                         description=item.get('snippet', ''),
@@ -211,17 +252,17 @@ class SimpleSearchCoordinator:
                         source='google_jobs_cse',
                         type=SearchType.JOBS,
                         metadata={'search_engine': 'google_jobs_cse', 'cse_id': self.google_jobs_cse_id},
-                        confidence_score=0.95,  # Higher confidence for job-specific CSE
+                        confidence_score=0.95,
                         timestamp=datetime.now().isoformat()
                     ))
-            
-            # Fallback to original CSE if jobs CSE fails
+
             elif self.google_api_key and self.google_cse_id:
-                logger.warning("🔄 Jobs CSE not available, falling back to general CSE")
+                logger.warning("Jobs CSE not available, falling back to general CSE")
                 google_results = self._google_custom_search(f"{query} jobs", location)
                 logger.info(f"Fallback CSE returned {len(google_results)} results")
-                
-                for item in google_results:
+
+                filtered_results = self._filter_job_results(google_results)
+                for item in filtered_results:
                     results.append(SearchResult(
                         title=item.get('title', ''),
                         description=item.get('snippet', ''),
@@ -229,18 +270,18 @@ class SimpleSearchCoordinator:
                         source='google_general_cse_fallback',
                         type=SearchType.JOBS,
                         metadata={'search_engine': 'google_fallback'},
-                        confidence_score=0.8,  # Lower confidence for fallback
+                        confidence_score=0.8,
                         timestamp=datetime.now().isoformat()
                     ))
-            
+
         except Exception as e:
             logger.error(f"Job search error: {e}")
-            # Try fallback if jobs CSE fails
             try:
                 if self.google_api_key and self.google_cse_id:
-                    logger.warning("🔄 Attempting fallback to general CSE after error")
+                    logger.warning("Attempting fallback to general CSE after error")
                     google_results = self._google_custom_search(f"{query} jobs employment", location)
-                    for item in google_results:
+                    filtered_results = self._filter_job_results(google_results)
+                    for item in filtered_results:
                         results.append(SearchResult(
                             title=item.get('title', ''),
                             description=item.get('snippet', ''),
@@ -255,7 +296,7 @@ class SimpleSearchCoordinator:
                 logger.error(f"Fallback job search also failed: {fallback_error}")
         
         return results[:self.max_results]
-    
+        
     def _search_housing(self, query: str, location: str) -> List[SearchResult]:
         """Search for housing using Google Custom Search - FIXED TO MATCH SERVICES"""
         results = []
@@ -324,15 +365,21 @@ class SimpleSearchCoordinator:
             return []
     
     def _search_services(self, query: str, location: str) -> List[SearchResult]:
-        """Search for services using Google Custom Search ONLY - NO SCRAPERS"""
+        """Search for services using Serper first, then Google CSE"""
         results = []
         
         try:
-            # Primary: Google Custom Search for services
+            if self.serper_api_key:
+                serper = self._serper_search(f"{query} services", location, self.max_results)
+                serper_results = self._map_serper_results(serper.get("results", []), SearchType.SERVICES)
+                results.extend(serper_results)
+                if results:
+                    return results[:self.max_results]
+            
             if self.google_api_key and self.google_cse_id:
                 google_results = self._google_custom_search(f"{query} services", location)
                 logger.info(f"Services search returned {len(google_results)} results")
-                
+            
                 for item in google_results:
                     results.append(SearchResult(
                         title=item.get('title', ''),
@@ -341,26 +388,31 @@ class SimpleSearchCoordinator:
                         source='google_services',
                         type=SearchType.SERVICES,
                         metadata={'search_engine': 'google'},
-                        confidence_score=0.9,  # High confidence for real Google results
+                        confidence_score=0.9,
                         timestamp=datetime.now().isoformat()
                     ))
-            
-            # NO SCRAPERS - ONLY GOOGLE RESULTS (CONSISTENT WITH JOBS/HOUSING)
-            
+        
         except Exception as e:
             logger.error(f"Services search error: {e}")
         
         return results[:self.max_results]
-    
+        
     def _search_general(self, query: str, location: str) -> List[SearchResult]:
         """General web search"""
         results = []
         
         try:
+            if self.serper_api_key:
+                serper = self._serper_search(query, location, self.max_results)
+                serper_results = self._map_serper_results(serper.get("results", []), SearchType.GENERAL)
+                results.extend(serper_results)
+                if results:
+                    return results[:self.max_results]
+            
             if self.google_api_key and self.google_cse_id:
                 google_results = self._google_custom_search(query, location)
                 logger.info(f"General search returned {len(google_results)} results")
-                
+            
                 for item in google_results:
                     results.append(SearchResult(
                         title=item.get('title', ''),
@@ -369,14 +421,30 @@ class SimpleSearchCoordinator:
                         source='google_general',
                         type=SearchType.GENERAL,
                         metadata={'search_engine': 'google'},
-                        confidence_score=0.8,  # Good confidence for real Google results
+                        confidence_score=0.8,
                         timestamp=datetime.now().isoformat()
                     ))
         except Exception as e:
             logger.error(f"General search error: {e}")
         
         return results[:self.max_results]
-    
+        
+    def _map_serper_results(self, items: List[Dict[str, Any]], search_type: SearchType) -> List[SearchResult]:
+        """Map Serper organic results to SearchResult list."""
+        results: List[SearchResult] = []
+        for item in items:
+            results.append(SearchResult(
+                title=item.get('title', ''),
+                description=item.get('snippet') or item.get('description', ''),
+                url=item.get('link', ''),
+                source='serpapi',
+                type=search_type,
+                metadata={'search_engine': 'serpapi'},
+                confidence_score=0.9,
+                timestamp=datetime.now().isoformat()
+            ))
+        return results
+        
     def _google_custom_search(self, query: str, location: str) -> List[Dict]:
         """Google Custom Search API using default CSE"""
         return self._google_custom_search_with_cse(query, location, self.google_cse_id)
@@ -432,7 +500,7 @@ class SimpleSearchCoordinator:
             
             # Validate parameters
             page = max(1, page)
-            per_page = min(max(1, per_page), 30)  # Max 30 results (3 API calls)
+            per_page = min(max(1, per_page), 40)  # Max 40 results (4 API calls)
             
             # Calculate how many API calls we need
             calls_needed = min(3, (per_page + 9) // 10)  # Max 3 calls, ceiling division
@@ -772,48 +840,246 @@ class SimpleSearchCoordinator:
     def _search_local_services(self, query: str, location: str) -> List[SearchResult]:
         """Local services database search (placeholder)"""
         return []
+
+    def _filter_job_results(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Reduce clutter by only keeping results from known job domains."""
+        allowed_domains = {
+            "indeed.com",
+            "linkedin.com",
+            "glassdoor.com",
+            "ziprecruiter.com",
+            "monster.com",
+            "snagajob.com",
+            "craigslist.org",
+            "governmentjobs.com",
+            "usajobs.gov",
+            "caljobs.ca.gov",
+            "builtin.com",
+            "careerbuilder.com",
+            "simplyhired.com",
+            "jobcase.com",
+            "jooble.org",
+            "talent.com",
+            "lensa.com",
+            "adzuna.com",
+            "ziprecruiter.com",
+            "roberthalf.com",
+            "randstadusa.com",
+            "myworkdayjobs.com",
+            "icims.com",
+            "lever.co",
+            "greenhouse.io",
+            "workforcenow.adp.com",
+            "smartrecruiters.com"
+        }
+
+        filtered: List[Dict[str, Any]] = []
+        for item in items:
+            link = item.get("link", "")
+            parsed = urlparse(link)
+            hostname = (parsed.hostname or "").lower()
+            path = (parsed.path or "").lower()
+            if any(hostname.endswith(domain) for domain in allowed_domains):
+                if "/browse" in path:
+                    continue
+                if hostname.endswith("linkedin.com") and "/jobs" not in path:
+                    continue
+                if hostname.endswith("indeed.com") and ("/viewjob" not in path and "/rc/clk" not in path):
+                    continue
+                filtered.append(item)
+
+        return filtered
+
+    def _filter_job_results_by_location(self, items: List[Dict[str, Any]], location: Optional[str], strict: bool = False) -> List[Dict[str, Any]]:
+        """Prefer results that match the requested city name."""
+        if not location:
+            return items
+        parts = [p.strip() for p in location.split(",")]
+        city = parts[0].lower() if parts and parts[0] else ""
+        state = parts[1].lower() if len(parts) > 1 else ""
+        if not city:
+            return items
+
+        filtered = []
+        for item in items:
+            haystack = f"{item.get('title', '')} {item.get('snippet', '')} {item.get('description', '')}".lower()
+            if city in haystack:
+                filtered.append(item)
+
+        if filtered:
+            return filtered
+
+        # Fallback to state-level filter (e.g., "CA" or "California")
+        if state:
+            state_hits = []
+            for item in items:
+                haystack = f"{item.get('title', '')} {item.get('snippet', '')} {item.get('description', '')}".lower()
+                if state in haystack or "california" in haystack:
+                    state_hits.append(item)
+            if state_hits:
+                return state_hits
+
+        return [] if strict else items
     
     async def search_jobs(self, query: str, location: str = None, page: int = 1, per_page: int = 10):
         """Search for jobs using dedicated Jobs CSE with pagination support"""
         try:
             # Validate pagination parameters
             page = max(1, page)  # Ensure page is at least 1
-            per_page = min(max(1, per_page), 30)  # Limit per_page between 1 and 30
+            per_page = min(max(1, per_page), 40)  # Limit per_page between 1 and 40
 
-            # Primary: Serper API when available
-            serper_error = None
+            # Primary: SerpAPI when available
             if self.serper_api_key:
-                serper_payload = self._serper_search(query, location, per_page)
-                serper_results = serper_payload.get("results", [])
-                serper_error = serper_payload.get("error")
-                if serper_results:
-                    housing_listings = []
-                    for item in serper_results:
-                        housing_listings.append({
+                location_phrase = f" in {location}" if location else ""
+                job_query = f"{query} jobs hiring{location_phrase}"
+                serp_jobs = self._serpapi_jobs_search(job_query, location, page, per_page)
+                serp_results = self._filter_job_results_by_location(serp_jobs.get("results", []), location, strict=False)
+                job_results = []
+                seen_links = set()
+                for item in serp_results:
+                    link = ""
+                    related_links = item.get("related_links") or []
+                    if related_links:
+                        link = related_links[0].get("link", "")
+                    if not link:
+                        link = item.get("share_link") or item.get("job_id", "")
+                    if link and link in seen_links:
+                        continue
+                    if link:
+                        seen_links.add(link)
+                    job_results.append({
+                        'title': item.get('title', ''),
+                        'description': item.get('description', ''),
+                        'link': link,
+                        'source': 'serpapi_jobs',
+                        'provider': item.get('company_name', ''),
+                        'background_friendly': False
+                    })
+
+                # Fill with SerpAPI Google engine results if needed
+                if len(job_results) < per_page:
+                    job_query = (
+                        f"{query} jobs hiring career employment Los Angeles CA "
+                        "site:indeed.com OR site:linkedin.com/jobs OR site:glassdoor.com OR "
+                        "site:ziprecruiter.com OR site:monster.com OR site:snagajob.com OR "
+                        "site:craigslist.org OR site:governmentjobs.com OR site:usajobs.gov OR "
+                        "site:caljobs.ca.gov OR site:builtin.com OR site:careerbuilder.com OR "
+                        "site:simplyhired.com OR site:jobcase.com OR site:jooble.org OR "
+                        "site:talent.com OR site:lensa.com OR site:adzuna.com OR "
+                        "site:myworkdayjobs.com OR site:icims.com OR site:lever.co OR "
+                        "site:greenhouse.io OR site:workforcenow.adp.com OR site:smartrecruiters.com "
+                        "-for rent -lease -commercial -real estate"
+                    )
+                    serp_fallback = self._serpapi_paginated_search(job_query, location, page, per_page)
+                    serp_items = self._filter_job_results(serp_fallback.get("results", []))
+                    serp_items = self._filter_job_results_by_location(serp_items, location, strict=True)
+                    for item in serp_items:
+                        link = item.get('link', '')
+                        if link and link in seen_links:
+                            continue
+                        if link:
+                            seen_links.add(link)
+                        job_results.append({
                             'title': item.get('title', ''),
                             'description': item.get('snippet', ''),
-                            'url': item.get('link', ''),
-                            'link': item.get('link', ''),
-                            'source': 'serper',
+                            'link': link,
+                            'source': 'serpapi',
                             'background_friendly': False
                         })
+                        if len(job_results) >= per_page:
+                            break
 
+                # If still low, expand to California-wide to increase volume
+                if len(job_results) < per_page:
+                    job_query = (
+                        f"{query} jobs hiring California "
+                        "site:indeed.com OR site:linkedin.com/jobs OR site:glassdoor.com OR "
+                        "site:ziprecruiter.com OR site:monster.com OR site:snagajob.com OR "
+                        "site:craigslist.org OR site:governmentjobs.com OR site:usajobs.gov OR "
+                        "site:caljobs.ca.gov OR site:builtin.com OR site:careerbuilder.com OR "
+                        "site:simplyhired.com OR site:jobcase.com OR site:jooble.org OR "
+                        "site:talent.com OR site:lensa.com OR site:adzuna.com OR "
+                        "site:myworkdayjobs.com OR site:icims.com OR site:lever.co OR "
+                        "site:greenhouse.io OR site:workforcenow.adp.com OR site:smartrecruiters.com "
+                        "-for rent -lease -commercial -real estate"
+                    )
+                    serp_fallback = self._serpapi_paginated_search(job_query, "California", page, per_page)
+                    serp_items = self._filter_job_results(serp_fallback.get("results", []))
+                    serp_items = self._filter_job_results_by_location(serp_items, "CA", strict=True)
+                    for item in serp_items:
+                        link = item.get('link', '')
+                        if link and link in seen_links:
+                            continue
+                        if link:
+                            seen_links.add(link)
+                        job_results.append({
+                            'title': item.get('title', ''),
+                            'description': item.get('snippet', ''),
+                            'link': link,
+                            'source': 'serpapi',
+                            'background_friendly': False
+                        })
+                        if len(job_results) >= per_page:
+                            break
+
+                if job_results:
                     return {
                         "success": True,
                         "query": query,
                         "location": location,
-                        "housing_listings": housing_listings,
-                        "total_count": len(housing_listings),
-                        "source": "serper",
+                        "results": job_results[:per_page],
+                        "total_count": len(job_results[:per_page]),
+                        "source": "serpapi_jobs",
                         "pagination": {
                             "current_page": page,
                             "per_page": per_page,
-                            "total_results": len(housing_listings),
+                            "total_results": len(job_results[:per_page]),
                             "total_pages": 1,
                             "has_next_page": False,
                             "has_prev_page": False,
-                            "start_index": 1 if housing_listings else 0,
-                            "end_index": len(housing_listings)
+                            "start_index": 1 if job_results else 0,
+                            "end_index": len(job_results[:per_page])
+                        }
+                    }
+
+                # Fallback to Google engine with strict job domains if jobs engine returns nothing
+                job_query = (
+                    f"{query} jobs hiring career employment "
+                    "site:indeed.com OR site:linkedin.com/jobs OR site:glassdoor.com OR "
+                    "site:ziprecruiter.com OR site:monster.com OR site:snagajob.com OR "
+                    "site:craigslist.org OR site:governmentjobs.com OR site:usajobs.gov OR "
+                    "site:caljobs.ca.gov OR site:builtin.com OR site:careerbuilder.com "
+                    "-for rent -lease -commercial -real estate"
+                )
+                serper_payload = self._serpapi_paginated_search(job_query, location, page, per_page)
+                serper_results = self._filter_job_results(serper_payload.get("results", []))
+                serper_results = self._filter_job_results_by_location(serper_results, location, strict=False)
+                if serper_results:
+                    job_results = []
+                    for item in serper_results:
+                        job_results.append({
+                            'title': item.get('title', ''),
+                            'description': item.get('snippet', ''),
+                            'link': item.get('link', ''),
+                            'source': 'serpapi',
+                            'background_friendly': False
+                        })
+                    return {
+                        "success": True,
+                        "query": query,
+                        "location": location,
+                        "results": job_results,
+                        "total_count": len(job_results),
+                        "source": "serpapi",
+                        "pagination": {
+                            "current_page": page,
+                            "per_page": per_page,
+                            "total_results": len(job_results),
+                            "total_pages": 1,
+                            "has_next_page": False,
+                            "has_prev_page": False,
+                            "start_index": 1 if job_results else 0,
+                            "end_index": len(job_results)
                         }
                     }
             
@@ -845,7 +1111,7 @@ class SimpleSearchCoordinator:
                 enhanced_query = f"{query} {location}"
             
             # Add job-specific keywords to improve relevance
-            job_keywords = "employment career position hiring"
+            job_keywords = "employment career position hiring -for rent -lease -commercial -real estate"
             enhanced_query = f"{enhanced_query} {job_keywords}"
             
             logger.info(f"Jobs search: '{enhanced_query}' using CSE: {cse_id} (page {page}, per_page {per_page})")
@@ -860,7 +1126,9 @@ class SimpleSearchCoordinator:
             
             # Format results for API compatibility
             formatted_results = []
-            for item in paginated_results['items']:
+            filtered_items = self._filter_job_results(paginated_results.get('items', []))
+            filtered_items = self._filter_job_results_by_location(filtered_items, location, strict=False)
+            for item in filtered_items:
                 formatted_results.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
@@ -869,7 +1137,7 @@ class SimpleSearchCoordinator:
                 })
             
             # Calculate pagination metadata
-            total_results = paginated_results.get('total_results', len(formatted_results))
+            total_results = len(formatted_results)
             total_pages = max(1, (total_results + per_page - 1) // per_page)  # Ceiling division
             has_next_page = page < total_pages
             has_prev_page = page > 1
@@ -900,7 +1168,7 @@ class SimpleSearchCoordinator:
     
     async def _fallback_jobs_search(self, query: str, location: str = None, page: int = 1, per_page: int = 10):
         """Fallback to original CSE if jobs CSE fails"""
-        logger.warning("🔄 Falling back to original CSE for jobs search")
+        logger.warning("Falling back to original CSE for jobs search")
         
         enhanced_query = f"{query} jobs employment"
         if location:
@@ -973,7 +1241,39 @@ class SimpleSearchCoordinator:
         try:
             # Validate pagination parameters
             page = max(1, page)  # Ensure page is at least 1
-            per_page = min(max(1, per_page), 30)  # Limit per_page between 1 and 30
+            per_page = min(max(1, per_page), 40)  # Limit per_page between 1 and 40
+
+            # Primary: SerpAPI when available
+            if self.serper_api_key:
+                serper_payload = self._serpapi_paginated_search(query, location, page, per_page)
+                serper_results = serper_payload.get("results", [])
+                if serper_results:
+                    formatted_results = []
+                    for item in serper_results:
+                        formatted_results.append({
+                            'title': item.get('title', ''),
+                            'description': item.get('snippet') or item.get('description', ''),
+                            'link': item.get('link', ''),
+                            'source': 'serpapi'
+                        })
+
+                    return {
+                        "success": True,
+                        "query": query,
+                        "location": location,
+                        "results": formatted_results,
+                        "source": "serpapi",
+                        "pagination": {
+                            "current_page": page,
+                            "per_page": per_page,
+                            "total_results": len(formatted_results),
+                            "total_pages": 1,
+                            "has_next_page": False,
+                            "has_prev_page": False,
+                            "start_index": 1 if formatted_results else 0,
+                            "end_index": len(formatted_results)
+                        }
+                    }
             
             # Use original CSE for services
             cse_id = self.google_cse_id
@@ -1015,6 +1315,37 @@ class SimpleSearchCoordinator:
                 per_page=per_page
             )
             
+            # If Google errored, fallback to SerpAPI
+            if not paginated_results or paginated_results.get("error"):
+                if self.serper_api_key:
+                    serper_payload = self._serpapi_paginated_search(query, location, page, per_page)
+                    serper_results = serper_payload.get("results", [])
+                    formatted_results = []
+                    for item in serper_results:
+                        formatted_results.append({
+                            'title': item.get('title', ''),
+                            'description': item.get('snippet') or item.get('description', ''),
+                            'link': item.get('link', ''),
+                            'source': 'serpapi'
+                        })
+                    return {
+                        "success": True,
+                        "query": query,
+                        "location": location,
+                        "results": formatted_results,
+                        "source": "serpapi",
+                        "pagination": {
+                            "current_page": page,
+                            "per_page": per_page,
+                            "total_results": len(formatted_results),
+                            "total_pages": 1,
+                            "has_next_page": False,
+                            "has_prev_page": False,
+                            "start_index": 1 if formatted_results else 0,
+                            "end_index": len(formatted_results)
+                        }
+                    }
+
             # Format results
             formatted_results = []
             for item in paginated_results['items']:
@@ -1075,7 +1406,7 @@ class SimpleSearchCoordinator:
     
     async def _fallback_housing_search(self, query: str, location: str = None, page: int = 1, per_page: int = 10):
         """Fallback to original CSE if housing CSE fails"""
-        logger.warning("🔄 Falling back to original CSE for housing search")
+        logger.warning("Falling back to original CSE for housing search")
         
         enhanced_query = f"{query} housing apartment rental"
         if location:
@@ -1162,11 +1493,42 @@ class SimpleSearchCoordinator:
         try:
             # Validate pagination parameters
             page = max(1, page)  # Ensure page is at least 1
-            per_page = min(max(1, per_page), 30)  # Limit per_page between 1 and 30
+            per_page = min(max(1, per_page), 40)  # Limit per_page between 1 and 40
             
             # Use dedicated housing CSE
             housing_cse_id = self.google_housing_cse_id or self.google_cse_id
             if not self.google_api_key or not housing_cse_id:
+                if self.serper_api_key:
+                    serper = self._serpapi_paginated_search(f"{query} apartment rental", location, page, per_page)
+                    serper_items = serper.get("results", [])
+                    housing_listings = [
+                        {
+                            'title': item.get('title', ''),
+                            'description': item.get('snippet') or item.get('description', ''),
+                            'url': item.get('link', ''),
+                            'link': item.get('link', ''),
+                            'source': 'serpapi',
+                            'background_friendly': False
+                        } for item in serper_items
+                    ]
+                    return {
+                        "success": True,
+                        "query": query,
+                        "location": location,
+                        "housing_listings": housing_listings,
+                        "total_count": len(housing_listings),
+                        "source": "serpapi",
+                        "pagination": {
+                            "current_page": page,
+                            "per_page": per_page,
+                            "total_results": len(housing_listings),
+                            "total_pages": 1,
+                            "has_next_page": False,
+                            "has_prev_page": False,
+                            "start_index": 1 if housing_listings else 0,
+                            "end_index": len(housing_listings)
+                        }
+                    }
                 return {
                     "success": False,
                     "query": query,
@@ -1208,9 +1570,39 @@ class SimpleSearchCoordinator:
             # Check for API errors or unexpected responses
             if not paginated_results or paginated_results.get("error"):
                 error_detail = paginated_results.get("error", "Unknown error")
-                if serper_error:
-                    error_detail = f"{serper_error}; fallback failed: {error_detail}"
                 logger.error(f"Housing search failed: {error_detail}")
+                if self.serper_api_key:
+                    serper = self._serpapi_paginated_search(f"{query} apartment rental", location, page, per_page)
+                    serper_items = serper.get("results", [])
+                    housing_listings = [
+                        {
+                            'title': item.get('title', ''),
+                            'description': item.get('snippet') or item.get('description', ''),
+                            'url': item.get('link', ''),
+                            'link': item.get('link', ''),
+                            'source': 'serpapi',
+                            'background_friendly': False
+                        } for item in serper_items
+                    ]
+                    total_results = len(housing_listings)
+                    return {
+                        "success": True,
+                        "query": query,
+                        "location": location,
+                        "housing_listings": housing_listings,
+                        "total_count": total_results,
+                        "source": "serpapi",
+                        "pagination": {
+                            "current_page": page,
+                            "per_page": per_page,
+                            "total_results": total_results,
+                            "total_pages": 1,
+                            "has_next_page": False,
+                            "has_prev_page": False,
+                            "start_index": 1 if total_results else 0,
+                            "end_index": total_results
+                        }
+                    }
                 return {
                     "success": False,
                     "query": query,
@@ -1246,6 +1638,39 @@ class SimpleSearchCoordinator:
                     'background_friendly': False  # Default, can be enhanced later
                 })
             
+            if not housing_listings and self.serper_api_key:
+                serper = self._serpapi_paginated_search(f"{query} apartment rental", location, page, per_page)
+                serper_items = serper.get("results", [])
+                housing_listings = [
+                    {
+                        'title': item.get('title', ''),
+                        'description': item.get('snippet') or item.get('description', ''),
+                        'url': item.get('link', ''),
+                        'link': item.get('link', ''),
+                        'source': 'serper',
+                        'background_friendly': False
+                    } for item in serper_items
+                ]
+                total_results = len(housing_listings)
+                return {
+                    "success": True,
+                    "query": query,
+                    "location": location,
+                    "housing_listings": housing_listings,
+                    "total_count": total_results,
+                    "source": "serper",
+                    "pagination": {
+                        "current_page": page,
+                        "per_page": per_page,
+                        "total_results": total_results,
+                        "total_pages": 1,
+                        "has_next_page": False,
+                        "has_prev_page": False,
+                        "start_index": 1 if total_results else 0,
+                        "end_index": total_results
+                    }
+                }
+            
             # Calculate pagination metadata
             total_results = paginated_results.get('total_results', len(housing_listings))
             total_pages = max(1, (total_results + per_page - 1) // per_page)
@@ -1276,7 +1701,7 @@ class SimpleSearchCoordinator:
     
     async def _fallback_housing_search(self, query: str, location: str = None, page: int = 1, per_page: int = 10):
         """Fallback to original CSE if housing CSE fails"""
-        logger.warning("🔄 Falling back to original CSE for housing search")
+        logger.warning("Falling back to original CSE for housing search")
         
         enhanced_query = f"{query} housing apartment rental"
         if location:
@@ -1384,32 +1809,91 @@ class SimpleSearchCoordinator:
             logger.error(f"AI query enhancement failed: {e}")
             return query
 
-    def _serper_search(self, query: str, location: Optional[str], max_results: int) -> Dict[str, Any]:
-        """Search using Serper API for housing listings."""
+    def _serper_search(self, query: str, location: Optional[str], max_results: int, start: int = 0) -> Dict[str, Any]:
+        """Search using SerpAPI (google engine) for listings."""
         if not self.serper_api_key:
-            return {"results": [], "error": "Serper API key not configured"}
+            return {"results": [], "error": "SerpAPI key not configured"}
 
         try:
             search_query = query.strip()
             if location:
                 search_query = f"{search_query} {location}"
 
-            payload = {
+            params = {
+                "engine": "google",
                 "q": search_query,
                 "num": max_results,
-                "gl": "us"
-            }
-            headers = {
-                "X-API-KEY": self.serper_api_key,
-                "Content-Type": "application/json"
+                "start": max(0, start),
+                "hl": "en",
+                "gl": "us",
+                "api_key": self.serper_api_key
             }
 
-            response = requests.post("https://google.serper.dev/search", headers=headers, json=payload, timeout=10)
+            response = requests.get("https://serpapi.com/search.json", params=params, timeout=10)
             response.raise_for_status()
             data = response.json()
-            return {"results": data.get("organic", []), "error": None}
+            return {"results": data.get("organic_results", []), "error": None}
         except Exception as e:
-            logger.error(f"Serper search error: {e}")
+            logger.error(f"SerpAPI search error: {e}")
+            return {"results": [], "error": str(e)}
+
+    def _serpapi_paginated_search(self, query: str, location: Optional[str], page: int, per_page: int) -> Dict[str, Any]:
+        """Fetch more than 10 SerpAPI results by paging with start offsets."""
+        try:
+            page = max(1, page)
+            per_page = min(max(1, per_page), 40)
+
+            start_offset = (page - 1) * per_page
+            remaining = per_page
+            results: List[Dict[str, Any]] = []
+
+            while remaining > 0:
+                batch_size = min(10, remaining)
+                payload = self._serper_search(query, location, batch_size, start=start_offset)
+                if payload.get("error"):
+                    return {"results": [], "error": payload.get("error")}
+
+                batch_items = payload.get("results", [])
+                results.extend(batch_items)
+
+                if len(batch_items) < batch_size:
+                    break
+
+                remaining -= batch_size
+                start_offset += batch_size
+
+            return {"results": results, "error": None}
+        except Exception as e:
+            logger.error(f"SerpAPI paginated search error: {e}")
+            return {"results": [], "error": str(e)}
+
+    def _serpapi_jobs_search(self, query: str, location: Optional[str], page: int, per_page: int) -> Dict[str, Any]:
+        """Use SerpAPI Google Jobs engine for cleaner job results."""
+        if not self.serper_api_key:
+            return {"results": [], "error": "SerpAPI key not configured"}
+
+        try:
+            page = max(1, page)
+            per_page = min(max(1, per_page), 40)
+
+            params = {
+                "engine": "google_jobs",
+                "q": query.strip(),
+                "location": location or "",
+                "hl": "en",
+                "gl": "us",
+                "api_key": self.serper_api_key
+            }
+
+            response = requests.get("https://serpapi.com/search.json", params=params, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            results = data.get("jobs_results", [])
+
+            # google_jobs does not reliably support pagination; return first page only
+            return {"results": results[:per_page], "error": None}
+        except Exception as e:
+            logger.error(f"SerpAPI jobs search error: {e}")
             return {"results": [], "error": str(e)}
     
     async def _paginated_google_search(self, query: str, cse_id: str, page: int = 1, per_page: int = 10) -> Dict[str, Any]:
@@ -1421,7 +1905,7 @@ class SimpleSearchCoordinator:
             
             # Validate parameters
             page = max(1, page)
-            per_page = min(max(1, per_page), 30)
+            per_page = min(max(1, per_page), 40)
             
             # FIXED: Add API key validation
             if not self.google_api_key:
