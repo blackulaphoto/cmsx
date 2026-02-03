@@ -18,6 +18,7 @@ import toast from 'react-hot-toast'
 import { Link } from 'react-router-dom'
 import ClientSelector from '../components/ClientSelector'
 import HousingSitesIframe from '../components/HousingSitesIframe'
+import { API_BASE_URL } from '../api/config'
 
 function HousingSearch() {
   const [selectedClient, setSelectedClient] = useState(null)
@@ -60,9 +61,11 @@ function HousingSearch() {
         per_page: '20'
       })
       
-      console.log('Housing search request:', `http://localhost:8000/api/housing/search?${params}`)
+      const baseUrl = API_BASE_URL ? API_BASE_URL.replace(/\/$/, '') : ''
+      const requestUrl = `${baseUrl}/api/housing/search?${params}`
+      console.log('Housing search request:', requestUrl)
       
-      const response = await fetch(`http://localhost:8000/api/housing/search?${params}`, {
+      const response = await fetch(requestUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'

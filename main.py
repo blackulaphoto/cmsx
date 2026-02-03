@@ -75,6 +75,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",  # Alternative localhost format
         "http://127.0.0.1:5175",  # Alternative localhost format (current)
         "http://127.0.0.1:3000",  # Alternative localhost format
+        "https://cmsx-iggfqkus4-blackulaphotos-projects.vercel.app",  # Vercel frontend
         # Add production frontend URL here when deployed
     ],
     allow_credentials=True,
