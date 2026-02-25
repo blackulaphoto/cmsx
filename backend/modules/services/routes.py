@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 
 # Import the guide-compliant search system
-from search.coordinator import get_coordinator, SearchType
+from backend.search.coordinator import get_coordinator, SearchType
 
 logger = logging.getLogger(__name__)
 

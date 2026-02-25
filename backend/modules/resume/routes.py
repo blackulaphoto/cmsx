@@ -15,7 +15,6 @@ CORRECTED Resume Routes - Fixed Database and Import Issues
 """
 
 import os
-import sys
 import json
 import logging
 from datetime import datetime, date
@@ -30,15 +29,11 @@ from pydantic import BaseModel
 # FIXED IMPORT SECTION
 logger = logging.getLogger(__name__)
 
-# Add paths for imports
 current_dir = Path(__file__).parent
-backend_dir = current_dir.parent.parent
-sys.path.append(str(backend_dir))
-sys.path.append(str(current_dir))
 
 # Import resume models with proper error handling
 try:
-    from resume.models import (
+    from backend.modules.resume.models import (
         EmploymentDatabase, ClientEmploymentProfile, Resume, JobApplication, 
         ResumeTailoring, Client
     )
@@ -168,30 +163,19 @@ PDF_SERVICE_TYPE = "none"
 
 # Try multiple import paths for PDF service
 pdf_import_paths = [
+    'backend.services.pdf_service',
     'services.pdf_service',
-    'backend.services.pdf_service', 
-    'pdf_service',
-    '../services/pdf_service'
+    'pdf_service'
 ]
 
 for import_path in pdf_import_paths:
     try:
-        if import_path.startswith('../'):
-            # Handle relative imports
-            pdf_service_path = current_dir.parent / 'services' / 'pdf_service.py'
-            if pdf_service_path.exists():
-                sys.path.append(str(pdf_service_path.parent))
-                from pdf_service import pdf_service
-                PDF_SERVICE_TYPE = "imported"
-                logger.info(f"PDF service imported from {import_path}")
-                break
-        else:
-            module = __import__(import_path, fromlist=['pdf_service'])
-            pdf_service = getattr(module, 'pdf_service', None)
-            if pdf_service:
-                PDF_SERVICE_TYPE = "imported"
-                logger.info(f"PDF service imported from {import_path}")
-                break
+        module = __import__(import_path, fromlist=['pdf_service'])
+        pdf_service = getattr(module, 'pdf_service', None)
+        if pdf_service:
+            PDF_SERVICE_TYPE = "imported"
+            logger.info(f"PDF service imported from {import_path}")
+            break
     except ImportError as e:
         logger.debug(f"Failed to import from {import_path}: {e}")
         continue
@@ -378,12 +362,7 @@ def get_employment_db():
         if employment_db is None:
             # Try to use the bridge service to connect to main client database
             try:
-                import sys
-                import os
-                services_path = os.path.join(os.path.dirname(__file__), '..', '..', 'services')
-                if services_path not in sys.path:
-                    sys.path.insert(0, services_path)
-                from resume_client_bridge import get_resume_database
+                from backend.services.resume_client_bridge import get_resume_database
                 employment_db = get_resume_database()
                 logger.info("Connected to main client database via bridge service")
             except ImportError as e:

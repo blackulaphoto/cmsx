@@ -14,6 +14,7 @@ Consolidated platform combining the best features from both codebases
 """
 
 import sys
+import os
 import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
@@ -28,6 +29,27 @@ import uvicorn
 
 # Load environment variables
 load_dotenv()
+
+# Ensure writable runtime directories exist
+os.makedirs("logs", exist_ok=True)
+os.makedirs("databases", exist_ok=True)
+os.makedirs("uploads", exist_ok=True)
+
+# CORS origins are configurable via CORS_ORIGINS (comma-separated).
+default_cors_origins = [
+    "http://localhost:5173",
+    "http://localhost:5175",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5175",
+    "http://127.0.0.1:3000",
+]
+configured_cors_origins = [
+    origin.strip()
+    for origin in os.getenv("CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+cors_origins = configured_cors_origins or default_cors_origins
 
 # Set up logging
 logging.basicConfig(
@@ -68,16 +90,7 @@ app = FastAPI(
 # Add CORS middleware - configured for React frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Vite dev server (default)
-        "http://localhost:5175",  # Vite dev server (current)
-        "http://localhost:3000",  # Create React App / alternative dev server
-        "http://127.0.0.1:5173",  # Alternative localhost format
-        "http://127.0.0.1:5175",  # Alternative localhost format (current)
-        "http://127.0.0.1:3000",  # Alternative localhost format
-        "https://cmsx-iggfqkus4-blackulaphotos-projects.vercel.app",  # Vercel frontend
-        # Add production frontend URL here when deployed
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=[

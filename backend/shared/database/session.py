@@ -22,8 +22,14 @@ def get_async_engine():
     global _async_engine
     if _async_engine is None:
         from backend.core.config import settings
-        # Convert sqlite:/// to sqlite+aiosqlite:///
-        db_url = settings.database.url.replace("sqlite:///", "sqlite+aiosqlite:///")
+        db_url = settings.database.url
+        # Convert sync URLs to async driver URLs.
+        if db_url.startswith("sqlite:///"):
+            db_url = db_url.replace("sqlite:///", "sqlite+aiosqlite:///")
+        elif db_url.startswith("postgresql://"):
+            db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        elif db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
         _async_engine = create_async_engine(
             db_url,
             echo=False,  # Set to True for SQL debugging

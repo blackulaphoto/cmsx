@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react'
 import { Home, Search, MapPin, DollarSign, Bed, Bath, Users, Star, User, ExternalLink, Phone, Eye, Calendar, Bookmark, Target, TrendingUp, Clock, CheckCircle, AlertCircle, Sparkles, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ClientSelector from '../components/ClientSelector'
+import { API_BASE_URL } from '../api/config'
 
 function CaseManagerHousing() {
+  const apiBase = API_BASE_URL ? API_BASE_URL.replace(/\/$/, '') : ''
   const [selectedClient, setSelectedClient] = useState(null)
   const [searchResults, setSearchResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -49,7 +51,7 @@ function CaseManagerHousing() {
         ...(clientNeeds.length > 0 && { client_needs: clientNeeds.join(',') })
       })
       
-      const response = await fetch(`http://localhost:8000/api/housing/case-manager-search?${params}`, {
+      const response = await fetch(`${apiBase}/api/housing/case-manager-search?${params}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -90,7 +92,7 @@ function CaseManagerHousing() {
         params.append('client_id', selectedClient.id)
       }
       
-      const response = await fetch(`http://localhost:8000/api/housing/case-manager-dashboard?${params}`)
+      const response = await fetch(`${apiBase}/api/housing/case-manager-dashboard?${params}`)
       if (response.ok) {
         const data = await response.json()
         setDashboardData(data)

@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Home, Search, Target, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { API_BASE_URL } from '../api/config'
 
 function HousingTest() {
+  const apiBase = API_BASE_URL ? API_BASE_URL.replace(/\/$/, '') : ''
   const [testResults, setTestResults] = useState({})
   const [testing, setTesting] = useState(false)
 
@@ -27,7 +29,7 @@ function HousingTest() {
       per_page: '5'
     })
     
-    const response = await fetch(`http://localhost:8000/api/housing/search?${params}`)
+    const response = await fetch(`${apiBase}/api/housing/search?${params}`)
     const data = await response.json()
     
     return data.success && data.housing_listings && data.housing_listings.length > 0
@@ -41,14 +43,14 @@ function HousingTest() {
       client_budget: '1500'
     })
     
-    const response = await fetch(`http://localhost:8000/api/housing/case-manager-search?${params}`)
+    const response = await fetch(`${apiBase}/api/housing/case-manager-search?${params}`)
     const data = await response.json()
     
     return data.success && data.case_manager_view && data.results && data.results.length > 0
   }
 
   const testCaseManagerDashboard = async () => {
-    const response = await fetch(`http://localhost:8000/api/housing/case-manager-dashboard`)
+    const response = await fetch(`${apiBase}/api/housing/case-manager-dashboard`)
     const data = await response.json()
     
     return data.success && data.quick_searches && data.quick_searches.length > 0

@@ -390,7 +390,7 @@ async def delete_resource(resource_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # Dashboard stats endpoint
-@router.get("/dashboard/stats")
+@router.get("/dashboard/content-stats")
 async def get_dashboard_stats():
     """Get dashboard component statistics"""
     try:

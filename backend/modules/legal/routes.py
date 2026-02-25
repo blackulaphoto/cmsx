@@ -10,15 +10,10 @@ from pydantic import BaseModel
 import logging
 import json
 from typing import Dict, List, Any, Optional
-import sys
-import os
 from datetime import datetime, timedelta
 
-# Add the app directory to Python path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from legal.models import LegalCase, CourtDate, LegalDocument, LegalDatabase
-from legal.expungement_routes import router as expungement_router
+from .models import LegalCase, CourtDate, LegalDocument, LegalDatabase
+from .expungement_routes import router as expungement_router
 
 # Create FastAPI router
 router = APIRouter(tags=["legal"])
@@ -426,4 +421,3 @@ async def api_warrant_check(warrant_data: WarrantCheck):
     except Exception as e:
         logger.error(f"Warrant check error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-

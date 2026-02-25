@@ -10,16 +10,11 @@ from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 import logging
 import json
-import sys
-import os
 from datetime import datetime
 
-# Add the app directory to Python path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-from benefits.models import BenefitsApplication, BenefitsDatabase
-from benefits.disability_assessment import DisabilityAssessment, QUALIFYING_CONDITIONS
-from benefits.eligibility_engine import get_eligibility_engine, EligibilityStatus
+from .models import BenefitsApplication, BenefitsDatabase
+from .disability_assessment import DisabilityAssessment, QUALIFYING_CONDITIONS
+from .eligibility_engine import get_eligibility_engine, EligibilityStatus
 
 logger = logging.getLogger(__name__)
 
@@ -1087,7 +1082,7 @@ async def get_program_questions_by_query(program: str):
 
 # ============= DEBUG ROUTES =============
 
-@router.get("/debug/engine-status")
+@router.get("/debug/engine-status/detailed")
 async def get_engine_status():
     """Debug endpoint to check eligibility engine status"""
     try:

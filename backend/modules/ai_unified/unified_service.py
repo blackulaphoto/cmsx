@@ -217,8 +217,8 @@ class UnifiedAIService:
     """Unified AI service with SQLite conversation memory."""
 
     def __init__(self) -> None:
-        backend_dir = Path(__file__).resolve().parents[2]
-        self.db_path = backend_dir / "databases" / "ai_assistant.db"
+        project_root = Path(__file__).resolve().parents[3]
+        self.db_path = project_root / "databases" / "ai_assistant.db"
         self.model = "gpt-4o"
         self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self._initialized = False

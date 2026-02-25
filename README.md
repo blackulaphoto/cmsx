@@ -144,9 +144,17 @@ This is a consolidated platform combining features from:
 ### Railway (Backend)
 1. Deploy from repo root.
 2. Start command is defined in `railway.json`.
-3. Set required environment variables in Railway (match `.env`).
+3. Set required environment variables in Railway (see `.env.example`).
+4. Configure persistent storage for `databases/`, `uploads/`, and `logs/` to avoid data loss on restarts.
+5. Run predeploy smoke checks:
+   ```bash
+   python scripts/predeploy_smoke.py
+   ```
+6. PostgreSQL migration path:
+   - Set `DATABASE_URL` to Railway Postgres for SQLAlchemy-backed services.
+   - The app still contains module-level SQLite paths; those modules should be migrated incrementally to SQLAlchemy/Postgres.
 
 ### Vercel (Frontend)
 1. Deploy from `frontend/`.
-2. Set `VITE_API_BASE_URL` to your Railway backend URL (e.g. `https://your-railway-app.up.railway.app`).
-3. Update `frontend/vercel.json` rewrite `REPLACE_WITH_RAILWAY_URL` to the same backend URL.
+2. Set `VITE_API_BASE_URL` to your Railway backend URL (e.g. `https://your-railway-app.up.railway.app`) or leave blank to use `/api` rewrites.
+3. Ensure `frontend/vercel.json` rewrite destination points to your Railway backend.

@@ -20,7 +20,7 @@ unified_ai = UnifiedAIService()
 
 def _cleanup_tool_messages(case_manager_id: str) -> None:
     """Remove stale tool-role rows that break OpenAI message validation."""
-    db_path = Path(__file__).resolve().parents[2] / "databases" / "ai_assistant.db"
+    db_path = Path(__file__).resolve().parents[3] / "databases" / "ai_assistant.db"
     if not db_path.exists():
         return
     try:

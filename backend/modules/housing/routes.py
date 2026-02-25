@@ -22,15 +22,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 import logging
-from search.coordinator import get_coordinator, SearchType
+from backend.search.coordinator import get_coordinator, SearchType
 
 import json
-import sys
-import os
 from datetime import datetime
-
-# Add the app directory to Python path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
 from .models import HousingResource, HousingDatabase
 # from ai_search_coordinator import get_ai_coordinator  # COMMENTED OUT - Using simple search

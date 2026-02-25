@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # CLEAN UNIFIED CLIENT API - CORRUPTION RECOVERY
 # Minimal, working version to replace the corrupted file
 # ============================================================================
@@ -11,19 +11,14 @@ Focuses ONLY on the essential functionality to get task persistence working
 from fastapi import APIRouter, HTTPException, Query
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
-import sys
-import os
 import json
 
 from backend.api.clients import get_database_connection
 
-# Add the reminders module to path
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'modules', 'reminders'))
-
 try:
-    from intelligent_processor import IntelligentTaskProcessor
+    from backend.modules.reminders.intelligent_processor import IntelligentTaskProcessor
 except ImportError:
-    print("⚠️ Warning: IntelligentTaskProcessor not found - task functionality limited")
+    print("âš ï¸ Warning: IntelligentTaskProcessor not found - task functionality limited")
     IntelligentTaskProcessor = None
 
 router = APIRouter()
@@ -32,7 +27,7 @@ router = APIRouter()
 # CORE CLIENT ENDPOINTS
 # ============================================================================
 
-@router.get("/api/clients/{client_id}/unified-view")
+@router.get("/api/unified-clients/{client_id}/unified-view")
 async def get_unified_client_view(client_id: str):
     """
     Get unified client view across all modules
@@ -89,7 +84,7 @@ async def get_unified_client_view(client_id: str):
 # INTELLIGENT TASKS ENDPOINT - FIXED
 # ============================================================================
 
-@router.get("/api/clients/{client_id}/intelligent-tasks")
+@router.get("/api/unified-clients/{client_id}/intelligent-tasks")
 async def get_client_intelligent_tasks(
     client_id: str,
     force_regenerate: bool = Query(False, description="Force regenerate tasks"),
@@ -131,7 +126,7 @@ async def get_client_intelligent_tasks(
                 }
         
         # STEP 2: Generate and persist new tasks
-        print(f"🔄 Generating tasks for client {client_id}")
+        print(f"ðŸ”„ Generating tasks for client {client_id}")
         
         # Use the new method that implements database-first pattern
         generated_tasks = generate_and_persist_process_tasks(client_id)
@@ -159,7 +154,7 @@ async def get_client_intelligent_tasks(
             }
             
     except Exception as e:
-        print(f"❌ Error in get_client_intelligent_tasks: {str(e)}")
+        print(f"âŒ Error in get_client_intelligent_tasks: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get intelligent tasks: {str(e)}")
 
 # ============================================================================
@@ -204,14 +199,14 @@ async def get_case_manager_dashboard(case_manager_id: str):
         }
         
     except Exception as e:
-        print(f"❌ Error in get_case_manager_dashboard: {str(e)}")
+        print(f"âŒ Error in get_case_manager_dashboard: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get dashboard: {str(e)}")
 
 # ============================================================================
 # SEARCH RECOMMENDATIONS ENDPOINT
 # ============================================================================
 
-@router.get("/api/clients/{client_id}/search-recommendations")
+@router.get("/api/unified-clients/{client_id}/search-recommendations")
 async def get_client_search_recommendations(client_id: str):
     """
     Get AI-generated search recommendations for client
@@ -316,7 +311,7 @@ def get_client_tasks_from_database(client_id: str) -> List[Dict[str, Any]]:
             return []
             
     except Exception as e:
-        print(f"❌ Error getting tasks from database: {str(e)}")
+        print(f"âŒ Error getting tasks from database: {str(e)}")
         return []
 
 def generate_and_persist_process_tasks(client_id: str) -> List[Dict[str, Any]]:
@@ -339,7 +334,7 @@ def generate_and_persist_process_tasks(client_id: str) -> List[Dict[str, Any]]:
         return tasks
         
     except Exception as e:
-        print(f"❌ Error generating and persisting tasks: {str(e)}")
+        print(f"âŒ Error generating and persisting tasks: {str(e)}")
         return []
 
 def get_case_manager_clients(case_manager_id: str) -> List[Dict[str, Any]]:
@@ -358,14 +353,14 @@ def get_case_manager_clients(case_manager_id: str) -> List[Dict[str, Any]]:
             }
         ]
     except Exception as e:
-        print(f"❌ Error getting case manager clients: {str(e)}")
+        print(f"âŒ Error getting case manager clients: {str(e)}")
         return []
 
 # ============================================================================
 # BASIC CLIENT INFO ENDPOINTS
 # ============================================================================
 
-@router.get("/api/clients/{client_id}")
+@router.get("/api/unified-clients/{client_id}")
 async def get_basic_client_info(client_id: str):
     """
     Get basic client information
@@ -387,7 +382,7 @@ async def get_basic_client_info(client_id: str):
 # ERROR HANDLING
 # ============================================================================
 
-@router.get("/api/clients/{client_id}/health")
+@router.get("/api/unified-clients/{client_id}/health")
 async def check_client_api_health(client_id: str):
     """Health check for client API"""
     try:
@@ -421,12 +416,12 @@ TO REPLACE THE CORRUPTED FILE:
    curl "http://localhost:8000/api/clients/59a2455b-3ff1-445e-9b30-69e4d46abadd/intelligent-tasks"
 
 WHAT THIS FIXES:
-✅ Clean, working API file (no corruption)
-✅ Database-first pattern for task persistence  
-✅ Proper data_source field setting
-✅ Uses your working persistence methods
-✅ Error handling and fallbacks
-✅ Task statistics calculation
+âœ… Clean, working API file (no corruption)
+âœ… Database-first pattern for task persistence  
+âœ… Proper data_source field setting
+âœ… Uses your working persistence methods
+âœ… Error handling and fallbacks
+âœ… Task statistics calculation
 
 WHAT'S SIMPLIFIED:
 - Unified view is basic (can enhance later)
@@ -436,3 +431,5 @@ WHAT'S SIMPLIFIED:
 The focus is getting your task persistence working again with a clean, 
 corruption-free API file.
 """
+
+

@@ -13,15 +13,9 @@ from backend.search.coordinator import get_coordinator, SearchType
 
 import uuid
 from datetime import datetime
-import os
-import sys
 
-# Add project root to path
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
-
-from jobs.job_search_manager import job_search_manager
-from jobs.scraper_search_manager import scraper_search_manager
+from .job_search_manager import job_search_manager
+from .scraper_search_manager import scraper_search_manager
 # from ai_search_coordinator import get_ai_coordinator  # COMMENTED OUT - Using simple search
 
 logger = logging.getLogger(__name__)
