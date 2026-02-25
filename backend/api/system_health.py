@@ -11,6 +11,7 @@ import sqlite3
 import os
 from datetime import datetime
 from pathlib import Path
+from backend.shared.database.railway_postgres import check_postgres_health, is_postgres_configured
 
 logger = logging.getLogger(__name__)
 
@@ -89,10 +90,25 @@ async def database_status():
                 "error": str(e),
                 "connection": "failed"
             }
+
+    # Railway Postgres migration visibility
+    if is_postgres_configured():
+        ok, detail = check_postgres_health()
+        status["railway_postgres"] = {
+            "status": "operational" if ok else "error",
+            "connection": "active" if ok else "failed",
+            "detail": detail,
+        }
+    else:
+        status["railway_postgres"] = {
+            "status": "not_configured",
+            "connection": "skipped",
+            "detail": "Set DATABASE_URL to a PostgreSQL URL for Railway",
+        }
     
     return {
         "database_status": status,
-        "total_databases": len(databases),
+        "total_databases": len(status),
         "operational_count": sum(1 for db in status.values() if db["status"] == "operational")
     }
 

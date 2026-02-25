@@ -1,0 +1,200 @@
+{
+  "critical": [
+    {
+      "id": "health_api",
+      "method": "GET",
+      "path": "/api/health",
+      "expected_status": [200],
+      "required_keys": ["status", "modules"],
+      "severity": "P0"
+    },
+    {
+      "id": "system_db_status",
+      "method": "GET",
+      "path": "/api/system/database-status",
+      "expected_status": [200],
+      "required_keys": ["database_status", "total_databases"],
+      "severity": "P1"
+    },
+    {
+      "id": "system_access_matrix",
+      "method": "GET",
+      "path": "/api/system/access-matrix",
+      "expected_status": [200],
+      "required_keys": ["access_matrix", "status"],
+      "severity": "P1"
+    }
+  ],
+  "modules": {
+    "housing": [
+      {
+        "id": "housing_search",
+        "method": "GET",
+        "path": "/api/housing/search",
+        "query": {
+          "query": "apartment rental",
+          "location": "Los Angeles, CA",
+          "page": 1,
+          "per_page": 5
+        },
+        "expected_status": [200],
+        "required_keys": ["success", "housing_listings", "pagination"],
+        "severity": "P1"
+      }
+    ],
+    "benefits": [
+      {
+        "id": "benefits_root",
+        "method": "GET",
+        "path": "/api/benefits/",
+        "expected_status": [200],
+        "severity": "P2"
+      },
+      {
+        "id": "benefits_programs",
+        "method": "GET",
+        "path": "/api/benefits/programs",
+        "expected_status": [200],
+        "required_keys": ["success", "programs"],
+        "severity": "P2"
+      }
+    ],
+    "legal": [
+      {
+        "id": "legal_root",
+        "method": "GET",
+        "path": "/api/legal/",
+        "expected_status": [200],
+        "severity": "P2"
+      },
+      {
+        "id": "expungement_workflow_stages",
+        "method": "GET",
+        "path": "/api/legal/expungement/workflow/stages",
+        "expected_status": [200],
+        "severity": "P2"
+      }
+    ],
+    "resume": [
+      {
+        "id": "resume_health",
+        "method": "GET",
+        "path": "/api/resume/health",
+        "expected_status": [200],
+        "severity": "P2"
+      },
+      {
+        "id": "resume_clients",
+        "method": "GET",
+        "path": "/api/resume/clients",
+        "expected_status": [200],
+        "severity": "P2"
+      }
+    ],
+    "services": [
+      {
+        "id": "services_health",
+        "method": "GET",
+        "path": "/api/services/health",
+        "expected_status": [200],
+        "severity": "P2"
+      },
+      {
+        "id": "services_search",
+        "method": "GET",
+        "path": "/api/services/search",
+        "query": {
+          "search": "food pantry",
+          "location": "Los Angeles, CA",
+          "page": 1,
+          "per_page": 5
+        },
+        "expected_status": [200],
+        "required_keys": ["success"],
+        "severity": "P2"
+      }
+    ],
+    "jobs": [
+      {
+        "id": "jobs_health",
+        "method": "GET",
+        "path": "/api/jobs/health",
+        "expected_status": [200],
+        "severity": "P2"
+      },
+      {
+        "id": "jobs_quick_search",
+        "method": "GET",
+        "path": "/api/jobs/search/quick",
+        "query": {
+          "keywords": "warehouse",
+          "location": "Los Angeles, CA",
+          "max_results": 5
+        },
+        "expected_status": [200],
+        "required_keys": ["success"],
+        "severity": "P2"
+      }
+    ],
+    "reminders": [
+      {
+        "id": "reminders_health",
+        "method": "GET",
+        "path": "/api/reminders/health",
+        "expected_status": [200],
+        "severity": "P2"
+      },
+      {
+        "id": "reminders_today",
+        "method": "GET",
+        "path": "/api/reminders/today",
+        "expected_status": [200],
+        "severity": "P2"
+      }
+    ],
+    "case_management": [
+      {
+        "id": "case_management_health",
+        "method": "GET",
+        "path": "/api/case-management/health",
+        "expected_status": [200],
+        "severity": "P2"
+      },
+      {
+        "id": "case_management_root",
+        "method": "GET",
+        "path": "/api/case-management/",
+        "expected_status": [200],
+        "severity": "P2"
+      }
+    ],
+    "dashboard": [
+      {
+        "id": "dashboard_sqlite_stats",
+        "method": "GET",
+        "path": "/api/dashboard/stats",
+        "query": {
+          "case_manager_id": "default_cm"
+        },
+        "expected_status": [200],
+        "severity": "P2"
+      },
+      {
+        "id": "dashboard_content_stats",
+        "method": "GET",
+        "path": "/api/dashboard/content-stats",
+        "expected_status": [200],
+        "severity": "P2"
+      }
+    ],
+    "ai_unified": [
+      {
+        "id": "ai_conversation_endpoint",
+        "method": "GET",
+        "path": "/api/ai/conversation/{case_manager_id}",
+        "expected_status": [200],
+        "severity": "P1"
+      }
+    ]
+  }
+}

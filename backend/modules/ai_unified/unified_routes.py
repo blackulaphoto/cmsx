@@ -26,6 +26,11 @@ def _cleanup_tool_messages(case_manager_id: str) -> None:
     try:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(conversations)")
+        columns = {row[1] for row in cursor.fetchall()}
+        if "role" not in columns:
+            conn.close()
+            return
         cursor.execute(
             "DELETE FROM conversations WHERE case_manager_id = ? AND role = ?",
             (case_manager_id, "tool"),

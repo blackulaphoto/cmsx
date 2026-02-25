@@ -12,6 +12,7 @@ import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
+from backend.shared.database.railway_postgres import upsert_client_to_postgres
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +118,23 @@ async def create_client(client_data: ClientCreateRequest):
             "intake_date": intake_date,
             "risk_level": client_data.risk_level
         })
+
+        # Step 3: Mirror write to Railway Postgres when configured
+        railway_sync = upsert_client_to_postgres(
+            client_data={
+                "client_id": client_id,
+                "first_name": client_data.first_name,
+                "last_name": client_data.last_name,
+                "email": client_data.email,
+                "phone": client_data.phone,
+                "case_manager_id": client_data.case_manager_id,
+                "risk_level": client_data.risk_level,
+                "intake_date": intake_date,
+                "created_at": current_time,
+            },
+            integration_results=integration_results,
+        )
+        integration_results["railway_postgres"] = railway_sync
         
         # Return with success flag and proper format
         return {
@@ -361,19 +379,59 @@ def propagate_client_to_modules(client_id: str, client_data: Dict[str, Any]) -> 
                         synced_at TEXT
                     )
                 """)
+
+                # Ensure legacy tables can accept sync metadata and core fields.
+                cursor.execute("PRAGMA table_info(clients)")
+                existing_columns = {row[1] for row in cursor.fetchall()}
+                expected_columns = {
+                    "first_name": "TEXT",
+                    "last_name": "TEXT",
+                    "email": "TEXT",
+                    "case_manager_id": "TEXT",
+                    "intake_date": "TEXT",
+                    "risk_level": "TEXT",
+                    "synced_at": "TEXT",
+                }
+                for col_name, col_type in expected_columns.items():
+                    if col_name not in existing_columns:
+                        try:
+                            cursor.execute(
+                                f"ALTER TABLE clients ADD COLUMN {col_name} {col_type}"
+                            )
+                        except Exception:
+                            # Some legacy tables may block alteration; continue with available cols.
+                            pass
+
+                cursor.execute("PRAGMA table_info(clients)")
+                existing_columns = [row[1] for row in cursor.fetchall()]
+
+                values_by_column = {
+                    "client_id": client_id,
+                    "first_name": client_data.get("first_name"),
+                    "last_name": client_data.get("last_name"),
+                    "email": client_data.get("email"),
+                    "case_manager_id": client_data.get("case_manager_id"),
+                    "intake_date": client_data.get("intake_date"),
+                    "risk_level": client_data.get("risk_level"),
+                    "synced_at": datetime.now().isoformat(),
+                }
+
+                insert_columns = [c for c in values_by_column if c in existing_columns]
+                if not insert_columns:
+                    raise ValueError("No compatible clients columns for propagation")
+
+                placeholders = ", ".join("?" for _ in insert_columns)
+                columns_sql = ", ".join(insert_columns)
+                values = [values_by_column[c] for c in insert_columns]
                 
                 # Insert client data
-                cursor.execute("""
-                    INSERT OR REPLACE INTO clients 
-                    (client_id, first_name, last_name, email, case_manager_id, 
-                     intake_date, risk_level, synced_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    client_id, client_data["first_name"], client_data["last_name"],
-                    client_data["email"], client_data["case_manager_id"],
-                    client_data["intake_date"], client_data["risk_level"],
-                    datetime.now().isoformat()
-                ))
+                cursor.execute(
+                    f"""
+                    INSERT OR REPLACE INTO clients ({columns_sql})
+                    VALUES ({placeholders})
+                    """,
+                    values,
+                )
                 
                 conn.commit()
                 integration_results[module] = "success"

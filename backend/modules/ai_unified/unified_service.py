@@ -249,10 +249,65 @@ class UnifiedAIService:
                 )
                 """
             )
+            await self._ensure_conversation_schema(db)
             await db.commit()
 
         self._initialized = True
         logger.info("Unified AI SQLite memory initialized")
+
+    async def _ensure_conversation_schema(self, db: aiosqlite.Connection) -> None:
+        """Migrate legacy conversation table variants to the canonical schema."""
+        required_columns = {"id", "case_manager_id", "role", "content", "timestamp"}
+        async with db.execute("PRAGMA table_info(conversations)") as cursor:
+            rows = await cursor.fetchall()
+        existing_columns = {row[1] for row in rows}
+
+        if required_columns.issubset(existing_columns):
+            return
+
+        logger.warning(
+            "Migrating legacy conversations schema. Existing columns: %s",
+            sorted(existing_columns),
+        )
+
+        case_manager_expr = (
+            "case_manager_id"
+            if "case_manager_id" in existing_columns
+            else ("user_id" if "user_id" in existing_columns else "'default_cm'")
+        )
+        role_expr = "role" if "role" in existing_columns else "'assistant'"
+        content_expr = (
+            "content"
+            if "content" in existing_columns
+            else ("message" if "message" in existing_columns else ("response" if "response" in existing_columns else "''"))
+        )
+        timestamp_expr = (
+            "timestamp"
+            if "timestamp" in existing_columns
+            else ("created_at" if "created_at" in existing_columns else "CURRENT_TIMESTAMP")
+        )
+
+        await db.execute("DROP TABLE IF EXISTS conversations_v2")
+        await db.execute(
+            """
+            CREATE TABLE conversations_v2 (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                case_manager_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TEXT NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            f"""
+            INSERT INTO conversations_v2 (case_manager_id, role, content, timestamp)
+            SELECT {case_manager_expr}, {role_expr}, {content_expr}, {timestamp_expr}
+            FROM conversations
+            """
+        )
+        await db.execute("DROP TABLE conversations")
+        await db.execute("ALTER TABLE conversations_v2 RENAME TO conversations")
 
     async def _save_message(self, case_manager_id: str, role: str, content: str) -> None:
         timestamp = datetime.now(timezone.utc).isoformat()
