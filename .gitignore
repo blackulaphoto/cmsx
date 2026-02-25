@@ -142,3 +142,8 @@ yarn-error.log*
 # Frontend build
 frontend/dist/
 frontend/build/
+
+# QC generated artifacts
+scripts/qc/report_qc_*.json
+scripts/qc/report_qc_*.md
+scripts/qc/runtime_flow_*.json

@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 import logging
+import os
 from backend.search.coordinator import get_coordinator, SearchType
 
 import uuid
