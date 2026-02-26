@@ -16,98 +16,43 @@ function Legal() {
     description: '',
     priority: 'Medium',
     deadline: '',
-    client_id: 'client_maria'
+    client_id: ''
   })
 
   useEffect(() => {
     fetchLegalData()
-  }, [])
+  }, [selectedClient?.client_id])
 
   const fetchLegalData = async () => {
     setLoading(true)
     try {
-      // Mock legal data for comprehensive testing
-      const mockCases = [
-        {
-          case_id: 'case_001',
-          client_id: 'client_maria',
-          client_name: 'Maria Santos',
-          case_type: 'Expungement',
-          status: 'Active',
-          priority: 'High',
-          court_date: '2024-07-25',
-          court_time: '09:00 AM',
-          court_location: 'Los Angeles County Superior Court',
-          attorney: 'Legal Aid Society',
-          description: 'Expungement petition for restaurant employment conviction',
-          progress: 65,
-          next_action: 'Submit employment history documentation'
-        },
-        {
-          case_id: 'case_002', 
-          client_id: 'client_002',
-          client_name: 'Jane Smith',
-          case_type: 'Disability Appeal',
-          status: 'Pending',
-          priority: 'Medium',
-          court_date: '2024-08-15',
-          court_time: '10:00 AM',
-          court_location: 'Social Security Administration',
-          attorney: 'Disability Rights California',
-          description: 'SSDI benefits appeal hearing',
-          progress: 40,
-          next_action: 'Medical records review'
-        }
-      ]
+      const clientId = selectedClient?.client_id
+      const clientQuery = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
+      const [casesRes, docsRes, datesRes] = await Promise.all([
+        fetch(`/api/legal/cases${clientQuery}`),
+        fetch(`/api/legal/documents${clientQuery}`),
+        fetch(`/api/legal/court-dates${clientQuery}`)
+      ])
 
-      const mockDocuments = [
-        {
-          doc_id: 'doc_001',
-          case_id: 'case_001',
-          client_name: 'Maria Santos',
-          document_type: 'Employment History',
-          status: 'Missing',
-          required_by: '2024-07-24',
-          description: 'Employment verification from previous restaurant jobs'
-        },
-        {
-          doc_id: 'doc_002',
-          case_id: 'case_001', 
-          client_name: 'Maria Santos',
-          document_type: 'Character References',
-          status: 'Pending',
-          required_by: '2024-07-24',
-          description: 'Character reference letters from community members'
-        },
-        {
-          doc_id: 'doc_003',
-          case_id: 'case_001',
-          client_name: 'Maria Santos', 
-          document_type: 'Expungement Petition',
-          status: 'Completed',
-          required_by: '2024-07-20',
-          description: 'Filed petition for record expungement'
-        }
-      ]
+      if (!casesRes.ok || !docsRes.ok || !datesRes.ok) {
+        throw new Error('Failed to load legal module data')
+      }
 
-      const mockAppointments = [
-        {
-          id: 'apt_001',
-          client_name: 'Maria Santos',
-          appointment_type: 'Legal Aid Meeting',
-          date: '2024-07-23',
-          time: '10:00 AM',
-          location: 'Legal Aid Society Office',
-          purpose: 'Document review and court preparation',
-          status: 'Scheduled'
-        }
-      ]
+      const [casesData, docsData, datesData] = await Promise.all([
+        casesRes.json(),
+        docsRes.json(),
+        datesRes.json()
+      ])
 
-      setCases(mockCases)
-      setDocuments(mockDocuments)
-      setAppointments(mockAppointments)
+      setCases(casesData?.cases || [])
+      setDocuments(docsData?.documents || [])
+      setAppointments(datesData?.court_dates || [])
     } catch (error) {
       console.error('Error fetching legal data:', error)
+      setCases([])
+      setDocuments([])
+      setAppointments([])
+      toast.error(error?.message || 'Failed to load legal data')
     } finally {
       setLoading(false)
     }
@@ -137,11 +82,7 @@ function Legal() {
       }
     } catch (error) {
       console.error('Add task error:', error)
-      
-      // Mock success for demo
-      toast.success('Legal task added successfully!')
-      setShowTaskModal(false)
-      resetTaskForm()
+      toast.error(error?.message || 'Failed to add legal task')
     }
   }
 
@@ -153,7 +94,7 @@ function Legal() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          client_id: 'client_maria',
+          client_id: selectedClient?.client_id || '',
           appointment_type: 'Legal Aid Meeting',
           date: date,
           time: time,
@@ -169,20 +110,7 @@ function Legal() {
       }
     } catch (error) {
       console.error('Schedule appointment error:', error)
-      
-      // Mock success
-      const newAppointment = {
-        id: `apt_${Date.now()}`,
-        client_name: 'Maria Santos',
-        appointment_type: 'Legal Aid Meeting',
-        date: date,
-        time: time,
-        location: 'Legal Aid Society Office',
-        purpose: 'Court preparation and document review',
-        status: 'Scheduled'
-      }
-      setAppointments(prev => [newAppointment, ...prev])
-      toast.success('Legal appointment scheduled!')
+      toast.error(error?.message || 'Failed to schedule legal appointment')
     }
   }
 
@@ -191,7 +119,7 @@ function Legal() {
       description: '',
       priority: 'Medium',
       deadline: '',
-      client_id: 'client_maria'
+      client_id: selectedClient?.client_id || ''
     })
   }
 

@@ -141,7 +141,7 @@ function AIChat() {
   const quickActions = [
     "Maria has court Tuesday and needs housing in 30 days. What should I prioritize today?",
     "What jobs would work for someone with restaurant experience and a pending expungement?",
-    "Analyze Maria Santos progress today and recommend next priorities", 
+    "Analyze this client's progress today and recommend next priorities", 
     "Schedule optimal plan for tomorrow to finish court prep",
     "Search for background-friendly housing options"
   ]

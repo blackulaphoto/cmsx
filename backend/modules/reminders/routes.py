@@ -19,6 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 import logging
+import sqlite3
 from datetime import datetime, timedelta
 from .intelligent_processor import IntelligentTaskProcessor
 from .data_integration import RealDataIntegrator
@@ -541,43 +542,37 @@ async def get_intelligent_dashboard(case_manager_id: str):
     This implements the smart prioritization from the specification
     """
     try:
-        # Mock client data - in real system would come from database
-        mock_clients = [
-            {
-                "client_id": "client_001",
-                "client_name": "Stacey Johnson",
-                "days_in_program": 84,
+        with sqlite3.connect("databases/core_clients.db") as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT client_id, first_name, last_name, risk_level
+                FROM clients
+                WHERE case_manager_id = ?
+                ORDER BY updated_at DESC, created_at DESC
+                """,
+                (case_manager_id,),
+            )
+            rows = cursor.fetchall()
+
+        clients = []
+        for row in rows:
+            risk_level = (row["risk_level"] or "medium").capitalize()
+            clients.append({
+                "client_id": row["client_id"],
+                "client_name": f"{(row['first_name'] or '').strip()} {(row['last_name'] or '').strip()}".strip() or row["client_id"],
+                "days_in_program": 30,
                 "program_length": 90,
-                "days_until_discharge": 6,
-                "risk_level": "High",
+                "days_until_discharge": 60,
+                "risk_level": risk_level,
                 "crisis_level": "None",
-                "last_contact_date": (datetime.now() - timedelta(days=4)).isoformat()
-            },
-            {
-                "client_id": "client_002", 
-                "client_name": "Jay Williams",
-                "days_in_program": 3,
-                "program_length": 90,
-                "days_until_discharge": 87,
-                "risk_level": "Medium",
-                "crisis_level": "None",
-                "last_contact_date": (datetime.now() - timedelta(days=1)).isoformat()
-            },
-            {
-                "client_id": "client_003",
-                "client_name": "Ryan Martinez",
-                "days_in_program": 45,
-                "program_length": 90,
-                "days_until_discharge": 45,
-                "risk_level": "Medium",
-                "crisis_level": "None",
-                "last_contact_date": (datetime.now() - timedelta(days=3)).isoformat()
-            }
-        ]
-        
+                "last_contact_date": datetime.now().isoformat()
+            })
+
         # Calculate intelligent priorities for each client
         prioritized_clients = []
-        for client in mock_clients:
+        for client in clients:
             priority_info = calculate_intelligent_priority(client)
             client.update(priority_info)
             prioritized_clients.append(client)

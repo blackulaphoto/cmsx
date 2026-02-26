@@ -49,17 +49,17 @@ function Benefits() {
   useEffect(() => {
     const clientId = searchParams.get('client')
     if (clientId && !selectedClient) {
-      // Set mock client data as fallback
-      const mockClient = {
-        client_id: clientId,
-        first_name: 'Maria',
-        last_name: 'Santos',
-        phone: '(555) 987-6543',
-        email: 'maria.santos@email.com',
-        risk_level: 'high',
-        case_status: 'active'
-      }
-      setSelectedClient(mockClient)
+      fetch(`/api/clients/${encodeURIComponent(clientId)}?module=case_management`)
+        .then((response) => {
+          if (!response.ok) throw new Error('Client not found')
+          return response.json()
+        })
+        .then((data) => {
+          if (data?.client) setSelectedClient(data.client)
+        })
+        .catch((error) => {
+          console.error('Failed to load client from URL:', error)
+        })
     }
   }, [searchParams, selectedClient])
 

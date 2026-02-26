@@ -228,16 +228,7 @@ function CaseManagement() {
       fetchClients()
     } catch (error) {
       console.error('Error updating client:', error)
-      
-      // Mock success for demo
-      setClients(prev => prev.map(client => 
-        client.client_id === editingClient.client_id 
-          ? { ...client, ...clientForm }
-          : client
-      ))
-      toast.success('Client updated successfully!')
-      setEditingClient(null)
-      resetForm()
+      toast.error(error?.message || 'Failed to update client')
     }
   }
 
@@ -259,10 +250,7 @@ function CaseManagement() {
       }
     } catch (error) {
       console.error('Error deleting client:', error)
-      
-      // Mock success for demo
-      setClients(prev => prev.filter(client => client.client_id !== clientId))
-      toast.success('Client deleted successfully!')
+      toast.error(error?.message || 'Failed to delete client')
     }
   }
 
@@ -1166,7 +1154,7 @@ function CaseManagement() {
                       </div>
                     </div>
 
-                    {/* Detailed Background (for Maria Santos) */}
+                    {/* Detailed Background */}
                     <div className="space-y-6">
                       {selectedClient.background && (
                         <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 backdrop-blur-xl border border-green-500/20 rounded-2xl p-4">

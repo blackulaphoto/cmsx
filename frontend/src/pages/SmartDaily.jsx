@@ -68,116 +68,17 @@ function SmartDaily() {
           return
         }
         
-        // Fallback to mock data if API fails
-        console.warn('API failed, using mock data')
-        const mockTasks = [
-          {
-            id: 1,
-            title: 'Court preparation for Maria Santos - Expungement hearing',
-            priority: 'high',
-            dueTime: '09:00',
-            status: 'pending',
-            client: 'Maria Santos',
-            category: 'legal',
-            dueDate: '2024-07-25',
-            notes: 'Missing employment history documentation'
-          },
-          {
-            id: 2,
-            title: 'Housing deadline follow-up - Maria Santos',
-            priority: 'high',
-            dueTime: '10:30',
-            status: 'pending',
-            client: 'Maria Santos',
-            category: 'housing',
-            dueDate: '2024-07-22',
-            notes: '30 days remaining in transitional housing'
-          },
-          {
-            id: 3,
-            title: 'Job search coordination - Background-friendly positions',
-            priority: 'high',
-            dueTime: '11:00',
-            status: 'in-progress',
-            client: 'Maria Santos',
-            category: 'employment',
-            dueDate: '2024-07-22',
-            notes: 'Restaurant experience, need employment for housing qualification'
-          },
-          {
-            id: 4,
-            title: 'Complete Medicaid application',
-            priority: 'medium',
-            dueTime: '14:00',
-            status: 'pending',
-            client: 'Maria Santos',
-            category: 'benefits',
-            dueDate: '2024-07-23',
-            notes: 'Application incomplete - needs income verification'
-          },
-          {
-            id: 5,
-            title: 'Follow up with John Doe on housing application',
-            priority: 'medium',
-            dueTime: '15:00',
-            status: 'pending',
-            client: 'John Doe',
-            category: 'housing',
-            dueDate: '2024-07-22',
-            notes: 'Regular check-in'
-          }
-        ]
-        
-        // Mock priority alerts
-        const mockAlerts = [
-          {
-            id: 1,
-            type: 'urgent',
-            title: 'Court date tomorrow - Maria Santos',
-            message: 'Expungement hearing scheduled for Tuesday 9:00 AM - documentation needed',
-            client: 'Maria Santos',
-            dueDate: '2024-07-25'
-          },
-          {
-            id: 2,
-            type: 'warning',
-            title: 'Housing deadline - 30 days',
-            message: 'Maria Santos must find permanent housing in 30 days',
-            client: 'Maria Santos',
-            dueDate: '2024-08-21'
-          }
-        ]
-        
-        // Mock AI reminders
-        const mockAiReminders = [
-          {
-            id: 1,
-            type: 'suggestion',
-            title: 'Maria Santos: Court prep + housing search urgent',
-            message: 'AI Analysis: Client has multiple critical deadlines this week. Recommend prioritizing job search first as employment improves housing applications.',
-            confidence: 'high',
-            actions: ['Start job search', 'Gather legal documents', 'Schedule housing appointments']
-          },
-          {
-            id: 2,
-            type: 'insight',
-            title: 'Workflow optimization suggestion',
-            message: 'Based on similar cases, clients with restaurant experience have 85% success rate in hospitality/retail positions when expungement is pending.',
-            confidence: 'medium',
-            actions: ['Search background-friendly employers', 'Prepare for quick hiring process']
-          }
-        ]
-        
-        setTasks(mockTasks)
-        setPriorityAlerts(mockAlerts)
-        setAiReminders(mockAiReminders)
-        setLoading(false)
-      } catch (error) {
-        console.error('Error fetching tasks:', error)
-        // Use mock data on error
         setTasks([])
         setPriorityAlerts([])
         setAiReminders([])
+        toast.error('Failed to load smart daily dashboard')
+        setLoading(false)
+      } catch (error) {
+        console.error('Error fetching tasks:', error)
+        setTasks([])
+        setPriorityAlerts([])
+        setAiReminders([])
+        toast.error('Failed to load smart daily dashboard')
         setLoading(false)
       }
     }

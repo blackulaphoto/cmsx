@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 import logging
 import json
+import sqlite3
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
@@ -30,6 +31,29 @@ def get_legal_db():
     return LegalDatabase("databases/legal_cases.db")
 
 logger = logging.getLogger(__name__)
+
+
+def _get_client_name_map() -> Dict[str, str]:
+    """Load client_id -> full name mapping from core clients DB."""
+    name_map: Dict[str, str] = {}
+    try:
+        conn = sqlite3.connect("databases/core_clients.db")
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT client_id, first_name, last_name FROM clients")
+        for row in cursor.fetchall():
+            first_name = (row["first_name"] or "").strip()
+            last_name = (row["last_name"] or "").strip()
+            full_name = f"{first_name} {last_name}".strip()
+            name_map[row["client_id"]] = full_name or row["client_id"]
+    except Exception as e:
+        logger.warning(f"Unable to load client names from core_clients.db: {e}")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return name_map
 
 # Pydantic models
 class LegalCaseCreate(BaseModel):
@@ -79,59 +103,78 @@ async def legal_dashboard():
 @router.get("/cases")
 async def get_legal_cases(client_id: Optional[str] = Query(None)):
     """Get legal cases"""
+    legal_db = None
     try:
-        # For demo, return sample legal cases
-        sample_cases = [
-            {
-                'case_id': 'case_001',
-                'client_id': 'client_001',
-                'case_number': '2023-CR-001234',
-                'court_name': 'Los Angeles Superior Court',
-                'case_type': 'Felony',
-                'case_status': 'Active',
-                'charges': ["Burglary", "Possession of Controlled Substance"],
-                'probation_officer': 'Sarah Johnson',
-                'probation_phone': '(213) 555-0123',
-                'probation_start_date': '2023-06-01',
-                'probation_end_date': '2026-06-01',
-                'compliance_status': 'Compliant',
-                'expungement_eligible': True,
-                'fines_total': 2500.0,
-                'fines_paid': 1000.0,
-                'next_court_date': '2024-03-15'
-            },
-            {
-                'case_id': 'case_002',
-                'client_id': 'client_002',
-                'case_number': '2024-CR-000567',
-                'court_name': 'Van Nuys Courthouse',
-                'case_type': 'Misdemeanor',
-                'case_status': 'Active',
-                'charges': ["Petty Theft"],
-                'probation_officer': 'Michael Chen',
-                'probation_phone': '(818) 555-0456',
-                'probation_start_date': '2024-01-15',
-                'probation_end_date': '2025-01-15',
-                'compliance_status': 'Warning',
-                'expungement_eligible': False,
-                'fines_total': 800.0,
-                'fines_paid': 800.0,
-                'next_court_date': '2024-02-28'
-            }
-        ]
-        
+        legal_db = get_legal_db()
+        legal_db.connect()
+        cursor = legal_db.connection.cursor()
+        name_map = _get_client_name_map()
+
+        query = """
+            SELECT
+                lc.case_id,
+                lc.client_id,
+                lc.case_type,
+                lc.case_status,
+                lc.court_name,
+                lc.attorney_name,
+                lc.notes,
+                lc.compliance_status,
+                MIN(cd.hearing_date) AS next_court_date,
+                MIN(cd.hearing_time) AS next_court_time
+            FROM legal_cases lc
+            LEFT JOIN court_dates cd
+                ON cd.case_id = lc.case_id
+                AND (cd.status IS NULL OR cd.status = 'Scheduled')
+        """
+        params: List[Any] = []
         if client_id:
-            sample_cases = [case for case in sample_cases if case['client_id'] == client_id]
-        
+            query += " WHERE lc.client_id = ?"
+            params.append(client_id)
+        query += """
+            GROUP BY
+                lc.case_id, lc.client_id, lc.case_type, lc.case_status,
+                lc.court_name, lc.attorney_name, lc.notes, lc.compliance_status
+            ORDER BY lc.last_updated DESC, lc.created_at DESC
+        """
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        cases = []
+        for row in rows:
+            status = row["case_status"] or "Pending"
+            compliance_status = (row["compliance_status"] or "").lower()
+            priority = "High" if compliance_status == "warning" else "Medium"
+            cases.append({
+                "case_id": row["case_id"],
+                "client_id": row["client_id"],
+                "client_name": name_map.get(row["client_id"], row["client_id"]),
+                "case_type": row["case_type"] or "Legal Case",
+                "status": status.title(),
+                "priority": priority,
+                "court_date": row["next_court_date"] or "",
+                "court_time": row["next_court_time"] or "",
+                "court_location": row["court_name"] or "Not provided",
+                "attorney": row["attorney_name"] or "Not assigned",
+                "description": row["notes"] or "No description available",
+                "progress": 50 if status.lower() == "active" else 25,
+                "next_action": "Review case notes and upcoming deadlines"
+            })
+
         return {
             'success': True,
-            'cases': sample_cases,
-            'total_count': len(sample_cases)
+            'cases': cases,
+            'total_count': len(cases)
         }
         
     except Exception as e:
         logger.error(f"Get legal cases error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            legal_db.close()
+        except Exception:
+            pass
 
 @router.post("/cases")
 async def create_legal_case(case_data: LegalCaseCreate):
@@ -165,52 +208,81 @@ async def create_legal_case(case_data: LegalCaseCreate):
 @router.get("/court-dates")
 async def get_court_dates(client_id: Optional[str] = Query(None), days_ahead: int = Query(30)):
     """Get court dates"""
+    legal_db = None
     try:
-        # For demo, return sample court dates
-        sample_court_dates = [
-            {
-                'court_date_id': 'court_001',
-                'case_id': 'case_001',
-                'client_name': 'John Smith',
-                'hearing_date': '2024-02-28',
-                'hearing_time': '09:00 AM',
-                'court_name': 'Los Angeles Superior Court',
-                'courtroom': 'Department 42',
-                'hearing_type': 'Probation Review',
-                'judge_name': 'Hon. Maria Rodriguez',
-                'required_attendance': True,
-                'status': 'Scheduled',
-                'transportation_arranged': False,
-                'reminder_sent': False,
-                'days_until': 8
-            },
-            {
-                'court_date_id': 'court_002',
-                'case_id': 'case_002',
-                'client_name': 'Maria Garcia',
-                'hearing_date': '2024-03-15',
-                'hearing_time': '02:00 PM',
-                'court_name': 'Van Nuys Courthouse',
-                'courtroom': 'Department 12',
-                'hearing_type': 'Sentencing',
-                'judge_name': 'Hon. David Park',
-                'required_attendance': True,
-                'status': 'Scheduled',
-                'transportation_arranged': True,
-                'reminder_sent': True,
-                'days_until': 23
-            }
-        ]
-        
+        legal_db = get_legal_db()
+        legal_db.connect()
+        cursor = legal_db.connection.cursor()
+        name_map = _get_client_name_map()
+        future_date = (datetime.now() + timedelta(days=days_ahead)).date().isoformat()
+        today = datetime.now().date().isoformat()
+
+        query = """
+            SELECT
+                cd.court_date_id,
+                cd.case_id,
+                cd.client_id,
+                cd.hearing_date,
+                cd.hearing_time,
+                cd.court_name,
+                cd.courtroom,
+                cd.hearing_type,
+                cd.judge_name,
+                cd.required_attendance,
+                cd.status,
+                cd.transportation_arranged,
+                cd.reminder_sent
+            FROM court_dates cd
+            WHERE cd.hearing_date >= ? AND cd.hearing_date <= ?
+        """
+        params: List[Any] = [today, future_date]
+        if client_id:
+            query += " AND cd.client_id = ?"
+            params.append(client_id)
+        query += " ORDER BY cd.hearing_date ASC, cd.hearing_time ASC"
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        court_dates = []
+        for row in rows:
+            days_until = None
+            if row["hearing_date"]:
+                try:
+                    days_until = (datetime.fromisoformat(row["hearing_date"]).date() - datetime.now().date()).days
+                except Exception:
+                    days_until = None
+            court_dates.append({
+                "court_date_id": row["court_date_id"],
+                "case_id": row["case_id"],
+                "client_id": row["client_id"],
+                "client_name": name_map.get(row["client_id"], row["client_id"]),
+                "hearing_date": row["hearing_date"],
+                "hearing_time": row["hearing_time"],
+                "court_name": row["court_name"],
+                "courtroom": row["courtroom"],
+                "hearing_type": row["hearing_type"],
+                "judge_name": row["judge_name"],
+                "required_attendance": bool(row["required_attendance"]),
+                "status": row["status"] or "Scheduled",
+                "transportation_arranged": bool(row["transportation_arranged"]),
+                "reminder_sent": bool(row["reminder_sent"]),
+                "days_until": days_until
+            })
+
         return {
             'success': True,
-            'court_dates': sample_court_dates,
-            'total_count': len(sample_court_dates)
+            'court_dates': court_dates,
+            'total_count': len(court_dates)
         }
         
     except Exception as e:
         logger.error(f"Get court dates error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            legal_db.close()
+        except Exception:
+            pass
 
 @router.post("/court-dates")
 async def create_court_date(court_date_data: CourtDateCreate):
@@ -243,47 +315,64 @@ async def create_court_date(court_date_data: CourtDateCreate):
 @router.get("/documents")
 async def get_legal_documents(client_id: Optional[str] = Query(None), document_type: Optional[str] = Query(None, alias="type")):
     """Get legal documents"""
+    legal_db = None
     try:
-        # For demo, return sample legal documents
-        sample_documents = [
-            {
-                'document_id': 'doc_001',
-                'client_name': 'John Smith',
-                'document_type': 'Court Letter',
-                'document_title': 'Employment Verification Letter',
-                'document_purpose': 'Proof of employment for probation officer',
-                'document_status': 'Generated',
-                'due_date': '2024-02-25',
-                'submitted_to': 'Probation Department',
-                'urgency_level': 'High',
-                'created_at': '2024-02-20T10:00:00'
-            },
-            {
-                'document_id': 'doc_002',
-                'client_name': 'Maria Garcia',
-                'document_type': 'Expungement Application',
-                'document_title': 'Petition for Dismissal - PC 1203.4',
-                'document_purpose': 'Request for record expungement',
-                'document_status': 'Draft',
-                'due_date': '2024-03-01',
-                'submitted_to': 'Superior Court',
-                'urgency_level': 'Medium',
-                'created_at': '2024-02-18T14:30:00'
-            }
-        ]
-        
+        legal_db = get_legal_db()
+        legal_db.connect()
+        cursor = legal_db.connection.cursor()
+        name_map = _get_client_name_map()
+
+        query = """
+            SELECT
+                document_id, case_id, client_id, document_type, document_title,
+                document_purpose, document_status, due_date, submitted_to, urgency_level, created_at
+            FROM legal_documents
+            WHERE 1=1
+        """
+        params: List[Any] = []
+        if client_id:
+            query += " AND client_id = ?"
+            params.append(client_id)
         if document_type:
-            sample_documents = [doc for doc in sample_documents if doc['document_type'] == document_type]
-        
+            query += " AND document_type = ?"
+            params.append(document_type)
+        query += " ORDER BY created_at DESC"
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+        documents = [{
+            "document_id": row["document_id"],
+            "doc_id": row["document_id"],
+            "case_id": row["case_id"],
+            "client_id": row["client_id"],
+            "client_name": name_map.get(row["client_id"], row["client_id"]),
+            "document_type": row["document_type"] or "Document",
+            "document_title": row["document_title"] or "",
+            "document_purpose": row["document_purpose"] or "",
+            "document_status": row["document_status"] or "Draft",
+            "status": row["document_status"] or "Draft",
+            "due_date": row["due_date"] or "",
+            "required_by": row["due_date"] or "",
+            "submitted_to": row["submitted_to"] or "",
+            "urgency_level": row["urgency_level"] or "Normal",
+            "description": row["document_purpose"] or "",
+            "created_at": row["created_at"] or ""
+        } for row in rows]
+
         return {
             'success': True,
-            'documents': sample_documents,
-            'total_count': len(sample_documents)
+            'documents': documents,
+            'total_count': len(documents)
         }
         
     except Exception as e:
         logger.error(f"Get legal documents error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            legal_db.close()
+        except Exception:
+            pass
 
 @router.post("/documents")
 async def create_legal_document(document_data: LegalDocumentCreate):

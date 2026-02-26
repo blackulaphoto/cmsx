@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import logging
 import json
+import sqlite3
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
@@ -393,7 +394,23 @@ async def get_expungement_tasks(
 async def update_expungement_task(task_id: str, update_data: ExpungementTaskUpdate):
     """Update expungement task status"""
     try:
-        # For demo, simulate task update
+        db_path = workflow_manager.db.db_path
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE expungement_tasks
+                SET status = ?,
+                    notes = COALESCE(?, notes),
+                    last_updated = ?
+                WHERE task_id = ?
+                """,
+                (update_data.status, update_data.notes, datetime.now().isoformat(), task_id),
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
         return {
             'success': True,
             'message': f'Task {task_id} updated successfully',
@@ -415,13 +432,7 @@ async def generate_expungement_document(request: DocumentGenerationRequest):
         case = next((c for c in cases if c.expungement_id == request.expungement_id), None)
         
         if not case:
-            # For demo, create mock case
-            case = ExpungementCase(
-                expungement_id=request.expungement_id,
-                client_id='maria_santos_001',
-                jurisdiction='CA',
-                petition_type='pc_1203_4'
-            )
+            raise HTTPException(status_code=404, detail=f"Expungement case {request.expungement_id} not found")
         
         # Generate document
         if request.document_type == 'petition':
@@ -556,8 +567,7 @@ async def advance_workflow_stage(expungement_id: str, new_stage: str = Body(...,
         success = workflow_manager.update_case_stage(expungement_id, new_stage)
         
         if not success:
-            # For demo, simulate success
-            success = True
+            raise HTTPException(status_code=404, detail=f"Expungement case {expungement_id} not found")
         
         return {
             'success': success,
@@ -575,43 +585,63 @@ async def advance_workflow_stage(expungement_id: str, new_stage: str = Body(...,
 async def get_expungement_analytics():
     """Get expungement analytics dashboard data"""
     try:
-        # Return demo analytics data
+        db_path = workflow_manager.db.db_path
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) as count FROM expungement_cases")
+            total_cases = cursor.fetchone()["count"]
+
+            cursor.execute("SELECT COUNT(*) as count FROM expungement_cases WHERE eligibility_status = 'eligible'")
+            eligible_cases = cursor.fetchone()["count"]
+
+            cursor.execute("SELECT COUNT(*) as count FROM expungement_cases WHERE process_stage = 'completed'")
+            cases_completed = cursor.fetchone()["count"]
+            cases_in_progress = max(total_cases - cases_completed, 0)
+            success_rate = round((cases_completed / total_cases) * 100, 1) if total_cases else 0.0
+
+            cursor.execute("""
+                SELECT process_stage, COUNT(*) as count
+                FROM expungement_cases
+                GROUP BY process_stage
+            """)
+            cases_by_stage = {row["process_stage"] or "unknown": row["count"] for row in cursor.fetchall()}
+
+            cursor.execute("""
+                SELECT jurisdiction, COUNT(*) as count
+                FROM expungement_cases
+                GROUP BY jurisdiction
+            """)
+            cases_by_jurisdiction = {row["jurisdiction"] or "unknown": row["count"] for row in cursor.fetchall()}
+
+            cursor.execute("""
+                SELECT service_tier, COUNT(*) as count
+                FROM expungement_cases
+                GROUP BY service_tier
+            """)
+            service_tier_distribution = {row["service_tier"] or "unknown": row["count"] for row in cursor.fetchall()}
+
+            cursor.execute("""
+                SELECT substr(created_at, 1, 7) as month, COUNT(*) as completions
+                FROM expungement_cases
+                WHERE process_stage = 'completed' AND created_at IS NOT NULL AND length(created_at) >= 7
+                GROUP BY substr(created_at, 1, 7)
+                ORDER BY month
+            """)
+            monthly_completions = [{"month": row["month"], "completions": row["completions"]} for row in cursor.fetchall()]
+
         analytics = {
-            'total_cases': 156,
-            'eligible_cases': 89,
-            'cases_in_progress': 34,
-            'cases_completed': 67,
-            'success_rate': 85.2,
-            'average_processing_days': 78,
-            'cases_by_stage': {
-                'intake': 12,
-                'eligibility_review': 8,
-                'document_preparation': 15,
-                'filing': 6,
-                'court_review': 18,
-                'hearing_scheduled': 9,
-                'hearing_completed': 3,
-                'completed': 67
-            },
-            'cases_by_jurisdiction': {
-                'CA': 134,
-                'NY': 12,
-                'TX': 8,
-                'Other': 2
-            },
-            'service_tier_distribution': {
-                'diy': 45,
-                'assisted': 78,
-                'full_service': 33
-            },
-            'monthly_completions': [
-                {'month': '2024-01', 'completions': 8},
-                {'month': '2024-02', 'completions': 12},
-                {'month': '2024-03', 'completions': 15},
-                {'month': '2024-04', 'completions': 11},
-                {'month': '2024-05', 'completions': 14},
-                {'month': '2024-06', 'completions': 7}
-            ]
+            'total_cases': total_cases,
+            'eligible_cases': eligible_cases,
+            'cases_in_progress': cases_in_progress,
+            'cases_completed': cases_completed,
+            'success_rate': success_rate,
+            'average_processing_days': None,
+            'cases_by_stage': cases_by_stage,
+            'cases_by_jurisdiction': cases_by_jurisdiction,
+            'service_tier_distribution': service_tier_distribution,
+            'monthly_completions': monthly_completions
         }
         
         return {

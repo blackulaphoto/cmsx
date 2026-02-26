@@ -137,6 +137,12 @@ function Jobs() {
   }
 
   const saveJob = async (job, note = '') => {
+    const clientId = selectedClient?.client_id
+    if (!clientId) {
+      toast.error('Please select a client before saving a job')
+      return
+    }
+
     try {
       const response = await fetch('/api/jobs/save', {
         method: 'POST',
@@ -145,7 +151,7 @@ function Jobs() {
         },
         body: JSON.stringify({
           job_id: job.id,
-          client_id: 'client_maria', // For Maria Santos
+          client_id: clientId,
           notes: note
         })
       })
@@ -157,16 +163,7 @@ function Jobs() {
       }
     } catch (error) {
       console.error('Save job error:', error)
-      
-      // Mock save success
-      const savedJob = {
-        ...job,
-        saved_date: new Date().toISOString(),
-        notes: note,
-        client_id: 'client_maria'
-      }
-      setSavedJobs(prev => [savedJob, ...prev])
-      toast.success('Job saved for client!')
+      toast.error(error?.message || 'Failed to save job')
     }
   }
 

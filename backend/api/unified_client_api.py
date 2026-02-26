@@ -342,15 +342,26 @@ def get_case_manager_clients(case_manager_id: str) -> List[Dict[str, Any]]:
     Get clients assigned to a case manager
     """
     try:
-        # This would normally query the database
-        # For now, return a basic structure
+        with get_database_connection("core_clients", "READ_ONLY") as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT client_id, first_name, last_name, case_manager_id
+                FROM clients
+                WHERE case_manager_id = ?
+                ORDER BY updated_at DESC, created_at DESC
+                """,
+                (case_manager_id,),
+            )
+            rows = cursor.fetchall()
         return [
             {
-                "client_id": "sample_client_1",
-                "first_name": "John",
-                "last_name": "Doe",
-                "case_manager_id": case_manager_id
+                "client_id": row[0],
+                "first_name": row[1],
+                "last_name": row[2],
+                "case_manager_id": row[3],
             }
+            for row in rows
         ]
     except Exception as e:
         print(f"âŒ Error getting case manager clients: {str(e)}")
@@ -367,13 +378,28 @@ async def get_basic_client_info(client_id: str):
     SIMPLIFIED: Prevents crashes if original client endpoints broken
     """
     try:
-        # This would normally query the database
-        # For now, return a basic structure to prevent crashes
+        with get_database_connection("core_clients", "READ_ONLY") as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT client_id, first_name, last_name, email, phone, case_status, risk_level
+                FROM clients
+                WHERE client_id = ?
+                """,
+                (client_id,),
+            )
+            row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
         return {
             "success": True,
-            "client_id": client_id,
-            "message": "Client info endpoint available",
-            "status": "active"
+            "client_id": row[0],
+            "first_name": row[1],
+            "last_name": row[2],
+            "email": row[3],
+            "phone": row[4],
+            "status": row[5] or "unknown",
+            "risk_level": row[6] or "unknown"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get client info: {str(e)}")

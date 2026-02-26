@@ -5,6 +5,7 @@ Transforms generic rental search into case management workflow tools
 
 import re
 import json
+import sqlite3
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from urllib.parse import urlencode, urlparse
@@ -487,14 +488,38 @@ class CaseManagerHousingTools:
     
     def get_client_profile(self, client_id: str) -> Dict[str, Any]:
         """Get client profile information"""
-        # This would integrate with your client database
-        # For now, return sample data
+        try:
+            with sqlite3.connect("databases/core_clients.db") as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT first_name, last_name, housing_status
+                    FROM clients
+                    WHERE client_id = ?
+                    """,
+                    (client_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    first_name = (row["first_name"] or "").strip()
+                    last_name = (row["last_name"] or "").strip()
+                    return {
+                        "name": f"{first_name} {last_name}".strip() or client_id,
+                        "budget": 0,
+                        "needs": [],
+                        "current_housing": row["housing_status"] or "unknown",
+                        "move_in_date": None
+                    }
+        except Exception:
+            pass
+
         return {
-            "name": "Maria Santos",
-            "budget": 1400,
-            "needs": ["pet_friendly", "near_transit"],
-            "current_housing": "transitional",
-            "move_in_date": "2025-09-01"
+            "name": client_id,
+            "budget": 0,
+            "needs": [],
+            "current_housing": "unknown",
+            "move_in_date": None
         }
     
     def _create_error_response(self, error_message: str) -> Dict[str, Any]:

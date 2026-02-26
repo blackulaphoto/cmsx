@@ -52,65 +52,9 @@ function Expungement() {
       }
     } catch (error) {
       console.error('Error fetching expungement data:', error)
-      console.warn('API failed, using fallback demo data')
-      // Use demo data for testing
-      setCases([
-        {
-          expungement_id: 'exp_001',
-          client_id: 'maria_santos_001',
-          client_name: 'Maria Santos',
-          case_number: '2019-CR-001234',
-          jurisdiction: 'CA',
-          court_name: 'Los Angeles Superior Court',
-          offense_type: 'misdemeanor',
-          offense_description: 'Petty theft',
-          conviction_date: '2019-03-15',
-          eligibility_status: 'eligible',
-          process_stage: 'document_preparation',
-          service_tier: 'assisted',
-          hearing_date: '2024-07-25',
-          hearing_time: '09:00 AM',
-          progress_percentage: 75,
-          estimated_completion: '2024-08-15',
-          next_actions: [
-            'Submit employment verification documents',
-            'Schedule legal aid meeting',
-            'Prepare for court hearing'
-          ],
-          total_cost: 150.0,
-          amount_paid: 0.0,
-          created_at: '2024-06-01T10:00:00Z'
-        }
-      ])
-      
-      setTasks([
-        {
-          task_id: 'task_001',
-          expungement_id: 'exp_001',
-          client_id: 'maria_santos_001',
-          task_title: 'Submit Employment Verification',
-          task_description: 'Obtain employment verification letters from previous restaurant employers',
-          priority: 'urgent',
-          status: 'pending',
-          due_date: '2024-07-24',
-          assigned_to: 'client',
-          is_overdue: true,
-          days_until_due: -1
-        },
-        {
-          task_id: 'task_002',
-          expungement_id: 'exp_001',
-          client_id: 'maria_santos_001',
-          task_title: 'Legal Aid Meeting - Court Prep',
-          task_description: 'Meet with Legal Aid attorney to prepare for expungement hearing',
-          priority: 'high',
-          status: 'scheduled',
-          due_date: '2024-07-24',
-          assigned_to: 'attorney',
-          is_overdue: false,
-          days_until_due: 1
-        }
-      ])
+      setCases([])
+      setTasks([])
+      toast.error('Failed to load expungement data')
     } finally {
       setLoading(false)
     }
@@ -165,29 +109,8 @@ function Expungement() {
       }
     } catch (error) {
       console.error('Eligibility quiz error:', error)
-      console.warn('Quiz API failed, using demo result')
-      // Demo result for testing
-      setEligibilityResult({
-        eligible: true,
-        eligibility_date: '2024-07-01',
-        wait_period_days: 0,
-        requirements: [
-          'Complete all probation terms successfully',
-          'Pay all fines, fees, and restitution in full',
-          'No new criminal convictions since original case'
-        ],
-        disqualifying_factors: [],
-        estimated_timeline: '90 days',
-        estimated_cost: 150.0,
-        next_steps: [
-          'Gather required documentation',
-          'Complete petition forms',
-          'File petition with court',
-          'Attend court hearing'
-        ],
-        confidence_score: 95.0
-      })
-      toast.success('Eligibility assessment completed!')
+      setEligibilityResult(null)
+      toast.error('Eligibility assessment failed')
     }
   }
 
