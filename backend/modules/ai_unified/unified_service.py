@@ -220,7 +220,8 @@ class UnifiedAIService:
         project_root = Path(__file__).resolve().parents[3]
         self.db_path = project_root / "databases" / "ai_assistant.db"
         self.model = "gpt-4o"
-        self.client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
+        self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
         self._initialized = False
         self._function_map = {
             "get_dashboard_stats": self.get_dashboard_stats,
@@ -230,6 +231,8 @@ class UnifiedAIService:
             "search_housing": self.search_housing,
             "search_services": self.search_services,
         }
+        if not self.client:
+            logger.warning("OPENAI_API_KEY missing: Unified AI running in degraded mode.")
 
     async def initialize(self) -> None:
         """Initialize SQLite storage for conversation memory."""
@@ -456,6 +459,19 @@ class UnifiedAIService:
     ) -> Dict[str, Any]:
         """Process a chat message and persist conversation history."""
         await self.initialize()
+        if not self.client:
+            fallback = (
+                "AI responses are unavailable because OPENAI_API_KEY is not configured. "
+                "Core app features remain available."
+            )
+            await self._save_message(case_manager_id, "user", message)
+            await self._save_message(case_manager_id, "assistant", fallback)
+            return {
+                "success": False,
+                "response": fallback,
+                "function_called": "",
+                "error": "missing_openai_api_key",
+            }
 
         history = await self._fetch_history(case_manager_id, limit=20)
         system_prompt = ASSISTANT_SYSTEM_PROMPT
