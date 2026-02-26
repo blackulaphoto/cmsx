@@ -56,6 +56,25 @@ function CaseManagement() {
     fetchClients()
   }, [])
 
+  const formatPhoneForDisplay = (value) => {
+    const digits = (value || '').replace(/\D/g, '').slice(0, 10)
+    if (!digits) return ''
+    if (digits.length < 4) return `(${digits}`
+    if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  }
+
+  const handlePhoneInputChange = (field, value) => {
+    const formatted = formatPhoneForDisplay(value)
+    setClientForm(prev => ({ ...prev, [field]: formatted }))
+    setFormErrors(prev => {
+      if (!prev[field]) return prev
+      const next = { ...prev }
+      delete next[field]
+      return next
+    })
+  }
+
   const fetchClients = async () => {
     try {
       setLoading(true)
@@ -94,9 +113,12 @@ function CaseManagement() {
       errors.email = 'Please enter a valid email address'
     }
     
-    // Phone validation
-    if (clientForm.phone && !/^\(\d{3}\) \d{3}-\d{4}$/.test(clientForm.phone)) {
-      errors.phone = 'Phone format: (555) 123-4567'
+    // Phone validation (accept raw digits; format is applied automatically)
+    if (clientForm.phone) {
+      const phoneDigits = clientForm.phone.replace(/\D/g, '')
+      if (phoneDigits.length !== 10) {
+        errors.phone = 'Phone number must include 10 digits'
+      }
     }
     
     // Date of birth validation
@@ -577,11 +599,13 @@ function CaseManagement() {
                         <input
                           type="tel"
                           value={clientForm.phone}
-                          onChange={(e) => setClientForm(prev => ({ ...prev, phone: e.target.value }))}
+                          onChange={(e) => handlePhoneInputChange('phone', e.target.value)}
                           className={`w-full px-4 py-3 bg-white/5 backdrop-blur-xl border rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300 ${
                             formErrors.phone ? 'border-red-500/50' : 'border-white/10'
                           }`}
                           placeholder="(555) 123-4567"
+                          inputMode="numeric"
+                          autoComplete="tel"
                         />
                         {formErrors.phone && (
                           <p className="text-red-400 text-sm mt-1">{formErrors.phone}</p>
@@ -721,9 +745,11 @@ function CaseManagement() {
                         <input
                           type="tel"
                           value={clientForm.emergency_contact_phone}
-                          onChange={(e) => setClientForm(prev => ({ ...prev, emergency_contact_phone: e.target.value }))}
+                          onChange={(e) => handlePhoneInputChange('emergency_contact_phone', e.target.value)}
                           className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
                           placeholder="(555) 123-4567"
+                          inputMode="numeric"
+                          autoComplete="tel"
                         />
                       </div>
 

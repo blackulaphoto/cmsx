@@ -3,12 +3,12 @@
  * Updated for new 9-database architecture
  */
 
-// Base API URL - matches our new backend
-const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim()
-const vercelFallbackApiBaseUrl = 'https://cmsx-production-088d.up.railway.app'
+// Base API URL - on Vercel browser runtime prefer same-origin /api rewrite
+const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
 const isVercelBrowserHost =
   typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')
-export const API_BASE_URL = configuredApiBaseUrl || (isVercelBrowserHost ? vercelFallbackApiBaseUrl : '')
+const useSameOriginProxyOnVercel = isVercelBrowserHost && import.meta.env.VITE_FORCE_DIRECT_API !== '1'
+export const API_BASE_URL = useSameOriginProxyOnVercel ? '' : configuredApiBaseUrl
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 8000)
 export const apiUrl = (endpoint) => `${API_BASE_URL}${endpoint}`
 
