@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, User, ChevronDown, Plus, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 const ClientSelector = ({ 
   selectedClientId = null, 
@@ -46,7 +47,7 @@ const ClientSelector = ({
   const fetchClients = async () => {
     try {
       setLoading(true)
-      const response = await fetch('/api/clients?limit=100')
+      const response = await apiFetch('/api/clients?limit=100')
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: Failed to fetch clients`)
@@ -71,7 +72,7 @@ const ClientSelector = ({
 
   const fetchClientById = async (clientId) => {
     try {
-      const response = await fetch(`/api/clients/${clientId}`)
+      const response = await apiFetch(`/api/clients/${clientId}`)
       
       if (response.ok) {
         const data = await response.json()

@@ -4,8 +4,13 @@
  */
 
 // Base API URL - matches our new backend
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim()
+const vercelFallbackApiBaseUrl = 'https://cmsx-production-088d.up.railway.app'
+const isVercelBrowserHost =
+  typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')
+export const API_BASE_URL = configuredApiBaseUrl || (isVercelBrowserHost ? vercelFallbackApiBaseUrl : '')
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 8000)
+export const apiUrl = (endpoint) => `${API_BASE_URL}${endpoint}`
 
 // API Endpoints for new 9-database architecture
 export const API_ENDPOINTS = {
@@ -75,7 +80,7 @@ export const API_ENDPOINTS = {
 
 // Helper function to make API calls
 export const apiCall = async (endpoint, options = {}) => {
-  const url = `${API_BASE_URL}${endpoint}`
+  const url = apiUrl(endpoint)
   
   const defaultOptions = {
     headers: {
@@ -102,6 +107,21 @@ export const apiCall = async (endpoint, options = {}) => {
       throw new Error(`Request timeout after ${API_TIMEOUT_MS}ms`)
     }
     console.error(`API call failed: ${endpoint}`, error)
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+export const apiFetch = async (endpoint, options = {}) => {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
+  try {
+    return await fetch(apiUrl(endpoint), { ...options, signal: controller.signal })
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Request timeout after ${API_TIMEOUT_MS}ms`)
+    }
     throw error
   } finally {
     clearTimeout(timeoutId)
@@ -161,7 +181,9 @@ export const aiAPI = {
 export default {
   API_BASE_URL,
   API_ENDPOINTS,
+  apiUrl,
   apiCall,
+  apiFetch,
   clientsAPI,
   aiAPI
 }

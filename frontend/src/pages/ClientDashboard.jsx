@@ -36,6 +36,7 @@ import useTasks from '../hooks/useTasks'
 import TaskForm from '../components/TaskForm'
 import TasksList from '../components/TasksList'
 import TaskViewModal from '../components/TaskViewModal'
+import { apiFetch } from '../api/config'
 
 const ClientDashboard = () => {
   const { clientId } = useParams()
@@ -97,7 +98,7 @@ const ClientDashboard = () => {
     try {
       setLoading(true)
       setLoadError('')
-      const response = await fetch(`/api/clients/${clientId}/unified-view`)
+      const response = await apiFetch(`/api/clients/${clientId}/unified-view`)
       
       if (response.ok) {
         const data = await response.json()
@@ -121,7 +122,7 @@ const ClientDashboard = () => {
 
   const fetchIntelligentTasks = async () => {
     try {
-      const response = await fetch(`/api/clients/${clientId}/intelligent-tasks`)
+      const response = await apiFetch(`/api/clients/${clientId}/intelligent-tasks`)
       
       if (response.ok) {
         const data = await response.json()
@@ -138,7 +139,7 @@ const ClientDashboard = () => {
 
   const fetchSearchRecommendations = async () => {
     try {
-      const response = await fetch(`/api/clients/${clientId}/search-recommendations`)
+      const response = await apiFetch(`/api/clients/${clientId}/search-recommendations`)
       
       if (response.ok) {
         const data = await response.json()

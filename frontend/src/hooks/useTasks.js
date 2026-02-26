@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { apiFetch } from '../api/config'
 
 const useTasks = (clientId) => {
   const [tasks, setTasks] = useState([])
@@ -36,7 +37,7 @@ const useTasks = (clientId) => {
 
   const loadTasksFromBackend = async () => {
     try {
-      const response = await fetch(`/api/case-management/tasks/list/${clientId}`)
+      const response = await apiFetch(`/api/case-management/tasks/list/${clientId}`)
       if (response.ok) {
         const data = await response.json()
         if (data.success && data.tasks) {
@@ -146,7 +147,7 @@ const useTasks = (clientId) => {
 
       // Try to delete from backend
       try {
-        await fetch(`/api/case-management/tasks/${taskId}`, {
+        await apiFetch(`/api/case-management/tasks/${taskId}`, {
           method: 'DELETE'
         })
       } catch (error) {
@@ -179,7 +180,7 @@ const useTasks = (clientId) => {
       
       const method = isUpdate ? 'PUT' : 'POST'
       
-      const response = await fetch(endpoint, {
+      const response = await apiFetch(endpoint, {
         method,
         headers: {
           'Content-Type': 'application/json',

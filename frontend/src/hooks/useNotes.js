@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 const useNotes = (clientId) => {
   const [notes, setNotes] = useState([])
@@ -36,7 +37,7 @@ const useNotes = (clientId) => {
 
   const loadNotesFromBackend = async () => {
     try {
-      const response = await fetch(`/api/case-management/notes/list/${clientId}`)
+      const response = await apiFetch(`/api/case-management/notes/list/${clientId}`)
       if (response.ok) {
         const data = await response.json()
         if (data.success && data.notes) {
@@ -159,7 +160,7 @@ const useNotes = (clientId) => {
       setSyncing(true)
       
       // Try to sync to backend API
-      const response = await fetch(`/api/case-management/notes/add/${clientId}`, {
+      const response = await apiFetch(`/api/case-management/notes/add/${clientId}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -191,7 +192,7 @@ const useNotes = (clientId) => {
 
   const syncNoteDeletionToBackend = async (noteId) => {
     try {
-      await fetch(`/api/case-management/notes/${noteId}`, {
+      await apiFetch(`/api/case-management/notes/${noteId}`, {
         method: 'DELETE'
       })
       console.log('Note deletion synced to backend')

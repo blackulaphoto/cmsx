@@ -34,6 +34,7 @@ import {
   Music
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 const EnhancedDashboard = () => {
   const caseManagerId = 'cm_001'
@@ -86,7 +87,7 @@ const EnhancedDashboard = () => {
 
   const fetchDashboardStats = async () => {
     try {
-      const response = await fetch(`/api/dashboard/stats?case_manager_id=${encodeURIComponent(caseManagerId)}`)
+      const response = await apiFetch(`/api/dashboard/stats?case_manager_id=${encodeURIComponent(caseManagerId)}`)
       
       if (response.ok) {
         const data = await response.json()
@@ -105,10 +106,10 @@ const EnhancedDashboard = () => {
     try {
       // Load data from API endpoints
       const [notesRes, docsRes, bookmarksRes, resourcesRes] = await Promise.all([
-        fetch('/api/dashboard/notes'),
-        fetch('/api/dashboard/docs'),
-        fetch('/api/dashboard/bookmarks'),
-        fetch('/api/dashboard/resources')
+        apiFetch('/api/dashboard/notes'),
+        apiFetch('/api/dashboard/docs'),
+        apiFetch('/api/dashboard/bookmarks'),
+        apiFetch('/api/dashboard/resources')
       ])
 
       if (notesRes.ok) {
@@ -200,7 +201,7 @@ const EnhancedDashboard = () => {
     if (!newNote.trim()) return
     
     try {
-      const response = await fetch('/api/dashboard/notes', {
+      const response = await apiFetch('/api/dashboard/notes', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -233,7 +234,7 @@ const EnhancedDashboard = () => {
     if (!note) return
     
     try {
-      const response = await fetch(`/api/dashboard/notes/${id}`, {
+      const response = await apiFetch(`/api/dashboard/notes/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -261,7 +262,7 @@ const EnhancedDashboard = () => {
 
   const deleteNote = async (id) => {
     try {
-      const response = await fetch(`/api/dashboard/notes/${id}`, {
+      const response = await apiFetch(`/api/dashboard/notes/${id}`, {
         method: 'DELETE'
       })
       
@@ -283,7 +284,7 @@ const EnhancedDashboard = () => {
     if (!note) return
     
     try {
-      const response = await fetch(`/api/dashboard/notes/${id}`, {
+      const response = await apiFetch(`/api/dashboard/notes/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
