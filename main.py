@@ -49,7 +49,13 @@ configured_cors_origins = [
     for origin in os.getenv("CORS_ORIGINS", "").split(",")
     if origin.strip()
 ]
-cors_origins = configured_cors_origins or default_cors_origins
+is_production_runtime = os.getenv("RAILWAY_ENVIRONMENT", "").lower() == "production"
+if configured_cors_origins:
+    cors_origins = configured_cors_origins
+elif is_production_runtime:
+    cors_origins = []
+else:
+    cors_origins = default_cors_origins
 
 # Set up logging
 logging.basicConfig(
@@ -61,6 +67,8 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+if is_production_runtime and not cors_origins:
+    logger.warning("CORS_ORIGINS is empty in production; browser clients will be blocked.")
 
 # Lifespan event handler
 @asynccontextmanager

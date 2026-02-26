@@ -42,6 +42,7 @@ const ClientDashboard = () => {
   const navigate = useNavigate()
   const [clientData, setClientData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
   const [intelligentTasks, setIntelligentTasks] = useState(null)
   const [searchRecommendations, setSearchRecommendations] = useState(null)
@@ -95,6 +96,7 @@ const ClientDashboard = () => {
   const fetchClientData = async () => {
     try {
       setLoading(true)
+      setLoadError('')
       const response = await fetch(`/api/clients/${clientId}/unified-view`)
       
       if (response.ok) {
@@ -105,148 +107,13 @@ const ClientDashboard = () => {
           throw new Error(data.message || 'Failed to fetch client data')
         }
       } else {
-        throw new Error('Failed to fetch client data')
+        throw new Error(`Failed to fetch client data (HTTP ${response.status})`)
       }
     } catch (error) {
       console.error('Error fetching client data:', error)
+      setClientData(null)
+      setLoadError(error?.message || 'Failed to load client data')
       toast.error('Failed to load client data')
-      // Mock data for development
-      setClientData({
-        client: {
-          client_id: clientId,
-          first_name: 'Maria',
-          last_name: 'Santos',
-          phone: '(555) 987-6543',
-          email: 'maria.santos@email.com',
-          address: '123 Main St, Los Angeles, CA 90210',
-          date_of_birth: '1985-03-15',
-          risk_level: 'high',
-          case_status: 'active',
-          case_manager_id: 'cm_001',
-          intake_date: '2024-06-20',
-          created_at: '2024-06-20T10:00:00Z',
-          updated_at: '2024-07-20T15:30:00Z'
-        },
-        housing: {
-          status: 'Transitional - 30 days remaining',
-          applications: [
-            {
-              property_name: 'Sunrise Apartments',
-              status: 'pending',
-              applied_date: '2024-07-15',
-              follow_up_date: '2024-07-25'
-            }
-          ],
-          profile: {
-            max_rent: 1200,
-            bedroom_preference: 1,
-            preferred_counties: ['Los Angeles', 'Orange']
-          }
-        },
-        employment: {
-          status: 'Unemployed - Last job 2019',
-          applications: [
-            {
-              job_title: 'Warehouse Associate',
-              company: 'ABC Logistics',
-              status: 'applied',
-              applied_date: '2024-07-18'
-            }
-          ],
-          resumes: [
-            {
-              resume_name: 'General Resume',
-              created_at: '2024-07-10',
-              download_url: '/api/resumes/download/123'
-            }
-          ]
-        },
-        benefits: {
-          status: 'SNAP active, Medicaid pending',
-          applications: [
-            {
-              benefit_type: 'SNAP',
-              status: 'approved',
-              approval_amount: 250
-            },
-            {
-              benefit_type: 'Medicaid',
-              status: 'pending',
-              submitted_date: '2024-07-01'
-            }
-          ]
-        },
-        legal: {
-          status: 'Expungement hearing: Next Tuesday',
-          cases: [
-            {
-              case_type: 'expungement',
-              status: 'active',
-              court_name: 'Los Angeles Superior Court',
-              next_date: '2024-07-23'
-            }
-          ]
-        },
-        services: {
-          referrals: [
-            {
-              service_type: 'Mental Health',
-              provider_name: 'Community Health Center',
-              status: 'engaged',
-              referral_date: '2024-06-25'
-            }
-          ]
-        },
-        tasks: [
-          {
-            title: 'Follow up on housing application',
-            due_date: '2024-07-25',
-            priority: 'high',
-            status: 'pending'
-          },
-          {
-            title: 'Prepare for expungement hearing',
-            due_date: '2024-07-23',
-            priority: 'urgent',
-            status: 'pending'
-          }
-        ],
-        appointments: [
-          {
-            appointment_type: 'Court Hearing',
-            provider_name: 'Los Angeles Superior Court',
-            appointment_date: '2024-07-23T09:00:00Z',
-            status: 'scheduled'
-          }
-        ],
-        case_notes: [
-          {
-            note_type: 'Contact',
-            content: 'Client is motivated and making good progress. Discussed housing options.',
-            created_at: '2024-07-20T14:00:00Z',
-            created_by: 'cm_001'
-          }
-        ],
-        goals: [
-          {
-            goal_type: 'housing',
-            description: 'Secure permanent housing',
-            status: 'in_progress'
-          },
-          {
-            goal_type: 'employment',
-            description: 'Find stable employment',
-            status: 'pending'
-          }
-        ],
-        barriers: [
-          {
-            barrier_type: 'housing',
-            description: 'Limited affordable housing options',
-            severity: 'high'
-          }
-        ]
-      })
     } finally {
       setLoading(false)
     }
@@ -470,7 +337,8 @@ const ClientDashboard = () => {
             <AlertCircle className="h-12 w-12 text-red-400" />
           </div>
           <h2 className="text-xl font-semibold text-white mb-3">Client Not Found</h2>
-          <p className="text-gray-400 mb-6">The requested client could not be found.</p>
+          <p className="text-gray-400 mb-3">The requested client could not be loaded.</p>
+          {loadError && <p className="text-red-300 text-sm mb-6">{loadError}</p>}
           <button
             onClick={() => navigate('/case-management')}
             className="px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-blue-500/25"

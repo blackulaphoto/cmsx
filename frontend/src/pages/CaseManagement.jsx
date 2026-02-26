@@ -14,6 +14,7 @@ function CaseManagement() {
   const [editingClient, setEditingClient] = useState(null)
   const [selectedClient, setSelectedClient] = useState(null)
   const [showClientProfile, setShowClientProfile] = useState(false)
+  const [loadError, setLoadError] = useState('')
   const [clientForm, setClientForm] = useState({
     first_name: '',
     last_name: '',
@@ -58,6 +59,7 @@ function CaseManagement() {
   const fetchClients = async () => {
     try {
       setLoading(true)
+      setLoadError('')
       // Use new API to fetch clients
       const data = await clientsAPI.getAll('case_management')
       
@@ -70,96 +72,10 @@ function CaseManagement() {
       }
     } catch (error) {
       console.error('Error fetching clients:', error)
-      toast.error('Failed to load clients from API. Using sample data.')
-      // Mock data for comprehensive testing - including Maria Santos
-      const mockClients = [
-        {
-          client_id: 'client_maria',
-          first_name: 'Maria', 
-          last_name: 'Santos',
-          phone: '(555) 987-6543',
-          email: 'maria.santos@email.com',
-          risk_level: 'High',
-          case_status: 'Urgent',
-          intake_date: '2024-06-20',
-          last_contact: '2024-07-20',
-          next_followup: '2024-07-22',
-          needs: ['housing', 'employment', 'legal', 'benefits'],
-          progress: 35,
-          notes: '18 months clean, transitional housing expires in 30 days, expungement hearing Tuesday',
-          housing_status: 'Transitional - 30 days remaining',
-          legal_status: 'Expungement hearing: Next Tuesday',
-          employment_status: 'Unemployed - Last job 2019',
-          benefits_status: 'SNAP active, Medicaid pending',
-          background: {
-            addiction_recovery: '18 months clean',
-            housing_deadline: '30 days to find permanent housing',
-            court_date: 'Expungement hearing next Tuesday',
-            employment_history: 'Restaurant server (2019)',
-            current_benefits: 'SNAP active, applying for Medicaid',
-            transportation: 'Has bus pass',
-            challenges: 'Multiple deadlines, anxiety about court and housing'
-          }
-        },
-        {
-          client_id: 'client_001',
-          first_name: 'John', 
-          last_name: 'Doe',
-          phone: '(555) 123-4567',
-          email: 'john.doe@email.com',
-          risk_level: 'High',
-          case_status: 'Active',
-          intake_date: '2024-01-15',
-          last_contact: '2024-01-20',
-          next_followup: '2024-01-25',
-          needs: ['housing', 'employment'],
-          progress: 75,
-          notes: 'Client is making good progress with housing search',
-          housing_status: 'Permanent housing search',
-          legal_status: 'No active cases',
-          employment_status: 'Part-time employment',
-          benefits_status: 'SNAP active'
-        },
-        {
-          client_id: 'client_002',
-          first_name: 'Jane',
-          last_name: 'Smith',
-          phone: '(555) 234-5678',
-          email: 'jane.smith@email.com',
-          risk_level: 'Medium',
-          case_status: 'Active',
-          intake_date: '2024-01-14',
-          last_contact: '2024-01-18',
-          next_followup: '2024-01-22',
-          needs: ['legal', 'benefits'],
-          progress: 45,
-          notes: 'Working on disability benefits application',
-          housing_status: 'Stable housing',
-          legal_status: 'Disability appeal pending',
-          employment_status: 'Unable to work - disability',
-          benefits_status: 'SSDI application pending'
-        },
-        {
-          client_id: 'client_003',
-          first_name: 'Mike',
-          last_name: 'Johnson',
-          phone: '(555) 345-6789',
-          email: 'mike.johnson@email.com',
-          risk_level: 'High',
-          case_status: 'Urgent',
-          intake_date: '2024-01-16',
-          last_contact: '2024-01-17',
-          next_followup: '2024-01-19',
-          needs: ['housing', 'legal'],
-          progress: 20,
-          notes: 'Urgent housing needed - eviction notice received',
-          housing_status: 'Eviction notice - urgent',
-          legal_status: 'Eviction defense needed',
-          employment_status: 'Unemployed',
-          benefits_status: 'Emergency assistance needed'
-        }
-      ]
-      setClients(mockClients)
+      setClients([])
+      const message = error?.message || 'Failed to load clients from API'
+      setLoadError(message)
+      toast.error(message)
     } finally {
       setLoading(false)
     }
@@ -237,24 +153,7 @@ function CaseManagement() {
       fetchClients()
     } catch (error) {
       console.error('Error adding client:', error)
-      
-      // For development - create client locally
-      const newClient = {
-        client_id: `client_${Date.now()}`,
-        ...clientForm,
-        intake_date: new Date().toISOString().split('T')[0],
-        last_contact: null,
-        next_followup: null,
-        needs: generateInitialNeeds(clientForm),
-        progress: 0,
-        created_at: new Date().toISOString(),
-        is_active: true
-      }
-      
-      setClients(prev => [newClient, ...prev])
-      toast.success('Client added successfully!')
-      setShowAddClient(false)
-      resetForm()
+      toast.error(error?.message || 'Failed to add client')
     } finally {
       setIsSubmitting(false)
     }

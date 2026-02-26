@@ -58,13 +58,22 @@ def ensure_postgres_client_tables() -> None:
                     phone TEXT,
                     case_manager_id TEXT,
                     risk_level TEXT,
+                    case_status TEXT,
                     intake_date TEXT,
                     created_at TEXT,
+                    updated_at TEXT,
                     source TEXT DEFAULT 'api.clients',
                     metadata_json TEXT DEFAULT '{}'
                 )
                 """
             )
+        )
+        # Backward-compatible column adds for existing tables.
+        conn.execute(
+            text("ALTER TABLE railway_core_clients ADD COLUMN IF NOT EXISTS case_status TEXT")
+        )
+        conn.execute(
+            text("ALTER TABLE railway_core_clients ADD COLUMN IF NOT EXISTS updated_at TEXT")
         )
         conn.execute(
             text(
@@ -101,12 +110,12 @@ def upsert_client_to_postgres(
                     """
                     INSERT INTO railway_core_clients (
                         client_id, first_name, last_name, email, phone,
-                        case_manager_id, risk_level, intake_date, created_at,
+                        case_manager_id, risk_level, case_status, intake_date, created_at, updated_at,
                         metadata_json
                     )
                     VALUES (
                         :client_id, :first_name, :last_name, :email, :phone,
-                        :case_manager_id, :risk_level, :intake_date, :created_at,
+                        :case_manager_id, :risk_level, :case_status, :intake_date, :created_at, :updated_at,
                         :metadata_json
                     )
                     ON CONFLICT (client_id) DO UPDATE SET
@@ -116,8 +125,10 @@ def upsert_client_to_postgres(
                         phone = EXCLUDED.phone,
                         case_manager_id = EXCLUDED.case_manager_id,
                         risk_level = EXCLUDED.risk_level,
+                        case_status = EXCLUDED.case_status,
                         intake_date = EXCLUDED.intake_date,
                         created_at = EXCLUDED.created_at,
+                        updated_at = EXCLUDED.updated_at,
                         metadata_json = EXCLUDED.metadata_json
                     """
                 ),
@@ -129,8 +140,10 @@ def upsert_client_to_postgres(
                     "phone": client_data.get("phone"),
                     "case_manager_id": client_data.get("case_manager_id"),
                     "risk_level": client_data.get("risk_level"),
+                    "case_status": client_data.get("case_status"),
                     "intake_date": client_data.get("intake_date"),
                     "created_at": client_data.get("created_at"),
+                    "updated_at": client_data.get("updated_at"),
                     "metadata_json": str(
                         {
                             "source": "api.clients",

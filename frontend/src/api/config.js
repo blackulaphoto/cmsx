@@ -5,6 +5,7 @@
 
 // Base API URL - matches our new backend
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 8000)
 
 // API Endpoints for new 9-database architecture
 export const API_ENDPOINTS = {
@@ -85,8 +86,10 @@ export const apiCall = async (endpoint, options = {}) => {
   
   const config = { ...defaultOptions, ...options }
   
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
   try {
-    const response = await fetch(url, config)
+    const response = await fetch(url, { ...config, signal: controller.signal })
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
@@ -95,8 +98,13 @@ export const apiCall = async (endpoint, options = {}) => {
     
     return await response.json()
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(`Request timeout after ${API_TIMEOUT_MS}ms`)
+    }
     console.error(`API call failed: ${endpoint}`, error)
     throw error
+  } finally {
+    clearTimeout(timeoutId)
   }
 }
 

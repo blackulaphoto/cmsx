@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from pathlib import Path
+from backend.shared.database.railway_postgres import upsert_client_to_postgres
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,13 @@ class CoreClientService:
         """Ensure the core_clients.db database exists"""
         if not Path(self.db_path).exists():
             raise FileNotFoundError(f"Core clients database not found: {self.db_path}")
+
+    def _sync_client_to_postgres(self, client_data: Dict[str, Any], operation: str) -> str:
+        """Dual-write mirror into Railway Postgres without blocking SQLite path."""
+        return upsert_client_to_postgres(
+            client_data=client_data,
+            integration_results={"source": "core_client_service", "operation": operation},
+        )
     
     def create_client(self, client_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new client in core_clients.db"""
@@ -55,13 +63,15 @@ class CoreClientService:
                 
                 cursor.execute(f"INSERT INTO clients ({columns}) VALUES ({placeholders})", values)
                 conn.commit()
+                postgres_sync = self._sync_client_to_postgres(client_data, "create")
                 
                 logger.info(f"Created client: {client_data['first_name']} {client_data['last_name']} (ID: {client_data['client_id']})")
                 
                 return {
                     'success': True,
                     'client_id': client_data['client_id'],
-                    'message': f"Client {client_data['first_name']} {client_data['last_name']} created successfully"
+                    'message': f"Client {client_data['first_name']} {client_data['last_name']} created successfully",
+                    'postgres_sync': postgres_sync,
                 }
                 
         except Exception as e:
@@ -131,13 +141,16 @@ class CoreClientService:
                 
                 cursor.execute(f"UPDATE clients SET {set_clause} WHERE client_id = ?", values)
                 conn.commit()
+                latest = self.get_client(client_id) or {"client_id": client_id, **update_data}
+                postgres_sync = self._sync_client_to_postgres(latest, "update")
                 
                 logger.info(f"Updated client: {client_id}")
                 
                 return {
                     'success': True,
                     'client_id': client_id,
-                    'message': f"Client {client_id} updated successfully"
+                    'message': f"Client {client_id} updated successfully",
+                    'postgres_sync': postgres_sync,
                 }
                 
         except Exception as e:
@@ -165,13 +178,20 @@ class CoreClientService:
                     (datetime.now().isoformat(), client_id)
                 )
                 conn.commit()
+                latest = self.get_client(client_id)
+                postgres_sync = (
+                    self._sync_client_to_postgres(latest, "delete-soft")
+                    if latest
+                    else "skipped:no-client"
+                )
                 
                 logger.info(f"Soft deleted client: {client_id}")
                 
                 return {
                     'success': True,
                     'client_id': client_id,
-                    'message': f"Client {client_id} marked as inactive"
+                    'message': f"Client {client_id} marked as inactive",
+                    'postgres_sync': postgres_sync,
                 }
                 
         except Exception as e:

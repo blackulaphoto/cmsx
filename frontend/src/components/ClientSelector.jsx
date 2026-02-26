@@ -80,20 +80,10 @@ const ClientSelector = ({
           return
         }
       }
-      
-      // Fallback to mock data
-      const mockClient = {
-        client_id: clientId,
-        first_name: 'Maria',
-        last_name: 'Santos',
-        phone: '(555) 987-6543',
-        email: 'maria.santos@email.com',
-        risk_level: 'high',
-        case_status: 'active'
-      }
-      setSelectedClient(mockClient)
+      setSelectedClient(null)
     } catch (error) {
       console.error('Error fetching client:', error)
+      setSelectedClient(null)
     }
   }
 
