@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Briefcase, Search, MapPin, Filter, Star, Bookmark, ExternalLink, Clock, DollarSign, User, Sparkles, Zap, TrendingUp } from 'lucide-react'
+import { Briefcase, Search, MapPin, Star, Bookmark, ExternalLink, Clock, DollarSign, User, Zap, TrendingUp, Send, X } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
 import Pagination from '../components/Pagination'
@@ -21,6 +21,11 @@ function Jobs() {
   })
   const [savedJobs, setSavedJobs] = useState([])
   const [activeTab, setActiveTab] = useState('search')
+  const [clientResumes, setClientResumes] = useState([])
+  const [showApplyModal, setShowApplyModal] = useState(false)
+  const [applyingJob, setApplyingJob] = useState(null)
+  const [selectedResumeId, setSelectedResumeId] = useState('')
+  const [applyLoading, setApplyLoading] = useState(false)
   
   // Pagination state
   const [pagination, setPagination] = useState({
@@ -31,6 +36,32 @@ function Jobs() {
     hasNextPage: false,
     hasPrevPage: false
   })
+
+  useEffect(() => {
+    if (selectedClient?.client_id) {
+      fetchClientResumes(selectedClient.client_id)
+    } else {
+      setClientResumes([])
+      setSelectedResumeId('')
+    }
+  }, [selectedClient?.client_id])
+
+  const fetchClientResumes = async (clientId) => {
+    try {
+      const response = await fetch(`/api/resume/list/${clientId}`)
+      if (!response.ok) {
+        throw new Error('Failed to load client resumes')
+      }
+      const data = await response.json()
+      const resumes = data.resumes || []
+      setClientResumes(resumes)
+      setSelectedResumeId(resumes[0]?.resume_id || '')
+    } catch (error) {
+      console.error('Error fetching client resumes:', error)
+      setClientResumes([])
+      setSelectedResumeId('')
+    }
+  }
 
   const searchJobs = async (page = pagination.currentPage) => {
     setLoading(true)
@@ -171,6 +202,59 @@ function Jobs() {
     const note = prompt('Add a note about why this job is a good fit:')
     if (note !== null) {
       saveJob(job, note)
+    }
+  }
+
+  const openApplyModal = (job) => {
+    if (!selectedClient?.client_id) {
+      toast.error('Please select a client first')
+      return
+    }
+    if (clientResumes.length === 0) {
+      toast.error('This client needs a saved resume before applying')
+      return
+    }
+    setApplyingJob(job)
+    setSelectedResumeId(clientResumes[0]?.resume_id || '')
+    setShowApplyModal(true)
+  }
+
+  const submitApplication = async () => {
+    if (!selectedClient?.client_id || !applyingJob || !selectedResumeId) {
+      toast.error('Client, job, or resume selection is missing')
+      return
+    }
+
+    try {
+      setApplyLoading(true)
+      const response = await fetch('/api/resume/apply-job', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: selectedClient.client_id,
+          resume_id: selectedResumeId,
+          job_title: applyingJob.title,
+          company_name: applyingJob.company,
+          job_description: applyingJob.description || ''
+        })
+      })
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ detail: 'Failed to create application' }))
+        throw new Error(error.detail || 'Failed to create application')
+      }
+
+      const data = await response.json()
+      toast.success(`Application tracked. Match score: ${data.match_score}%`)
+      setShowApplyModal(false)
+      setApplyingJob(null)
+    } catch (error) {
+      console.error('Apply with resume error:', error)
+      toast.error(error.message || 'Failed to track application')
+    } finally {
+      setApplyLoading(false)
     }
   }
 
@@ -497,6 +581,13 @@ function Jobs() {
                                 
                                 <div className="flex gap-3">
                                   <button
+                                    onClick={() => openApplyModal(job)}
+                                    className="group/btn flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-emerald-500/25"
+                                  >
+                                    <Send size={16} className="group-hover/btn:scale-110 transition-transform duration-300" />
+                                    Apply with Resume
+                                  </button>
+                                  <button
                                     onClick={() => handleSaveJob(job)}
                                     className="group/btn flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-blue-500/25"
                                     data-testid="save-job-0"
@@ -634,6 +725,76 @@ function Jobs() {
           </div>
         </div>
       </div>
+
+      {showApplyModal && applyingJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-white/10 bg-slate-900/95 p-6 shadow-2xl">
+            <div className="mb-6 flex items-start justify-between">
+              <div>
+                <h3 className="text-2xl font-bold text-white">Apply with Resume</h3>
+                <p className="mt-2 text-gray-300">
+                  Track an application for <span className="font-semibold text-white">{applyingJob.title}</span> at <span className="font-semibold text-white">{applyingJob.company}</span>.
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowApplyModal(false)
+                  setApplyingJob(null)
+                }}
+                className="rounded-lg p-2 text-gray-400 hover:bg-white/10 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <p className="text-sm text-gray-400">Client</p>
+                <p className="mt-1 text-white">{selectedClient?.first_name} {selectedClient?.last_name}</p>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-300">Select Resume</label>
+                <select
+                  value={selectedResumeId}
+                  onChange={(e) => setSelectedResumeId(e.target.value)}
+                  className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-4 text-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500"
+                >
+                  {clientResumes.map((resume) => (
+                    <option key={resume.resume_id} value={resume.resume_id} className="bg-gray-900 text-white">
+                      {resume.resume_title} • ATS {resume.ats_score || 0}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <p className="text-sm text-gray-400">Job summary used for tracking</p>
+                <p className="mt-2 text-sm leading-relaxed text-gray-200">{applyingJob.description}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setShowApplyModal(false)
+                  setApplyingJob(null)
+                }}
+                className="rounded-xl border border-white/20 px-5 py-3 text-gray-300 hover:bg-white/10 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitApplication}
+                disabled={applyLoading || !selectedResumeId}
+                className="rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-3 font-medium text-white hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50"
+              >
+                {applyLoading ? 'Tracking Application...' : 'Track Application'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

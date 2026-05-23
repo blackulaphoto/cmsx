@@ -173,26 +173,10 @@ const EnhancedDashboard = () => {
       }
     } catch (error) {
       console.error('Error loading dashboard data:', error)
-      // Fallback to localStorage if API fails
-      try {
-        const savedNotes = JSON.parse(localStorage.getItem('dashboard_notes') || '[]')
-        const savedDocs = JSON.parse(localStorage.getItem('dashboard_docs') || '[]')
-        const savedBookmarks = JSON.parse(localStorage.getItem('dashboard_bookmarks') || '[]')
-        const savedResources = JSON.parse(localStorage.getItem('dashboard_resources') || '[]')
-
-        // Ensure all values are arrays
-        setNotes(Array.isArray(savedNotes) ? savedNotes : [])
-        setDocs(Array.isArray(savedDocs) ? savedDocs : [])
-        setBookmarks(Array.isArray(savedBookmarks) ? savedBookmarks : [])
-        setResources(Array.isArray(savedResources) ? savedResources : [])
-      } catch (localStorageError) {
-        console.error('Error loading from localStorage:', localStorageError)
-        // Final fallback - set everything to empty arrays
-        setNotes([])
-        setDocs([])
-        setBookmarks([])
-        setResources([])
-      }
+      setNotes([])
+      setDocs([])
+      setBookmarks([])
+      setResources([])
     }
   }
 
@@ -315,59 +299,85 @@ const EnhancedDashboard = () => {
   }
 
   // Docs functions
-  const addDoc = () => {
+  const addDoc = async () => {
     if (!newDoc.title.trim()) return
-    
-    const doc = {
-      id: Date.now(),
-      title: newDoc.title,
-      content: newDoc.content,
-      url: newDoc.url,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+    try {
+      const response = await apiFetch('/api/dashboard/docs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newDoc)
+      })
+      if (!response.ok) {
+        throw new Error('Failed to save document')
+      }
+      const data = await response.json()
+      setDocs(current => [data.doc, ...current])
+      setNewDoc({ title: '', content: '', url: '' })
+      setShowDocEditor(false)
+      toast.success('Document saved!')
+    } catch (error) {
+      console.error('Error saving document:', error)
+      toast.error('Failed to save document')
     }
-    
-    const updatedDocs = [doc, ...docs]
-    setDocs(updatedDocs)
-    localStorage.setItem('dashboard_docs', JSON.stringify(updatedDocs))
-    setNewDoc({ title: '', content: '', url: '' })
-    setShowDocEditor(false)
-    toast.success('Document saved!')
   }
 
-  const deleteDoc = (id) => {
-    const updatedDocs = docs.filter(doc => doc.id !== id)
-    setDocs(updatedDocs)
-    localStorage.setItem('dashboard_docs', JSON.stringify(updatedDocs))
-    toast.success('Document deleted!')
+  const deleteDoc = async (id) => {
+    try {
+      const response = await apiFetch(`/api/dashboard/docs/${id}`, {
+        method: 'DELETE'
+      })
+      if (!response.ok) {
+        throw new Error('Failed to delete document')
+      }
+      setDocs(current => current.filter(doc => doc.id !== id))
+      toast.success('Document deleted!')
+    } catch (error) {
+      console.error('Error deleting document:', error)
+      toast.error('Failed to delete document')
+    }
   }
 
   // Bookmarks functions
-  const addBookmark = () => {
+  const addBookmark = async () => {
     if (!newBookmark.title.trim() || !newBookmark.url.trim()) return
-    
-    const bookmark = {
-      id: Date.now(),
-      title: newBookmark.title,
-      url: newBookmark.url,
-      description: newBookmark.description,
-      favicon: `https://www.google.com/s2/favicons?domain=${new URL(newBookmark.url).hostname}`,
-      createdAt: new Date().toISOString()
+    try {
+      const response = await apiFetch('/api/dashboard/bookmarks', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newBookmark)
+      })
+      if (!response.ok) {
+        throw new Error('Failed to save bookmark')
+      }
+      const data = await response.json()
+      setBookmarks(current => [data.bookmark, ...current])
+      setNewBookmark({ title: '', url: '', description: '' })
+      setShowBookmarkEditor(false)
+      toast.success('Bookmark saved!')
+    } catch (error) {
+      console.error('Error saving bookmark:', error)
+      toast.error('Failed to save bookmark')
     }
-    
-    const updatedBookmarks = [bookmark, ...bookmarks]
-    setBookmarks(updatedBookmarks)
-    localStorage.setItem('dashboard_bookmarks', JSON.stringify(updatedBookmarks))
-    setNewBookmark({ title: '', url: '', description: '' })
-    setShowBookmarkEditor(false)
-    toast.success('Bookmark saved!')
   }
 
-  const deleteBookmark = (id) => {
-    const updatedBookmarks = bookmarks.filter(bookmark => bookmark.id !== id)
-    setBookmarks(updatedBookmarks)
-    localStorage.setItem('dashboard_bookmarks', JSON.stringify(updatedBookmarks))
-    toast.success('Bookmark deleted!')
+  const deleteBookmark = async (id) => {
+    try {
+      const response = await apiFetch(`/api/dashboard/bookmarks/${id}`, {
+        method: 'DELETE'
+      })
+      if (!response.ok) {
+        throw new Error('Failed to delete bookmark')
+      }
+      setBookmarks(current => current.filter(bookmark => bookmark.id !== id))
+      toast.success('Bookmark deleted!')
+    } catch (error) {
+      console.error('Error deleting bookmark:', error)
+      toast.error('Failed to delete bookmark')
+    }
   }
 
   // File type icon helper
@@ -387,6 +397,50 @@ const EnhancedDashboard = () => {
       case 'mp3':
       case 'wav': return <Music className="h-8 w-8 text-yellow-400" />
       default: return <File className="h-8 w-8 text-gray-400" />
+    }
+  }
+
+  const uploadResources = async (files) => {
+    try {
+      const uploaded = []
+      for (const file of files) {
+        const formData = new FormData()
+        formData.append('file', file)
+        const response = await apiFetch('/api/dashboard/resources', {
+          method: 'POST',
+          body: formData
+        })
+        if (!response.ok) {
+          throw new Error(`Failed to upload ${file.name}`)
+        }
+        const data = await response.json()
+        uploaded.push(data.resource)
+      }
+      setResources(current => [...uploaded, ...current])
+      toast.success(`${uploaded.length} file(s) uploaded!`)
+    } catch (error) {
+      console.error('Error uploading resources:', error)
+      toast.error('Failed to upload resource files')
+    }
+  }
+
+  const downloadResource = (resourceId) => {
+    window.open(`/api/dashboard/resources/${resourceId}/download`, '_blank', 'noopener,noreferrer')
+  }
+
+  const deleteResource = async (resourceId) => {
+    try {
+      const response = await apiFetch(`/api/dashboard/resources/${resourceId}`, {
+        method: 'DELETE'
+      })
+      if (!response.ok) {
+        throw new Error('Failed to delete resource')
+      }
+      setResources(current => current.filter(resource => resource.id !== resourceId))
+      toast.success('File deleted!')
+    } catch (error) {
+      console.error('Error deleting resource:', error)
+      toast.error('Failed to delete resource')
     }
   }
 
@@ -947,22 +1001,11 @@ const EnhancedDashboard = () => {
                     const input = document.createElement('input')
                     input.type = 'file'
                     input.multiple = true
-                    input.onchange = (e) => {
-                      const files = Array.from(e.target.files)
-                      files.forEach(file => {
-                        const resource = {
-                          id: Date.now() + Math.random(),
-                          name: file.name,
-                          size: file.size,
-                          type: file.type,
-                          uploadedAt: new Date().toISOString(),
-                          url: URL.createObjectURL(file)
-                        }
-                        const updatedResources = [resource, ...resources]
-                        setResources(updatedResources)
-                        localStorage.setItem('dashboard_resources', JSON.stringify(updatedResources))
-                      })
-                      toast.success(`${files.length} file(s) uploaded!`)
+                    input.onchange = async (e) => {
+                      const files = Array.from(e.target.files || [])
+                      if (files.length > 0) {
+                        await uploadResources(files)
+                      }
                     }
                     input.click()
                   }}
@@ -993,29 +1036,19 @@ const EnhancedDashboard = () => {
                               {(resource.size / 1024).toFixed(1)} KB
                             </span>
                             <span className="text-xs text-gray-400">
-                              {new Date(resource.uploadedAt).toLocaleDateString()}
+                              {new Date(resource.uploaded_at || resource.uploadedAt).toLocaleDateString()}
                             </span>
                           </div>
                         </div>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
-                            onClick={() => {
-                              const link = document.createElement('a')
-                              link.href = resource.url
-                              link.download = resource.name
-                              link.click()
-                            }}
+                            onClick={() => downloadResource(resource.id)}
                             className="p-1 rounded hover:bg-white/10 transition-colors text-gray-400 mr-1"
                           >
                             <Download className="h-3 w-3" />
                           </button>
                           <button
-                            onClick={() => {
-                              const updatedResources = resources.filter(r => r.id !== resource.id)
-                              setResources(updatedResources)
-                              localStorage.setItem('dashboard_resources', JSON.stringify(updatedResources))
-                              toast.success('File deleted!')
-                            }}
+                            onClick={() => deleteResource(resource.id)}
                             className="p-1 rounded hover:bg-white/10 transition-colors text-gray-400 hover:text-red-400"
                           >
                             <Trash2 className="h-3 w-3" />

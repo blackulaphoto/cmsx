@@ -761,28 +761,8 @@ async def api_send_reminders():
 
 @router.post("/warrant-check")
 async def api_warrant_check(warrant_data: WarrantCheck):
-    """Check for outstanding warrants"""
-    try:
-        client_id = warrant_data.client_id
-
-        warrant_result = {
-            'client_id': client_id,
-            'warrants_found': None,
-            'warrant_count': None,
-            'warrant_details': [],
-            'check_date': datetime.now().isoformat(),
-            'next_check_recommended': (datetime.now() + timedelta(days=30)).isoformat(),
-            'status': 'Manual Verification Required',
-            'is_authoritative': False,
-            'verification_status': 'manual_required',
-            'message': 'This deployment does not have a live court-system or law-enforcement warrant integration. Manual verification is required.'
-        }
-        
-        return {
-            'success': True,
-            'warrant_result': warrant_result
-        }
-        
-    except Exception as e:
-        logger.error(f"Warrant check error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    """Warrant checks are intentionally not part of this product."""
+    raise HTTPException(
+        status_code=404,
+        detail="Warrant checks are not supported in this application."
+    )

@@ -1289,7 +1289,10 @@ async def get_client_resumes_list(client_id: str):
             try:
                 # Get application count
                 applications = db.applications.get_applications_by_client(client_id)
-                app_count = len([app for app in applications if getattr(app, 'resume_id', None) == resume.resume_id])
+                app_count = len([
+                    app for app in applications
+                    if (getattr(app, 'resume_id', None) if not isinstance(app, dict) else app.get('resume_id')) == resume.resume_id
+                ])
                 
                 # Check PDF availability
                 pdf_available = False
@@ -1341,6 +1344,83 @@ async def get_client_resumes_list(client_id: str):
         logger.error(f"Error getting client resumes: {e}")
         raise HTTPException(status_code=500, detail=f"Resume retrieval error: {str(e)}")
 
+@router.post("/apply-job")
+async def apply_to_job_with_resume(application_request: JobApplicationRequest):
+    """Create a tracked job application tied to a client and resume."""
+    try:
+        db = get_employment_db()
+        client = db.core_clients.get_client_by_id(application_request.client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        resume = db.resumes.get_resume_by_id(application_request.resume_id)
+        if not resume or getattr(resume, 'client_id', None) != application_request.client_id:
+            raise HTTPException(status_code=404, detail="Resume not found for this client")
+
+        application = JobApplication(
+            client_id=application_request.client_id,
+            resume_id=application_request.resume_id,
+            job_title=application_request.job_title,
+            company_name=application_request.company_name,
+            job_description=application_request.job_description,
+            application_status="submitted",
+            applied_date=date.today().isoformat()
+        )
+
+        application_id = db.applications.create_application(application)
+        if not application_id:
+            raise HTTPException(status_code=500, detail="Failed to create job application")
+
+        return {
+            "success": True,
+            "application_id": application_id,
+            "match_score": calculate_job_match_score(getattr(resume, 'content', {}), application_request.job_description),
+            "message": "Job application created successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating job application: {e}")
+        raise HTTPException(status_code=500, detail=f"Job application error: {str(e)}")
+
+@router.get("/applications/{client_id}")
+async def get_job_applications(client_id: str):
+    """Get tracked job applications for a client."""
+    try:
+        db = get_employment_db()
+        client = db.core_clients.get_client_by_id(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        applications = db.applications.get_applications_by_client(client_id)
+        application_list = []
+        for app in applications:
+            app_data = app if isinstance(app, dict) else app.__dict__
+            resume = db.resumes.get_resume_by_id(app_data.get("resume_id")) if app_data.get("resume_id") else None
+            application_list.append({
+                "application_id": app_data.get("application_id"),
+                "job_title": app_data.get("job_title"),
+                "company_name": app_data.get("company_name"),
+                "application_status": app_data.get("application_status"),
+                "applied_date": app_data.get("applied_date"),
+                "resume_used": app_data.get("resume_id"),
+                "resume_title": getattr(resume, 'resume_title', 'Unknown') if resume else "Unknown",
+                "match_score": calculate_job_match_score(getattr(resume, 'content', {}), app_data.get("job_description", "")) if resume else 0.0,
+                "follow_up_date": app_data.get("follow_up_date"),
+                "notes": app_data.get("notes")
+            })
+
+        return {
+            "success": True,
+            "applications": application_list,
+            "total_count": len(application_list)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting job applications: {e}")
+        raise HTTPException(status_code=500, detail=f"Job applications retrieval error: {str(e)}")
+
 # Helper functions with better error handling
 def calculate_basic_ats_score(resume_content: Dict[str, Any]) -> int:
     """Calculate basic ATS score with error handling"""
@@ -1379,3 +1459,15 @@ def calculate_basic_ats_score(resume_content: Dict[str, Any]) -> int:
     except Exception as e:
         logger.error(f"ATS score calculation failed: {e}")
         return 50  # Default score on error
+
+def calculate_job_match_score(resume_content: Any, job_description: str) -> float:
+    """Calculate a lightweight relevance score between resume content and a job description."""
+    try:
+        content = json.loads(resume_content) if isinstance(resume_content, str) else resume_content
+        resume_text = json.dumps(content).lower()
+        job_text = (job_description or "").lower()
+        keywords = ["experience", "skills", "team", "management", "customer", "service", "work", "professional"]
+        matches = sum(1 for keyword in keywords if keyword in resume_text and keyword in job_text)
+        return round((matches / len(keywords)) * 100, 1)
+    except Exception:
+        return 50.0

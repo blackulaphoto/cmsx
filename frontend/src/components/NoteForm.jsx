@@ -11,7 +11,7 @@ const NoteForm = ({
   const [formData, setFormData] = useState({
     note_type: 'Contact',
     content: '',
-    created_by: 'Current User' // TODO: Get from auth context
+    created_by: 'Case Manager'
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -49,13 +49,13 @@ const NoteForm = ({
       setFormData({
         note_type: initialData.note_type || 'Contact',
         content: initialData.content || '',
-        created_by: initialData.created_by || 'Current User'
+        created_by: initialData.created_by || 'Case Manager'
       })
     } else {
       setFormData({
         note_type: 'Contact',
         content: '',
-        created_by: 'Current User'
+        created_by: 'Case Manager'
       })
     }
   }, [initialData, isOpen])

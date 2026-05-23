@@ -390,8 +390,37 @@ class ResumeApplications:
     
     def create_application(self, application):
         """Create job application"""
-        # TODO: Implement application creation in employment database
-        return f'app-{application.client_id}-{int(datetime.now().timestamp())}'
+        application_id = getattr(application, 'application_id', None) or f'app-{application.client_id}-{int(datetime.now().timestamp())}'
+        current_time = datetime.now().isoformat()
+        try:
+            with self.db.get_connection('employment', self.module) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    '''
+                    INSERT INTO job_applications (
+                        application_id, client_id, resume_id, job_title, company_name,
+                        job_description, application_status, applied_date, follow_up_date, notes, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        application_id,
+                        getattr(application, 'client_id', ''),
+                        getattr(application, 'resume_id', None),
+                        getattr(application, 'job_title', ''),
+                        getattr(application, 'company_name', ''),
+                        getattr(application, 'job_description', ''),
+                        getattr(application, 'application_status', 'submitted'),
+                        getattr(application, 'applied_date', current_time[:10]),
+                        getattr(application, 'follow_up_date', None),
+                        getattr(application, 'notes', None),
+                        current_time,
+                    ),
+                )
+                conn.commit()
+                return application_id
+        except Exception as e:
+            logger.error("Error creating job application for %s: %s", getattr(application, 'client_id', 'unknown'), e)
+            return None
 
 # Global instance
 resume_database = ResumeDatabase()

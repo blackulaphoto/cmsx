@@ -8,7 +8,7 @@ const TaskForm = ({ isOpen, onClose, onSubmit, initialData = null, isEditing = f
     priority: 'medium',
     task_type: 'general',
     due_date: '',
-    assigned_to: 'Current User'
+    assigned_to: 'Case Manager'
   })
 
   const [errors, setErrors] = useState({})
@@ -47,7 +47,7 @@ const TaskForm = ({ isOpen, onClose, onSubmit, initialData = null, isEditing = f
           priority: initialData.priority || 'medium',
           task_type: initialData.task_type || 'general',
           due_date: initialData.due_date ? initialData.due_date.split('T')[0] : '',
-          assigned_to: initialData.assigned_to || 'Current User'
+          assigned_to: initialData.assigned_to || 'Case Manager'
         })
       } else {
         setFormData({
@@ -56,7 +56,7 @@ const TaskForm = ({ isOpen, onClose, onSubmit, initialData = null, isEditing = f
           priority: 'medium',
           task_type: 'general',
           due_date: '',
-          assigned_to: 'Current User'
+          assigned_to: 'Case Manager'
         })
       }
       setErrors({})

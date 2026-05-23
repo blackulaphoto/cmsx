@@ -475,7 +475,7 @@ class UnifiedAIService:
             }
 
         history = await self._fetch_history(case_manager_id, limit=20)
-        system_prompt = ASSISTANT_SYSTEM_PROMPT
+        system_prompt = self._build_system_prompt(mode)
         messages: List[Dict[str, Any]] = [
             {
                 "role": "system",
@@ -651,6 +651,8 @@ class UnifiedAIService:
                 assistant_text = follow_up.choices[0].message.content or ""
             else:
                 assistant_text = assistant_message.content or ""
+
+            assistant_text = self._polish_response_text(assistant_text)
         except Exception as exc:
             logger.warning("Unified AI provider failure in %s mode: %s", mode, exc)
             degraded = await self._handle_provider_failure(
@@ -671,6 +673,66 @@ class UnifiedAIService:
             "response": assistant_text,
             "function_called": function_called,
         }
+
+    def _build_system_prompt(self, mode: str) -> str:
+        role_line = (
+            "You can also create reminders directly when the user asks."
+            if mode == "central"
+            else "You are in assistant mode. Do not imply you changed records unless a tool confirms it."
+        )
+        return (
+            "You are the Case Management Suite AI copilot for working case managers.\n\n"
+            "Your job is to help staff move faster, think clearly, and document accurately.\n"
+            "Be specific, practical, and grounded in the actual task. Do not sound like a generic help bot.\n\n"
+            f"{role_line}\n\n"
+            "Priorities:\n"
+            "- Lead with the answer.\n"
+            "- Give concrete next steps.\n"
+            "- Prefer short checklists and decision points over essays.\n"
+            "- When discussing a client situation, focus on what the case manager should do next.\n"
+            "- If something depends on jurisdiction, policy, or a licensed professional, say that plainly.\n\n"
+            "Boundaries:\n"
+            "- No medical diagnosis or treatment advice.\n"
+            "- No definitive legal advice.\n"
+            "- Do not replace licensed clinical judgment.\n"
+            "- Do not invent actions, outcomes, or integrations.\n\n"
+            "Tone:\n"
+            "- Calm\n"
+            "- Direct\n"
+            "- Competent\n"
+            "- Human\n"
+            "- Never preachy, robotic, or overly formal\n\n"
+            "Preferred structure when helpful:\n"
+            "- Bottom line\n"
+            "- Next steps\n"
+            "- Risks or watchouts\n"
+            "- Documentation note\n"
+        )
+
+    def _polish_response_text(self, text: str) -> str:
+        if not text:
+            return text
+
+        cleaned = text.strip()
+        replacements = {
+            "Summary –": "Bottom line:",
+            "Summary -": "Bottom line:",
+            "Key Steps –": "Next steps:",
+            "Key Steps -": "Next steps:",
+            "Considerations –": "Watchouts:",
+            "Considerations -": "Watchouts:",
+            "Documentation Notes –": "Documentation note:",
+            "Documentation Notes -": "Documentation note:",
+            "Next Actions –": "Next steps:",
+            "Next Actions -": "Next steps:",
+        }
+        for old, new in replacements.items():
+            cleaned = cleaned.replace(old, new)
+
+        cleaned = re.sub(r"\bAs an AI\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\btrusted copilot\b", "copilot", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
 
     async def get_conversation_history(self, case_manager_id: str) -> List[Dict[str, Any]]:
         await self.initialize()

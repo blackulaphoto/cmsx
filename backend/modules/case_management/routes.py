@@ -12,6 +12,7 @@ from datetime import datetime
 
 from .models import Client, Referral
 from .database import CaseManagementDatabase
+from backend.shared.database.workspace_store import workspace_store
 
 logger = logging.getLogger(__name__)
 
@@ -510,52 +511,20 @@ class NoteCreateRequest(BaseModel):
 
 @router.post("/notes/add/{client_id}")
 async def add_client_note(client_id: str, note_data: NoteCreateRequest):
-    """Add a new note for a client (Progressive implementation)"""
+    """Add a new note for a client."""
     try:
-        # For now, we'll store notes in a simple JSON file structure
-        # This allows immediate functionality while backend develops
-        
-        import json
-        import os
-        import uuid
-        
-        # Create notes directory if it doesn't exist
-        notes_dir = "databases/notes"
-        os.makedirs(notes_dir, exist_ok=True)
-        
-        # Create note object
-        note = {
-            "note_id": f"note_{str(uuid.uuid4())[:8]}",
-            "client_id": client_id,
-            "note_type": note_data.note_type,
-            "content": note_data.content,
-            "created_by": note_data.created_by,
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }
-        
-        # Load existing notes for this client
-        notes_file = os.path.join(notes_dir, f"{client_id}.json")
-        notes = []
-        if os.path.exists(notes_file):
-            try:
-                with open(notes_file, 'r') as f:
-                    notes = json.load(f)
-            except (json.JSONDecodeError, FileNotFoundError):
-                notes = []
-        
-        # Add new note
-        notes.append(note)
-        
-        # Save back to file
-        with open(notes_file, 'w') as f:
-            json.dump(notes, f, indent=2)
-        
-        logger.info(f"Added note {note['note_id']} for client {client_id}")
+        note = workspace_store.create_client_note(
+            client_id=client_id,
+            note_type=note_data.note_type,
+            content=note_data.content,
+            created_by=note_data.created_by,
+        )
+        logger.info("Added note %s for client %s", note["note_id"], client_id)
         
         return JSONResponse({
             "success": True,
             "note_id": note["note_id"],
+            "note": note,
             "message": "Note added successfully"
         })
         
@@ -567,26 +536,9 @@ async def add_client_note(client_id: str, note_data: NoteCreateRequest):
 async def get_client_notes(client_id: str):
     """Get all notes for a client"""
     try:
-        import json
-        import os
-        
-        notes_file = f"databases/notes/{client_id}.json"
-        
-        if not os.path.exists(notes_file):
-            return JSONResponse({
-                "success": True,
-                "notes": []
-            })
-        
-        with open(notes_file, 'r') as f:
-            notes = json.load(f)
-        
-        # Sort by created_at descending
-        notes.sort(key=lambda x: x.get('created_at', ''), reverse=True)
-        
         return JSONResponse({
             "success": True,
-            "notes": notes
+            "notes": workspace_store.list_client_notes(client_id)
         })
         
     except Exception as e:
@@ -595,98 +547,55 @@ async def get_client_notes(client_id: str):
 
 @router.delete("/notes/{note_id}")
 async def delete_note(note_id: str):
-    """Delete a specific note (Progressive implementation)"""
+    """Delete a specific note."""
     try:
-        import json
-        import os
-        import glob
-        
-        # Search through all client note files to find the note
-        notes_dir = "databases/notes"
-        if not os.path.exists(notes_dir):
+        if not workspace_store.delete_client_note(note_id):
             raise HTTPException(status_code=404, detail="Note not found")
-        
-        for notes_file in glob.glob(os.path.join(notes_dir, "*.json")):
-            try:
-                with open(notes_file, 'r') as f:
-                    notes = json.load(f)
-                
-                # Find and remove the note
-                original_length = len(notes)
-                notes = [note for note in notes if note.get('note_id') != note_id]
-                
-                if len(notes) < original_length:
-                    # Note was found and removed
-                    with open(notes_file, 'w') as f:
-                        json.dump(notes, f, indent=2)
-                    
-                    logger.info(f"Deleted note {note_id}")
-                    return JSONResponse({
-                        "success": True,
-                        "message": "Note deleted successfully"
-                    })
-                    
-            except (json.JSONDecodeError, FileNotFoundError):
-                continue
-        
-        raise HTTPException(status_code=404, detail="Note not found")
-        
+        logger.info("Deleted note %s", note_id)
+        return JSONResponse({
+            "success": True,
+            "message": "Note deleted successfully"
+        })
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error deleting note {note_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.put("/notes/update/{note_id}")
+async def update_note(note_id: str, note_data: NoteCreateRequest):
+    """Update a specific note."""
+    try:
+        note = workspace_store.update_client_note(
+            note_id=note_id,
+            note_type=note_data.note_type,
+            content=note_data.content,
+            created_by=note_data.created_by,
+        )
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        return JSONResponse({
+            "success": True,
+            "note": note,
+            "message": "Note updated successfully"
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating note {note_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/tasks/add/{client_id}")
 async def add_task(client_id: str, task_data: dict):
     """Add a new task for a client"""
     try:
-        import json
-        import os
-        from datetime import datetime
-        
-        # Ensure tasks directory exists
-        tasks_dir = "databases/tasks"
-        os.makedirs(tasks_dir, exist_ok=True)
-        
-        tasks_file = f"{tasks_dir}/{client_id}.json"
-        
-        # Generate task ID
-        task_id = f"task_{int(datetime.now().timestamp())}_{client_id[:8]}"
-        
-        # Create task object
-        new_task = {
-            "task_id": task_id,
-            "client_id": client_id,
-            "title": task_data.get("title", ""),
-            "description": task_data.get("description", ""),
-            "priority": task_data.get("priority", "medium"),
-            "status": "pending",
-            "task_type": task_data.get("task_type", "general"),
-            "due_date": task_data.get("due_date"),
-            "assigned_to": task_data.get("assigned_to", "Current User"),
-            "created_at": datetime.now().isoformat(),
-            "updated_at": datetime.now().isoformat()
-        }
-        
-        # Load existing tasks
-        tasks = []
-        if os.path.exists(tasks_file):
-            with open(tasks_file, 'r', encoding='utf-8') as f:
-                tasks = json.load(f)
-        
-        # Add new task
-        tasks.append(new_task)
-        
-        # Save tasks
-        with open(tasks_file, 'w', encoding='utf-8') as f:
-            json.dump(tasks, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Task added for client {client_id}: {task_id}")
+        new_task = workspace_store.create_client_task(client_id, task_data)
+        logger.info("Task added for client %s: %s", client_id, new_task["task_id"])
         
         return JSONResponse({
             "success": True,
-            "task_id": task_id,
+            "task_id": new_task["task_id"],
+            "task": new_task,
             "message": "Task added successfully"
         })
         
@@ -698,25 +607,8 @@ async def add_task(client_id: str, task_data: dict):
 async def get_client_tasks(client_id: str):
     """Get all tasks for a client"""
     try:
-        import json
-        import os
-        
-        tasks_file = f"databases/tasks/{client_id}.json"
-        
-        if not os.path.exists(tasks_file):
-            return JSONResponse({
-                "success": True,
-                "tasks": [],
-                "message": "No tasks found for this client"
-            })
-        
-        with open(tasks_file, 'r', encoding='utf-8') as f:
-            tasks = json.load(f)
-        
-        # Sort tasks by due date
-        tasks.sort(key=lambda x: x.get('due_date', '9999-12-31'))
-        
-        logger.info(f"Retrieved {len(tasks)} tasks for client {client_id}")
+        tasks = workspace_store.list_client_tasks(client_id)
+        logger.info("Retrieved %s tasks for client %s", len(tasks), client_id)
         
         return JSONResponse({
             "success": True,
@@ -732,59 +624,15 @@ async def get_client_tasks(client_id: str):
 async def update_task(task_id: str, task_data: dict):
     """Update an existing task"""
     try:
-        import json
-        import os
-        from datetime import datetime
-        
-        # Find the task file by searching all client task files
-        tasks_dir = "databases/tasks"
-        if not os.path.exists(tasks_dir):
+        task = workspace_store.update_client_task(task_id, task_data)
+        if not task:
             raise HTTPException(status_code=404, detail="Task not found")
-        
-        task_found = False
-        for filename in os.listdir(tasks_dir):
-            if filename.endswith('.json'):
-                tasks_file = os.path.join(tasks_dir, filename)
-                
-                with open(tasks_file, 'r', encoding='utf-8') as f:
-                    tasks = json.load(f)
-                
-                # Find and update the task
-                for i, task in enumerate(tasks):
-                    if task.get('task_id') == task_id:
-                        # Update task fields
-                        task.update({
-                            "title": task_data.get("title", task.get("title")),
-                            "description": task_data.get("description", task.get("description")),
-                            "priority": task_data.get("priority", task.get("priority")),
-                            "status": task_data.get("status", task.get("status")),
-                            "task_type": task_data.get("task_type", task.get("task_type")),
-                            "due_date": task_data.get("due_date", task.get("due_date")),
-                            "assigned_to": task_data.get("assigned_to", task.get("assigned_to")),
-                            "updated_at": datetime.now().isoformat()
-                        })
-                        
-                        # Add completed_at if status is completed
-                        if task_data.get("status") == "completed" and not task.get("completed_at"):
-                            task["completed_at"] = datetime.now().isoformat()
-                        
-                        tasks[i] = task
-                        task_found = True
-                        
-                        # Save updated tasks
-                        with open(tasks_file, 'w', encoding='utf-8') as f:
-                            json.dump(tasks, f, indent=2, ensure_ascii=False)
-                        
-                        logger.info(f"Task updated: {task_id}")
-                        
-                        return JSONResponse({
-                            "success": True,
-                            "message": "Task updated successfully",
-                            "task": task
-                        })
-        
-        if not task_found:
-            raise HTTPException(status_code=404, detail="Task not found")
+        logger.info("Task updated: %s", task_id)
+        return JSONResponse({
+            "success": True,
+            "message": "Task updated successfully",
+            "task": task
+        })
             
     except Exception as e:
         logger.error(f"Error updating task {task_id}: {e}")
@@ -794,42 +642,13 @@ async def update_task(task_id: str, task_data: dict):
 async def delete_task(task_id: str):
     """Delete a task"""
     try:
-        import json
-        import os
-        
-        # Find the task file by searching all client task files
-        tasks_dir = "databases/tasks"
-        if not os.path.exists(tasks_dir):
+        if not workspace_store.delete_client_task(task_id):
             raise HTTPException(status_code=404, detail="Task not found")
-        
-        task_found = False
-        for filename in os.listdir(tasks_dir):
-            if filename.endswith('.json'):
-                tasks_file = os.path.join(tasks_dir, filename)
-                
-                with open(tasks_file, 'r', encoding='utf-8') as f:
-                    tasks = json.load(f)
-                
-                # Find and remove the task
-                original_length = len(tasks)
-                tasks = [task for task in tasks if task.get('task_id') != task_id]
-                
-                if len(tasks) < original_length:
-                    task_found = True
-                    
-                    # Save updated tasks
-                    with open(tasks_file, 'w', encoding='utf-8') as f:
-                        json.dump(tasks, f, indent=2, ensure_ascii=False)
-                    
-                    logger.info(f"Task deleted: {task_id}")
-                    
-                    return JSONResponse({
-                        "success": True,
-                        "message": "Task deleted successfully"
-                    })
-        
-        if not task_found:
-            raise HTTPException(status_code=404, detail="Task not found")
+        logger.info("Task deleted: %s", task_id)
+        return JSONResponse({
+            "success": True,
+            "message": "Task deleted successfully"
+        })
             
     except Exception as e:
         logger.error(f"Error deleting task {task_id}: {e}")

@@ -6,34 +6,13 @@ const useTasks = (clientId) => {
   const [loading, setLoading] = useState(false)
   const [syncing, setSyncing] = useState(false)
 
-  // Load tasks from localStorage and backend on mount
   useEffect(() => {
     if (clientId) {
-      loadTasksFromStorage()
       loadTasksFromBackend()
+    } else {
+      setTasks([])
     }
   }, [clientId])
-
-  const loadTasksFromStorage = () => {
-    try {
-      const storedTasks = localStorage.getItem(`tasks_${clientId}`)
-      if (storedTasks) {
-        const parsedTasks = JSON.parse(storedTasks)
-        setTasks(parsedTasks)
-        console.log(`Loaded ${parsedTasks.length} tasks from storage`)
-      }
-    } catch (error) {
-      console.error('Error loading tasks from storage:', error)
-    }
-  }
-
-  const saveTasksToStorage = (updatedTasks) => {
-    try {
-      localStorage.setItem(`tasks_${clientId}`, JSON.stringify(updatedTasks))
-    } catch (error) {
-      console.error('Error saving tasks to storage:', error)
-    }
-  }
 
   const loadTasksFromBackend = async () => {
     try {
@@ -41,30 +20,16 @@ const useTasks = (clientId) => {
       if (response.ok) {
         const data = await response.json()
         if (data.success && data.tasks) {
-          // Merge backend tasks with local tasks, avoiding duplicates
-          const backendTasks = data.tasks.map(task => ({ ...task, synced: true }))
-          const localTasks = JSON.parse(localStorage.getItem(`tasks_${clientId}`) || '[]')
-          
-          // Create a map of existing task IDs to avoid duplicates
-          const existingIds = new Set(backendTasks.map(task => task.task_id))
-          const uniqueLocalTasks = localTasks.filter(task => !existingIds.has(task.task_id))
-          
-          // Combine and sort tasks by due date
-          const allTasks = [...backendTasks, ...uniqueLocalTasks]
-            .sort((a, b) => new Date(a.due_date) - new Date(b.due_date))
-          
-          setTasks(allTasks)
-          saveTasksToStorage(allTasks)
-          console.log(`Loaded ${backendTasks.length} tasks from backend`)
+          const backendTasks = data.tasks
+            .map(task => ({ ...task, synced: true }))
+            .sort((a, b) => new Date(a.due_date || '9999-12-31') - new Date(b.due_date || '9999-12-31'))
+          setTasks(backendTasks)
         }
       }
     } catch (error) {
-      console.log('Backend not available for tasks loading:', error.message)
+      console.error('Backend not available for tasks loading:', error.message)
+      setTasks([])
     }
-  }
-
-  const generateTaskId = () => {
-    return `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
   }
 
   const addTask = async (taskData) => {
@@ -72,30 +37,17 @@ const useTasks = (clientId) => {
       setLoading(true)
       
       const newTask = {
-        task_id: generateTaskId(),
-        client_id: clientId,
         title: taskData.title,
         description: taskData.description || '',
         priority: taskData.priority || 'medium',
         status: 'pending',
         task_type: taskData.task_type || 'general',
         due_date: taskData.due_date,
-        assigned_to: taskData.assigned_to || 'Current User',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        synced: false
+        assigned_to: taskData.assigned_to || 'Case Manager'
       }
-
-      // Add to local state immediately
-      const updatedTasks = [newTask, ...tasks]
-      setTasks(updatedTasks)
-      saveTasksToStorage(updatedTasks)
-
-      // Try to sync to backend
-      await syncTaskToBackend(newTask)
-      
-      console.log('Task added successfully:', newTask.task_id)
-      return newTask
+      const createdTask = await syncTaskToBackend(newTask)
+      await loadTasksFromBackend()
+      return createdTask
     } catch (error) {
       console.error('Error adding task:', error)
       throw error
@@ -108,27 +60,25 @@ const useTasks = (clientId) => {
     try {
       setLoading(true)
       
-      const updatedTasks = tasks.map(task => 
-        task.task_id === taskId 
-          ? { 
-              ...task, 
-              ...updates, 
-              updated_at: new Date().toISOString(),
-              synced: false 
-            }
-          : task
-      )
-      
-      setTasks(updatedTasks)
-      saveTasksToStorage(updatedTasks)
-
-      // Try to sync to backend
-      const updatedTask = updatedTasks.find(task => task.task_id === taskId)
-      if (updatedTask) {
-        await syncTaskToBackend(updatedTask, true)
+      const currentTask = tasks.find(task => task.task_id === taskId)
+      if (!currentTask) {
+        throw new Error('Task not found')
       }
-      
-      console.log('Task updated successfully:', taskId)
+      const response = await apiFetch(`/api/case-management/tasks/update/${taskId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...currentTask,
+          ...updates
+        })
+      })
+      if (!response.ok) {
+        throw new Error('Failed to update task')
+      }
+      const data = await response.json()
+      setTasks(current => current.map(task => task.task_id === taskId ? { ...data.task, synced: true } : task))
     } catch (error) {
       console.error('Error updating task:', error)
       throw error
@@ -141,20 +91,13 @@ const useTasks = (clientId) => {
     try {
       setLoading(true)
       
-      const updatedTasks = tasks.filter(task => task.task_id !== taskId)
-      setTasks(updatedTasks)
-      saveTasksToStorage(updatedTasks)
-
-      // Try to delete from backend
-      try {
-        await apiFetch(`/api/case-management/tasks/${taskId}`, {
-          method: 'DELETE'
-        })
-      } catch (error) {
-        console.log('Backend not available for task deletion')
+      const response = await apiFetch(`/api/case-management/tasks/${taskId}`, {
+        method: 'DELETE'
+      })
+      if (!response.ok) {
+        throw new Error('Failed to delete task')
       }
-      
-      console.log('Task deleted successfully:', taskId)
+      setTasks(current => current.filter(task => task.task_id !== taskId))
     } catch (error) {
       console.error('Error deleting task:', error)
       throw error
@@ -173,7 +116,6 @@ const useTasks = (clientId) => {
   const syncTaskToBackend = async (task, isUpdate = false) => {
     try {
       setSyncing(true)
-      
       const endpoint = isUpdate 
         ? `/api/case-management/tasks/update/${task.task_id}`
         : `/api/case-management/tasks/add/${clientId}`
@@ -197,16 +139,13 @@ const useTasks = (clientId) => {
       })
 
       if (response.ok) {
-        // Mark as synced
-        const updatedTasks = tasks.map(t => 
-          t.task_id === task.task_id ? { ...t, synced: true } : t
-        )
-        setTasks(updatedTasks)
-        saveTasksToStorage(updatedTasks)
-        console.log(`Task ${isUpdate ? 'updated' : 'synced'} to backend:`, task.task_id)
+        const data = await response.json()
+        return { ...(data.task || task), synced: true }
       }
+      throw new Error('Task sync failed')
     } catch (error) {
-      console.log('Backend not available for task sync:', error.message)
+      console.error('Backend not available for task sync:', error.message)
+      throw error
     } finally {
       setSyncing(false)
     }
@@ -308,7 +247,6 @@ const useTasks = (clientId) => {
     getFilteredTasks,
     getTasksStats,
     getTaskById,
-    loadTasksFromStorage,
     loadTasksFromBackend
   }
 }
