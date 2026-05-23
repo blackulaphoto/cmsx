@@ -1824,8 +1824,8 @@ class SimpleSearchCoordinator:
             housing_cse_id = self.google_housing_cse_id or self.google_cse_id
             if not self.google_api_key or not housing_cse_id:
                 if self.serper_api_key:
-                    serper = self._serpapi_paginated_search(f"{query} apartment rental", location, page, per_page)
-                    serper_items = serper.get("results", [])
+                    serper = self._serpapi_paginated_search(self._personal_housing_query(query, location), location, page, per_page)
+                    serper_items = self._rank_housing_results_for_direct_listings(serper.get("results", []))
                     housing_listings = [
                         {
                             'title': item.get('title', ''),
@@ -1888,8 +1888,8 @@ class SimpleSearchCoordinator:
                     "Skipping blocked Google housing CSE and using fallback provider"
                 )
                 if self.serper_api_key:
-                    serper = self._serpapi_paginated_search(f"{query} apartment rental", location, page, per_page)
-                    serper_items = serper.get("results", [])
+                    serper = self._serpapi_paginated_search(self._personal_housing_query(query, location), location, page, per_page)
+                    serper_items = self._rank_housing_results_for_direct_listings(serper.get("results", []))
                     housing_listings = [
                         {
                             'title': item.get('title', ''),
@@ -1971,8 +1971,8 @@ class SimpleSearchCoordinator:
                 error_detail = paginated_results.get("error", "Unknown error")
                 logger.error(f"Housing search failed: {error_detail}")
                 if self.serper_api_key:
-                    serper = self._serpapi_paginated_search(f"{query} apartment rental", location, page, per_page)
-                    serper_items = serper.get("results", [])
+                    serper = self._serpapi_paginated_search(self._personal_housing_query(query, location), location, page, per_page)
+                    serper_items = self._rank_housing_results_for_direct_listings(serper.get("results", []))
                     housing_listings = [
                         {
                             'title': item.get('title', ''),
@@ -2056,8 +2056,8 @@ class SimpleSearchCoordinator:
                 })
             
             if not housing_listings and self.serper_api_key:
-                serper = self._serpapi_paginated_search(f"{query} apartment rental", location, page, per_page)
-                serper_items = serper.get("results", [])
+                serper = self._serpapi_paginated_search(self._personal_housing_query(query, location), location, page, per_page)
+                serper_items = self._rank_housing_results_for_direct_listings(serper.get("results", []))
                 housing_listings = [
                     {
                         'title': item.get('title', ''),
@@ -2301,6 +2301,58 @@ class SimpleSearchCoordinator:
         except Exception as e:
             logger.error(f"SerpAPI search error: {e}")
             return {"results": [], "error": str(e)}
+
+    def _personal_housing_query(self, query: str, location: Optional[str]) -> str:
+        """Bias fallback housing searches toward personal and direct listing sources."""
+        base_query = (query or "housing").strip()
+        location_part = f" {location}" if location else ""
+        direct_domains = (
+            "site:craigslist.org OR site:spareroom.com OR site:roomies.com "
+            "OR site:roomster.com OR site:padsplit.com"
+        )
+        return (
+            f"{base_query}{location_part} room for rent OR sublet OR roommate OR private landlord "
+            f"{direct_domains} -zillow -apartments.com -apartmentfinder -realtor.com"
+        )
+
+    def _rank_housing_results_for_direct_listings(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Prefer personal/direct listing domains over large rental portals."""
+        preferred_domains = [
+            "craigslist.org",
+            "spareroom.com",
+            "roomies.com",
+            "roomster.com",
+            "padsplit.com",
+        ]
+        penalized_domains = [
+            "zillow.com",
+            "apartments.com",
+            "apartmentfinder.com",
+            "realtor.com",
+            "hotpads.com",
+            "trulia.com",
+        ]
+
+        scored_items = []
+        for item in items:
+            link = item.get("link", "")
+            hostname = (urlparse(link).hostname or "").lower()
+            title = (item.get("title") or "").lower()
+            snippet = (item.get("snippet") or item.get("description") or "").lower()
+
+            score = 0
+            if any(hostname.endswith(domain) for domain in preferred_domains):
+                score += 40
+            if any(hostname.endswith(domain) for domain in penalized_domains):
+                score -= 20
+            if any(term in title for term in ["room", "sublet", "roommate", "private landlord"]):
+                score += 15
+            if any(term in snippet for term in ["room", "sublet", "roommate", "private landlord"]):
+                score += 8
+            scored_items.append((score, item))
+
+        scored_items.sort(key=lambda pair: pair[0], reverse=True)
+        return [item for _, item in scored_items]
 
     def _serpapi_paginated_search(self, query: str, location: Optional[str], page: int, per_page: int) -> Dict[str, Any]:
         """Fetch more than 10 SerpAPI results by paging with start offsets."""

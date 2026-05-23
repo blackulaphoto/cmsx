@@ -278,6 +278,53 @@ class ScraperSearchManager:
                 relevant_jobs.append(job)
         
         return sorted(relevant_jobs, key=lambda x: x.get('relevance_score', 0), reverse=True)
+
+    def _strict_filter_relevant_jobs(self, jobs: List[Dict], keywords: str) -> List[Dict]:
+        """Require strong keyword alignment for the specific listings workflow."""
+        if not keywords:
+            return jobs
+
+        import re
+
+        keywords_clean = re.sub(r'[^\w\s]', ' ', keywords.lower())
+        search_terms = [term for term in keywords_clean.split() if len(term) >= 3]
+        if not search_terms:
+            return jobs
+
+        strict_jobs = []
+        for job in jobs:
+            title = (job.get('title') or '').lower()
+            description = (job.get('description') or '').lower()
+            company = (job.get('company') or '').lower()
+            full_text = f"{title} {description} {company}"
+
+            score = 0
+            exact_title_matches = 0
+            exact_body_matches = 0
+
+            for term in search_terms:
+                if term in title:
+                    exact_title_matches += 1
+                    score += 12
+                elif term in description:
+                    exact_body_matches += 1
+                    score += 5
+                else:
+                    for variation in self._get_word_variations(term):
+                        if variation in full_text:
+                            score += 3
+                            break
+
+            if exact_title_matches == 0 and exact_body_matches == 0 and score < 6:
+                continue
+
+            if self._is_generic_listing(job):
+                continue
+
+            job['relevance_score'] = score
+            strict_jobs.append(job)
+
+        return sorted(strict_jobs, key=lambda x: x.get('relevance_score', 0), reverse=True)
     
     def _get_word_variations(self, word: str) -> List[str]:
         """Get common variations of a word"""
@@ -319,6 +366,42 @@ class ScraperSearchManager:
                     break
         
         return lenient_jobs[:max_results]  # Limit results
+
+    def _is_generic_listing(self, job: Dict[str, Any]) -> bool:
+        """Reject informational/program pages masquerading as job listings."""
+        title = (job.get('title') or '').lower()
+        description = (job.get('description') or '').lower()
+        external_id = (job.get('external_id') or '').lower()
+        company = (job.get('company') or '').lower()
+
+        generic_markers = [
+            'general',
+            'program opportunities',
+            'employment opportunities',
+            'civil service positions',
+            'visit the portal for current opportunities',
+            'offers over 1,200 job classifications',
+        ]
+
+        if external_id.endswith('_general'):
+            return True
+        if any(marker in title for marker in generic_markers):
+            return True
+        if any(marker in description for marker in generic_markers):
+            return True
+        if title in {'employment opportunities', 'job opportunities', 'career opportunities'}:
+            return True
+        if company == 'city of los angeles' and 'program' in title:
+            return True
+        return False
+
+    def _is_government_focused_query(self, keywords: str) -> bool:
+        keywords_lower = (keywords or '').lower()
+        gov_terms = [
+            'government', 'city', 'county', 'federal', 'state', 'public sector',
+            'civil service', 'usajobs', 'la county', 'city of la', 'municipal'
+        ]
+        return any(term in keywords_lower for term in gov_terms)
     
     def _select_appropriate_scrapers(self, keywords: str) -> List[str]:
         """Select which scrapers to use based on keywords"""
@@ -331,6 +414,12 @@ class ScraperSearchManager:
         
         if any(keyword in keywords_lower for keyword in tech_keywords):
             selected_scrapers.append('builtinla')
+
+        if self._is_government_focused_query(keywords):
+            if 'government' in self.scrapers:
+                selected_scrapers.append('government')
+            if 'city_la' in self.scrapers:
+                selected_scrapers.append('city_la')
         
         # Always include universal for broad coverage
         if 'universal' in self.scrapers:
@@ -341,6 +430,7 @@ class ScraperSearchManager:
     async def search_jobs(self, keywords: str, location: str = "Los Angeles, CA", 
                          sources: Optional[List[str]] = None, max_results: int = 30,
                          background_friendly_only: bool = False, page: int = 1, 
+                         strict_matching: bool = False,
                          per_page: int = 10) -> Dict[str, Any]:
         """
         Main async search method that coordinates multiple scrapers
@@ -364,6 +454,8 @@ class ScraperSearchManager:
             else:
                 # Filter to only available scrapers
                 sources = [s for s in sources if s in self.scrapers]
+                if not self._is_government_focused_query(keywords):
+                    sources = [s for s in sources if s not in {'government', 'city_la'}]
             
             if not sources:
                 return self._empty_result(page, per_page, "No valid scrapers available")
@@ -386,11 +478,14 @@ class ScraperSearchManager:
             all_jobs = await self._scrape_from_sources(keywords, location, sources, max_results)
             
             # Apply relevance filtering to remove irrelevant jobs
-            relevant_jobs = self._filter_relevant_jobs(all_jobs, keywords)
+            if strict_matching:
+                relevant_jobs = self._strict_filter_relevant_jobs(all_jobs, keywords)
+            else:
+                relevant_jobs = self._filter_relevant_jobs(all_jobs, keywords)
             logger.info(f"Relevance filtering: {len(all_jobs)} -> {len(relevant_jobs)} jobs")
             
             # FALLBACK: If filtering removed too many results, be more lenient
-            if len(relevant_jobs) == 0 and len(all_jobs) > 0:
+            if len(relevant_jobs) == 0 and len(all_jobs) > 0 and not strict_matching:
                 logger.warning(f"Relevance filter removed all {len(all_jobs)} jobs for '{keywords}' - using lenient filter")
                 relevant_jobs = self._lenient_filter(all_jobs, keywords, max_results)
             

@@ -270,6 +270,7 @@ async def search_jobs_scrapers(
             max_results=per_page * 10,  # Get more results for better pagination
             background_friendly_only=background_friendly,
             page=page,
+            strict_matching=True,
             per_page=per_page
         )
         
