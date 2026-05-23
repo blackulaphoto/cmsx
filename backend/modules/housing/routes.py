@@ -117,7 +117,12 @@ async def housing_search(
         if background_friendly:
             search_query += " background friendly second chance"
         
-        logger.info(f"🏠 Housing Search: '{search_query}' in '{location}' (page {page})")
+        logger.info(
+            "Housing search: '%s' in '%s' (page %s)",
+            search_query,
+            location,
+            page,
+        )
         
         # Use dedicated housing search method with pagination
         coordinator = get_coordinator()
@@ -153,6 +158,8 @@ async def housing_search(
                 'total_count': result['pagination']['total_results'],
                 'pagination': result['pagination'],
                 'search_sources': [result['source']],
+                'degraded': result.get('degraded', False),
+                'warning': result.get('warning'),
                 'filters_applied': {
                     'query': search_query,
                     'location': location,
@@ -178,7 +185,9 @@ async def housing_search(
                     'has_next_page': False,
                     'has_prev_page': False
                 },
-                'error': result.get('error', 'Housing search failed')
+                'error': result.get('error', 'Housing search failed'),
+                'degraded': result.get('degraded', False),
+                'warning': result.get('warning')
             }
             
     except Exception as e:

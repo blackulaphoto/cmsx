@@ -17,6 +17,7 @@ class RealDataIntegrator:
     
     def __init__(self):
         self.reminder_db = ReminderDatabase()
+        self.core_clients_db_path = 'databases/core_clients.db'
         self.case_mgmt_db_path = 'databases/case_management.db'
     
     def get_smart_dashboard_data(self, case_manager_id: str) -> Dict[str, Any]:
@@ -109,8 +110,7 @@ class RealDataIntegrator:
     def get_client_workload(self, case_manager_id: str) -> Dict[str, Any]:
         """Get client workload summary for case manager"""
         try:
-            # Connect to case management database
-            conn = sqlite3.connect(self.case_mgmt_db_path)
+            conn = sqlite3.connect(self.core_clients_db_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
@@ -120,7 +120,7 @@ class RealDataIntegrator:
                     risk_level,
                     COUNT(*) as count
                 FROM clients 
-                WHERE case_manager_id = ? AND case_status = 'Active' AND is_active = 1
+                WHERE case_manager_id = ?
                 GROUP BY risk_level
             """, (case_manager_id,))
             
@@ -130,24 +130,23 @@ class RealDataIntegrator:
             cursor.execute("""
                 SELECT COUNT(*) as total
                 FROM clients 
-                WHERE case_manager_id = ? AND case_status = 'Active' AND is_active = 1
+                WHERE case_manager_id = ?
             """, (case_manager_id,))
             
             total_clients = cursor.fetchone()['total']
-            
-            # Get recent contacts
-            cursor.execute("""
-                SELECT COUNT(*) as recent_contacts
-                FROM client_contacts cc
-                JOIN clients c ON cc.client_id = c.client_id
-                WHERE cc.case_manager_id = ? 
-                AND date(cc.contact_date) >= date('now', '-7 days')
-                AND c.is_active = 1
-            """, (case_manager_id,))
-            
-            recent_contacts = cursor.fetchone()['recent_contacts']
-            
             conn.close()
+
+            reminder_conn = sqlite3.connect(self.reminder_db.db_path)
+            reminder_conn.row_factory = sqlite3.Row
+            reminder_cursor = reminder_conn.cursor()
+            reminder_cursor.execute("""
+                SELECT COUNT(*) as recent_contacts
+                FROM client_contacts
+                WHERE case_manager_id = ?
+                AND date(contact_date) >= date('now', '-7 days')
+            """, (case_manager_id,))
+            recent_contacts = reminder_cursor.fetchone()['recent_contacts']
+            reminder_conn.close()
             
             return {
                 'total_clients': total_clients,
@@ -362,9 +361,9 @@ class RealDataIntegrator:
         }
     
     def get_client_name(self, client_id: str) -> str:
-        """Get client name from case management database"""
+        """Get client name from the core client source of truth."""
         try:
-            conn = sqlite3.connect(self.case_mgmt_db_path)
+            conn = sqlite3.connect(self.core_clients_db_path)
             cursor = conn.cursor()
             
             cursor.execute("""

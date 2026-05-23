@@ -165,8 +165,10 @@ class ReminderDatabase:
     
     def __init__(self, db_path: str = 'databases/reminders.db'):
         self.db_path = db_path
+        self.core_clients_db_path = 'databases/core_clients.db'
         self.case_mgmt_db_path = 'databases/case_management.db'
         self.connection = None
+        self.core_clients_connection = None
         self.case_mgmt_connection = None
         self.setup_database()
     
@@ -176,6 +178,10 @@ class ReminderDatabase:
             # Connect to reminder database
             self.connection = sqlite3.connect(self.db_path)
             self.connection.row_factory = sqlite3.Row
+
+            # Connect to core clients database
+            self.core_clients_connection = sqlite3.connect(self.core_clients_db_path)
+            self.core_clients_connection.row_factory = sqlite3.Row
             
             # Connect to case management database
             self.case_mgmt_connection = sqlite3.connect(self.case_mgmt_db_path)
@@ -285,35 +291,37 @@ class ReminderDatabase:
             return False
     
     def get_client_data(self, client_id: str) -> Optional[Dict[str, Any]]:
-        """Get client data from case management database"""
+        """Get client data from the core client source of truth."""
         try:
-            if not self.case_mgmt_connection:
+            if not self.core_clients_connection:
                 self.connect()
             
-            cursor = self.case_mgmt_connection.cursor()
+            cursor = self.core_clients_connection.cursor()
             cursor.execute("""
                 SELECT 
-                    c.client_id,
-                    c.first_name || ' ' || c.last_name as client_name,
-                    c.risk_level,
-                    c.case_status,
-                    c.intake_date,
-                    c.case_manager_id,
-                    c.phone,
-                    c.email,
-                    c.notes,
+                    client_id,
+                    first_name || ' ' || last_name as client_name,
+                    risk_level,
+                    intake_date,
+                    case_manager_id,
+                    phone,
+                    email,
+                    housing_status,
+                    employment_status,
                     CASE 
-                        WHEN c.intake_date IS NOT NULL 
-                        THEN CAST((julianday('now') - julianday(c.intake_date)) AS INTEGER)
+                        WHEN intake_date IS NOT NULL 
+                        THEN CAST((julianday('now') - julianday(intake_date)) AS INTEGER)
                         ELSE 0 
                     END as days_in_program
-                FROM clients c 
-                WHERE c.client_id = ? AND c.is_active = 1
+                FROM clients
+                WHERE client_id = ?
             """, (client_id,))
             
             row = cursor.fetchone()
             if row:
                 client_data = dict(row)
+                client_data.setdefault('case_status', 'active')
+                client_data.setdefault('notes', '')
                 
                 # Calculate additional fields needed by reminder system
                 client_data['crisis_level'] = self._determine_crisis_level(client_id)
@@ -347,21 +355,22 @@ class ReminderDatabase:
             return None
     
     def get_clients_for_case_manager(self, case_manager_id: str) -> List[Dict[str, Any]]:
-        """Get all clients for a case manager from case management database"""
+        """Get all clients for a case manager from the core client source of truth."""
         try:
-            if not self.case_mgmt_connection:
+            if not self.core_clients_connection:
                 self.connect()
             
-            cursor = self.case_mgmt_connection.cursor()
+            cursor = self.core_clients_connection.cursor()
             cursor.execute("""
                 SELECT 
                     client_id,
                     first_name || ' ' || last_name as client_name,
                     risk_level,
-                    case_status,
-                    intake_date
+                    intake_date,
+                    housing_status,
+                    employment_status
                 FROM clients 
-                WHERE case_manager_id = ? AND is_active = 1
+                WHERE case_manager_id = ?
                 ORDER BY risk_level DESC, intake_date ASC
             """, (case_manager_id,))
             
@@ -398,6 +407,8 @@ class ReminderDatabase:
         """Close database connections"""
         if self.connection:
             self.connection.close()
+        if self.core_clients_connection:
+            self.core_clients_connection.close()
         if self.case_mgmt_connection:
             self.case_mgmt_connection.close()
     

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 
 from .models import LegalCase, CourtDate, LegalDocument, LegalDatabase
 from .expungement_routes import router as expungement_router
+from .expungement_service import ExpungementEligibilityEngine
 
 # Create FastAPI router
 router = APIRouter(tags=["legal"])
@@ -24,6 +25,7 @@ router.include_router(expungement_router)
 
 # Initialize database
 legal_db = None
+expungement_engine = ExpungementEligibilityEngine()
 
 def get_legal_db():
     """Get thread-safe legal database instance"""
@@ -31,6 +33,101 @@ def get_legal_db():
     return LegalDatabase("databases/legal_cases.db")
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _court_name_to_county(court_name: Optional[str]) -> str:
+    court_name = (court_name or "").lower()
+    if "los angeles" in court_name:
+        return "Los Angeles"
+    if "orange" in court_name:
+        return "Orange"
+    if "san diego" in court_name:
+        return "San Diego"
+    return ""
+
+
+def _build_assessment_from_complete_result(result: Dict[str, Any]) -> Dict[str, Any]:
+    success_likelihood = result.get("success_likelihood", "Unknown")
+    confidence_map = {"High": 90.0, "Medium": 60.0, "Low": 40.0}
+    confidence_score = confidence_map.get(success_likelihood, 50.0)
+    estimated_days = result.get("estimated_timeline_days", 0) or 0
+
+    return {
+        "eligible": bool(result.get("eligible")),
+        "eligibility_date": datetime.now().isoformat() if result.get("eligible") else None,
+        "wait_period_days": 0,
+        "requirements": result.get("recommendations", []),
+        "disqualifying_factors": result.get("disqualifying_factors", []),
+        "estimated_timeline": f"{estimated_days} days" if estimated_days else "Unknown",
+        "estimated_cost": result.get("estimated_cost", 0.0),
+        "next_steps": result.get("next_steps", []),
+        "confidence_score": confidence_score,
+        "pathway": result.get("pathway"),
+        "warnings": result.get("warnings", []),
+        "success_likelihood": success_likelihood
+    }
+
+
+def _build_conviction_data_from_case(case_row: sqlite3.Row) -> Dict[str, Any]:
+    now = datetime.now()
+    conviction_date = case_row["conviction_date"] or case_row["created_at"]
+    conviction_dt = _parse_iso_datetime(conviction_date)
+    probation_end = _parse_iso_datetime(case_row["probation_end_date"])
+    parole_end = _parse_iso_datetime(case_row["parole_end_date"])
+    sentence_complete = parole_end or probation_end or conviction_dt
+    sentence_details = (case_row["sentence_details"] or "").lower()
+    parole_terms = (case_row["parole_terms"] or "").lower()
+    case_type = (case_row["case_type"] or "").lower()
+    case_status = (case_row["case_status"] or "").lower()
+
+    served_state_prison = any(
+        marker in " ".join([sentence_details, parole_terms, case_type])
+        for marker in ["state prison", "prison", "cdcr"]
+    )
+    probation_granted = bool(
+        case_row["probation_start_date"] or case_row["probation_end_date"] or case_row["probation_officer"]
+    )
+    probation_completed = bool(probation_end and probation_end <= now)
+    currently_on_probation = bool(probation_end and probation_end > now)
+    currently_serving_sentence = bool(parole_end and parole_end > now)
+
+    return {
+        "conviction_date": conviction_date,
+        "conviction_year": conviction_dt.year if conviction_dt else 0,
+        "offense_code": case_row["charges"] or case_row["case_number"] or "",
+        "offense_type": case_row["case_type"] or "",
+        "conviction_type": case_row["case_type"] or "",
+        "county": _court_name_to_county(case_row["court_name"]),
+        "probation_granted": probation_granted,
+        "probation_completed": probation_completed,
+        "early_termination_granted": False,
+        "served_state_prison": served_state_prison,
+        "sentence_completion_date": sentence_complete.isoformat() if sentence_complete else None,
+        "currently_on_probation": currently_on_probation,
+        "currently_serving_sentence": currently_serving_sentence,
+        "pending_charges": case_status in {"pending", "active"},
+        "fines_total": float(case_row["fines_total"] or 0.0),
+        "fines_paid": float(case_row["fines_paid"] or 0.0),
+        "restitution_total": float(case_row["restitution_total"] or 0.0),
+        "restitution_paid": float(case_row["restitution_paid"] or 0.0),
+        "court_costs_paid": float(case_row["fines_paid"] or 0.0) >= float(case_row["fines_total"] or 0.0),
+        "community_service_hours": 0,
+        "community_service_completed": None,
+        "counseling_required": None,
+        "counseling_completed": None,
+        "requires_sex_offender_registration": False,
+        "is_violent_felony": "violent" in case_type,
+        "is_wobbler": "wobbler" in case_type
+    }
 
 
 def _get_client_name_map() -> Dict[str, str]:
@@ -69,7 +166,8 @@ class LegalCaseCreate(BaseModel):
 
 class CourtDateCreate(BaseModel):
     case_id: str
-    client_name: str
+    client_id: str
+    client_name: Optional[str] = None
     hearing_date: str
     hearing_time: str
     court_name: str
@@ -78,7 +176,9 @@ class CourtDateCreate(BaseModel):
     judge_name: str
 
 class LegalDocumentCreate(BaseModel):
-    client_name: str
+    client_id: str
+    case_id: str
+    client_name: Optional[str] = None
     document_type: str
     document_title: str
     document_purpose: str
@@ -287,10 +387,30 @@ async def get_court_dates(client_id: Optional[str] = Query(None), days_ahead: in
 @router.post("/court-dates")
 async def create_court_date(court_date_data: CourtDateCreate):
     """Schedule new court date"""
+    legal_db = None
     try:
-        # Create court date
+        legal_db = get_legal_db()
+        legal_db.connect()
+        cursor = legal_db.connection.cursor()
+
+        cursor.execute(
+            "SELECT client_id FROM legal_cases WHERE case_id = ?",
+            (court_date_data.case_id,)
+        )
+        case_row = cursor.fetchone()
+        if not case_row:
+            raise HTTPException(status_code=404, detail="Legal case not found")
+
+        case_client_id = case_row["client_id"]
+        if case_client_id != court_date_data.client_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Court date client_id does not match the associated legal case"
+            )
+
         court_date = CourtDate(
             case_id=court_date_data.case_id,
+            client_id=court_date_data.client_id,
             client_name=court_date_data.client_name,
             hearing_date=court_date_data.hearing_date,
             hearing_time=court_date_data.hearing_time,
@@ -299,8 +419,7 @@ async def create_court_date(court_date_data: CourtDateCreate):
             hearing_type=court_date_data.hearing_type,
             judge_name=court_date_data.judge_name
         )
-        legal_db = get_legal_db()
-        court_date_id = legal_db.save_court_date(court_date)
+        legal_db.save_court_date(court_date)
         
         return {
             'success': True,
@@ -308,9 +427,16 @@ async def create_court_date(court_date_data: CourtDateCreate):
             'court_date_id': court_date.court_date_id
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Create court date error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            legal_db.close()
+        except Exception:
+            pass
 
 @router.get("/documents")
 async def get_legal_documents(client_id: Optional[str] = Query(None), document_type: Optional[str] = Query(None, alias="type")):
@@ -377,9 +503,38 @@ async def get_legal_documents(client_id: Optional[str] = Query(None), document_t
 @router.post("/documents")
 async def create_legal_document(document_data: LegalDocumentCreate):
     """Create new legal document"""
+    legal_db = None
     try:
-        # Create legal document
-        document = LegalDocument(**document_data.dict())
+        legal_db = get_legal_db()
+        legal_db.connect()
+        cursor = legal_db.connection.cursor()
+
+        cursor.execute(
+            "SELECT client_id FROM legal_cases WHERE case_id = ?",
+            (document_data.case_id,)
+        )
+        case_row = cursor.fetchone()
+        if not case_row:
+            raise HTTPException(status_code=404, detail="Legal case not found")
+
+        case_client_id = case_row["client_id"]
+        if case_client_id != document_data.client_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Document client_id does not match the associated legal case"
+            )
+
+        document = LegalDocument(
+            case_id=document_data.case_id,
+            client_id=document_data.client_id,
+            document_type=document_data.document_type,
+            document_title=document_data.document_title,
+            document_purpose=document_data.document_purpose,
+            due_date=document_data.due_date,
+            submitted_to=document_data.submitted_to,
+            urgency_level=document_data.urgency_level
+        )
+        legal_db.save_legal_document(document)
         
         return {
             'success': True,
@@ -387,26 +542,122 @@ async def create_legal_document(document_data: LegalDocumentCreate):
             'document_id': document.document_id
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Create legal document error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            legal_db.close()
+        except Exception:
+            pass
 
 @router.post("/compliance-check")
 async def api_compliance_check(compliance_data: ComplianceCheck):
     """Run compliance check for client"""
+    legal_db = None
     try:
         client_id = compliance_data.client_id
-        
-        # Simulate compliance check
+
+        legal_db = get_legal_db()
+        legal_db.connect()
+        cursor = legal_db.connection.cursor()
+
+        cursor.execute("""
+            SELECT case_id, case_number, case_type, case_status, compliance_status,
+                   probation_end_date, fines_total, fines_paid, restitution_total,
+                   restitution_paid, court_name
+            FROM legal_cases
+            WHERE client_id = ? AND is_active = 1
+            ORDER BY last_updated DESC, created_at DESC
+        """, (client_id,))
+        cases = cursor.fetchall()
+
+        if not cases:
+            raise HTTPException(status_code=404, detail="No active legal cases found for client")
+
+        cursor.execute("""
+            SELECT court_date_id, case_id, hearing_date, hearing_time, status, reminder_sent
+            FROM court_dates
+            WHERE client_id = ? AND hearing_date >= ?
+            ORDER BY hearing_date ASC, hearing_time ASC
+        """, (client_id, datetime.now().date().isoformat()))
+        upcoming_dates = cursor.fetchall()
+
+        issues_found: List[str] = []
+        recommendations: List[str] = []
+        overdue_obligations = 0
+        warning_cases = 0
+        missed_hearings = 0
+
+        for case_row in cases:
+            compliance_status = (case_row["compliance_status"] or "").lower()
+            fines_due = max(0.0, float(case_row["fines_total"] or 0.0) - float(case_row["fines_paid"] or 0.0))
+            restitution_due = max(0.0, float(case_row["restitution_total"] or 0.0) - float(case_row["restitution_paid"] or 0.0))
+            total_due = fines_due + restitution_due
+
+            if compliance_status in {"warning", "non-compliant", "non compliant"}:
+                warning_cases += 1
+                issues_found.append(
+                    f"Case {case_row['case_number'] or case_row['case_id']} is marked {case_row['compliance_status']}."
+                )
+
+            if total_due > 0:
+                overdue_obligations += 1
+                issues_found.append(
+                    f"Case {case_row['case_number'] or case_row['case_id']} has ${total_due:.2f} in unpaid fines or restitution."
+                )
+                recommendations.append(
+                    f"Review payment plan for case {case_row['case_number'] or case_row['case_id']}."
+                )
+
+            probation_end = _parse_iso_datetime(case_row["probation_end_date"])
+            if probation_end and 0 <= (probation_end.date() - datetime.now().date()).days <= 30:
+                recommendations.append(
+                    f"Prepare probation completion review for case {case_row['case_number'] or case_row['case_id']}."
+                )
+
+        for court_date in upcoming_dates:
+            hearing_dt = _parse_iso_datetime(court_date["hearing_date"])
+            if not hearing_dt:
+                continue
+            days_until = (hearing_dt.date() - datetime.now().date()).days
+            status = (court_date["status"] or "").lower()
+
+            if status == "missed":
+                missed_hearings += 1
+                issues_found.append(
+                    f"Court date {court_date['court_date_id']} was missed."
+                )
+            elif days_until <= 7 and not bool(court_date["reminder_sent"]):
+                issues_found.append(
+                    f"Court date {court_date['court_date_id']} is within {days_until} days and no reminder is recorded."
+                )
+                recommendations.append(
+                    f"Send reminder and confirm attendance for court date {court_date['court_date_id']}."
+                )
+
+        compliance_status = "Compliant"
+        if missed_hearings > 0:
+            compliance_status = "Non-Compliant"
+        elif issues_found or warning_cases > 0 or overdue_obligations > 0:
+            compliance_status = "Warning"
+
+        if not recommendations:
+            recommendations = [
+                "Continue current compliance activities",
+                "Monitor upcoming court dates and probation milestones"
+            ]
+
         compliance_result = {
             'client_id': client_id,
-            'compliance_status': 'Compliant',
-            'issues_found': [],
-            'recommendations': [
-                'Continue current compliance activities',
-                'Schedule next probation meeting',
-                'Update employment verification'
-            ],
+            'compliance_status': compliance_status,
+            'issues_found': issues_found,
+            'recommendations': recommendations,
+            'active_case_count': len(cases),
+            'upcoming_court_dates': len(upcoming_dates),
+            'data_source': 'legal_cases.db',
             'next_check_due': (datetime.now() + timedelta(days=30)).isoformat(),
             'checked_at': datetime.now().isoformat()
         }
@@ -416,33 +667,50 @@ async def api_compliance_check(compliance_data: ComplianceCheck):
             'compliance_result': compliance_result
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Compliance check error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            legal_db.close()
+        except Exception:
+            pass
 
 @router.post("/expungement-eligibility")
 async def api_expungement_eligibility(expungement_data: ExpungementCheck):
     """Check expungement eligibility"""
+    legal_db = None
     try:
         case_id = expungement_data.case_id
-        
-        # Simulate expungement eligibility check
+
+        legal_db = get_legal_db()
+        legal_db.connect()
+        cursor = legal_db.connection.cursor()
+        cursor.execute("""
+            SELECT case_id, client_id, case_number, court_name, case_type, case_status, charges,
+                   conviction_date, probation_start_date, probation_end_date, parole_start_date,
+                   parole_end_date, sentence_details, parole_terms, fines_total, fines_paid,
+                   restitution_total, restitution_paid, created_at
+            FROM legal_cases
+            WHERE case_id = ?
+        """, (case_id,))
+        case_row = cursor.fetchone()
+        if not case_row:
+            raise HTTPException(status_code=404, detail="Legal case not found")
+
+        conviction_data = _build_conviction_data_from_case(case_row)
+        complete_result = expungement_engine.check_eligibility_complete(conviction_data)
+        assessment = _build_assessment_from_complete_result(complete_result)
         eligibility_result = {
             'case_id': case_id,
-            'eligible': True,
-            'eligibility_date': '2024-06-01',
-            'requirements': [
-                'Complete all probation terms',
-                'Pay all fines and restitution',
-                'No new convictions',
-                'Complete community service hours'
-            ],
-            'estimated_timeline': '3-6 months',
-            'estimated_cost': 150.0,
-            'next_steps': [
-                'File PC 1203.4 petition',
-                'Schedule court hearing',
-                'Prepare supporting documentation'
+            'client_id': case_row["client_id"],
+            'assessment': assessment,
+            'source_data_limited': True,
+            'source_data_notes': [
+                'Assessment is derived from legal case records currently stored in legal_cases.db.',
+                'Missing court-specific facts may require manual attorney review before filing.'
             ]
         }
         
@@ -450,10 +718,16 @@ async def api_expungement_eligibility(expungement_data: ExpungementCheck):
             'success': True,
             'eligibility_result': eligibility_result
         }
-        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Expungement eligibility error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            legal_db.close()
+        except Exception:
+            pass
 
 @router.post("/reminders")
 async def api_send_reminders():
@@ -490,16 +764,18 @@ async def api_warrant_check(warrant_data: WarrantCheck):
     """Check for outstanding warrants"""
     try:
         client_id = warrant_data.client_id
-        
-        # Simulate warrant check (in real implementation, this would connect to court systems)
+
         warrant_result = {
             'client_id': client_id,
-            'warrants_found': False,
-            'warrant_count': 0,
+            'warrants_found': None,
+            'warrant_count': None,
             'warrant_details': [],
             'check_date': datetime.now().isoformat(),
             'next_check_recommended': (datetime.now() + timedelta(days=30)).isoformat(),
-            'status': 'Clear'
+            'status': 'Manual Verification Required',
+            'is_authoritative': False,
+            'verification_status': 'manual_required',
+            'message': 'This deployment does not have a live court-system or law-enforcement warrant integration. Manual verification is required.'
         }
         
         return {

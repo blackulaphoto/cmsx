@@ -76,6 +76,7 @@ class SimpleSearchCoordinator:
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
         self.cache_db_path = "databases/search_cache.db"
         self.sample_db_path = "databases/sample_data.db"
+        self.blocked_google_cse_ids: Dict[str, str] = {}
         logger.info(f"SerpAPI Key: {'Loaded' if self.serper_api_key else 'Missing'}")
         
         # Debug API key loading
@@ -112,6 +113,46 @@ class SimpleSearchCoordinator:
         if cleaned in placeholders:
             return None
         return cleaned
+
+    def _resolve_cse_name(self, cse_id: Optional[str]) -> str:
+        """Map a CSE id to a human-readable provider label for logs/errors."""
+        if not cse_id:
+            return "unknown"
+        if cse_id == self.google_housing_cse_id:
+            return "housing"
+        if cse_id == self.google_jobs_cse_id:
+            return "jobs"
+        if cse_id == self.google_cse_id:
+            return "services"
+        return "custom"
+
+    def _is_google_cse_blocked(self, cse_id: Optional[str]) -> bool:
+        """Return whether this CSE has already been confirmed blocked."""
+        return bool(cse_id and cse_id in self.blocked_google_cse_ids)
+
+    def _mark_google_cse_blocked(self, cse_id: Optional[str], reason: str) -> None:
+        """Cache blocked CSE state so later requests can skip doomed Google calls."""
+        if not cse_id:
+            return
+        if cse_id not in self.blocked_google_cse_ids:
+            cse_name = self._resolve_cse_name(cse_id)
+            logger.warning("Disabling Google CSE '%s' for this process: %s", cse_name, reason)
+        self.blocked_google_cse_ids[cse_id] = reason
+
+    def _google_cse_error_message(self, cse_id: Optional[str]) -> str:
+        """Return a stable user-facing error for a blocked Google CSE."""
+        cse_name = self._resolve_cse_name(cse_id)
+        return f"Google Custom Search is blocked for the configured {cse_name} CSE."
+
+    def _is_google_permission_block(self, response: Optional[requests.Response] = None, payload: Optional[Dict[str, Any]] = None) -> bool:
+        """Detect the Google permission-denied shape for blocked Custom Search APIs."""
+        payload = payload or {}
+        error = payload.get("error", {}) if isinstance(payload, dict) else {}
+        message = str(error.get("message", "")).lower()
+        status = str(error.get("status", "")).upper()
+        if status == "PERMISSION_DENIED" and "blocked" in message:
+            return True
+        return bool(response is not None and response.status_code == 403 and "blocked" in message)
     
     def _init_cache_db(self):
         """Initialize search cache database"""
@@ -331,38 +372,7 @@ class SimpleSearchCoordinator:
         Google Custom Search API implementation
         Returns raw Google search results for processing
         """
-        try:
-            if not self.google_api_key or not self.google_cse_id:
-                logger.warning("Google Custom Search API credentials not available")
-                return []
-            
-            # Build search query with location
-            search_query = f"{query} {location}" if location else query
-            
-            # Google Custom Search API endpoint
-            url = "https://www.googleapis.com/customsearch/v1"
-            params = {
-                'key': self.google_api_key,
-                'cx': self.google_cse_id,
-                'q': search_query,
-                'num': 10,  # Number of results to return
-                'safe': 'active'
-            }
-            
-            logger.info(f"Google Custom Search: '{search_query}'")
-            
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            items = data.get('items', [])
-            
-            logger.info(f"Google Custom Search returned {len(items)} results")
-            return items
-            
-        except Exception as e:
-            logger.error(f"Google Custom Search error: {e}")
-            return []
+        return self._google_custom_search_with_cse(query, location, self.google_cse_id)
     
     def _search_services(self, query: str, location: str) -> List[SearchResult]:
         """Search for services using Serper first, then Google CSE"""
@@ -457,6 +467,9 @@ class SimpleSearchCoordinator:
             if not self.google_api_key or not cse_id:
                 logger.warning("Google Custom Search credentials not available")
                 return []
+            if self._is_google_cse_blocked(cse_id):
+                logger.info(self._google_cse_error_message(cse_id))
+                return []
             
             url = "https://www.googleapis.com/customsearch/v1"
             # Combine query and location, but handle empty location
@@ -470,6 +483,11 @@ class SimpleSearchCoordinator:
             
             logger.info(f"Google Custom Search query: '{search_query}' using CSE: {cse_id}")
             response = requests.get(url, params=params, timeout=10)
+            if response.status_code == 403:
+                payload = response.json()
+                if self._is_google_permission_block(response=response, payload=payload):
+                    self._mark_google_cse_blocked(cse_id, payload.get("error", {}).get("message", "permission denied"))
+                    return []
             response.raise_for_status()
             
             data = response.json()
@@ -478,6 +496,19 @@ class SimpleSearchCoordinator:
             
             return items
             
+        except requests.exceptions.RequestException as e:
+            response = getattr(e, "response", None)
+            payload = {}
+            if response is not None:
+                try:
+                    payload = response.json()
+                except Exception:
+                    payload = {}
+            if self._is_google_permission_block(response=response, payload=payload):
+                self._mark_google_cse_blocked(cse_id, payload.get("error", {}).get("message", "permission denied"))
+                return []
+            logger.error(f"Google Custom Search error with CSE {cse_id}: {e}")
+            return []
         except Exception as e:
             logger.error(f"Google Custom Search error with CSE {cse_id}: {e}")
             return []
@@ -1030,6 +1061,8 @@ class SimpleSearchCoordinator:
                         "results": job_results[:per_page],
                         "total_count": len(job_results[:per_page]),
                         "source": "serpapi_jobs",
+                        "degraded": False,
+                        "warning": None,
                         "pagination": {
                             "current_page": page,
                             "per_page": per_page,
@@ -1071,6 +1104,8 @@ class SimpleSearchCoordinator:
                         "results": job_results,
                         "total_count": len(job_results),
                         "source": "serpapi",
+                        "degraded": True,
+                        "warning": "Google Jobs results were unavailable, so the search used a broader fallback source.",
                         "pagination": {
                             "current_page": page,
                             "per_page": per_page,
@@ -1093,6 +1128,8 @@ class SimpleSearchCoordinator:
                     "results": [],
                     "source": "config_missing",
                     "error": "Google API key or Jobs CSE ID not configured",
+                    "degraded": True,
+                    "warning": "Primary job search credentials are missing.",
                     "pagination": {
                         "current_page": page,
                         "per_page": per_page,
@@ -1149,6 +1186,8 @@ class SimpleSearchCoordinator:
                 "location": location,
                 "results": formatted_results,
                 "source": "google_jobs_cse",
+                "degraded": False,
+                "warning": None,
                 "pagination": {
                     "current_page": page,
                     "per_page": per_page,
@@ -1203,6 +1242,8 @@ class SimpleSearchCoordinator:
                 "location": location,
                 "results": formatted_results,
                 "source": "google_general_cse_fallback",
+                "degraded": True,
+                "warning": "Primary jobs search failed, so results are coming from the general search fallback.",
                 "pagination": {
                     "current_page": page,
                     "per_page": per_page,
@@ -1224,6 +1265,8 @@ class SimpleSearchCoordinator:
                 "results": [],
                 "source": "fallback_failed",
                 "error": str(e),
+                "degraded": True,
+                "warning": "Both primary and fallback jobs search requests failed.",
                 "pagination": {
                     "current_page": 1,
                     "per_page": per_page,
@@ -1246,7 +1289,7 @@ class SimpleSearchCoordinator:
             # Primary: SerpAPI when available
             if self.serper_api_key:
                 serper_payload = self._serpapi_paginated_search(query, location, page, per_page)
-                serper_results = serper_payload.get("results", [])
+                serper_results = serper_payload.get("results", [])[:per_page]
                 if serper_results:
                     formatted_results = []
                     for item in serper_results:
@@ -1319,7 +1362,7 @@ class SimpleSearchCoordinator:
             if not paginated_results or paginated_results.get("error"):
                 if self.serper_api_key:
                     serper_payload = self._serpapi_paginated_search(query, location, page, per_page)
-                    serper_results = serper_payload.get("results", [])
+                    serper_results = serper_payload.get("results", [])[:per_page]
                     formatted_results = []
                     for item in serper_results:
                         formatted_results.append({
@@ -1518,6 +1561,8 @@ class SimpleSearchCoordinator:
                         "housing_listings": housing_listings,
                         "total_count": len(housing_listings),
                         "source": "serpapi",
+                        "degraded": True,
+                        "warning": "Housing search credentials are incomplete, so results are coming from the fallback provider.",
                         "pagination": {
                             "current_page": page,
                             "per_page": per_page,
@@ -1537,6 +1582,68 @@ class SimpleSearchCoordinator:
                     "total_count": 0,
                     "source": "config_missing",
                     "error": "Google API key or Housing CSE ID not configured",
+                    "degraded": True,
+                    "warning": "Primary housing search credentials are missing.",
+                    "pagination": {
+                        "current_page": page,
+                        "per_page": per_page,
+                        "total_results": 0,
+                        "total_pages": 0,
+                        "has_next_page": False,
+                        "has_prev_page": False,
+                        "start_index": 0,
+                        "end_index": 0
+                    }
+                }
+
+            if self._is_google_cse_blocked(housing_cse_id):
+                logger.info(
+                    "Skipping blocked Google housing CSE and using fallback provider"
+                )
+                if self.serper_api_key:
+                    serper = self._serpapi_paginated_search(f"{query} apartment rental", location, page, per_page)
+                    serper_items = serper.get("results", [])
+                    housing_listings = [
+                        {
+                            'title': item.get('title', ''),
+                            'description': item.get('snippet') or item.get('description', ''),
+                            'url': item.get('link', ''),
+                            'link': item.get('link', ''),
+                            'source': 'serpapi',
+                            'background_friendly': False
+                        } for item in serper_items
+                    ]
+                    total_results = len(housing_listings)
+                    return {
+                        "success": True,
+                        "query": query,
+                        "location": location,
+                        "housing_listings": housing_listings,
+                        "total_count": total_results,
+                        "source": "serpapi",
+                        "degraded": True,
+                        "warning": "Google Custom Search is blocked for the configured housing CSE, so results are coming from the fallback provider.",
+                        "pagination": {
+                            "current_page": page,
+                            "per_page": per_page,
+                            "total_results": total_results,
+                            "total_pages": 1,
+                            "has_next_page": False,
+                            "has_prev_page": False,
+                            "start_index": 1 if total_results else 0,
+                            "end_index": total_results
+                        }
+                    }
+                return {
+                    "success": False,
+                    "query": query,
+                    "location": location,
+                    "housing_listings": [],
+                    "total_count": 0,
+                    "source": "google_cse_blocked",
+                    "error": self._google_cse_error_message(housing_cse_id),
+                    "degraded": True,
+                    "warning": "Google Custom Search is blocked for the configured housing CSE and no fallback provider is available.",
                     "pagination": {
                         "current_page": page,
                         "per_page": per_page,
@@ -1592,6 +1699,12 @@ class SimpleSearchCoordinator:
                         "housing_listings": housing_listings,
                         "total_count": total_results,
                         "source": "serpapi",
+                        "degraded": True,
+                        "warning": (
+                            "Google Custom Search is blocked for the configured housing CSE, so results are coming from the fallback provider."
+                            if "blocked" in error_detail.lower()
+                            else "Primary housing search failed, so results are coming from the fallback provider."
+                        ),
                         "pagination": {
                             "current_page": page,
                             "per_page": per_page,
@@ -1611,6 +1724,8 @@ class SimpleSearchCoordinator:
                     "total_count": 0,
                     "source": "error",
                     "error": error_detail,
+                    "degraded": True,
+                    "warning": "Primary housing search failed and no fallback results were available.",
                     "pagination": {
                         "current_page": page,
                         "per_page": per_page,
@@ -1659,6 +1774,8 @@ class SimpleSearchCoordinator:
                     "housing_listings": housing_listings,
                     "total_count": total_results,
                     "source": "serper",
+                    "degraded": True,
+                    "warning": "Housing search returned fallback results because the primary source had no listings.",
                     "pagination": {
                         "current_page": page,
                         "per_page": per_page,
@@ -1739,6 +1856,8 @@ class SimpleSearchCoordinator:
                 "housing_listings": housing_listings,
                 "total_count": total_results,
                 "source": "google_general_cse_fallback",
+                "degraded": True,
+                "warning": "Primary housing search failed, so results are coming from the general search fallback.",
                 "pagination": {
                     "current_page": page,
                     "per_page": per_page,
@@ -1761,6 +1880,8 @@ class SimpleSearchCoordinator:
                 "total_count": 0,
                 "source": "fallback_failed",
                 "error": str(e),
+                "degraded": True,
+                "warning": "Both primary and fallback housing search requests failed.",
                 "pagination": {
                     "current_page": 1,
                     "per_page": per_page,
@@ -1916,6 +2037,13 @@ class SimpleSearchCoordinator:
                     'actual_returned': 0,
                     'error': 'API key not configured'
                 }
+            if self._is_google_cse_blocked(cse_id):
+                return {
+                    'items': [],
+                    'total_results': 0,
+                    'actual_returned': 0,
+                    'error': self._google_cse_error_message(cse_id)
+                }
             
             # Calculate starting position
             start_index = (page - 1) * per_page + 1
@@ -1945,6 +2073,16 @@ class SimpleSearchCoordinator:
                 logger.info(f"API call {call_num + 1}/{calls_needed}: start={api_start}")
                 
                 response = requests.get(url, params=params, timeout=10)
+                if response.status_code == 403:
+                    data = response.json()
+                    if self._is_google_permission_block(response=response, payload=data):
+                        self._mark_google_cse_blocked(cse_id, data.get("error", {}).get("message", "permission denied"))
+                        return {
+                            'items': [],
+                            'total_results': 0,
+                            'actual_returned': 0,
+                            'error': self._google_cse_error_message(cse_id)
+                        }
                 response.raise_for_status()
                 
                 data = response.json()
@@ -1982,7 +2120,17 @@ class SimpleSearchCoordinator:
             logger.error(f"API request error in paginated search: {e}")
             status_code = getattr(getattr(e, "response", None), "status_code", None)
             error_message = "API request failed"
-            if status_code:
+            response = getattr(e, "response", None)
+            payload = {}
+            if response is not None:
+                try:
+                    payload = response.json()
+                except Exception:
+                    payload = {}
+            if self._is_google_permission_block(response=response, payload=payload):
+                self._mark_google_cse_blocked(cse_id, payload.get("error", {}).get("message", "permission denied"))
+                error_message = self._google_cse_error_message(cse_id)
+            elif status_code:
                 error_message = f"API request failed: HTTP {status_code}"
             return {
                 'items': [],

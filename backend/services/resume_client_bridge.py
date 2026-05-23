@@ -8,6 +8,7 @@ import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
+import json
 import sys
 
 # Add paths for imports
@@ -22,6 +23,18 @@ from shared.database.new_access_layer import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_json_field(value, default):
+    """Parse JSON-backed columns while tolerating legacy plain-text values."""
+    if value in (None, ""):
+        return default
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return default
 
 class ResumeClientBridge:
     """
@@ -51,11 +64,11 @@ class ResumeClientBridge:
                 })()
                 resume_clients.append(resume_client)
                 
-            logger.info(f"✅ Retrieved {len(resume_clients)} clients from main database")
+            logger.info("Retrieved %s clients from main database", len(resume_clients))
             return resume_clients
             
         except Exception as e:
-            logger.error(f"❌ Failed to get clients from main database: {e}")
+            logger.error("Failed to get clients from main database: %s", e)
             # Return empty list instead of crashing
             return []
     
@@ -78,11 +91,11 @@ class ResumeClientBridge:
                 'address': client.get('address', '')
             })()
             
-            logger.info(f"✅ Retrieved client {client_id} from main database")
+            logger.info("Retrieved client %s from main database", client_id)
             return resume_client
             
         except Exception as e:
-            logger.error(f"❌ Failed to get client {client_id} from main database: {e}")
+            logger.error("Failed to get client %s from main database: %s", client_id, e)
             return None
 
 class ResumeDatabase:
@@ -123,10 +136,12 @@ class ResumeProfiles:
                         'profile_id': profile_data.get('profile_id'),
                         'client_id': client_id,
                         'career_objective': profile_data.get('career_objective', ''),
-                        'work_history': profile_data.get('work_history', []),
-                        'skills': profile_data.get('skills', []),
-                        'education': profile_data.get('education', []),
-                        'certifications': profile_data.get('certifications', [])
+                        'work_history': _parse_json_field(profile_data.get('work_history'), []),
+                        'skills': _parse_json_field(profile_data.get('skills'), []),
+                        'education': _parse_json_field(profile_data.get('education'), []),
+                        'certifications': _parse_json_field(profile_data.get('certifications'), []),
+                        'professional_references': _parse_json_field(profile_data.get('professional_references'), []),
+                        'preferred_industries': _parse_json_field(profile_data.get('preferred_industries'), []),
                     })()
                 else:
                     # Return default profile structure
@@ -154,13 +169,74 @@ class ResumeProfiles:
     
     def create_profile(self, profile):
         """Create employment profile"""
-        # TODO: Implement profile creation in employment database
-        return f'profile-{profile.client_id}'
+        profile_id = getattr(profile, 'profile_id', None) or f'profile-{profile.client_id}'
+        current_time = datetime.now().isoformat()
+        try:
+            with self.db.get_connection('employment', self.module) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    '''
+                    INSERT INTO client_employment_profiles (
+                        profile_id, client_id, work_history, skills, education,
+                        preferred_industries, background_friendly_only, created_at,
+                        certifications, career_objective, updated_at, professional_references
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        profile_id,
+                        profile.client_id,
+                        json.dumps(getattr(profile, 'work_history', []) or []),
+                        json.dumps(getattr(profile, 'skills', []) or []),
+                        json.dumps(getattr(profile, 'education', []) or []),
+                        json.dumps(getattr(profile, 'preferred_industries', []) or []),
+                        int(bool(getattr(profile, 'background_friendly_only', True))),
+                        current_time,
+                        json.dumps(getattr(profile, 'certifications', []) or []),
+                        getattr(profile, 'career_objective', ''),
+                        current_time,
+                        json.dumps(getattr(profile, 'professional_references', []) or []),
+                    ),
+                )
+                conn.commit()
+            return profile_id
+        except Exception as e:
+            logger.error("Error creating profile for %s: %s", profile.client_id, e)
+            return None
     
     def update_profile(self, profile):
         """Update employment profile"""
-        # TODO: Implement profile update in employment database
-        return True
+        profile_id = getattr(profile, 'profile_id', None) or f'profile-{profile.client_id}'
+        current_time = datetime.now().isoformat()
+        try:
+            with self.db.get_connection('employment', self.module) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    '''
+                    UPDATE client_employment_profiles
+                    SET work_history = ?, skills = ?, education = ?, preferred_industries = ?,
+                        background_friendly_only = ?, certifications = ?, career_objective = ?,
+                        updated_at = ?, professional_references = ?
+                    WHERE profile_id = ? AND client_id = ?
+                    ''',
+                    (
+                        json.dumps(getattr(profile, 'work_history', []) or []),
+                        json.dumps(getattr(profile, 'skills', []) or []),
+                        json.dumps(getattr(profile, 'education', []) or []),
+                        json.dumps(getattr(profile, 'preferred_industries', []) or []),
+                        int(bool(getattr(profile, 'background_friendly_only', True))),
+                        json.dumps(getattr(profile, 'certifications', []) or []),
+                        getattr(profile, 'career_objective', ''),
+                        current_time,
+                        json.dumps(getattr(profile, 'professional_references', []) or []),
+                        profile_id,
+                        profile.client_id,
+                    ),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Error updating profile for %s: %s", profile.client_id, e)
+            return False
 
 class ResumeStorage:
     """Resume storage using employment database"""
@@ -188,44 +264,16 @@ class ResumeStorage:
                         'content': resume_data.get('content', '{}'),
                         'ats_score': resume_data.get('ats_score', 75),
                         'created_at': resume_data.get('created_at', '2024-01-01T00:00:00'),
-                        'is_active': resume_data.get('is_active', True),
+                        'updated_at': resume_data.get('updated_at', resume_data.get('created_at', '2024-01-01T00:00:00')),
+                        'is_active': bool(resume_data.get('is_active', True)),
                         'pdf_path': resume_data.get('pdf_path')
                     })()
                     resumes.append(resume)
-                
-                # If no resumes found, return a default one for now
-                if not resumes:
-                    default_resume = type('Resume', (), {
-                        'resume_id': f'resume-{client_id}-default',
-                        'client_id': client_id,
-                        'resume_title': 'Professional Resume',
-                        'template_type': 'classic',
-                        'content': '{"career_objective": "Professional seeking opportunities", "work_history": [], "skills": [], "education": []}',
-                        'ats_score': 75,
-                        'created_at': '2024-01-01T00:00:00',
-                        'is_active': True,
-                        'pdf_path': None
-                    })()
-                    resumes.append(default_resume)
-                
                 return resumes
                 
         except Exception as e:
             logger.error(f"Error getting resumes for {client_id}: {e}")
-            # Return default resume
-            return [
-                type('Resume', (), {
-                    'resume_id': f'resume-{client_id}-default',
-                    'client_id': client_id,
-                    'resume_title': 'Professional Resume',
-                    'template_type': 'classic',
-                    'content': '{"career_objective": "Professional seeking opportunities", "work_history": [], "skills": [], "education": []}',
-                    'ats_score': 75,
-                    'created_at': '2024-01-01T00:00:00',
-                    'is_active': True,
-                    'pdf_path': None
-                })()
-            ]
+            return []
     
     def get_resume_by_id(self, resume_id):
         """Get specific resume by ID"""
@@ -245,53 +293,81 @@ class ResumeStorage:
                         'content': resume_data.get('content', '{}'),
                         'ats_score': resume_data.get('ats_score', 75),
                         'created_at': resume_data.get('created_at', '2024-01-01T00:00:00'),
-                        'is_active': resume_data.get('is_active', True),
+                        'updated_at': resume_data.get('updated_at', resume_data.get('created_at', '2024-01-01T00:00:00')),
+                        'is_active': bool(resume_data.get('is_active', True)),
                         'pdf_path': resume_data.get('pdf_path')
                     })()
-                else:
-                    # Extract client_id from resume_id pattern for fallback
-                    parts = resume_id.split('-')
-                    client_id = parts[1] if len(parts) > 1 else 'unknown'
-                    
-                    return type('Resume', (), {
-                        'resume_id': resume_id,
-                        'client_id': client_id,
-                        'resume_title': 'Professional Resume',
-                        'template_type': 'classic',
-                        'content': '{"career_objective": "Professional seeking opportunities", "work_history": [], "skills": [], "education": []}',
-                        'ats_score': 75,
-                        'created_at': '2024-01-01T00:00:00',
-                        'is_active': True,
-                        'pdf_path': None
-                    })()
+                return None
                     
         except Exception as e:
             logger.error(f"Error getting resume {resume_id}: {e}")
-            # Return default resume
-            parts = resume_id.split('-')
-            client_id = parts[1] if len(parts) > 1 else 'unknown'
-            
-            return type('Resume', (), {
-                'resume_id': resume_id,
-                'client_id': client_id,
-                'resume_title': 'Professional Resume',
-                'template_type': 'classic',
-                'content': '{"career_objective": "Professional seeking opportunities", "work_history": [], "skills": [], "education": []}',
-                'ats_score': 75,
-                'created_at': '2024-01-01T00:00:00',
-                'is_active': True,
-                'pdf_path': None
-            })()
+            return None
     
     def create_resume(self, resume):
         """Create new resume"""
-        # TODO: Implement resume creation in employment database
-        return f'resume-{resume.client_id}-{int(datetime.now().timestamp())}'
+        resume_id = getattr(resume, 'resume_id', None) or f'resume-{resume.client_id}-{int(datetime.now().timestamp())}'
+        current_time = datetime.now().isoformat()
+        try:
+            with self.db.get_connection('employment', self.module) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    '''
+                    INSERT INTO resumes (
+                        resume_id, client_id, template_type, content, pdf_path,
+                        created_at, profile_id, resume_title, ats_score, is_active, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        resume_id,
+                        resume.client_id,
+                        getattr(resume, 'template_type', 'classic'),
+                        getattr(resume, 'content', '{}'),
+                        getattr(resume, 'pdf_path', None),
+                        current_time,
+                        getattr(resume, 'profile_id', None),
+                        getattr(resume, 'resume_title', 'Professional Resume'),
+                        getattr(resume, 'ats_score', 75),
+                        int(bool(getattr(resume, 'is_active', True))),
+                        current_time,
+                    ),
+                )
+                conn.commit()
+            return resume_id
+        except Exception as e:
+            logger.error("Error creating resume for %s: %s", resume.client_id, e)
+            return None
     
     def update_resume(self, resume):
         """Update existing resume"""
-        # TODO: Implement resume update in employment database
-        return True
+        current_time = datetime.now().isoformat()
+        try:
+            with self.db.get_connection('employment', self.module) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    '''
+                    UPDATE resumes
+                    SET template_type = ?, content = ?, pdf_path = ?, profile_id = ?,
+                        resume_title = ?, ats_score = ?, is_active = ?, updated_at = ?
+                    WHERE resume_id = ? AND client_id = ?
+                    ''',
+                    (
+                        getattr(resume, 'template_type', 'classic'),
+                        getattr(resume, 'content', '{}'),
+                        getattr(resume, 'pdf_path', None),
+                        getattr(resume, 'profile_id', None),
+                        getattr(resume, 'resume_title', 'Professional Resume'),
+                        getattr(resume, 'ats_score', 75),
+                        int(bool(getattr(resume, 'is_active', True))),
+                        current_time,
+                        resume.resume_id,
+                        resume.client_id,
+                    ),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error("Error updating resume %s: %s", getattr(resume, 'resume_id', 'unknown'), e)
+            return False
 
 class ResumeApplications:
     """Resume applications using employment database"""

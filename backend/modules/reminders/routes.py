@@ -21,6 +21,7 @@ from typing import Dict, List, Any, Optional
 import logging
 import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 from .intelligent_processor import IntelligentTaskProcessor
 from .data_integration import RealDataIntegrator
 
@@ -169,18 +170,20 @@ async def get_case_manager_dashboard(case_manager_id: str):
     UPDATED: Dashboard with persisted tasks from database
     """
     try:
-        # Get all clients for this case manager
-        with intelligent_processor._get_database_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get clients for this case manager
-            cursor.execute("""
+        core_clients_db = Path("databases/core_clients.db")
+        reminders_db = Path("databases/reminders.db")
+
+        with sqlite3.connect(core_clients_db) as client_conn, sqlite3.connect(reminders_db) as reminders_conn:
+            client_cursor = client_conn.cursor()
+            reminders_cursor = reminders_conn.cursor()
+
+            client_cursor.execute("""
                 SELECT DISTINCT client_id, first_name, last_name 
                 FROM clients 
                 WHERE case_manager_id = ?
             """, (case_manager_id,))
             
-            clients = cursor.fetchall()
+            clients = client_cursor.fetchall()
             client_ids = [client[0] for client in clients]
             
             if not client_ids:
@@ -200,7 +203,7 @@ async def get_case_manager_dashboard(case_manager_id: str):
             
             # Get task statistics from persisted tasks
             placeholders = ','.join('?' * len(client_ids))
-            cursor.execute(f"""
+            reminders_cursor.execute(f"""
                 SELECT 
                     COUNT(*) as total_tasks,
                     SUM(CASE WHEN priority = 'high' THEN 1 ELSE 0 END) as urgent_tasks,
@@ -210,10 +213,10 @@ async def get_case_manager_dashboard(case_manager_id: str):
                 WHERE client_id IN ({placeholders})
             """, [today] + client_ids)
             
-            stats = cursor.fetchone()
+            stats = reminders_cursor.fetchone()
             
             # Get today's specific tasks
-            cursor.execute(f"""
+            reminders_cursor.execute(f"""
                 SELECT id, client_id, title, description, priority, status, due_date, task_type
                 FROM intelligent_tasks 
                 WHERE client_id IN ({placeholders}) AND DATE(due_date) = ?
@@ -229,7 +232,7 @@ async def get_case_manager_dashboard(case_manager_id: str):
             """, client_ids + [today])
             
             today_tasks = []
-            for row in cursor.fetchall():
+            for row in reminders_cursor.fetchall():
                 today_tasks.append({
                     'task_id': row[0],
                     'client_id': row[1],
@@ -745,109 +748,200 @@ async def generate_tasks():  # TODO: Add auth when implemented
 @router.get("/today")
 async def get_today_schedule():  # TODO: Add auth when implemented
     """
-    Get today's clean daily schedule for all clients
-    Step 3: Final Check - As requested by user
+    Get today's real daily schedule from persisted tasks, reminders, and appointments.
     """
     try:
-        from datetime import datetime
-        
         today = datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.now().strftime("%H:%M")
-        
-        # Clean daily schedule with color coding and urgency tags
+
+        client_names: Dict[str, str] = {}
+        with sqlite3.connect("databases/core_clients.db") as client_conn:
+            client_cursor = client_conn.cursor()
+            client_cursor.execute("SELECT client_id, first_name, last_name FROM clients")
+            client_names = {
+                row[0]: f"{row[1]} {row[2]}".strip()
+                for row in client_cursor.fetchall()
+            }
+
+        schedule_tasks: List[Dict[str, Any]] = []
+
+        with sqlite3.connect("databases/reminders.db") as reminders_conn:
+            reminders_cursor = reminders_conn.cursor()
+            reminders_cursor.execute(
+                """
+                SELECT id, client_id, title, description, priority, status, due_date, task_type, estimated_minutes
+                FROM intelligent_tasks
+                WHERE DATE(due_date) = ?
+                ORDER BY
+                    CASE priority
+                        WHEN 'high' THEN 1
+                        WHEN 'medium' THEN 2
+                        WHEN 'low' THEN 3
+                        ELSE 4
+                    END,
+                    due_date ASC
+                """,
+                (today,),
+            )
+            for row in reminders_cursor.fetchall():
+                schedule_tasks.append({
+                    "task_id": row[0],
+                    "client_id": row[1],
+                    "client_name": client_names.get(row[1], "Unknown Client"),
+                    "task": row[2],
+                    "description": row[3],
+                    "urgency": row[4],
+                    "urgency_color": _priority_color(row[4]),
+                    "scheduled_for": today,
+                    "scheduled_time": _time_or_default(row[6]),
+                    "status": row[5],
+                    "estimated_minutes": row[8] or 30,
+                    "task_type": row[7] or "task",
+                    "source": "intelligent_task",
+                })
+
+            reminders_cursor.execute(
+                """
+                SELECT reminder_id, client_id, message, priority, due_date, status, reminder_type
+                FROM active_reminders
+                WHERE DATE(due_date) = ? AND status = 'Active'
+                ORDER BY
+                    CASE priority
+                        WHEN 'Critical' THEN 1
+                        WHEN 'High' THEN 2
+                        WHEN 'Medium' THEN 3
+                        ELSE 4
+                    END,
+                    due_date ASC
+                """,
+                (today,),
+            )
+            for row in reminders_cursor.fetchall():
+                schedule_tasks.append({
+                    "task_id": row[0],
+                    "client_id": row[1],
+                    "client_name": client_names.get(row[1], "Unknown Client"),
+                    "task": row[2],
+                    "description": row[2],
+                    "urgency": str(row[3]).lower(),
+                    "urgency_color": _priority_color(row[3]),
+                    "scheduled_for": today,
+                    "scheduled_time": _time_or_default(row[4]),
+                    "status": row[5],
+                    "estimated_minutes": 15,
+                    "task_type": row[6] or "reminder",
+                    "source": "active_reminder",
+                })
+
+        with sqlite3.connect("databases/case_management.db") as case_conn:
+            case_cursor = case_conn.cursor()
+            case_cursor.execute(
+                """
+                SELECT id, client_id, appointment_type, appointment_time, status, notes, appointment_date
+                FROM appointments
+                WHERE DATE(appointment_date) = ?
+                ORDER BY appointment_time ASC
+                """,
+                (today,),
+            )
+            for row in case_cursor.fetchall():
+                schedule_tasks.append({
+                    "task_id": row[0],
+                    "client_id": row[1],
+                    "client_name": client_names.get(row[1], "Unknown Client"),
+                    "task": f"Appointment: {row[2]}",
+                    "description": row[5] or "",
+                    "urgency": "scheduled",
+                    "urgency_color": "#4444FF",
+                    "scheduled_for": today,
+                    "scheduled_time": row[3] or "09:00",
+                    "status": row[4] or "scheduled",
+                    "estimated_minutes": 30,
+                    "task_type": "appointment",
+                    "source": "appointment",
+                    "appointment_confirmed": str(row[4]).lower() in {"confirmed", "scheduled"},
+                })
+
+        priority_rank = {"critical": 0, "high": 1, "scheduled": 2, "medium": 3, "low": 4}
+        schedule_tasks.sort(
+            key=lambda item: (
+                priority_rank.get(str(item.get("urgency", "")).lower(), 5),
+                item.get("scheduled_time") or "23:59",
+            )
+        )
+
+        for index, task in enumerate(schedule_tasks, start=1):
+            task["priority_rank"] = index
+
+        client_coverage: Dict[str, Dict[str, Any]] = {}
+        for task in schedule_tasks:
+            client_id = str(task["client_id"])
+            coverage = client_coverage.setdefault(
+                client_id,
+                {
+                    "client_name": task["client_name"],
+                    "tasks_today": 0,
+                    "has_actionable_task": False,
+                    "next_task": task["task"],
+                },
+            )
+            coverage["tasks_today"] += 1
+            coverage["has_actionable_task"] = coverage["has_actionable_task"] or task["status"] not in {"completed", "cancelled"}
+
         today_schedule = {
             "date": today,
             "generated_at": current_time,
             "summary": {
-                "total_tasks": 4,
-                "high_urgency": 2,
-                "scheduled_appointments": 1,
-                "estimated_total_minutes": 190
+                "total_tasks": len(schedule_tasks),
+                "high_urgency": len([t for t in schedule_tasks if str(t.get("urgency", "")).lower() in {"critical", "high"}]),
+                "scheduled_appointments": len([t for t in schedule_tasks if t.get("task_type") == "appointment"]),
+                "estimated_total_minutes": sum(int(t.get("estimated_minutes", 0) or 0) for t in schedule_tasks),
             },
-            "tasks": [
-                {
-                    "client_id": 101,
-                    "client_name": "John Smith",
-                    "task": "disability paperwork",
-                    "urgency": "high",
-                    "urgency_color": "#FF4444",  # Red for high urgency
-                    "scheduled_for": today,
-                    "scheduled_time": "09:00",
-                    "status": "pending",
-                    "estimated_minutes": 60,
-                    "task_type": "administrative",
-                    "priority_rank": 1
-                },
-                {
-                    "client_id": 102,
-                    "client_name": "Maria Garcia",
-                    "task": "Appointment: intake check-in",
-                    "urgency": "scheduled",
-                    "urgency_color": "#4444FF",  # Blue for scheduled
-                    "scheduled_for": today,
-                    "scheduled_time": "10:00",
-                    "status": "confirmed",
-                    "estimated_minutes": 30,
-                    "task_type": "appointment",
-                    "priority_rank": 2,
-                    "appointment_confirmed": True
-                },
-                {
-                    "client_id": 102,
-                    "client_name": "Maria Garcia",
-                    "task": "medical records request",
-                    "urgency": "high",
-                    "urgency_color": "#FF4444",  # Red for high urgency
-                    "scheduled_for": today,
-                    "scheduled_time": "11:00",
-                    "status": "pending",
-                    "estimated_minutes": 40,
-                    "task_type": "documentation",
-                    "priority_rank": 3
-                },
-                {
-                    "client_id": 101,
-                    "client_name": "John Smith",
-                    "task": "benefits status check",
-                    "urgency": "medium",
-                    "urgency_color": "#FFAA44",  # Orange for medium urgency
-                    "scheduled_for": today,
-                    "scheduled_time": "14:00",
-                    "status": "pending",
-                    "estimated_minutes": 25,
-                    "task_type": "follow_up",
-                    "priority_rank": 4
-                }
-            ],
-            "client_coverage": {
-                "101": {
-                    "client_name": "John Smith",
-                    "tasks_today": 2,
-                    "has_actionable_task": True,
-                    "next_task": "disability paperwork"
-                },
-                "102": {
-                    "client_name": "Maria Garcia", 
-                    "tasks_today": 2,
-                    "has_actionable_task": True,
-                    "next_task": "Appointment: intake check-in"
-                }
-            },
+            "tasks": schedule_tasks,
+            "client_coverage": client_coverage,
             "schedule_validation": {
                 "no_conflicts": True,
-                "all_clients_covered": True,
+                "all_clients_covered": len(client_coverage) > 0 if schedule_tasks else True,
                 "high_priority_first": True,
-                "appointments_confirmed": True
-            }
+                "appointments_confirmed": all(
+                    t.get("appointment_confirmed", True)
+                    for t in schedule_tasks
+                    if t.get("task_type") == "appointment"
+                ),
+            },
+            "data_source": "core_clients.db + reminders.db + case_management.db",
         }
-        
-        logger.info(f"Generated clean daily schedule with {len(today_schedule['tasks'])} tasks")
-        
+
+        logger.info(f"Generated real daily schedule with {len(today_schedule['tasks'])} tasks")
         return today_schedule
         
     except Exception as e:
         logger.error(f"Error generating today's schedule: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+def _priority_color(priority: Optional[str]) -> str:
+    mapping = {
+        "critical": "#CC2222",
+        "high": "#FF4444",
+        "scheduled": "#4444FF",
+        "medium": "#FFAA44",
+        "low": "#44AA44",
+    }
+    return mapping.get(str(priority or "").lower(), "#888888")
+
+
+def _time_or_default(date_value: Optional[str]) -> str:
+    if not date_value:
+        return "09:00"
+    try:
+        parsed = datetime.fromisoformat(str(date_value))
+        return parsed.strftime("%H:%M")
+    except ValueError:
+        if "T" in str(date_value):
+            return str(date_value).split("T", 1)[1][:5]
+        if len(str(date_value)) >= 5 and ":" in str(date_value):
+            return str(date_value)[:5]
+        return "09:00"
 
 # =============================================================================
 # NEW TASK PERSISTENCE ENDPOINTS - ENHANCED DASHBOARD INTEGRATION

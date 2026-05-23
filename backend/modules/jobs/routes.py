@@ -195,6 +195,8 @@ async def search_jobs_quick(
                 "jobs": result['results'],
                 "total_count": result['pagination']['total_results'],
                 "source": result['source'],
+                "degraded": result.get('degraded', False),
+                "warning": result.get('warning'),
                 "pagination": result['pagination'],
                 "timestamp": datetime.now().isoformat()
             }
@@ -205,6 +207,8 @@ async def search_jobs_quick(
                 "jobs": [],
                 "total_count": 0,
                 "error": result.get('error', 'Search failed'),
+                "degraded": result.get('degraded', False),
+                "warning": result.get('warning'),
                 "pagination": result.get('pagination', {
                     "current_page": page,
                     "per_page": per_page,

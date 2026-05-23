@@ -60,7 +60,7 @@ class ClientDataIntegrator:
             
             cursor.execute("""
                 SELECT 
-                    task_id,
+                    id,
                     title,
                     description,
                     due_date,
@@ -69,10 +69,10 @@ class ClientDataIntegrator:
                     category,
                     assigned_to,
                     created_by,
-                    task_type,
                     created_at,
                     updated_at,
-                    completed_at
+                    task_type,
+                    completed_date
                 FROM tasks 
                 WHERE client_id = ?
                 ORDER BY 
@@ -97,9 +97,9 @@ class ClientDataIntegrator:
                     'category': row[6],
                     'assigned_to': row[7],
                     'created_by': row[8],
-                    'task_type': row[9],
-                    'created_at': row[10],
-                    'updated_at': row[11],
+                    'created_at': row[9],
+                    'updated_at': row[10],
+                    'task_type': row[11],
                     'completed_at': row[12],
                     'is_overdue': self.is_task_overdue(row[3], row[5])
                 })
@@ -120,11 +120,11 @@ class ClientDataIntegrator:
             cursor.execute("""
                 SELECT 
                     note_id,
-                    note_text,
+                    content,
                     note_type,
-                    created_by,
+                    case_manager_id,
                     created_at,
-                    is_private,
+                    is_confidential,
                     tags
                 FROM case_notes 
                 WHERE client_id = ?
@@ -137,11 +137,12 @@ class ClientDataIntegrator:
                 notes.append({
                     'note_id': row[0],
                     'note_text': row[1],
+                    'content': row[1],
                     'note_type': row[2],
                     'created_by': row[3],
                     'created_at': row[4],
                     'is_private': bool(row[5]),
-                    'tags': row[6].split(',') if row[6] else [],
+                    'tags': self._parse_tags(row[6]),
                     'formatted_date': self.format_date(row[4])
                 })
             
@@ -160,14 +161,14 @@ class ClientDataIntegrator:
             
             cursor.execute("""
                 SELECT 
-                    appointment_id,
+                    id,
                     appointment_date,
                     appointment_time,
                     appointment_type,
                     status,
                     location,
                     notes,
-                    created_by,
+                    case_manager_id,
                     created_at
                 FROM appointments 
                 WHERE client_id = ?
@@ -304,7 +305,7 @@ class ClientDataIntegrator:
                     contact_date,
                     contact_type,
                     contact_method,
-                    outcome,
+                    progress_assessment,
                     notes,
                     case_manager_id,
                     created_at
@@ -346,14 +347,14 @@ class ClientDataIntegrator:
                     milestone_id,
                     milestone_name,
                     milestone_type,
-                    target_date,
-                    completion_date,
+                    due_date,
+                    NULL as completion_date,
                     status,
-                    description,
+                    priority,
                     created_at
                 FROM program_milestones 
                 WHERE client_id = ?
-                ORDER BY target_date ASC
+                ORDER BY due_date ASC
             """, (client_id,))
             
             milestones = []
@@ -382,6 +383,9 @@ class ClientDataIntegrator:
         try:
             conn = sqlite3.connect(self.case_mgmt_db_path)
             cursor = conn.cursor()
+            if not self._table_exists(cursor, "client_goals"):
+                conn.close()
+                return []
             
             cursor.execute("""
                 SELECT 
@@ -421,6 +425,9 @@ class ClientDataIntegrator:
         try:
             conn = sqlite3.connect(self.case_mgmt_db_path)
             cursor = conn.cursor()
+            if not self._table_exists(cursor, "client_barriers"):
+                conn.close()
+                return []
             
             cursor.execute("""
                 SELECT 
@@ -526,6 +533,24 @@ class ClientDataIntegrator:
             return date_obj.strftime("%B %d, %Y at %I:%M %p")
         except:
             return date_str
+
+    def _parse_tags(self, raw_tags: str) -> List[str]:
+        """Parse stored tags from JSON or comma-separated text."""
+        if not raw_tags:
+            return []
+        try:
+            parsed = json.loads(raw_tags)
+            return parsed if isinstance(parsed, list) else [str(parsed)]
+        except Exception:
+            return [tag.strip() for tag in raw_tags.split(',') if tag.strip()]
+
+    def _table_exists(self, cursor: sqlite3.Cursor, table_name: str) -> bool:
+        """Check whether a table exists before querying optional module data."""
+        cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+            (table_name,),
+        )
+        return cursor.fetchone() is not None
     
     def get_fallback_overview_data(self, client_id: str) -> Dict[str, Any]:
         """Fallback data when database queries fail"""

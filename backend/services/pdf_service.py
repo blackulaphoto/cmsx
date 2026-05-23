@@ -18,6 +18,14 @@ from jinja2 import Environment, FileSystemLoader, Template
 
 logger = logging.getLogger(__name__)
 
+
+def _escape_pdf_text(value: Any, limit: int = 120) -> str:
+    """Escape user content for a minimal text-based PDF stream."""
+    text = str(value or "")
+    text = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+    text = text.replace("\r", " ").replace("\n", " ")
+    return text[:limit]
+
 class PDFService:
     def __init__(self):
         # More flexible path detection
@@ -142,25 +150,28 @@ class PDFService:
             resume_id = resume_data.get('resume_id', timestamp)
             safe_resume_id = str(resume_id).replace('/', '_').replace('\\', '_')
             
-            # Try different file extensions
-            for extension in ['.pdf', '.html']:
-                try:
-                    filename = f"resume_{safe_resume_id}{extension}"
-                    file_path = client_dir / filename
-                    
-                    if extension == '.pdf' and WEASYPRINT_AVAILABLE:
-                        success = await self.generate_weasyprint_pdf(html_content, file_path)
-                        if success:
-                            logger.info(f"PDF generated successfully: {file_path}")
-                            return str(file_path)
-                    elif extension == '.html':
-                        success = await self.generate_html_fallback(html_content, file_path)
-                        if success:
-                            logger.info(f"HTML fallback generated successfully: {file_path}")
-                            return str(file_path)
-                except Exception as e:
-                    logger.error(f"Failed to generate {extension} file: {e}")
-                    continue
+            pdf_path = client_dir / f"resume_{safe_resume_id}.pdf"
+            html_path = client_dir / f"resume_{safe_resume_id}.html"
+
+            try:
+                if WEASYPRINT_AVAILABLE:
+                    success = await self.generate_weasyprint_pdf(html_content, pdf_path)
+                    if success:
+                        logger.info(f"PDF generated successfully: {pdf_path}")
+                        return str(pdf_path)
+
+                html_success = await self.generate_html_fallback(html_content, html_path)
+                pdf_success = await self.generate_simple_pdf_fallback(resume_data, client_data, pdf_path)
+
+                if pdf_success:
+                    logger.info(f"Simple PDF fallback generated successfully: {pdf_path}")
+                    return str(pdf_path)
+
+                if html_success:
+                    logger.info(f"HTML fallback generated successfully: {html_path}")
+                    return str(html_path)
+            except Exception as e:
+                logger.error(f"Failed to generate fallback files: {e}")
             
             logger.error("All file generation methods failed")
             return None
@@ -236,6 +247,23 @@ class PDFService:
             return True
         except Exception as e:
             logger.error(f"HTML fallback generation failed: {e}")
+            return False
+
+    async def generate_simple_pdf_fallback(
+        self,
+        resume_data: Dict[str, Any],
+        client_data: Dict[str, Any],
+        file_path: Path,
+    ) -> bool:
+        """Generate a lightweight text PDF without external rendering dependencies."""
+        try:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            pdf_bytes = self._create_simple_pdf(client_data, resume_data)
+            with open(file_path, 'wb') as f:
+                f.write(pdf_bytes)
+            return True
+        except Exception as e:
+            logger.error(f"Simple PDF fallback generation failed: {e}")
             return False
     
     async def render_template(self, resume_data: Dict[str, Any], client_data: Dict[str, Any], 
@@ -364,6 +392,74 @@ class PDFService:
             """
         }
         return styles.get(template_type, styles['classic'])
+
+    def _create_simple_pdf(self, client_data: Dict[str, Any], resume_data: Dict[str, Any]) -> bytes:
+        """Create a valid minimal PDF summarizing the rendered resume content."""
+        lines = [
+            f"{client_data.get('first_name', '')} {client_data.get('last_name', '')}".strip() or "Resume",
+            f"{client_data.get('phone', '')} | {client_data.get('email', '')}".strip(" |"),
+            _escape_pdf_text(client_data.get('address', ''), 90),
+            "",
+            "PROFESSIONAL SUMMARY",
+            _escape_pdf_text(resume_data.get('career_objective', 'Seeking employment opportunities'), 90),
+            "",
+            "EXPERIENCE",
+            f"{len(resume_data.get('work_history', resume_data.get('work_experience', [])))} work history entries",
+            "SKILLS",
+            f"{sum(len(skill.get('skill_list', [])) for skill in resume_data.get('skills', []))} listed skills",
+            "EDUCATION",
+            f"{len(resume_data.get('education', []))} education entries",
+            "CERTIFICATIONS",
+            f"{len(resume_data.get('certifications', []))} certifications",
+            "",
+            f"Generated: {datetime.now().strftime('%B %d, %Y')}",
+            f"Template: {resume_data.get('template_type', 'classic')}",
+            "This PDF uses the lightweight built-in fallback renderer.",
+        ]
+
+        y = 750
+        stream_lines = ["BT", "/F2 18 Tf", f"50 {y} Td"]
+        first = True
+        for raw_line in lines:
+            line = _escape_pdf_text(raw_line)
+            if not first:
+                stream_lines.append("0 -18 Td")
+            font = "/F2 12 Tf" if raw_line.isupper() and raw_line else "/F1 11 Tf"
+            if first:
+                font = "/F2 18 Tf"
+                first = False
+            stream_lines.append(font)
+            stream_lines.append(f"({line}) Tj")
+        stream_lines.append("ET")
+        stream = "\n".join(stream_lines) + "\n"
+        stream_bytes = stream.encode("latin-1", errors="replace")
+
+        objects = [
+            b"<< /Type /Catalog /Pages 2 0 R >>",
+            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >>",
+            f"<< /Length {len(stream_bytes)} >>\nstream\n".encode("ascii") + stream_bytes + b"endstream",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+        ]
+
+        pdf = bytearray(b"%PDF-1.4\n")
+        offsets = [0]
+        for index, obj in enumerate(objects, start=1):
+            offsets.append(len(pdf))
+            pdf.extend(f"{index} 0 obj\n".encode("ascii"))
+            pdf.extend(obj)
+            pdf.extend(b"\nendobj\n")
+
+        xref_start = len(pdf)
+        pdf.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+        pdf.extend(b"0000000000 65535 f \n")
+        for offset in offsets[1:]:
+            pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+        pdf.extend(
+            f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF".encode("ascii")
+        )
+        return bytes(pdf)
     
     def get_classic_template(self) -> str:
         """Classic professional template"""

@@ -792,6 +792,42 @@ class LegalDatabase:
         except Exception as e:
             logger.error(f"Failed to save court date: {e}")
             raise
+
+    def save_legal_document(self, document: LegalDocument) -> int:
+        """Save a legal document to the database"""
+        if not self.connection:
+            self.connect()
+
+        insert_sql = """
+        INSERT INTO legal_documents (
+            document_id, case_id, client_id, document_type, document_title,
+            document_purpose, document_status, template_used, document_content,
+            variables_data, file_path, file_format, submitted_to, submitted_date,
+            due_date, response_received, response_date, response_notes,
+            related_court_date, required_for, urgency_level, created_at,
+            last_updated, created_by, notes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute(insert_sql, (
+                document.document_id, document.case_id, document.client_id,
+                document.document_type, document.document_title,
+                document.document_purpose, document.document_status,
+                document.template_used, document.document_content,
+                document.variables_data, document.file_path, document.file_format,
+                document.submitted_to, document.submitted_date, document.due_date,
+                document.response_received, document.response_date,
+                document.response_notes, document.related_court_date,
+                document.required_for, document.urgency_level, document.created_at,
+                document.last_updated, document.created_by, document.notes
+            ))
+            self.connection.commit()
+            return cursor.lastrowid
+        except Exception as e:
+            logger.error(f"Failed to save legal document: {e}")
+            raise
     
     def get_upcoming_court_dates(self, client_id: str = None, days_ahead: int = 30) -> List[CourtDate]:
         """Get upcoming court dates"""

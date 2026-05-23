@@ -13,6 +13,12 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from backend.shared.database.railway_postgres import upsert_client_to_postgres
+from backend.api.client_data_integration import get_client_data_integrator
+
+try:
+    from backend.modules.reminders.intelligent_processor import IntelligentTaskProcessor
+except ImportError:
+    IntelligentTaskProcessor = None
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +33,241 @@ def get_database_connection(db_name: str, access_type: str = "READ_ONLY"):
         # Create empty database file
         db_path.touch()
     return sqlite3.connect(str(db_path))
+
+
+def get_client_benefits_summary(client_id: str) -> Dict[str, Any]:
+    """Get benefits application summary for unified client view."""
+    summary = {
+        "applications": [],
+        "total_applications": 0,
+        "active_applications": 0,
+        "latest_application": None,
+    }
+    try:
+        with get_database_connection("unified_platform", "READ_ONLY") as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT application_id, COALESCE(benefit_type, application_type) AS benefit_type,
+                       status, application_method, assistance_received, notes,
+                       created_at, last_updated
+                FROM benefits_applications
+                WHERE client_id = ?
+                ORDER BY COALESCE(last_updated, created_at) DESC, id DESC
+                """,
+                (client_id,),
+            )
+            rows = cursor.fetchall()
+
+        applications = []
+        for row in rows:
+            application = {
+                "application_id": row[0],
+                "benefit_type": row[1],
+                "status": row[2] or "Started",
+                "application_method": row[3] or "Online",
+                "assistance_received": bool(row[4]),
+                "notes": row[5] or "",
+                "created_at": row[6],
+                "last_updated": row[7] or row[6],
+            }
+            applications.append(application)
+
+        active_statuses = {"started", "pending", "submitted", "in progress", "under review"}
+        summary["applications"] = applications
+        summary["total_applications"] = len(applications)
+        summary["active_applications"] = sum(
+            1 for application in applications
+            if str(application["status"]).strip().lower() in active_statuses
+        )
+        summary["latest_application"] = applications[0] if applications else None
+        return summary
+    except sqlite3.OperationalError:
+        return summary
+    except Exception as e:
+        logger.error("Error getting benefits summary for %s: %s", client_id, e)
+        return summary
+
+
+def get_client_legal_summary(client_id: str) -> Dict[str, Any]:
+    """Get legal case and court-date summary for unified client view."""
+    summary = {
+        "cases": [],
+        "upcoming_court_dates": [],
+        "total_cases": 0,
+        "active_cases": 0,
+        "next_court_date": None,
+    }
+    try:
+        with get_database_connection("legal_cases", "READ_ONLY") as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT case_id, case_number, case_type, case_status, court_name,
+                       compliance_status, probation_end_date, created_at, last_updated
+                FROM legal_cases
+                WHERE client_id = ? AND is_active = 1
+                ORDER BY COALESCE(last_updated, created_at) DESC
+                """,
+                (client_id,),
+            )
+            case_rows = cursor.fetchall()
+
+            cursor.execute(
+                """
+                SELECT court_date_id, case_id, hearing_date, hearing_time, court_name,
+                       courtroom, hearing_type, judge_name, status, reminder_sent
+                FROM court_dates
+                WHERE client_id = ?
+                ORDER BY hearing_date ASC, hearing_time ASC
+                """,
+                (client_id,),
+            )
+            court_rows = cursor.fetchall()
+
+        cases = []
+        for row in case_rows:
+            cases.append({
+                "case_id": row["case_id"],
+                "case_number": row["case_number"] or row["case_id"],
+                "case_type": row["case_type"] or "Legal Case",
+                "status": row["case_status"] or "Active",
+                "court_name": row["court_name"] or "",
+                "compliance_status": row["compliance_status"] or "Unknown",
+                "probation_end_date": row["probation_end_date"],
+                "created_at": row["created_at"],
+                "last_updated": row["last_updated"] or row["created_at"],
+            })
+
+        upcoming = []
+        next_court_date = None
+        today = datetime.now().date().isoformat()
+        for row in court_rows:
+            hearing_date = row["hearing_date"]
+            if hearing_date and hearing_date >= today:
+                entry = {
+                    "court_date_id": row["court_date_id"],
+                    "case_id": row["case_id"],
+                    "hearing_date": hearing_date,
+                    "hearing_time": row["hearing_time"] or "",
+                    "court_name": row["court_name"] or "",
+                    "courtroom": row["courtroom"] or "",
+                    "hearing_type": row["hearing_type"] or "",
+                    "judge_name": row["judge_name"] or "",
+                    "status": row["status"] or "Scheduled",
+                    "reminder_sent": bool(row["reminder_sent"]),
+                }
+                upcoming.append(entry)
+                if next_court_date is None:
+                    next_court_date = entry
+
+        summary["cases"] = cases
+        summary["upcoming_court_dates"] = upcoming[:10]
+        summary["total_cases"] = len(cases)
+        summary["active_cases"] = sum(
+            1 for case in cases
+            if str(case["status"]).strip().lower() in {"active", "pending", "open"}
+        )
+        summary["next_court_date"] = next_court_date
+        return summary
+    except sqlite3.OperationalError:
+        return summary
+    except Exception as e:
+        logger.error("Error getting legal summary for %s: %s", client_id, e)
+        return summary
+
+
+def get_client_services_summary(client_id: str) -> Dict[str, Any]:
+    """Get services referral/task summary for unified client view."""
+    summary = {
+        "referrals": [],
+        "tasks": [],
+        "total_referrals": 0,
+        "active_referrals": 0,
+        "open_tasks": 0,
+    }
+    try:
+        with get_database_connection("social_services", "READ_ONLY") as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                SELECT r.referral_id, r.provider_id, r.service_id, r.referral_date,
+                       r.priority_level, r.status, r.expected_start_date,
+                       r.actual_start_date, r.completion_date, r.notes,
+                       p.provider_name, s.service_name, s.service_category
+                FROM service_referrals r
+                LEFT JOIN service_providers p ON r.provider_id = p.provider_id
+                LEFT JOIN social_services s ON r.service_id = s.service_id
+                WHERE r.client_id = ?
+                ORDER BY COALESCE(r.last_updated, r.created_at, r.referral_date) DESC
+                """,
+                (client_id,),
+            )
+            referral_rows = cursor.fetchall()
+
+            cursor.execute(
+                """
+                SELECT task_id, task_type, title, description, priority, due_date,
+                       status, completed_date, assigned_to
+                FROM case_management_tasks
+                WHERE client_id = ?
+                ORDER BY COALESCE(due_date, last_updated, created_at) ASC
+                """,
+                (client_id,),
+            )
+            task_rows = cursor.fetchall()
+
+        referrals = []
+        for row in referral_rows:
+            referrals.append({
+                "referral_id": row["referral_id"],
+                "provider_name": row["provider_name"] or "",
+                "service_name": row["service_name"] or "",
+                "service_category": row["service_category"] or "",
+                "status": row["status"] or "Pending",
+                "priority_level": row["priority_level"] or "Normal",
+                "referral_date": row["referral_date"],
+                "expected_start_date": row["expected_start_date"],
+                "actual_start_date": row["actual_start_date"],
+                "completion_date": row["completion_date"],
+                "notes": row["notes"] or "",
+            })
+
+        tasks = []
+        for row in task_rows:
+            tasks.append({
+                "task_id": row["task_id"],
+                "task_type": row["task_type"] or "",
+                "title": row["title"] or "",
+                "description": row["description"] or "",
+                "priority": row["priority"] or "Normal",
+                "due_date": row["due_date"],
+                "status": row["status"] or "Pending",
+                "completed_date": row["completed_date"],
+                "assigned_to": row["assigned_to"] or "",
+            })
+
+        summary["referrals"] = referrals[:10]
+        summary["tasks"] = tasks[:10]
+        summary["total_referrals"] = len(referrals)
+        summary["active_referrals"] = sum(
+            1 for referral in referrals
+            if str(referral["status"]).strip().lower() in {"pending", "active", "in progress", "open"}
+        )
+        summary["open_tasks"] = sum(
+            1 for task in tasks
+            if str(task["status"]).strip().lower() not in {"completed", "done", "cancelled", "canceled"}
+        )
+        return summary
+    except sqlite3.OperationalError:
+        return summary
+    except Exception as e:
+        logger.error("Error getting services summary for %s: %s", client_id, e)
+        return summary
 
 class ClientCreateRequest(BaseModel):
     """Client creation schema - must match dependency map requirements"""
@@ -263,7 +504,6 @@ async def get_client_unified_view(client_id: str):
     Returns: { success: True, client_data: { client: {...}, housing: {}, ... } }
     """
     try:
-        # Get core client data
         with get_database_connection("core_clients", "READ_ONLY") as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -276,33 +516,55 @@ async def get_client_unified_view(client_id: str):
             result = cursor.fetchone()
             if not result:
                 raise HTTPException(status_code=404, detail="Client not found")
-            
-            client_data = {
-                "client_id": result[0],
-                "first_name": result[1],
-                "last_name": result[2],
-                "email": result[3],
-                "phone": result[4],
-                "case_manager_id": result[5],
-                "intake_date": result[6],
-                "risk_level": result[7],
-                "created_at": result[8],
-                "housing_status": result[9],
-                "employment_status": result[10]
-            }
-        
+
+        core_client = {
+            "client_id": result[0],
+            "first_name": result[1],
+            "last_name": result[2],
+            "email": result[3],
+            "phone": result[4],
+            "case_manager_id": result[5],
+            "intake_date": result[6],
+            "risk_level": result[7],
+            "created_at": result[8],
+            "housing_status": result[9],
+            "employment_status": result[10]
+        }
+
+        overview_data = get_client_data_integrator().get_client_overview_data(client_id)
+        benefits_summary = get_client_benefits_summary(client_id)
+        legal_summary = get_client_legal_summary(client_id)
+        services_summary = get_client_services_summary(client_id)
+
         return {
             "success": True,
             "client_data": {
-                "client": client_data,
-                "housing": {},
-                "employment": {},
-                "benefits": {},
-                "legal": {},
-                "services": {},
-                "tasks": [],
-                "notes": []
-            }
+                "client": core_client,
+                "housing": {
+                    "status": core_client.get("housing_status", "unknown"),
+                },
+                "employment": {
+                    "status": core_client.get("employment_status", "unknown"),
+                },
+                "benefits": benefits_summary,
+                "legal": legal_summary,
+                "services": services_summary,
+                "tasks": overview_data.get("tasks", []),
+                "notes": overview_data.get("case_notes", []),
+                "appointments": overview_data.get("appointments", []),
+                "reminders": overview_data.get("reminders", []),
+                "recent_activity": overview_data.get("recent_activity", []),
+                "contact_history": overview_data.get("contact_history", []),
+                "program_milestones": overview_data.get("program_milestones", []),
+                "summary": overview_data.get("summary", {}),
+            },
+            "data_sources": {
+                "client": "core_clients.db",
+                "overview": "case_management.db + reminders.db",
+                "benefits": "unified_platform.db",
+                "legal": "legal_cases.db",
+                "services": "social_services.db",
+            },
         }
     except HTTPException:
         raise
@@ -316,10 +578,29 @@ async def get_intelligent_tasks(client_id: str):
     Returns: { success: True, tasks: [], recommendations: [] }
     """
     try:
+        if IntelligentTaskProcessor is None:
+            return {
+                "success": False,
+                "error": "Intelligent task processor unavailable",
+                "tasks": [],
+                "recommendations": []
+            }
+
+        processor = IntelligentTaskProcessor()
+        tasks = processor.get_client_tasks_from_database(client_id)
+        if not tasks:
+            tasks = processor.generate_and_persist_process_tasks(client_id)
+
+        recommendations = [
+            f"Complete {task['title']}" for task in tasks[:3] if task.get("title")
+        ]
+
         return {
             "success": True,
-            "tasks": [],
-            "recommendations": []
+            "tasks": tasks,
+            "recommendations": recommendations,
+            "count": len(tasks),
+            "data_source": "reminders.db"
         }
     except Exception as e:
         logger.error(f"Error getting intelligent tasks: {e}")
@@ -336,9 +617,47 @@ async def get_search_recommendations(client_id: str):
     Returns: { success: True, recommendations: [] }
     """
     try:
+        with get_database_connection("core_clients", "READ_ONLY") as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT first_name, last_name, housing_status, employment_status, risk_level
+                FROM clients WHERE client_id = ?
+            """, (client_id,))
+            row = cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        _, _, housing_status, employment_status, risk_level = row
+
+        recommendations = []
+        if str(housing_status).lower() in {"unknown", "unstable", "homeless", "transitional"}:
+            recommendations.append({
+                "type": "housing",
+                "query": "transitional housing affordable housing reentry support",
+                "priority": "high",
+                "reason": f"Housing status is {housing_status or 'unknown'}"
+            })
+
+        if str(employment_status).lower() in {"unknown", "unemployed", "seeking"}:
+            recommendations.append({
+                "type": "employment",
+                "query": "background friendly jobs second chance employers",
+                "priority": "high",
+                "reason": f"Employment status is {employment_status or 'unknown'}"
+            })
+
+        recommendations.append({
+            "type": "benefits",
+            "query": "SNAP Medicaid general assistance application help",
+            "priority": "medium" if str(risk_level).lower() != "high" else "high",
+            "reason": f"Risk level is {risk_level or 'unknown'}"
+        })
+
         return {
             "success": True,
-            "recommendations": []
+            "recommendations": recommendations,
+            "count": len(recommendations)
         }
     except Exception as e:
         logger.error(f"Error getting search recommendations: {e}")

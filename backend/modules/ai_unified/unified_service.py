@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -593,62 +594,74 @@ class UnifiedAIService:
         tools = assistant_tools if mode == "assistant" else central_tools
         allowed_functions = {tool["function"]["name"] for tool in tools}
 
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto",
-            temperature=0.2,
-            max_tokens=800,
-        )
-
-        function_called = ""
-        assistant_message = response.choices[0].message
-
-        if assistant_message.tool_calls:
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": assistant_message.content or "",
-                    "tool_calls": [
-                        {
-                            "id": tool_call.id,
-                            "type": "function",
-                            "function": {
-                                "name": tool_call.function.name,
-                                "arguments": tool_call.function.arguments,
-                            },
-                        }
-                        for tool_call in assistant_message.tool_calls
-                    ],
-                }
-            )
-            for tool_call in assistant_message.tool_calls:
-                function_called = tool_call.function.name
-                params = json.loads(tool_call.function.arguments or "{}")
-                result = await self.execute_function(
-                    function_called,
-                    params,
-                    allowed_functions=allowed_functions,
-                )
-
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": json.dumps(result),
-                    }
-                )
-
-            follow_up = await self.client.chat.completions.create(
+        try:
+            response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
+                tools=tools,
+                tool_choice="auto",
                 temperature=0.2,
                 max_tokens=800,
             )
-            assistant_text = follow_up.choices[0].message.content or ""
-        else:
-            assistant_text = assistant_message.content or ""
+
+            function_called = ""
+            assistant_message = response.choices[0].message
+
+            if assistant_message.tool_calls:
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": assistant_message.content or "",
+                        "tool_calls": [
+                            {
+                                "id": tool_call.id,
+                                "type": "function",
+                                "function": {
+                                    "name": tool_call.function.name,
+                                    "arguments": tool_call.function.arguments,
+                                },
+                            }
+                            for tool_call in assistant_message.tool_calls
+                        ],
+                    }
+                )
+                for tool_call in assistant_message.tool_calls:
+                    function_called = tool_call.function.name
+                    params = json.loads(tool_call.function.arguments or "{}")
+                    result = await self.execute_function(
+                        function_called,
+                        params,
+                        allowed_functions=allowed_functions,
+                    )
+
+                    messages.append(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": json.dumps(result),
+                        }
+                    )
+
+                follow_up = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0.2,
+                    max_tokens=800,
+                )
+                assistant_text = follow_up.choices[0].message.content or ""
+            else:
+                assistant_text = assistant_message.content or ""
+        except Exception as exc:
+            logger.warning("Unified AI provider failure in %s mode: %s", mode, exc)
+            degraded = await self._handle_provider_failure(
+                message=message,
+                case_manager_id=case_manager_id,
+                mode=mode,
+                error=str(exc),
+            )
+            await self._save_message(case_manager_id, "user", message)
+            await self._save_message(case_manager_id, "assistant", degraded["response"])
+            return degraded
 
         await self._save_message(case_manager_id, "user", message)
         await self._save_message(case_manager_id, "assistant", assistant_text)
@@ -662,3 +675,74 @@ class UnifiedAIService:
     async def get_conversation_history(self, case_manager_id: str) -> List[Dict[str, Any]]:
         await self.initialize()
         return await self._fetch_history(case_manager_id, limit=100)
+
+    async def _handle_provider_failure(
+        self,
+        message: str,
+        case_manager_id: str,
+        mode: str,
+        error: str,
+    ) -> Dict[str, Any]:
+        """Gracefully degrade when OpenAI is unavailable."""
+        direct_action = (
+            await self._try_direct_reminder_fallback(message, case_manager_id)
+            if mode == "central"
+            else None
+        )
+        if direct_action:
+            reminder = direct_action["result"]
+            response = (
+                "AI provider unavailable. The requested reminder was still created directly. "
+                f"Reminder ID: {reminder.get('reminder_id', 'unknown')}."
+            )
+            return {
+                "success": True,
+                "response": response,
+                "function_called": direct_action["function_called"],
+                "degraded": True,
+                "error": error,
+                "fallback_action": reminder,
+            }
+
+        fallback = (
+            "AI is temporarily unavailable, but core case management features remain available. "
+            "Please retry shortly."
+        )
+        if mode == "assistant":
+            fallback = (
+                "AI assistant is temporarily unavailable. You can continue using client lookup, "
+                "dashboard, reminders, and search while the provider recovers."
+            )
+
+        return {
+            "success": False,
+            "response": fallback,
+            "function_called": "",
+            "degraded": True,
+            "error": error,
+        }
+
+    async def _try_direct_reminder_fallback(
+        self,
+        message: str,
+        default_case_manager_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Create a reminder directly when the prompt already contains explicit fields."""
+        case_manager_match = re.search(r"case_manager_id=([A-Za-z0-9_\-]+)", message)
+        client_match = re.search(r"client_id=([A-Za-z0-9\-]+)", message)
+        due_date_match = re.search(r"due_date=([0-9]{4}-[0-9]{2}-[0-9]{2})", message)
+        priority_match = re.search(r"priority=([A-Za-z]+)", message)
+        message_match = re.search(r"message='([^']+)'", message)
+
+        if not client_match or not message_match:
+            return None
+
+        result = await self.create_reminder(
+            case_manager_id=(case_manager_match.group(1) if case_manager_match else default_case_manager_id),
+            client_id=client_match.group(1),
+            message=message_match.group(1),
+            due_date=(due_date_match.group(1) if due_date_match else None),
+            priority=(priority_match.group(1) if priority_match else "Medium"),
+            reminder_type="ai_fallback",
+        )
+        return {"function_called": "create_reminder", "result": result}

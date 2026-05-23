@@ -777,7 +777,15 @@ async def generate_resume_pdf(resume_id: str):
             raise HTTPException(status_code=500, detail=f"PDF generation failed: {str(e)}")
         
         if pdf_path_result:
-            # Note: In a real implementation, you'd update the database here
+            try:
+                db = get_employment_db()
+                stored_resume = db.resumes.get_resume_by_id(resume_id)
+                if stored_resume:
+                    stored_resume.pdf_path = pdf_path_result
+                    db.resumes.update_resume(stored_resume)
+            except Exception as e:
+                logger.error(f"Failed to persist PDF path for {resume_id}: {e}")
+
             logger.info(f"PDF generated successfully: {pdf_path_result}")
             
             return {

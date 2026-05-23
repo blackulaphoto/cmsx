@@ -205,13 +205,10 @@ async def get_benefits_applications(
                 'client_name': client_name,
                 'benefit_type': row[3],
                 'application_status': row[4] if row[4] else 'Pending',
-                'completion_percentage': 25,
-                'current_step': 'Initial Application Submitted',
-                'next_action_required': 'Submit income verification',
-                'application_date': row[7][:10] if row[7] else '2024-02-15',
-                'monthly_benefit_amount': 250.0,
-                'case_worker_name': 'Lisa Chen',
-                'case_worker_phone': '(213) 555-0199'
+                'application_method': row[5] if row[5] else 'Online',
+                'notes': row[6] if row[6] else '',
+                'application_date': row[7][:10] if row[7] else None,
+                'created_at': row[7],
             })
         
         conn_unified.close()
@@ -746,7 +743,7 @@ async def get_available_programs():
         logger.error(f"Get available programs error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/program-questions/{program}")
+@router.get("/program-questions/{program:path}")
 async def get_program_questions(program: str):
     """Get assessment questions for a specific benefit program"""
     try:

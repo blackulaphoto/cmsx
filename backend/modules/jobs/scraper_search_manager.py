@@ -5,6 +5,7 @@ Provides secondary search functionality alongside GCSE search
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from datetime import datetime, timedelta
@@ -97,8 +98,11 @@ class ScraperSearchManager:
                 'search_url': 'https://www.governmentjobs.com/careers/lacity',
                 'max_pages': 1
             })
-            scrapers['city_la'] = CityLAScraper(city_config)
-            logger.info("City of LA scraper initialized successfully")
+            if inspect.isabstract(CityLAScraper):
+                logger.info("Skipping City of LA scraper: implementation is incomplete")
+            else:
+                scrapers['city_la'] = CityLAScraper(city_config)
+                logger.info("City of LA scraper initialized successfully")
         except Exception as e:
             logger.warning(f"Failed to initialize City of LA scraper: {e}")
         
