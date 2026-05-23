@@ -4,6 +4,8 @@ import { Search, User, ChevronDown, Plus, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
 
+const CLIENT_CACHE_KEY = 'cmsx_client_selector_cache_v1'
+
 const ClientSelector = ({ 
   selectedClientId = null, 
   onClientSelect = null, 
@@ -56,15 +58,33 @@ const ClientSelector = ({
       const data = await response.json()
       if (data.success && Array.isArray(data.clients)) {
         setClients(data.clients)
+        try {
+          sessionStorage.setItem(CLIENT_CACHE_KEY, JSON.stringify(data.clients))
+        } catch (_) {}
       } else if (Array.isArray(data.clients)) {
         setClients(data.clients)
+        try {
+          sessionStorage.setItem(CLIENT_CACHE_KEY, JSON.stringify(data.clients))
+        } catch (_) {}
       } else {
         throw new Error(data.message || 'Invalid response format')
       }
     } catch (error) {
       console.error('Error fetching clients:', error)
-      toast.error(`Failed to load clients: ${error.message}`)
-      setClients([])
+      let cachedClients = []
+      try {
+        cachedClients = JSON.parse(sessionStorage.getItem(CLIENT_CACHE_KEY) || '[]')
+      } catch (_) {
+        cachedClients = []
+      }
+
+      if (Array.isArray(cachedClients) && cachedClients.length > 0) {
+        setClients(cachedClients)
+        toast.error(`Live client refresh failed. Showing cached clients instead: ${error.message}`)
+      } else {
+        toast.error(`Failed to load clients: ${error.message}`)
+        setClients([])
+      }
     } finally {
       setLoading(false)
     }
@@ -76,8 +96,9 @@ const ClientSelector = ({
       
       if (response.ok) {
         const data = await response.json()
-        if (data.success && data.client) {
-          setSelectedClient(data.client)
+        const resolvedClient = data?.client || (data?.client_id ? data : null)
+        if (resolvedClient) {
+          setSelectedClient(resolvedClient)
           return
         }
       }

@@ -5,12 +5,37 @@
 
 // Base API URL - on Vercel browser runtime prefer same-origin /api rewrite
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
+const configuredRailwayPublicUrl = (import.meta.env.VITE_RAILWAY_PUBLIC_URL || 'https://cmsx-production-088d.up.railway.app')
+  .trim()
+  .replace(/\/+$/, '')
 const isVercelBrowserHost =
   typeof window !== 'undefined' && window.location.hostname.endsWith('.vercel.app')
 const useSameOriginProxyOnVercel = isVercelBrowserHost && import.meta.env.VITE_FORCE_DIRECT_API !== '1'
 export const API_BASE_URL = useSameOriginProxyOnVercel ? '' : configuredApiBaseUrl
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 8000)
 export const apiUrl = (endpoint) => `${API_BASE_URL}${endpoint}`
+
+const GATEWAY_RETRY_STATUS = new Set([502, 503, 504])
+
+const isSafeMethod = (method) => {
+  const normalized = (method || 'GET').toUpperCase()
+  return normalized === 'GET' || normalized === 'HEAD'
+}
+
+const getDirectFallbackBase = () => {
+  if (configuredApiBaseUrl) return configuredApiBaseUrl
+  if (configuredRailwayPublicUrl) return configuredRailwayPublicUrl
+  return ''
+}
+
+const shouldRetryDirect = (response, method) => {
+  return useSameOriginProxyOnVercel && isSafeMethod(method) && GATEWAY_RETRY_STATUS.has(response.status)
+}
+
+const buildFallbackUrl = (endpoint) => {
+  const base = getDirectFallbackBase()
+  return base ? `${base}${endpoint}` : ''
+}
 
 // API Endpoints for new 9-database architecture
 export const API_ENDPOINTS = {
@@ -80,8 +105,6 @@ export const API_ENDPOINTS = {
 
 // Helper function to make API calls
 export const apiCall = async (endpoint, options = {}) => {
-  const url = apiUrl(endpoint)
-  
   const defaultOptions = {
     headers: {
       'Content-Type': 'application/json',
@@ -94,8 +117,16 @@ export const apiCall = async (endpoint, options = {}) => {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
   try {
-    const response = await fetch(url, { ...config, signal: controller.signal })
-    
+    const primaryUrl = apiUrl(endpoint)
+    let response = await fetch(primaryUrl, { ...config, signal: controller.signal })
+
+    if (shouldRetryDirect(response, config.method)) {
+      const fallbackUrl = buildFallbackUrl(endpoint)
+      if (fallbackUrl && fallbackUrl !== primaryUrl) {
+        response = await fetch(fallbackUrl, { ...config, signal: controller.signal })
+      }
+    }
+
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       throw new Error(errorData.detail || errorData.message || `HTTP ${response.status}`)
@@ -117,7 +148,17 @@ export const apiFetch = async (endpoint, options = {}) => {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
   try {
-    return await fetch(apiUrl(endpoint), { ...options, signal: controller.signal })
+    const primaryUrl = apiUrl(endpoint)
+    let response = await fetch(primaryUrl, { ...options, signal: controller.signal })
+
+    if (shouldRetryDirect(response, options.method)) {
+      const fallbackUrl = buildFallbackUrl(endpoint)
+      if (fallbackUrl && fallbackUrl !== primaryUrl) {
+        response = await fetch(fallbackUrl, { ...options, signal: controller.signal })
+      }
+    }
+
+    return response
   } catch (error) {
     if (error?.name === 'AbortError') {
       throw new Error(`Request timeout after ${API_TIMEOUT_MS}ms`)
