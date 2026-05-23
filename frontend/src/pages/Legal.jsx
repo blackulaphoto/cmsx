@@ -10,6 +10,7 @@ function Legal() {
   const [cases, setCases] = useState([])
   const [documents, setDocuments] = useState([])
   const [appointments, setAppointments] = useState([])
+  const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(false)
   const [showTaskModal, setShowTaskModal] = useState(false)
   const [taskForm, setTaskForm] = useState({
@@ -23,35 +24,46 @@ function Legal() {
     fetchLegalData()
   }, [selectedClient?.client_id])
 
+  useEffect(() => {
+    setTaskForm(prev => ({
+      ...prev,
+      client_id: selectedClient?.client_id || ''
+    }))
+  }, [selectedClient?.client_id])
+
   const fetchLegalData = async () => {
     setLoading(true)
     try {
       const clientId = selectedClient?.client_id
       const clientQuery = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
-      const [casesRes, docsRes, datesRes] = await Promise.all([
+      const [casesRes, docsRes, datesRes, tasksRes] = await Promise.all([
         fetch(`/api/legal/cases${clientQuery}`),
         fetch(`/api/legal/documents${clientQuery}`),
-        fetch(`/api/legal/court-dates${clientQuery}`)
+        fetch(`/api/legal/court-dates${clientQuery}`),
+        fetch(`/api/legal/tasks${clientQuery}`)
       ])
 
-      if (!casesRes.ok || !docsRes.ok || !datesRes.ok) {
+      if (!casesRes.ok || !docsRes.ok || !datesRes.ok || !tasksRes.ok) {
         throw new Error('Failed to load legal module data')
       }
 
-      const [casesData, docsData, datesData] = await Promise.all([
+      const [casesData, docsData, datesData, tasksData] = await Promise.all([
         casesRes.json(),
         docsRes.json(),
-        datesRes.json()
+        datesRes.json(),
+        tasksRes.json()
       ])
 
       setCases(casesData?.cases || [])
       setDocuments(docsData?.documents || [])
       setAppointments(datesData?.court_dates || [])
+      setTasks(tasksData?.tasks || [])
     } catch (error) {
       console.error('Error fetching legal data:', error)
       setCases([])
       setDocuments([])
       setAppointments([])
+      setTasks([])
       toast.error(error?.message || 'Failed to load legal data')
     } finally {
       setLoading(false)
@@ -61,6 +73,10 @@ function Legal() {
   const addLegalTask = async () => {
     if (!taskForm.description) {
       toast.error('Please enter task description')
+      return
+    }
+    if (!selectedClient?.client_id) {
+      toast.error('Please select a client first')
       return
     }
 
@@ -77,6 +93,7 @@ function Legal() {
         toast.success('Legal task added successfully!')
         setShowTaskModal(false)
         resetTaskForm()
+        fetchLegalData()
       } else {
         throw new Error('Failed to add task')
       }
@@ -492,18 +509,30 @@ function Legal() {
                     </button>
                   </div>
 
-                  <div className="space-y-6">
-                    <div className="group bg-gradient-to-br from-red-500/10 to-pink-500/5 backdrop-blur-xl border border-red-500/20 rounded-2xl p-6 hover:border-red-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-red-500/20">
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-xl font-bold text-white group-hover:text-red-200 transition-colors">Get employment history for expungement</h3>
-                        <span className="px-3 py-1 bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-300 rounded-full text-xs font-medium border border-red-500/30">High Priority</span>
+                    <div className="space-y-6">
+                    {tasks.length > 0 ? tasks.map((task) => (
+                      <div key={task.task_id} className="group bg-gradient-to-br from-red-500/10 to-pink-500/5 backdrop-blur-xl border border-red-500/20 rounded-2xl p-6 hover:border-red-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-red-500/20">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-xl font-bold text-white group-hover:text-red-200 transition-colors">
+                            {task.task_title || 'Legal Task'}
+                          </h3>
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPriorityColor(task.priority)}`}>
+                            {(task.priority || 'medium').toString().replace(/^./, c => c.toUpperCase())} Priority
+                          </span>
+                        </div>
+                        <p className="text-red-200 mb-4 leading-relaxed">{task.task_description || 'No description provided'}</p>
+                        <div className="flex items-center gap-2 text-sm">
+                          <Clock className="h-4 w-4 text-red-400" />
+                          <span className="text-red-300">
+                            Deadline: {task.due_date || 'Not scheduled'}
+                          </span>
+                        </div>
                       </div>
-                      <p className="text-red-200 mb-4 leading-relaxed">Contact previous restaurant employers for employment verification</p>
-                      <div className="flex items-center gap-2 text-sm">
-                        <Clock className="h-4 w-4 text-red-400" />
-                        <span className="text-red-300">Deadline: 2024-07-24</span>
+                    )) : (
+                      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+                        <p className="text-gray-300">No legal tasks recorded for this client.</p>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
               )}

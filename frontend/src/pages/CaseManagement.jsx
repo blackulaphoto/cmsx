@@ -356,6 +356,23 @@ function CaseManagement() {
     }
   }
 
+  const displayValue = (value, fallback = 'Not provided') => {
+    if (value === null || value === undefined || value === '') {
+      return fallback
+    }
+    return value
+  }
+
+  const selectedClientRiskLevel = (selectedClient?.risk_level || 'Medium').toString()
+  const selectedClientCaseStatus = (selectedClient?.case_status || 'Active').toString()
+  const selectedClientProgress = Number.isFinite(Number(selectedClient?.progress))
+    ? Number(selectedClient?.progress)
+    : 0
+  const selectedClientNeeds = Array.isArray(selectedClient?.needs) ? selectedClient.needs : []
+  const selectedClientBackground = selectedClient?.background && typeof selectedClient.background === 'object'
+    ? selectedClient.background
+    : null
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
       {/* Animated Background Elements */}
@@ -1094,21 +1111,21 @@ function CaseManagement() {
                         <div className="space-y-2">
                           <p className="text-gray-300"><strong className="text-white">Name:</strong> {selectedClient.first_name} {selectedClient.last_name}</p>
                           <p className="text-gray-300"><strong className="text-white">ID:</strong> {selectedClient.client_id}</p>
-                          <p className="text-gray-300"><strong className="text-white">Phone:</strong> {selectedClient.phone}</p>
-                          <p className="text-gray-300"><strong className="text-white">Email:</strong> {selectedClient.email}</p>
+                          <p className="text-gray-300"><strong className="text-white">Phone:</strong> {displayValue(selectedClient.phone)}</p>
+                          <p className="text-gray-300"><strong className="text-white">Email:</strong> {displayValue(selectedClient.email)}</p>
                           <p className="text-gray-300 flex items-center gap-2">
                             <strong className="text-white">Risk Level:</strong> 
-                            <span className={`px-2 py-1 rounded-lg text-xs border ${getPriorityColor(selectedClient.risk_level.toLowerCase())}`}>
-                              {selectedClient.risk_level}
+                            <span className={`px-2 py-1 rounded-lg text-xs border ${getPriorityColor(selectedClientRiskLevel.toLowerCase())}`}>
+                              {selectedClientRiskLevel}
                             </span>
                           </p>
                           <p className="text-gray-300 flex items-center gap-2">
                             <strong className="text-white">Case Status:</strong> 
-                            <span className={`px-2 py-1 rounded-lg text-xs border ${getStatusColor(selectedClient.case_status.toLowerCase())}`}>
-                              {selectedClient.case_status}
+                            <span className={`px-2 py-1 rounded-lg text-xs border ${getStatusColor(selectedClientCaseStatus.toLowerCase())}`}>
+                              {selectedClientCaseStatus}
                             </span>
                           </p>
-                          <p className="text-gray-300"><strong className="text-white">Progress:</strong> {selectedClient.progress}%</p>
+                          <p className="text-gray-300"><strong className="text-white">Progress:</strong> {selectedClientProgress}%</p>
                         </div>
                       </div>
 
@@ -1121,19 +1138,19 @@ function CaseManagement() {
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <span className="font-medium text-white">Housing:</span>
-                            <span className="text-sm text-gray-300" data-testid="housing-status">{selectedClient.housing_status}</span>
+                            <span className="text-sm text-gray-300" data-testid="housing-status">{displayValue(selectedClient.housing_status, 'Unknown')}</span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="font-medium text-white">Legal:</span>
-                            <span className="text-sm text-gray-300" data-testid="legal-status">{selectedClient.legal_status}</span>
+                            <span className="text-sm text-gray-300" data-testid="legal-status">{displayValue(selectedClient.legal_status, 'No Active Cases')}</span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="font-medium text-white">Employment:</span>
-                            <span className="text-sm text-gray-300" data-testid="employment-status">{selectedClient.employment_status}</span>
+                            <span className="text-sm text-gray-300" data-testid="employment-status">{displayValue(selectedClient.employment_status, 'Unknown')}</span>
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="font-medium text-white">Benefits:</span>
-                            <span className="text-sm text-gray-300" data-testid="benefits-status">{selectedClient.benefits_status}</span>
+                            <span className="text-sm text-gray-300" data-testid="benefits-status">{displayValue(selectedClient.benefits_status, 'Not Applied')}</span>
                           </div>
                         </div>
                       </div>
@@ -1145,31 +1162,33 @@ function CaseManagement() {
                           Current Needs
                         </h3>
                         <div className="flex flex-wrap gap-2">
-                          {selectedClient.needs && selectedClient.needs.map((need, index) => (
+                          {selectedClientNeeds.length > 0 ? selectedClientNeeds.map((need, index) => (
                             <span key={index} className="px-3 py-1 bg-yellow-500/20 border border-yellow-500/30 text-yellow-300 rounded-xl text-sm">
                               {need}
                             </span>
-                          ))}
+                          )) : (
+                            <span className="text-sm text-gray-400">No current needs recorded</span>
+                          )}
                         </div>
                       </div>
                     </div>
 
                     {/* Detailed Background */}
                     <div className="space-y-6">
-                      {selectedClient.background && (
+                      {selectedClientBackground && (
                         <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/10 backdrop-blur-xl border border-green-500/20 rounded-2xl p-4">
                           <h3 className="text-lg font-semibold mb-3 text-white flex items-center gap-2">
                             <CheckCircle className="h-5 w-5 text-green-400" />
                             Background & Context
                           </h3>
                           <div className="space-y-2 text-sm">
-                            <p className="text-gray-300"><strong className="text-white">Recovery Status:</strong> {selectedClient.background.addiction_recovery}</p>
-                            <p className="text-gray-300"><strong className="text-white">Housing Situation:</strong> {selectedClient.background.housing_deadline}</p>
-                            <p className="text-gray-300"><strong className="text-white">Legal Matters:</strong> {selectedClient.background.court_date}</p>
-                            <p className="text-gray-300"><strong className="text-white">Employment History:</strong> {selectedClient.background.employment_history}</p>
-                            <p className="text-gray-300"><strong className="text-white">Current Benefits:</strong> {selectedClient.background.current_benefits}</p>
-                            <p className="text-gray-300"><strong className="text-white">Transportation:</strong> {selectedClient.background.transportation}</p>
-                            <p className="text-gray-300"><strong className="text-white">Current Challenges:</strong> {selectedClient.background.challenges}</p>
+                            <p className="text-gray-300"><strong className="text-white">Recovery Status:</strong> {displayValue(selectedClientBackground.addiction_recovery)}</p>
+                            <p className="text-gray-300"><strong className="text-white">Housing Situation:</strong> {displayValue(selectedClientBackground.housing_deadline)}</p>
+                            <p className="text-gray-300"><strong className="text-white">Legal Matters:</strong> {displayValue(selectedClientBackground.court_date)}</p>
+                            <p className="text-gray-300"><strong className="text-white">Employment History:</strong> {displayValue(selectedClientBackground.employment_history)}</p>
+                            <p className="text-gray-300"><strong className="text-white">Current Benefits:</strong> {displayValue(selectedClientBackground.current_benefits)}</p>
+                            <p className="text-gray-300"><strong className="text-white">Transportation:</strong> {displayValue(selectedClientBackground.transportation)}</p>
+                            <p className="text-gray-300"><strong className="text-white">Current Challenges:</strong> {displayValue(selectedClientBackground.challenges)}</p>
                           </div>
                         </div>
                       )}
@@ -1180,7 +1199,7 @@ function CaseManagement() {
                           <Edit className="h-5 w-5 text-purple-400" />
                           Case Notes
                         </h3>
-                        <p className="text-sm text-gray-300">{selectedClient.notes}</p>
+                        <p className="text-sm text-gray-300">{displayValue(selectedClient.notes, 'No case notes recorded')}</p>
                       </div>
 
                       {/* Quick Actions */}
@@ -1222,7 +1241,7 @@ function CaseManagement() {
                             <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
                             <div className="text-sm">
                               <p className="font-medium text-white">Intake completed</p>
-                              <p className="text-gray-400">{selectedClient.intake_date}</p>
+                              <p className="text-gray-400">{displayValue(selectedClient.intake_date, 'Unknown')}</p>
                             </div>
                           </div>
                           {selectedClient.last_contact && (

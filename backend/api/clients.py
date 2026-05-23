@@ -5,11 +5,12 @@ Fixes the missing client creation pipeline causing HTTP 405 errors
 """
 
 from fastapi import APIRouter, HTTPException, status, Query
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
 import sqlite3
 import uuid
+import json
 from datetime import datetime
 from pathlib import Path
 from backend.shared.database.railway_postgres import upsert_client_to_postgres
@@ -24,6 +25,48 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+CORE_CLIENT_SCHEMA_COLUMNS = {
+    "client_id": "TEXT PRIMARY KEY",
+    "first_name": "TEXT NOT NULL",
+    "last_name": "TEXT NOT NULL",
+    "email": "TEXT",
+    "phone": "TEXT",
+    "date_of_birth": "TEXT",
+    "address": "TEXT",
+    "city": "TEXT",
+    "state": "TEXT",
+    "zip_code": "TEXT",
+    "emergency_contact_name": "TEXT",
+    "emergency_contact_phone": "TEXT",
+    "emergency_contact_relationship": "TEXT",
+    "case_manager_id": "TEXT NOT NULL",
+    "risk_level": "TEXT DEFAULT 'medium'",
+    "case_status": "TEXT DEFAULT 'active'",
+    "intake_date": "TEXT NOT NULL",
+    "created_at": "TEXT NOT NULL",
+    "updated_at": "TEXT",
+    "housing_status": "TEXT DEFAULT 'unknown'",
+    "employment_status": "TEXT DEFAULT 'unknown'",
+    "benefits_status": "TEXT DEFAULT 'not applied'",
+    "legal_status": "TEXT DEFAULT 'no active cases'",
+    "program_type": "TEXT",
+    "referral_source": "TEXT",
+    "prior_convictions": "TEXT",
+    "substance_abuse_history": "TEXT",
+    "mental_health_status": "TEXT",
+    "transportation": "TEXT",
+    "medical_conditions": "TEXT",
+    "special_needs": "TEXT",
+    "goals": "TEXT",
+    "barriers": "TEXT",
+    "notes": "TEXT",
+    "progress": "INTEGER DEFAULT 0",
+    "last_contact": "TEXT",
+    "next_followup": "TEXT",
+    "needs": "TEXT DEFAULT '[]'",
+    "background": "TEXT DEFAULT '{}'",
+}
+
 def get_database_connection(db_name: str, access_type: str = "READ_ONLY"):
     """Simple database connection helper"""
     db_path = Path("databases") / f"{db_name}.db"
@@ -33,6 +76,100 @@ def get_database_connection(db_name: str, access_type: str = "READ_ONLY"):
         # Create empty database file
         db_path.touch()
     return sqlite3.connect(str(db_path))
+
+
+def ensure_core_clients_schema(conn: sqlite3.Connection) -> None:
+    """Ensure the shared clients table exposes the fields live modules render."""
+    cursor = conn.cursor()
+    create_columns_sql = ",\n                    ".join(
+        f"{column} {definition}" for column, definition in CORE_CLIENT_SCHEMA_COLUMNS.items()
+    )
+    cursor.execute(
+        f"""
+            CREATE TABLE IF NOT EXISTS clients (
+                {create_columns_sql}
+            )
+        """
+    )
+
+    cursor.execute("PRAGMA table_info(clients)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+    for column, definition in CORE_CLIENT_SCHEMA_COLUMNS.items():
+        if column in existing_columns:
+            continue
+        base_definition = definition.split(" DEFAULT ")[0]
+        cursor.execute(f"ALTER TABLE clients ADD COLUMN {column} {base_definition}")
+
+    conn.commit()
+
+
+def _deserialize_json_field(value: Any, fallback: Any) -> Any:
+    if value in (None, ""):
+        return fallback
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(value)
+    except Exception:
+        return fallback
+
+
+def _serialize_json_field(value: Any, fallback: Any) -> str:
+    if value in (None, ""):
+        return json.dumps(fallback)
+    if isinstance(value, str):
+        return value
+    return json.dumps(value)
+
+
+def normalize_client_record(row: sqlite3.Row) -> Dict[str, Any]:
+    """Normalize shared client rows into the shape frontend modules expect."""
+    first_name = row["first_name"] or ""
+    last_name = row["last_name"] or ""
+    risk_level = row["risk_level"] or "medium"
+    case_status = row["case_status"] or "active"
+    return {
+        "client_id": row["client_id"],
+        "first_name": first_name,
+        "last_name": last_name,
+        "full_name": f"{first_name} {last_name}".strip(),
+        "email": row["email"] or "",
+        "phone": row["phone"] or "",
+        "date_of_birth": row["date_of_birth"] or "",
+        "address": row["address"] or "",
+        "city": row["city"] or "",
+        "state": row["state"] or "",
+        "zip_code": row["zip_code"] or "",
+        "emergency_contact_name": row["emergency_contact_name"] or "",
+        "emergency_contact_phone": row["emergency_contact_phone"] or "",
+        "emergency_contact_relationship": row["emergency_contact_relationship"] or "",
+        "case_manager_id": row["case_manager_id"] or "",
+        "risk_level": risk_level.capitalize(),
+        "case_status": case_status.capitalize(),
+        "intake_date": row["intake_date"] or "",
+        "created_at": row["created_at"] or "",
+        "updated_at": row["updated_at"] or row["created_at"] or "",
+        "housing_status": row["housing_status"] or "Unknown",
+        "employment_status": row["employment_status"] or "Unknown",
+        "benefits_status": row["benefits_status"] or "Not Applied",
+        "legal_status": row["legal_status"] or "No Active Cases",
+        "program_type": row["program_type"] or "",
+        "referral_source": row["referral_source"] or "",
+        "prior_convictions": row["prior_convictions"] or "",
+        "substance_abuse_history": row["substance_abuse_history"] or "",
+        "mental_health_status": row["mental_health_status"] or "",
+        "transportation": row["transportation"] or "",
+        "medical_conditions": row["medical_conditions"] or "",
+        "special_needs": row["special_needs"] or "",
+        "goals": row["goals"] or "",
+        "barriers": row["barriers"] or "",
+        "notes": row["notes"] or "",
+        "progress": int(row["progress"] or 0),
+        "last_contact": row["last_contact"] or "",
+        "next_followup": row["next_followup"] or "",
+        "needs": _deserialize_json_field(row["needs"], []),
+        "background": _deserialize_json_field(row["background"], {}),
+    }
 
 
 def get_client_benefits_summary(client_id: str) -> Dict[str, Any]:
@@ -298,6 +435,45 @@ class ClientResponse(BaseModel):
     created_at: str
     integration_results: Dict[str, Any]
 
+
+class ClientUpdateRequest(BaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    case_manager_id: Optional[str] = None
+    risk_level: Optional[str] = None
+    case_status: Optional[str] = None
+    intake_date: Optional[str] = None
+    housing_status: Optional[str] = None
+    employment_status: Optional[str] = None
+    benefits_status: Optional[str] = None
+    legal_status: Optional[str] = None
+    program_type: Optional[str] = None
+    referral_source: Optional[str] = None
+    prior_convictions: Optional[str] = None
+    substance_abuse_history: Optional[str] = None
+    mental_health_status: Optional[str] = None
+    transportation: Optional[str] = None
+    medical_conditions: Optional[str] = None
+    special_needs: Optional[str] = None
+    goals: Optional[str] = None
+    barriers: Optional[str] = None
+    notes: Optional[str] = None
+    progress: Optional[int] = None
+    last_contact: Optional[str] = None
+    next_followup: Optional[str] = None
+    needs: Optional[List[str]] = None
+    background: Optional[Dict[str, Any]] = None
+
 @router.post("/api/clients")
 async def create_client(client_data: ClientCreateRequest):
     """
@@ -315,26 +491,9 @@ async def create_client(client_data: ClientCreateRequest):
         
         # Step 1: Create in core_clients.db (MASTER DATABASE)
         with get_database_connection("core_clients", "ADMIN") as conn:
+            ensure_core_clients_schema(conn)
             cursor = conn.cursor()
-            
-            # Create table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS clients (
-                    client_id TEXT PRIMARY KEY,
-                    first_name TEXT NOT NULL,
-                    last_name TEXT NOT NULL,
-                    email TEXT,
-                    phone TEXT,
-                    date_of_birth TEXT,
-                    case_manager_id TEXT NOT NULL,
-                    risk_level TEXT DEFAULT 'medium',
-                    intake_date TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    housing_status TEXT DEFAULT 'unknown',
-                    employment_status TEXT DEFAULT 'unknown'
-                )
-            """)
-            
+
             cursor.execute("""
                 INSERT INTO clients (
                     client_id, first_name, last_name, email, phone, 
@@ -406,28 +565,16 @@ async def get_client(client_id: str):
     """Retrieve client by ID - was returning 404"""
     try:
         with get_database_connection("core_clients", "READ_ONLY") as conn:
+            ensure_core_clients_schema(conn)
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT client_id, first_name, last_name, email, phone, 
-                       case_manager_id, intake_date, risk_level, created_at
-                FROM clients WHERE client_id = ?
-            """, (client_id,))
-            
+            cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+
             result = cursor.fetchone()
-            if not result:
+            if result is None:
                 raise HTTPException(status_code=404, detail="Client not found")
-            
-            return {
-                "client_id": result[0],
-                "first_name": result[1],
-                "last_name": result[2],
-                "email": result[3],
-                "phone": result[4],
-                "case_manager_id": result[5],
-                "intake_date": result[6],
-                "risk_level": result[7],
-                "created_at": result[8]
-            }
+
+            return normalize_client_record(result)
     except HTTPException:
         raise
     except Exception as e:
@@ -441,54 +588,35 @@ async def list_clients(case_manager_id: Optional[str] = None, limit: int = Query
     """
     try:
         with get_database_connection("core_clients", "READ_ONLY") as conn:
+            ensure_core_clients_schema(conn)
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
-            # Create table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS clients (
-                    client_id TEXT PRIMARY KEY,
-                    first_name TEXT,
-                    last_name TEXT,
-                    email TEXT,
-                    case_manager_id TEXT,
-                    intake_date TEXT,
-                    risk_level TEXT,
-                    created_at TEXT
-                )
-            """)
-            
+
             if case_manager_id:
-                cursor.execute("""
-                    SELECT client_id, first_name, last_name, email, case_manager_id, 
-                           intake_date, risk_level 
-                    FROM clients 
-                    WHERE case_manager_id = ? 
-                    ORDER BY intake_date DESC 
+                cursor.execute(
+                    """
+                    SELECT *
+                    FROM clients
+                    WHERE case_manager_id = ?
+                    ORDER BY intake_date DESC, created_at DESC
                     LIMIT ?
-                """, (case_manager_id, limit))
+                    """,
+                    (case_manager_id, limit),
+                )
             else:
-                cursor.execute("""
-                    SELECT client_id, first_name, last_name, email, case_manager_id,
-                           intake_date, risk_level 
-                    FROM clients 
-                    ORDER BY intake_date DESC 
+                cursor.execute(
+                    """
+                    SELECT *
+                    FROM clients
+                    ORDER BY intake_date DESC, created_at DESC
                     LIMIT ?
-                """, (limit,))
-            
+                    """,
+                    (limit,),
+                )
+
             results = cursor.fetchall()
-            
-            clients = []
-            for row in results:
-                clients.append({
-                    "client_id": row[0],
-                    "first_name": row[1],
-                    "last_name": row[2],
-                    "email": row[3],
-                    "case_manager_id": row[4],
-                    "intake_date": row[5],
-                    "risk_level": row[6]
-                })
-            
+            clients = [normalize_client_record(row) for row in results]
+
             return {
                 "success": True,
                 "clients": clients,
@@ -496,6 +624,98 @@ async def list_clients(case_manager_id: Optional[str] = None, limit: int = Query
             }
     except Exception as e:
         logger.error(f"Database error listing clients: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.put("/api/clients/{client_id}")
+async def update_client(client_id: str, client_data: ClientUpdateRequest):
+    """Update a shared client record used across all module selectors."""
+    try:
+        updates = client_data.dict(exclude_unset=True)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No updates provided")
+
+        with get_database_connection("core_clients", "ADMIN") as conn:
+            ensure_core_clients_schema(conn)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+            existing = cursor.fetchone()
+            if existing is None:
+                raise HTTPException(status_code=404, detail="Client not found")
+
+            normalized_updates = dict(updates)
+            if "risk_level" in normalized_updates and normalized_updates["risk_level"]:
+                normalized_updates["risk_level"] = str(normalized_updates["risk_level"]).strip().lower()
+            if "case_status" in normalized_updates and normalized_updates["case_status"]:
+                normalized_updates["case_status"] = str(normalized_updates["case_status"]).strip().lower()
+            if "housing_status" in normalized_updates and normalized_updates["housing_status"]:
+                normalized_updates["housing_status"] = str(normalized_updates["housing_status"]).strip()
+            if "employment_status" in normalized_updates and normalized_updates["employment_status"]:
+                normalized_updates["employment_status"] = str(normalized_updates["employment_status"]).strip()
+            if "benefits_status" in normalized_updates and normalized_updates["benefits_status"]:
+                normalized_updates["benefits_status"] = str(normalized_updates["benefits_status"]).strip()
+            if "legal_status" in normalized_updates and normalized_updates["legal_status"]:
+                normalized_updates["legal_status"] = str(normalized_updates["legal_status"]).strip()
+            if "needs" in normalized_updates:
+                normalized_updates["needs"] = _serialize_json_field(normalized_updates["needs"], [])
+            if "background" in normalized_updates:
+                normalized_updates["background"] = _serialize_json_field(normalized_updates["background"], {})
+
+            normalized_updates["updated_at"] = datetime.now().isoformat()
+            set_clause = ", ".join(f"{column} = ?" for column in normalized_updates.keys())
+            values = list(normalized_updates.values()) + [client_id]
+            cursor.execute(f"UPDATE clients SET {set_clause} WHERE client_id = ?", values)
+            conn.commit()
+
+            cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+            updated = cursor.fetchone()
+
+        return {
+            "success": True,
+            "client": normalize_client_record(updated),
+            "message": "Client updated successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Database error updating client {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.delete("/api/clients/{client_id}")
+async def delete_client(client_id: str):
+    """Delete a shared client record and remove it from module sync tables."""
+    try:
+        deleted = False
+        with get_database_connection("core_clients", "ADMIN") as conn:
+            ensure_core_clients_schema(conn)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM clients WHERE client_id = ?", (client_id,))
+            conn.commit()
+            deleted = cursor.rowcount > 0
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        for module in [
+            "case_management", "housing", "benefits", "legal",
+            "employment", "services", "reminders", "jobs"
+        ]:
+            try:
+                with get_database_connection(module, "ADMIN") as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM clients WHERE client_id = ?", (client_id,))
+                    conn.commit()
+            except Exception:
+                # Module databases are best-effort mirrors; do not fail core deletion.
+                continue
+
+        return {"success": True, "message": "Client deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Database error deleting client {client_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.get("/api/clients/{client_id}/unified-view")

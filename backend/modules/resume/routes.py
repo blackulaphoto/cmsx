@@ -727,6 +727,104 @@ async def get_available_clients():
             "total_count": 0
         }
 
+
+@router.post("/profile")
+async def create_employment_profile(profile_request: EmploymentProfileRequest):
+    """Create or update an employment profile for the selected client."""
+    try:
+        db = get_employment_db()
+        client = db.core_clients.get_client_by_id(profile_request.client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        existing_profile = db.profiles.get_profile_by_client(profile_request.client_id)
+        if existing_profile and getattr(existing_profile, "profile_id", None):
+            existing_profile.work_history = profile_request.work_history
+            existing_profile.education = profile_request.education
+            existing_profile.skills = profile_request.skills
+            existing_profile.certifications = profile_request.certifications
+            existing_profile.professional_references = profile_request.professional_references
+            existing_profile.career_objective = profile_request.career_objective
+            existing_profile.preferred_industries = profile_request.preferred_industries
+
+            success = db.profiles.update_profile(existing_profile)
+            if not success:
+                raise HTTPException(status_code=500, detail="Failed to update profile")
+
+            return {
+                "success": True,
+                "profile_id": existing_profile.profile_id,
+                "message": "Employment profile updated successfully",
+            }
+
+        profile = ClientEmploymentProfile(
+            client_id=profile_request.client_id,
+            work_history=profile_request.work_history,
+            education=profile_request.education,
+            skills=profile_request.skills,
+            certifications=profile_request.certifications,
+            professional_references=profile_request.professional_references,
+            career_objective=profile_request.career_objective,
+            preferred_industries=profile_request.preferred_industries,
+        )
+        profile_id = db.profiles.create_profile(profile)
+        if not profile_id:
+            raise HTTPException(status_code=500, detail="Failed to create profile")
+
+        return {
+            "success": True,
+            "profile_id": profile_id,
+            "message": "Employment profile created successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating/updating employment profile: {e}")
+        raise HTTPException(status_code=500, detail=f"Profile operation error: {str(e)}")
+
+
+@router.get("/profile/{client_id}")
+async def get_employment_profile(client_id: str):
+    """Get an employment profile for the selected client."""
+    try:
+        db = get_employment_db()
+        client = db.core_clients.get_client_by_id(client_id)
+        if not client:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        profile = db.profiles.get_profile_by_client(client_id)
+        if not profile:
+            return {
+                "success": True,
+                "profile": None,
+                "message": "No employment profile found for client",
+            }
+
+        created_at = getattr(profile, "created_at", None)
+        updated_at = getattr(profile, "updated_at", None)
+        return {
+            "success": True,
+            "profile": {
+                "profile_id": getattr(profile, "profile_id", None),
+                "client_id": client_id,
+                "work_history": getattr(profile, "work_history", []) or [],
+                "education": getattr(profile, "education", []) or [],
+                "skills": getattr(profile, "skills", []) or [],
+                "certifications": getattr(profile, "certifications", []) or [],
+                "professional_references": getattr(profile, "professional_references", []) or [],
+                "career_objective": getattr(profile, "career_objective", "") or "",
+                "preferred_industries": getattr(profile, "preferred_industries", []) or [],
+                "background_friendly_only": bool(getattr(profile, "background_friendly_only", True)),
+                "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+                "updated_at": updated_at.isoformat() if hasattr(updated_at, "isoformat") else updated_at,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting employment profile for {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Profile retrieval error: {str(e)}")
+
 # Fixed PDF Generation Endpoint
 @router.post("/generate-pdf/{resume_id}")
 async def generate_resume_pdf(resume_id: str):

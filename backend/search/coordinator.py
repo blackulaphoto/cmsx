@@ -96,6 +96,164 @@ class SimpleSearchCoordinator:
         
         logger.info("Simple Search Coordinator initialized")
 
+    def _clean_json_text(self, text: str) -> str:
+        """Strip markdown fences from model-produced JSON."""
+        cleaned = (text or "").strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+        return cleaned.strip()
+
+    def _extract_openai_response_text(self, payload: Dict[str, Any]) -> str:
+        output_text = payload.get("output_text")
+        if output_text:
+            return output_text
+
+        chunks: List[str] = []
+        for item in payload.get("output", []):
+            if item.get("type") != "message":
+                continue
+            for content in item.get("content", []):
+                if content.get("type") == "output_text" and content.get("text"):
+                    chunks.append(content["text"])
+        return "\n".join(chunks).strip()
+
+    def _extract_openai_sources(self, payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+        sources: List[Dict[str, Any]] = []
+        for item in payload.get("output", []):
+            if item.get("type") != "web_search_call":
+                continue
+            action = item.get("action", {})
+            for source in action.get("sources", []) or []:
+                url = source.get("url")
+                if not url:
+                    continue
+                sources.append({
+                    "title": source.get("title", ""),
+                    "url": url,
+                })
+        return sources
+
+    def _openai_search_location(self, location: Optional[str]) -> Dict[str, Any]:
+        if not location:
+            return {
+                "type": "approximate",
+                "country": "US",
+                "region": "California",
+            }
+
+        city = location.split(",")[0].strip()
+        return {
+            "type": "approximate",
+            "country": "US",
+            "region": "California",
+            "city": city or "Los Angeles",
+        }
+
+    def _openai_web_search(self, query: str, location: Optional[str], vertical: str, per_page: int) -> Dict[str, Any]:
+        """Use OpenAI built-in web search to synthesize structured fallback results."""
+        if not self.openai_api_key:
+            return {"success": False, "error": "OPENAI_API_KEY not configured", "results": []}
+
+        model = os.getenv("OPENAI_WEB_SEARCH_MODEL", "gpt-5")
+        tool_definition: Dict[str, Any] = {
+            "type": "web_search",
+            "user_location": self._openai_search_location(location),
+        }
+
+        if vertical == "housing":
+            prompt = (
+                f"Search the web for current housing resources related to '{query}' near '{location or 'Los Angeles, CA'}'. "
+                f"Return JSON only with this shape: "
+                f'{{"results":[{{"title":"", "description":"", "url":"", "location":"", "source":"openai_web_search", '
+                f'"background_friendly":false, "relevance_reason":""}}]}}. '
+                f"Include up to {per_page} real listings or housing support resources with working URLs. "
+                "Prefer local rental listings, transitional housing, second-chance housing, or housing assistance that a case manager can act on."
+            )
+        else:
+            prompt = (
+                f"Search the web for service providers related to '{query}' near '{location or 'Los Angeles, CA'}'. "
+                f"Return JSON only with this shape: "
+                f'{{"results":[{{"title":"", "description":"", "url":"", "location":"", "source":"openai_web_search", '
+                f'"service_type":"", "relevance_reason":""}}]}}. '
+                f"Include up to {per_page} real providers or directories with working URLs. "
+                "Prefer social services, benefits assistance, legal aid, food assistance, mental health, medical clinics, and community support resources."
+            )
+
+        payload = {
+            "model": model,
+            "tools": [tool_definition],
+            "tool_choice": "auto",
+            "include": ["web_search_call.action.sources"],
+            "input": prompt,
+        }
+
+        try:
+            response = requests.post(
+                "https://api.openai.com/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {self.openai_api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=25,
+            )
+            response.raise_for_status()
+            response_payload = response.json()
+
+            response_text = self._extract_openai_response_text(response_payload)
+            cleaned = self._clean_json_text(response_text)
+            parsed = json.loads(cleaned) if cleaned else {}
+            raw_results = parsed.get("results", []) if isinstance(parsed, dict) else []
+            sources = self._extract_openai_sources(response_payload)
+
+            normalized_results: List[Dict[str, Any]] = []
+            for index, item in enumerate(raw_results[:per_page]):
+                url = item.get("url") or ""
+                if not url and index < len(sources):
+                    url = sources[index]["url"]
+                if not url:
+                    continue
+
+                source_name = item.get("source") or "openai_web_search"
+                title = item.get("title") or (sources[index]["title"] if index < len(sources) else "Search Result")
+                normalized_results.append({
+                    "title": title,
+                    "description": item.get("description", ""),
+                    "url": url,
+                    "link": url,
+                    "source": source_name,
+                    "location": item.get("location") or location or "",
+                    "background_friendly": bool(item.get("background_friendly", False)),
+                    "service_type": item.get("service_type", ""),
+                    "relevance_reason": item.get("relevance_reason", ""),
+                })
+
+            if not normalized_results:
+                for source in sources[:per_page]:
+                    normalized_results.append({
+                        "title": source.get("title", "Search Result"),
+                        "description": "",
+                        "url": source["url"],
+                        "link": source["url"],
+                        "source": "openai_web_search",
+                        "location": location or "",
+                        "background_friendly": False,
+                        "service_type": "",
+                        "relevance_reason": "",
+                    })
+
+            return {
+                "success": bool(normalized_results),
+                "results": normalized_results,
+                "sources": sources,
+                "model": model,
+            }
+        except Exception as e:
+            logger.error(f"OpenAI web search fallback failed: {e}")
+            return {"success": False, "error": str(e), "results": []}
+
     def _normalize_key(self, value: Optional[str]) -> Optional[str]:
         """Normalize API keys/CSE IDs and treat placeholders as missing."""
         if not value:
@@ -1286,6 +1444,44 @@ class SimpleSearchCoordinator:
             page = max(1, page)  # Ensure page is at least 1
             per_page = min(max(1, per_page), 40)  # Limit per_page between 1 and 40
 
+            def build_openai_services_response(warning: str) -> Optional[Dict[str, Any]]:
+                openai_payload = self._openai_web_search(query, location, "services", per_page)
+                openai_results = openai_payload.get("results", [])[:per_page]
+                if not openai_results:
+                    return None
+
+                formatted_results = []
+                for item in openai_results:
+                    formatted_results.append({
+                        "title": item.get("title", ""),
+                        "description": item.get("description", ""),
+                        "link": item.get("url") or item.get("link", ""),
+                        "source": item.get("source", "openai_web_search"),
+                        "location": item.get("location", ""),
+                        "relevance_reason": item.get("relevance_reason", ""),
+                        "service_type": item.get("service_type", ""),
+                    })
+
+                return {
+                    "success": True,
+                    "query": query,
+                    "location": location,
+                    "results": formatted_results,
+                    "source": "openai_web_search",
+                    "degraded": True,
+                    "warning": warning,
+                    "pagination": {
+                        "current_page": page,
+                        "per_page": per_page,
+                        "total_results": len(formatted_results),
+                        "total_pages": 1,
+                        "has_next_page": False,
+                        "has_prev_page": page > 1,
+                        "start_index": 1 if formatted_results else 0,
+                        "end_index": len(formatted_results)
+                    }
+                }
+
             # Primary: SerpAPI when available
             if self.serper_api_key:
                 serper_payload = self._serpapi_paginated_search(query, location, page, per_page)
@@ -1321,6 +1517,11 @@ class SimpleSearchCoordinator:
             # Use original CSE for services
             cse_id = self.google_cse_id
             if not self.google_api_key or not cse_id:
+                openai_fallback = build_openai_services_response(
+                    "Search credentials are incomplete, so service results are coming from OpenAI web search."
+                )
+                if openai_fallback:
+                    return openai_fallback
                 return {
                     "success": False,
                     "query": query,
@@ -1388,6 +1589,11 @@ class SimpleSearchCoordinator:
                             "end_index": len(formatted_results)
                         }
                     }
+                openai_fallback = build_openai_services_response(
+                    "Primary service search failed, so results are coming from OpenAI web search."
+                )
+                if openai_fallback:
+                    return openai_fallback
 
             # Format results
             formatted_results = []
@@ -1411,6 +1617,8 @@ class SimpleSearchCoordinator:
                 "location": location,
                 "results": formatted_results,
                 "source": "google_services_cse",
+                "degraded": False,
+                "warning": None,
                 "pagination": {
                     "current_page": page,
                     "per_page": per_page,
@@ -1425,6 +1633,39 @@ class SimpleSearchCoordinator:
             
         except Exception as e:
             logger.error(f"Services search error: {e}")
+            openai_fallback = self._openai_web_search(query, location, "services", per_page)
+            openai_results = openai_fallback.get("results", [])[:per_page]
+            if openai_results:
+                formatted_results = []
+                for item in openai_results:
+                    formatted_results.append({
+                        "title": item.get("title", ""),
+                        "description": item.get("description", ""),
+                        "link": item.get("url") or item.get("link", ""),
+                        "source": item.get("source", "openai_web_search"),
+                        "location": item.get("location", ""),
+                        "relevance_reason": item.get("relevance_reason", ""),
+                        "service_type": item.get("service_type", ""),
+                    })
+                return {
+                    "success": True,
+                    "query": query,
+                    "location": location,
+                    "results": formatted_results,
+                    "source": "openai_web_search",
+                    "degraded": True,
+                    "warning": "Primary service search failed, so results are coming from OpenAI web search.",
+                    "pagination": {
+                        "current_page": page,
+                        "per_page": per_page,
+                        "total_results": len(formatted_results),
+                        "total_pages": 1,
+                        "has_next_page": False,
+                        "has_prev_page": page > 1,
+                        "start_index": 1 if formatted_results else 0,
+                        "end_index": len(formatted_results)
+                    }
+                }
             # Return error with pagination structure
             return {
                 "success": False,
@@ -1537,6 +1778,47 @@ class SimpleSearchCoordinator:
             # Validate pagination parameters
             page = max(1, page)  # Ensure page is at least 1
             per_page = min(max(1, per_page), 40)  # Limit per_page between 1 and 40
+
+            def build_openai_housing_response(warning: str) -> Optional[Dict[str, Any]]:
+                openai_payload = self._openai_web_search(query, location, "housing", per_page)
+                openai_results = openai_payload.get("results", [])[:per_page]
+                if not openai_results:
+                    return None
+
+                housing_listings = []
+                for item in openai_results:
+                    url = item.get("url") or item.get("link", "")
+                    housing_listings.append({
+                        "title": item.get("title", ""),
+                        "description": item.get("description", ""),
+                        "url": url,
+                        "link": url,
+                        "source": item.get("source", "openai_web_search"),
+                        "background_friendly": bool(item.get("background_friendly", False)),
+                        "location": item.get("location", ""),
+                        "relevance_reason": item.get("relevance_reason", ""),
+                    })
+
+                return {
+                    "success": True,
+                    "query": query,
+                    "location": location,
+                    "housing_listings": housing_listings,
+                    "total_count": len(housing_listings),
+                    "source": "openai_web_search",
+                    "degraded": True,
+                    "warning": warning,
+                    "pagination": {
+                        "current_page": page,
+                        "per_page": per_page,
+                        "total_results": len(housing_listings),
+                        "total_pages": 1,
+                        "has_next_page": False,
+                        "has_prev_page": page > 1,
+                        "start_index": 1 if housing_listings else 0,
+                        "end_index": len(housing_listings)
+                    }
+                }
             
             # Use dedicated housing CSE
             housing_cse_id = self.google_housing_cse_id or self.google_cse_id
@@ -1574,6 +1856,11 @@ class SimpleSearchCoordinator:
                             "end_index": len(housing_listings)
                         }
                     }
+                openai_fallback = build_openai_housing_response(
+                    "Housing search credentials are incomplete, so results are coming from OpenAI web search."
+                )
+                if openai_fallback:
+                    return openai_fallback
                 return {
                     "success": False,
                     "query": query,
@@ -1634,6 +1921,11 @@ class SimpleSearchCoordinator:
                             "end_index": total_results
                         }
                     }
+                openai_fallback = build_openai_housing_response(
+                    "Google Custom Search is blocked for the configured housing CSE, so results are coming from OpenAI web search."
+                )
+                if openai_fallback:
+                    return openai_fallback
                 return {
                     "success": False,
                     "query": query,
@@ -1716,6 +2008,11 @@ class SimpleSearchCoordinator:
                             "end_index": total_results
                         }
                     }
+                openai_fallback = build_openai_housing_response(
+                    "Primary housing search failed, so results are coming from OpenAI web search."
+                )
+                if openai_fallback:
+                    return openai_fallback
                 return {
                     "success": False,
                     "query": query,
@@ -1739,6 +2036,11 @@ class SimpleSearchCoordinator:
                 }
             if 'items' not in paginated_results:
                 logger.error(f"Paginated search returned unexpected structure: {paginated_results}")
+                openai_fallback = build_openai_housing_response(
+                    "Primary housing search returned an unexpected response, so results are coming from OpenAI web search."
+                )
+                if openai_fallback:
+                    return openai_fallback
                 return await self._fallback_housing_search(query, location, page, per_page)
             
             # Format results for housing
@@ -1785,8 +2087,14 @@ class SimpleSearchCoordinator:
                         "has_prev_page": False,
                         "start_index": 1 if total_results else 0,
                         "end_index": total_results
+                        }
                     }
-                }
+            if not housing_listings:
+                openai_fallback = build_openai_housing_response(
+                    "Housing search returned no listings from the primary source, so results are coming from OpenAI web search."
+                )
+                if openai_fallback:
+                    return openai_fallback
             
             # Calculate pagination metadata
             total_results = paginated_results.get('total_results', len(housing_listings))
@@ -1813,6 +2121,42 @@ class SimpleSearchCoordinator:
             
         except Exception as e:
             logger.error(f"Housing search error: {e}")
+            openai_fallback = self._openai_web_search(query, location, "housing", per_page)
+            openai_results = openai_fallback.get("results", [])[:per_page]
+            if openai_results:
+                housing_listings = []
+                for item in openai_results:
+                    url = item.get("url") or item.get("link", "")
+                    housing_listings.append({
+                        "title": item.get("title", ""),
+                        "description": item.get("description", ""),
+                        "url": url,
+                        "link": url,
+                        "source": item.get("source", "openai_web_search"),
+                        "background_friendly": bool(item.get("background_friendly", False)),
+                        "location": item.get("location", ""),
+                        "relevance_reason": item.get("relevance_reason", ""),
+                    })
+                return {
+                    "success": True,
+                    "query": query,
+                    "location": location,
+                    "housing_listings": housing_listings,
+                    "total_count": len(housing_listings),
+                    "source": "openai_web_search",
+                    "degraded": True,
+                    "warning": "Primary housing search failed, so results are coming from OpenAI web search.",
+                    "pagination": {
+                        "current_page": page,
+                        "per_page": per_page,
+                        "total_results": len(housing_listings),
+                        "total_pages": 1,
+                        "has_next_page": False,
+                        "has_prev_page": page > 1,
+                        "start_index": 1 if housing_listings else 0,
+                        "end_index": len(housing_listings)
+                    }
+                }
             # Fallback to original CSE if housing CSE fails
             return await self._fallback_housing_search(query, location, page, per_page)
     

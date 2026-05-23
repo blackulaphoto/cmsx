@@ -51,6 +51,15 @@ class ExpungementTaskUpdate(BaseModel):
     status: str
     notes: Optional[str] = None
 
+
+class ExpungementTaskCreate(BaseModel):
+    client_id: str
+    description: str
+    priority: str = "Medium"
+    deadline: Optional[str] = None
+    task_title: Optional[str] = None
+    expungement_id: Optional[str] = None
+
 class DocumentGenerationRequest(BaseModel):
     expungement_id: str
     document_type: str
@@ -388,6 +397,57 @@ async def get_expungement_tasks(
         
     except Exception as e:
         logger.error(f"Get expungement tasks error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/tasks")
+async def create_expungement_task(task_request: ExpungementTaskCreate):
+    """Create a legal/expungement task for a client."""
+    try:
+        description = (task_request.description or "").strip()
+        client_id = (task_request.client_id or "").strip()
+        if not description:
+            raise HTTPException(status_code=400, detail="Task description is required")
+        if not client_id:
+            raise HTTPException(status_code=400, detail="Client ID is required")
+
+        expungement_id = task_request.expungement_id
+        if not expungement_id:
+            client_cases = workflow_manager.db.get_expungement_cases(client_id=client_id)
+            expungement_id = client_cases[0].expungement_id if client_cases else f"general-{client_id}"
+
+        priority = (task_request.priority or "Medium").strip().lower()
+        due_date = (task_request.deadline or "").strip()
+        task_title = (task_request.task_title or description[:80]).strip()
+
+        task = ExpungementTask(
+            expungement_id=expungement_id,
+            client_id=client_id,
+            task_type="legal_follow_up",
+            task_title=task_title,
+            task_description=description,
+            priority=priority,
+            status="pending",
+            due_date=due_date,
+            assigned_to="case_manager",
+            assigned_type="staff",
+            created_by="legal-ui",
+        )
+
+        task_id = workflow_manager.db.save_expungement_task(task)
+
+        return {
+            "success": True,
+            "message": "Legal task created successfully",
+            "task": {
+                **task.to_dict(),
+                "task_id": task_id,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Create expungement task error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/tasks/{task_id}")

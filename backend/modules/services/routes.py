@@ -88,6 +88,8 @@ async def api_services_search(
                 'total_count': result['pagination']['total_results'],
                 'pagination': result['pagination'],
                 'source': result['source'],
+                'degraded': result.get('degraded', False),
+                'warning': result.get('warning'),
                 'timestamp': datetime.now().isoformat()
             }
         else:
@@ -145,6 +147,8 @@ async def get_providers(
                 'total_count': result['pagination']['total_results'],
                 'pagination': result['pagination'],
                 'source': result['source'],
+                'degraded': result.get('degraded', False),
+                'warning': result.get('warning'),
                 'timestamp': datetime.now().isoformat()
             }
         else:
