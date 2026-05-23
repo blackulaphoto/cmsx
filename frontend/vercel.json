@@ -4,11 +4,11 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "https://cmsx-production-088d.up.railway.app/api/$1"
+      "source": "/api/:path*",
+      "destination": "https://cmsx-production-088d.up.railway.app/api/:path*"
     },
     {
-      "source": "/((?!api/).*)",
+      "source": "/:path*",
       "destination": "/index.html"
     }
   ]
