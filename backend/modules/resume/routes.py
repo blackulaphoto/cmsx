@@ -17,6 +17,7 @@ CORRECTED Resume Routes - Fixed Database and Import Issues
 import os
 import json
 import logging
+import io
 from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Any, Optional
@@ -30,6 +31,16 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 
 current_dir = Path(__file__).parent
+
+try:
+    from backend.modules.resume.file_processor import ResumeFileProcessor, ResumeTextParser
+except ImportError:
+    from .file_processor import ResumeFileProcessor, ResumeTextParser
+
+try:
+    from backend.modules.resume.generator import OpenAIClient
+except ImportError:
+    from .generator import OpenAIClient
 
 # Import resume models with proper error handling
 try:
@@ -406,6 +417,157 @@ class JobApplicationRequest(BaseModel):
     job_title: str
     company_name: str
     job_description: str = ""
+
+
+def _normalize_imported_resume_profile(parsed_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Map extracted resume content into the frontend employmentProfile shape."""
+    extracted = parsed_data.get("extracted_data", {}) if isinstance(parsed_data, dict) else {}
+    skills = extracted.get("skills", {}) or {}
+
+    work_history = []
+    for exp in extracted.get("work_experience", []) or []:
+        dates = exp.get("dates", "") or ""
+        start_date = ""
+        end_date = ""
+        if " - " in dates:
+            start_date, end_date = [part.strip() for part in dates.split(" - ", 1)]
+        elif dates:
+            start_date = dates.strip()
+
+        work_history.append({
+            "job_title": exp.get("title", "") or "",
+            "company": exp.get("company", "") or "",
+            "start_date": start_date,
+            "end_date": end_date,
+            "description": exp.get("description", "") or "",
+            "achievements": [],
+        })
+
+    education = [{
+        "institution": edu.get("institution", "") or "",
+        "degree": edu.get("degree", "") or "",
+        "graduation_date": edu.get("graduation_year", "") or "",
+    } for edu in extracted.get("education", []) or []]
+
+    certifications = [{
+        "name": cert.get("name", "") or "",
+        "issuer": cert.get("issuer", "") or "",
+        "date_obtained": cert.get("date_obtained", "") or "",
+    } for cert in extracted.get("certifications", []) or []]
+
+    normalized_skills = []
+    technical_skills = [skill for skill in (skills.get("technical", []) or []) if skill]
+    soft_skills = [skill for skill in (skills.get("soft", []) or []) if skill]
+    if technical_skills:
+        normalized_skills.append({"category": "Technical Skills", "skill_list": technical_skills})
+    if soft_skills:
+        normalized_skills.append({"category": "Soft Skills", "skill_list": soft_skills})
+
+    return {
+        "work_history": work_history,
+        "education": education,
+        "skills": normalized_skills,
+        "certifications": certifications,
+        "career_objective": extracted.get("summary", "") or "",
+        "preferred_industries": [],
+        "professional_references": [],
+    }
+
+
+def _ai_rewrite_resume_profile(profile: Dict[str, Any], raw_text: str) -> Dict[str, Any]:
+    """Use OpenAI to clean up imported resume data into the app's profile shape."""
+    try:
+        openai_client = OpenAIClient()
+        if not openai_client.api_key:
+            return profile
+
+        prompt = f"""
+You are rewriting an imported resume into clean structured JSON for a resume builder.
+
+Return JSON only with this exact shape:
+{{
+  "career_objective": "",
+  "work_history": [
+    {{
+      "job_title": "",
+      "company": "",
+      "start_date": "",
+      "end_date": "",
+      "description": "",
+      "achievements": []
+    }}
+  ],
+  "education": [
+    {{
+      "institution": "",
+      "degree": "",
+      "graduation_date": ""
+    }}
+  ],
+  "skills": [
+    {{
+      "category": "",
+      "skill_list": []
+    }}
+  ],
+  "certifications": [
+    {{
+      "name": "",
+      "issuer": "",
+      "date_obtained": ""
+    }}
+  ],
+  "preferred_industries": [],
+  "professional_references": []
+}}
+
+Current structured import:
+{json.dumps(profile)}
+
+Raw resume text:
+{raw_text[:12000]}
+
+Requirements:
+- Rewrite job descriptions into concise professional resume bullet-style prose
+- Keep facts grounded in the source resume
+- Do not invent employers or credentials
+- Improve clarity, grammar, and ATS friendliness
+- Keep dates exactly as found when possible
+"""
+        rewritten = openai_client.chat_completion(
+            messages=[
+                {"role": "system", "content": "You convert extracted resumes into polished structured JSON for a resume builder."},
+                {"role": "user", "content": prompt},
+            ],
+            model="gpt-4o",
+            temperature=0.3,
+            max_tokens=2200,
+        )
+
+        if not rewritten:
+            return profile
+
+        cleaned = rewritten.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return {
+                "work_history": parsed.get("work_history", profile.get("work_history", [])),
+                "education": parsed.get("education", profile.get("education", [])),
+                "skills": parsed.get("skills", profile.get("skills", [])),
+                "certifications": parsed.get("certifications", profile.get("certifications", [])),
+                "career_objective": parsed.get("career_objective", profile.get("career_objective", "")),
+                "preferred_industries": parsed.get("preferred_industries", profile.get("preferred_industries", [])),
+                "professional_references": parsed.get("professional_references", profile.get("professional_references", [])),
+            }
+    except Exception as e:
+        logger.error(f"AI rewrite for imported resume failed: {e}")
+
+    return profile
 
 # Health Check Endpoint - CRITICAL FOR DEBUGGING
 @router.get("/health")
@@ -824,6 +986,83 @@ async def get_employment_profile(client_id: str):
     except Exception as e:
         logger.error(f"Error getting employment profile for {client_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Profile retrieval error: {str(e)}")
+
+
+@router.post("/import")
+async def import_resume_file(
+    resume_file: UploadFile = File(...),
+    client_id: Optional[str] = Query(None),
+    ai_rewrite: bool = Query(True),
+):
+    """Upload an existing resume, extract text, and map it into the builder profile shape."""
+    temp_path = ""
+    try:
+        processor = ResumeFileProcessor()
+        parser = ResumeTextParser()
+
+        file_bytes = await resume_file.read()
+        file_buffer = io.BytesIO(file_bytes)
+        is_valid, validation_error = processor.validate_file(file_buffer, resume_file.filename)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=validation_error)
+
+        file_buffer.seek(0)
+        saved, temp_path, save_message = processor.save_uploaded_file(file_buffer, resume_file.filename)
+        if not saved:
+            raise HTTPException(status_code=500, detail=save_message)
+
+        extracted, text, extraction_error = processor.extract_text_from_file(temp_path)
+        if not extracted or not text.strip():
+            raise HTTPException(status_code=400, detail=extraction_error or "Unable to extract text from uploaded resume")
+
+        parsed_data = parser.parse_resume_text(text)
+        imported_profile = _normalize_imported_resume_profile(parsed_data)
+        if ai_rewrite:
+            imported_profile = _ai_rewrite_resume_profile(imported_profile, text)
+
+        if client_id:
+            try:
+                db = get_employment_db()
+                profile = ClientEmploymentProfile(
+                    client_id=client_id,
+                    work_history=imported_profile.get("work_history", []),
+                    education=imported_profile.get("education", []),
+                    skills=imported_profile.get("skills", []),
+                    certifications=imported_profile.get("certifications", []),
+                    professional_references=imported_profile.get("professional_references", []),
+                    career_objective=imported_profile.get("career_objective", ""),
+                    preferred_industries=imported_profile.get("preferred_industries", []),
+                )
+                existing_profile = db.profiles.get_profile_by_client(client_id)
+                if existing_profile:
+                    profile.profile_id = getattr(existing_profile, "profile_id", None)
+                    db.profiles.update_profile(profile)
+                else:
+                    db.profiles.create_profile(profile)
+            except Exception as e:
+                logger.error(f"Failed to persist imported resume profile for {client_id}: {e}")
+
+        return {
+            "success": True,
+            "profile": imported_profile,
+            "raw_text": text,
+            "extraction_summary": parsed_data.get("extraction_summary", {}),
+            "ai_rewrite_applied": bool(ai_rewrite),
+            "filename": resume_file.filename,
+            "client_id": client_id,
+            "message": "Resume imported successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Resume import failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Resume import error: {str(e)}")
+    finally:
+        if temp_path:
+            try:
+                ResumeFileProcessor().cleanup_file(temp_path)
+            except Exception:
+                pass
 
 # Fixed PDF Generation Endpoint
 @router.post("/generate-pdf/{resume_id}")

@@ -10,7 +10,7 @@
 // ================================================================
 
 import { useState, useEffect } from 'react'
-import { FileText, Download, Edit, Eye, User, Briefcase, MapPin, Phone, Mail, Star, Plus, Trash2, Save, Target, Search, Zap, Users, Building, Sparkles, Palette } from 'lucide-react'
+import { FileText, Download, Edit, Eye, User, Briefcase, MapPin, Phone, Mail, Star, Plus, Trash2, Save, Target, Search, Zap, Users, Building, Sparkles, Palette, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import PDFService from '../services/pdfService'
 
@@ -113,6 +113,9 @@ function Resume() {
   const [selectedResume, setSelectedResume] = useState(null)
   const [viewingResume, setViewingResume] = useState(null)
   const [autoSaveEnabled, setAutoSaveEnabled] = useState(true)
+  const [resumeImportFile, setResumeImportFile] = useState(null)
+  const [resumeImportSummary, setResumeImportSummary] = useState(null)
+  const [resumeImportMode, setResumeImportMode] = useState('rewrite')
 
   useEffect(() => {
     fetchAvailableClients()
@@ -204,6 +207,54 @@ function Resume() {
       }
     } catch (error) {
       console.error('Error fetching job applications:', error)
+    }
+  }
+
+  const importExistingResume = async () => {
+    const effectiveClient = getEffectiveClient()
+    if (!effectiveClient) {
+      toast.error(guestMode ? 'Please enter guest information first' : 'Please select a client first')
+      return
+    }
+    if (!resumeImportFile) {
+      toast.error('Please choose a resume file first')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const formData = new FormData()
+      formData.append('resume_file', resumeImportFile)
+
+      const query = new URLSearchParams({
+        client_id: effectiveClient.client_id,
+        ai_rewrite: String(resumeImportMode === 'rewrite')
+      })
+
+      const response = await fetch(`/api/resume/import?${query.toString()}`, {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to import resume' }))
+        throw new Error(errorData.detail || 'Failed to import resume')
+      }
+
+      const data = await response.json()
+      if (data.profile) {
+        setEmploymentProfile(prev => ({
+          ...prev,
+          ...data.profile
+        }))
+      }
+      setResumeImportSummary(data.extraction_summary || null)
+      toast.success(data.ai_rewrite_applied ? 'Resume imported and AI rewritten' : 'Resume imported successfully')
+    } catch (error) {
+      toast.error(error.message || 'Resume import failed')
+      console.error('Resume import error:', error)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -817,6 +868,72 @@ function Resume() {
                               {loading ? 'Saving...' : 'Save Profile'}
                             </button>
                           </div>
+                        </div>
+
+                        <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 hover:bg-white/10 transition-all duration-300">
+                          <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+                            <div>
+                              <label className="block text-lg font-medium text-white mb-1 flex items-center gap-2">
+                                <Upload className="h-5 w-5 text-blue-400" />
+                                Import Existing Resume
+                              </label>
+                              <p className="text-sm text-gray-300">
+                                Upload a PDF, DOC, or DOCX resume and populate the builder. AI can also rewrite it into cleaner resume content.
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <select
+                                value={resumeImportMode}
+                                onChange={(e) => setResumeImportMode(e.target.value)}
+                                className="px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white"
+                              >
+                                <option value="rewrite" className="bg-gray-800 text-white">Import + AI rewrite</option>
+                                <option value="populate" className="bg-gray-800 text-white">Import only</option>
+                              </select>
+                              <button
+                                onClick={importExistingResume}
+                                disabled={loading || !resumeImportFile}
+                                className="bg-gradient-to-r from-cyan-500 to-blue-500 text-white px-5 py-3 rounded-xl hover:from-cyan-400 hover:to-blue-400 transition-all duration-300 flex items-center gap-2 font-medium disabled:opacity-50"
+                              >
+                                <Sparkles className="h-4 w-4" />
+                                {loading ? 'Importing...' : 'Import Resume'}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 items-end">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-300 mb-2">Resume file</label>
+                              <input
+                                type="file"
+                                accept=".pdf,.doc,.docx"
+                                onChange={(e) => setResumeImportFile(e.target.files?.[0] || null)}
+                                className="w-full px-4 py-3 bg-white/10 border border-white/20 rounded-xl text-white file:mr-4 file:rounded-lg file:border-0 file:bg-purple-500/30 file:px-4 file:py-2 file:text-white"
+                              />
+                            </div>
+                            {resumeImportFile && (
+                              <div className="text-sm text-cyan-300 bg-cyan-500/10 border border-cyan-500/20 rounded-xl px-4 py-3">
+                                {resumeImportFile.name}
+                              </div>
+                            )}
+                          </div>
+
+                          {resumeImportSummary && (
+                            <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                              <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-gray-200">
+                                Sections: <span className="text-white font-semibold">{resumeImportSummary.sections_found || 0}</span>
+                              </div>
+                              <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-gray-200">
+                                Jobs: <span className="text-white font-semibold">{resumeImportSummary.experience_entries || 0}</span>
+                              </div>
+                              <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-gray-200">
+                                Skills: <span className="text-white font-semibold">{resumeImportSummary.skills_count || 0}</span>
+                              </div>
+                              <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-gray-200">
+                                Education: <span className="text-white font-semibold">{resumeImportSummary.education_entries || 0}</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         {/* Career Objective */}
