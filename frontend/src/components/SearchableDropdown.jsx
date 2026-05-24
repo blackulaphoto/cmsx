@@ -9,7 +9,10 @@ const SearchableDropdown = ({
   displayField,
   showThumbnail = false,
   value = null,
-  className = ""
+  className = "",
+  searchPlaceholder = "Search...",
+  emptyMessage = "No options found",
+  itemKey
 }) => {
   const [isOpen, setIsOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -86,6 +89,11 @@ const SearchableDropdown = ({
     return displayField ? displayField(option) : option.toString()
   }
 
+  const getOptionKey = (option, index) => {
+    if (itemKey) return itemKey(option)
+    return option?.client_id || option?.id || getDisplayText(option) || index
+  }
+
   const DropdownPortal = () => {
     if (!isOpen) return null
 
@@ -107,7 +115,7 @@ const SearchableDropdown = ({
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
-              placeholder="Search clients..."
+              placeholder={searchPlaceholder}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-3 bg-white/10 border border-white/20 rounded-xl focus:ring-2 focus:ring-purple-500/50 focus:border-purple-400/50 text-white placeholder-gray-400 transition-all duration-300 outline-none"
@@ -120,12 +128,15 @@ const SearchableDropdown = ({
           {filteredOptions.length === 0 ? (
             <div className="p-6 text-center text-gray-400">
               <User className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>No clients found matching "{searchTerm}"</p>
+              <p>
+                {emptyMessage}
+                {searchTerm ? ` matching "${searchTerm}"` : ''}
+              </p>
             </div>
           ) : (
             filteredOptions.map((option, index) => (
               <div
-                key={option.client_id || index}
+                key={getOptionKey(option, index)}
                 className="p-4 hover:bg-white/10 cursor-pointer transition-all duration-200 border-b border-white/5 last:border-b-0 group"
                 onClick={() => handleSelect(option)}
               >

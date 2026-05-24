@@ -17,14 +17,16 @@ import { Home, Search, MapPin, DollarSign, Bed, Bath, Users, Star, User, Globe, 
 import toast from 'react-hot-toast'
 import { Link } from 'react-router-dom'
 import ClientSelector from '../components/ClientSelector'
+import SearchableDropdown from '../components/SearchableDropdown'
 import HousingSitesIframe from '../components/HousingSitesIframe'
-import { API_BASE_URL } from '../api/config'
+import { apiFetch } from '../api/config'
 
 function HousingSearch() {
   const [selectedClient, setSelectedClient] = useState(null)
   const [searchResults, setSearchResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [viewMode, setViewMode] = useState('search') // 'search' or 'sites'
+  const [availableCities, setAvailableCities] = useState([])
   const [searchParams, setSearchParams] = useState({
     location: '',
     maxPrice: '',
@@ -32,21 +34,54 @@ function HousingSearch() {
     backgroundFriendly: false
   })
 
+  useEffect(() => {
+    loadHousingCities()
+  }, [])
+
+  const normalizeHousingLocation = (value) => {
+    const cleaned = (value || '').trim()
+    if (!cleaned) return ''
+    return /,\s*[A-Z]{2}$/i.test(cleaned) ? cleaned : `${cleaned}, CA`
+  }
+
+  const loadHousingCities = async () => {
+    try {
+      const response = await apiFetch('/api/housing/cities')
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+      const cityOptions = (data.cities || [])
+        .filter(Boolean)
+        .map((city) => ({
+          id: city,
+          name: city,
+          label: city
+        }))
+
+      setAvailableCities(cityOptions)
+    } catch (error) {
+      console.error('Failed to load housing cities:', error)
+      setAvailableCities([])
+    }
+  }
+
   const searchHousing = async () => {
-    if (!searchParams.location) {
-      toast.error('Please enter a location')
+    const normalizedLocation = normalizeHousingLocation(searchParams.location)
+    if (!normalizedLocation) {
+      toast.error('Please select a city')
       return
     }
 
     setLoading(true)
     try {
-      // Build the correct query string for the working backend API
-      let query = 'apartment rental'
+      let query = `apartments for rent in ${normalizedLocation}`
       if (searchParams.bedrooms) {
-        query += ` ${searchParams.bedrooms} bedroom`
+        query = `${searchParams.bedrooms} bedroom ${query}`
       }
       if (searchParams.maxPrice) {
-        query += ` under ${searchParams.maxPrice}`
+        query += ` under $${searchParams.maxPrice}`
       }
       if (searchParams.backgroundFriendly) {
         query += ' background friendly second chance'
@@ -54,18 +89,17 @@ function HousingSearch() {
       
       const params = new URLSearchParams({
         query: query,
-        location: searchParams.location,
+        location: normalizedLocation,
         background_friendly: searchParams.backgroundFriendly.toString(),
         max_cost: searchParams.maxPrice || '',
         page: '1',
         per_page: '20'
       })
-      
-      const baseUrl = API_BASE_URL ? API_BASE_URL.replace(/\/$/, '') : ''
-      const requestUrl = `${baseUrl}/api/housing/search?${params}`
+
+      const requestUrl = `/api/housing/search?${params}`
       console.log('Housing search request:', requestUrl)
       
-      const response = await fetch(requestUrl, {
+      const response = await apiFetch(requestUrl, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json'
@@ -93,7 +127,7 @@ function HousingSearch() {
           return {
             id: `housing_${index + 1}`,
             title: listing.title || 'Housing Option',
-            address: extractedLocation,
+            address: listing.location || extractedLocation || normalizedLocation,
             price: extractedPrice,
             bedrooms: searchParams.bedrooms || 'See listing',
             bathrooms: 'See listing',
@@ -246,16 +280,30 @@ function HousingSearch() {
                     <label className="block text-sm font-medium text-gray-300 mb-3">
                       Location
                     </label>
-                    <div className="relative">
-                      <MapPin className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                      <input
-                        type="text"
-                        placeholder="City, State or ZIP"
-                        value={searchParams.location}
-                        onChange={(e) => setSearchParams(prev => ({ ...prev, location: e.target.value }))}
-                        className="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
+                    {availableCities.length > 0 ? (
+                      <SearchableDropdown
+                        options={availableCities}
+                        placeholder="Select city..."
+                        onSelect={(city) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(city.name) }))}
+                        displayField={(city) => city.label}
+                        value={availableCities.find((city) => normalizeHousingLocation(city.name) === normalizeHousingLocation(searchParams.location)) || null}
+                        className="w-full"
+                        searchPlaceholder="Search cities..."
+                        emptyMessage="No cities found"
+                        itemKey={(city) => city.id}
                       />
-                    </div>
+                    ) : (
+                      <div className="relative">
+                        <MapPin className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                        <input
+                          type="text"
+                          placeholder="City, State or ZIP"
+                          value={searchParams.location}
+                          onChange={(e) => setSearchParams(prev => ({ ...prev, location: e.target.value }))}
+                          className="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
+                        />
+                      </div>
+                    )}
                   </div>
                   
                   <div>

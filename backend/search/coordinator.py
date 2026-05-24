@@ -12,6 +12,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 import json
 from urllib.parse import urlparse
+import re
 import sqlite3
 from dataclasses import dataclass
 from enum import Enum
@@ -1302,7 +1303,7 @@ class SimpleSearchCoordinator:
             
             # Enhanced query for better job results
             enhanced_query = query
-            if location:
+            if location and location.lower() not in query.lower():
                 enhanced_query = f"{query} {location}"
             
             # Add job-specific keywords to improve relevance
@@ -1693,7 +1694,7 @@ class SimpleSearchCoordinator:
         logger.warning("Falling back to original CSE for housing search")
         
         enhanced_query = f"{query} housing apartment rental"
-        if location:
+        if location and location.lower() not in enhanced_query.lower():
             enhanced_query = f"{enhanced_query} {location}"
             
         try:
@@ -1781,7 +1782,7 @@ class SimpleSearchCoordinator:
 
             def build_openai_housing_response(warning: str) -> Optional[Dict[str, Any]]:
                 openai_payload = self._openai_web_search(query, location, "housing", per_page)
-                openai_results = openai_payload.get("results", [])[:per_page]
+                openai_results = self._filter_housing_results_by_location(openai_payload.get("results", []), location)[:per_page]
                 if not openai_results:
                     return None
 
@@ -1826,6 +1827,7 @@ class SimpleSearchCoordinator:
                 if self.serper_api_key:
                     serper = self._serpapi_paginated_search(self._personal_housing_query(query, location), location, page, per_page)
                     serper_items = self._rank_housing_results_for_direct_listings(serper.get("results", []))
+                    serper_items = self._filter_housing_results_by_location(serper_items, location)
                     housing_listings = [
                         {
                             'title': item.get('title', ''),
@@ -1890,6 +1892,7 @@ class SimpleSearchCoordinator:
                 if self.serper_api_key:
                     serper = self._serpapi_paginated_search(self._personal_housing_query(query, location), location, page, per_page)
                     serper_items = self._rank_housing_results_for_direct_listings(serper.get("results", []))
+                    serper_items = self._filter_housing_results_by_location(serper_items, location)
                     housing_listings = [
                         {
                             'title': item.get('title', ''),
@@ -1949,7 +1952,7 @@ class SimpleSearchCoordinator:
                 }
             
             enhanced_query = query
-            if location:
+            if location and location.lower() not in query.lower():
                 enhanced_query = f"{query} {location}"
             
             # Add housing-specific keywords
@@ -1973,6 +1976,7 @@ class SimpleSearchCoordinator:
                 if self.serper_api_key:
                     serper = self._serpapi_paginated_search(self._personal_housing_query(query, location), location, page, per_page)
                     serper_items = self._rank_housing_results_for_direct_listings(serper.get("results", []))
+                    serper_items = self._filter_housing_results_by_location(serper_items, location)
                     housing_listings = [
                         {
                             'title': item.get('title', ''),
@@ -2045,7 +2049,8 @@ class SimpleSearchCoordinator:
             
             # Format results for housing
             housing_listings = []
-            for item in paginated_results['items']:
+            filtered_google_items = self._filter_housing_results_by_location(paginated_results['items'], location)
+            for item in filtered_google_items:
                 housing_listings.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
@@ -2058,6 +2063,7 @@ class SimpleSearchCoordinator:
             if not housing_listings and self.serper_api_key:
                 serper = self._serpapi_paginated_search(self._personal_housing_query(query, location), location, page, per_page)
                 serper_items = self._rank_housing_results_for_direct_listings(serper.get("results", []))
+                serper_items = self._filter_housing_results_by_location(serper_items, location)
                 housing_listings = [
                     {
                         'title': item.get('title', ''),
@@ -2122,7 +2128,7 @@ class SimpleSearchCoordinator:
         except Exception as e:
             logger.error(f"Housing search error: {e}")
             openai_fallback = self._openai_web_search(query, location, "housing", per_page)
-            openai_results = openai_fallback.get("results", [])[:per_page]
+            openai_results = self._filter_housing_results_by_location(openai_fallback.get("results", []), location)[:per_page]
             if openai_results:
                 housing_listings = []
                 for item in openai_results:
@@ -2179,7 +2185,8 @@ class SimpleSearchCoordinator:
             
             # Format results
             housing_listings = []
-            for item in paginated_results['items']:
+            filtered_fallback_items = self._filter_housing_results_by_location(paginated_results['items'], location)
+            for item in filtered_fallback_items:
                 housing_listings.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
@@ -2353,6 +2360,41 @@ class SimpleSearchCoordinator:
 
         scored_items.sort(key=lambda pair: pair[0], reverse=True)
         return [item for _, item in scored_items]
+
+    def _filter_housing_results_by_location(self, items: List[Dict[str, Any]], location: Optional[str]) -> List[Dict[str, Any]]:
+        """Keep housing results aligned with the requested location when result text exposes city or ZIP."""
+        if not items or not location:
+            return items
+
+        requested_location = location.strip().lower()
+        requested_city = requested_location.split(",")[0].strip()
+        zip_match = re.search(r"\b\d{5}\b", requested_location)
+        requested_zip = zip_match.group(0) if zip_match else ""
+
+        matched_items: List[Dict[str, Any]] = []
+        for item in items:
+            searchable_text = " ".join(
+                filter(
+                    None,
+                    [
+                        str(item.get("title", "")),
+                        str(item.get("snippet", "")),
+                        str(item.get("description", "")),
+                        str(item.get("link", "")),
+                    ],
+                )
+            ).lower()
+
+            if requested_location in searchable_text:
+                matched_items.append(item)
+                continue
+            if requested_city and requested_city in searchable_text:
+                matched_items.append(item)
+                continue
+            if requested_zip and requested_zip in searchable_text:
+                matched_items.append(item)
+
+        return matched_items or items
 
     def _serpapi_paginated_search(self, query: str, location: Optional[str], page: int, per_page: int) -> Dict[str, Any]:
         """Fetch more than 10 SerpAPI results by paging with start offsets."""
