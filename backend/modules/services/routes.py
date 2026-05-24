@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Services Routes - Updated to use simple search system that works
+Services Routes - Integrated with Virgil St database, fallback to external APIs
 """
 
 from fastapi import APIRouter, HTTPException, Request, Depends, Query, Body
@@ -12,6 +12,8 @@ from datetime import datetime
 
 # Import the guide-compliant search system
 from backend.search.coordinator import get_coordinator, SearchType
+# Import Virgil St database service
+from backend.modules.services.virgil_db_service import get_virgil_db
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +30,11 @@ class ServiceSearch(BaseModel):
 async def services_api_info():
     """Services API information"""
     return {
-        "message": "Services API Ready - Using Simple Search System",
-        "version": "2.0",
-        "search_system": "simple_direct_api",
-        "status": "operational"
+        "message": "Services API Ready - Integrated Virgil St Database + External APIs",
+        "version": "3.0",
+        "search_system": "virgil_st_db_with_fallback",
+        "status": "operational",
+        "database_records": "~4200 local services (resources, treatment centers, providers, meetings)"
     }
 
 @router.get("/search")
@@ -44,7 +47,7 @@ async def api_services_search(
     page: int = Query(1, description="Page number (starts from 1)", ge=1),
     per_page: int = Query(10, description="Results per page (max 30)", ge=1, le=30)
 ):
-    """Simple, working services search using direct API calls with pagination"""
+    """Services search using Virgil St database first, fallback to external APIs"""
     try:
         # Handle both GET and POST requests
         if search_data:
@@ -53,7 +56,7 @@ async def api_services_search(
         else:
             search_query = search or service_type or "services"
             location_param = location or "Los Angeles, CA"
-        
+
         if not search_query:
             return {
                 'success': False,
@@ -71,16 +74,38 @@ async def api_services_search(
                     "end_index": 0
                 }
             }
-        
+
         logger.info(f"Services Search: '{search_query}' in '{location_param}' (page {page}, per_page {per_page})")
-        
-        # Use the new paginated search coordinator
+
+        # STEP 1: Try Virgil St database first (fast, local, comprehensive)
+        try:
+            virgil_db = get_virgil_db()
+            db_result = virgil_db.search_services(search_query, location_param, page, per_page)
+
+            if db_result['success'] and db_result['total_count'] > 0:
+                logger.info(f"Virgil St DB found {db_result['total_count']} services")
+                return {
+                    'success': True,
+                    'service_providers': db_result['results'],
+                    'total_count': db_result['total_count'],
+                    'pagination': db_result['pagination'],
+                    'source': db_result['source'],
+                    'degraded': False,
+                    'warning': None,
+                    'timestamp': datetime.now().isoformat()
+                }
+            else:
+                logger.info("Virgil St DB returned no results, falling back to external APIs")
+        except Exception as db_error:
+            logger.warning(f"Virgil St DB search failed, falling back to external APIs: {db_error}")
+
+        # STEP 2: Fallback to external APIs if database returns no results
         coordinator = get_coordinator()
         result = await coordinator.search_services(search_query, location_param, page, per_page)
-        
+
         if result['success']:
-            logger.info(f"Services search result: {result['pagination']['total_results']} total providers, page {page}")
-            
+            logger.info(f"External API search result: {result['pagination']['total_results']} total providers, page {page}")
+
             # Format response to match expected structure
             return {
                 'success': True,
@@ -89,7 +114,7 @@ async def api_services_search(
                 'pagination': result['pagination'],
                 'source': result['source'],
                 'degraded': result.get('degraded', False),
-                'warning': result.get('warning'),
+                'warning': result.get('warning') or 'No local database matches found, showing external API results',
                 'timestamp': datetime.now().isoformat()
             }
         else:
@@ -110,7 +135,7 @@ async def api_services_search(
                     "end_index": 0
                 })
             }
-        
+
     except Exception as e:
         logger.error(f"Services search error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -132,14 +157,33 @@ async def get_providers(
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=1, le=30)
 ):
-    """Get service providers"""
+    """Get service providers from Virgil St database first, then external APIs"""
     try:
         search_query = service_type or "social services"
-        
-        # Use the search coordinator
+
+        # Try Virgil St database first
+        try:
+            virgil_db = get_virgil_db()
+            db_result = virgil_db.search_services(search_query, location, page, per_page)
+
+            if db_result['success'] and db_result['total_count'] > 0:
+                return {
+                    'success': True,
+                    'providers': db_result['results'],
+                    'total_count': db_result['total_count'],
+                    'pagination': db_result['pagination'],
+                    'source': db_result['source'],
+                    'degraded': False,
+                    'warning': None,
+                    'timestamp': datetime.now().isoformat()
+                }
+        except Exception as db_error:
+            logger.warning(f"Virgil St DB failed, using external APIs: {db_error}")
+
+        # Fallback to external APIs
         coordinator = get_coordinator()
         result = await coordinator.search_services(search_query, location, page, per_page)
-        
+
         if result['success']:
             return {
                 'success': True,
