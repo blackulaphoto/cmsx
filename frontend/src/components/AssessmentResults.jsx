@@ -28,8 +28,8 @@ const AssessmentResults = ({
           borderColor: 'border-green-200',
           textColor: 'text-green-800',
           iconColor: 'text-green-600',
-          title: 'Eligible',
-          description: 'You qualify for this program'
+          title: 'Likely Match',
+          description: 'Screening suggests this program is a strong fit'
         }
       case 'partially_eligible':
         return {
@@ -39,8 +39,8 @@ const AssessmentResults = ({
           borderColor: 'border-yellow-200',
           textColor: 'text-yellow-800',
           iconColor: 'text-yellow-600',
-          title: 'Partially Eligible',
-          description: 'Additional information may be needed'
+          title: 'Possible Match',
+          description: 'Additional information may change the screening result'
         }
       case 'not_eligible':
         return {
@@ -50,8 +50,8 @@ const AssessmentResults = ({
           borderColor: 'border-red-200',
           textColor: 'text-red-800',
           iconColor: 'text-red-600',
-          title: 'Not Eligible',
-          description: 'You do not currently qualify'
+          title: 'Unlikely Match',
+          description: 'Current answers do not show a strong likely match'
         }
       default:
         return {
@@ -129,7 +129,7 @@ const AssessmentResults = ({
               {statusConfig.description}
             </p>
             <p className="text-sm text-gray-600 mt-1">
-              Confidence Score: {assessmentResult.confidence_score.toFixed(1)}%
+              Screening Confidence: {assessmentResult.confidence_score.toFixed(1)}%
             </p>
           </div>
         </div>

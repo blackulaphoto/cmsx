@@ -5,6 +5,7 @@ import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
 import BenefitsAssessmentModal from '../components/BenefitsAssessmentModal'
 import AssessmentResults from '../components/AssessmentResults'
+import { apiFetch } from '../api/config'
 import toast from 'react-hot-toast'
 
 function Benefits() {
@@ -65,7 +66,7 @@ function Benefits() {
 
   const fetchApplications = async () => {
     try {
-      const response = await fetch('/api/benefits/applications')
+      const response = await apiFetch('/api/benefits/applications')
       if (response.ok) {
         const data = await response.json()
         setApplications(data.applications || [])
@@ -155,7 +156,7 @@ function Benefits() {
       [selectedProgram]: assessmentResult
     }))
     
-    toast.success(`Assessment completed for ${selectedProgram}`)
+    toast.success(`Screening completed for ${selectedProgram}`)
     setShowAssessmentModal(false)
   }
 
@@ -167,7 +168,7 @@ function Benefits() {
     }
     
     if (assessment.eligibility_status !== 'eligible') {
-      toast.error('Assessment shows you may not be eligible. Please consult with a case manager.')
+      toast.error('This screening does not show a strong likely match yet. Review the details before starting an application.')
       return
     }
     
@@ -187,7 +188,7 @@ function Benefits() {
     }
 
     try {
-      const response = await fetch('/api/benefits/start-application', {
+      const response = await apiFetch('/api/benefits/start-application', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -200,9 +201,9 @@ function Benefits() {
       })
 
       if (response.ok) {
-        const data = await response.json()
         toast.success(`${benefitType} application started!`)
-        fetchApplications() // Refresh applications list
+        await fetchApplications()
+        setActiveTab('applications')
       } else {
         throw new Error('Application start failed')
       }
@@ -300,8 +301,8 @@ function Benefits() {
 
   const stats = [
     { icon: FileText, label: 'Active Applications', value: applications.length.toString(), variant: 'primary' },
-    { icon: CheckCircle, label: 'Approved', value: applications.filter(app => app.status === 'approved').length.toString(), variant: 'success' },
-    { icon: Clock, label: 'Pending', value: applications.filter(app => app.status === 'pending').length.toString(), variant: 'warning' },
+    { icon: CheckCircle, label: 'Approved', value: applications.filter(app => app.application_status === 'approved').length.toString(), variant: 'success' },
+    { icon: Clock, label: 'Pending', value: applications.filter(app => app.application_status === 'pending').length.toString(), variant: 'warning' },
     { icon: DollarSign, label: 'Monthly Benefits', value: '$1,240', variant: 'secondary' },
   ]
 
@@ -326,7 +327,7 @@ function Benefits() {
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-pink-200 to-rose-200 bg-clip-text text-transparent">
                   Benefits & Support
                 </h1>
-                <p className="text-gray-300 text-lg">Access to government benefits and support services</p>
+                <p className="text-gray-300 text-lg">Preliminary benefits screening and application tracking</p>
               </div>
             </div>
           </div>
@@ -368,7 +369,7 @@ function Benefits() {
               {[
                 { id: 'overview', label: 'Overview', icon: Heart, gradient: 'from-pink-500 to-rose-500' },
                 { id: 'assessment', label: 'Disability Assessment', icon: FileText, gradient: 'from-blue-500 to-cyan-500' },
-                { id: 'eligibility', label: 'Eligibility Check', icon: CheckCircle, gradient: 'from-emerald-500 to-green-500' },
+                { id: 'eligibility', label: 'Benefits Screening', icon: CheckCircle, gradient: 'from-emerald-500 to-green-500' },
                 { id: 'applications', label: 'Applications', icon: Clock, gradient: 'from-orange-500 to-amber-500' }
               ].map((tab) => (
                 <button
@@ -405,6 +406,10 @@ function Benefits() {
                     </div>
                     <h2 className="text-2xl font-bold text-white">Available Benefit Programs</h2>
                   </div>
+
+                  <div className="mb-6 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                    These program surveys are preliminary screenings only. They help case managers identify likely matches and missing information, but they are not final eligibility determinations by the agency.
+                  </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {benefitPrograms.map((program, index) => {
@@ -439,7 +444,7 @@ function Benefits() {
                               className={`group/btn w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r ${program.gradient} hover:from-pink-500 hover:to-rose-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-pink-500/25`}
                             >
                               <Search className="h-5 w-5 group-hover/btn:scale-110 transition-transform duration-300" />
-                              Check Eligibility
+                              Start Screening
                             </button>
                           ) : isEligible ? (
                             <button
@@ -455,7 +460,7 @@ function Benefits() {
                               className="group/btn w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-gray-500 to-gray-600 hover:from-gray-600 hover:to-gray-700 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-gray-500/25 mt-3"
                             >
                               <Search className="h-5 w-5 group-hover/btn:scale-110 transition-transform duration-300" />
-                              Retake Assessment
+                              Retake Screening
                             </button>
                           )}
                         </div>
@@ -753,14 +758,18 @@ function Benefits() {
                 </div>
               )}
 
-              {/* Eligibility Check Tab */}
+              {/* Benefits Screening Tab */}
               {activeTab === 'eligibility' && (
                 <div>
                   <div className="flex items-center gap-3 mb-8">
                     <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg">
                       <CheckCircle className="h-6 w-6 text-white" />
                     </div>
-                    <h2 className="text-2xl font-bold text-white">Benefits Eligibility Check</h2>
+                    <h2 className="text-2xl font-bold text-white">Benefits Screening</h2>
+                  </div>
+
+                  <div className="mb-6 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+                    Use this quick screening to estimate likely benefit matches. Final approval depends on agency review, verification, and current program rules.
                   </div>
                   
                   <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-8 border border-white/20 mb-8">
@@ -846,7 +855,7 @@ function Benefits() {
                       <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
                         <Search className="h-5 w-5" />
                       </div>
-                      {loading ? 'Checking Eligibility...' : 'Check Eligibility'}
+                      {loading ? 'Running Screening...' : 'Run Screening'}
                     </button>
                   </div>
 
@@ -857,7 +866,7 @@ function Benefits() {
                         <div className="p-2 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg">
                           <CheckCircle className="h-5 w-5 text-white" />
                         </div>
-                        <h3 className="text-xl font-bold text-green-200">Eligibility Results</h3>
+                        <h3 className="text-xl font-bold text-green-200">Screening Results</h3>
                       </div>
                       <div className="space-y-4">
                         {eligibilityResults.eligible_programs?.map((program, index) => (
@@ -909,14 +918,14 @@ function Benefits() {
                           <div className="flex items-center justify-between mb-4">
                             <h3 className="text-xl font-bold text-white group-hover:text-orange-200 transition-colors">{app.benefit_type}</h3>
                             <span className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                              app.status === 'approved' ? 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-300 border-green-500/30' :
-                              app.status === 'pending' ? 'bg-gradient-to-r from-yellow-500/20 to-amber-500/20 text-yellow-300 border-yellow-500/30' :
+                              app.application_status === 'approved' ? 'bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-300 border-green-500/30' :
+                              app.application_status === 'pending' ? 'bg-gradient-to-r from-yellow-500/20 to-amber-500/20 text-yellow-300 border-yellow-500/30' :
                               'bg-gradient-to-r from-red-500/20 to-pink-500/20 text-red-300 border-red-500/30'
                             }`}>
-                              {app.status}
+                              {app.application_status || 'pending'}
                             </span>
                           </div>
-                          <p className="text-orange-400 font-semibold mb-2">Client: {app.client_id}</p>
+                          <p className="text-orange-400 font-semibold mb-2">Client: {app.client_name || app.client_id}</p>
                           <p className="text-gray-300 mb-2">Applied: {new Date(app.created_at).toLocaleDateString()}</p>
                           {app.notes && <p className="text-gray-300">Notes: {app.notes}</p>}
                         </div>

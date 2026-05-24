@@ -62,11 +62,11 @@ const BenefitsAssessmentModal = ({
       if (data.success) {
         setQuestions(data.questions)
       } else {
-        setError('Failed to load assessment questions')
+        setError('Failed to load screening questions')
       }
     } catch (err) {
       console.error('Error loading questions:', err)
-      setError('Failed to load assessment questions')
+      setError('Failed to load screening questions')
     } finally {
       setLoading(false)
     }
@@ -131,11 +131,11 @@ const BenefitsAssessmentModal = ({
           onAssessmentComplete(data.assessment_result)
         }
       } else {
-        setError('Assessment failed. Please try again.')
+        setError('Screening failed. Please try again.')
       }
     } catch (err) {
       console.error('Error submitting assessment:', err)
-      setError('Assessment failed. Please try again.')
+      setError('Screening failed. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -278,11 +278,11 @@ const BenefitsAssessmentModal = ({
   const getEligibilityTitle = (status) => {
     switch (status) {
       case 'eligible':
-        return 'Eligible'
+        return 'Likely Match'
       case 'partially_eligible':
-        return 'Partially Eligible'
+        return 'Possible Match'
       case 'not_eligible':
-        return 'Not Eligible'
+        return 'Unlikely Match'
       default:
         return 'Needs Review'
     }
@@ -297,7 +297,7 @@ const BenefitsAssessmentModal = ({
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 px-6 py-4 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-xl font-bold">Benefits Eligibility Assessment</h2>
+              <h2 className="text-xl font-bold">Benefits Screening Assessment</h2>
               <p className="text-blue-100 mt-1">{program}</p>
               {selectedClient && (
                 <p className="text-blue-200 text-sm mt-1">
@@ -320,7 +320,7 @@ const BenefitsAssessmentModal = ({
             <div className="flex items-center justify-center py-20">
               <div className="text-center">
                 <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
-                <p className="text-gray-600">Loading assessment questions...</p>
+                <p className="text-gray-600">Loading screening questions...</p>
               </div>
             </div>
           )}
@@ -407,12 +407,12 @@ const BenefitsAssessmentModal = ({
                       {loading ? (
                         <>
                           <Loader2 className="h-4 w-4 animate-spin" />
-                          <span>Assessing...</span>
+                          <span>Running Screening...</span>
                         </>
                       ) : (
                         <>
                           <CheckCircle className="h-4 w-4" />
-                          <span>Complete Assessment</span>
+                          <span>Complete Screening</span>
                         </>
                       )}
                     </button>
@@ -443,7 +443,7 @@ const BenefitsAssessmentModal = ({
                       {getEligibilityTitle(assessmentResult.eligibility_status)}
                     </h3>
                     <p className="text-sm opacity-80 mt-1">
-                      Confidence Score: {assessmentResult.confidence_score.toFixed(1)}%
+                      Screening Confidence: {assessmentResult.confidence_score.toFixed(1)}%
                     </p>
                   </div>
                 </div>
@@ -572,12 +572,12 @@ const BenefitsAssessmentModal = ({
 
               {/* Action Buttons */}
               <div className="flex items-center justify-between pt-6 border-t border-gray-200">
-                <button
-                  onClick={onClose}
-                  className="px-6 py-3 text-gray-600 hover:text-gray-800 font-medium"
-                >
-                  Close Assessment
-                </button>
+                  <button
+                    onClick={onClose}
+                    className="px-6 py-3 text-gray-600 hover:text-gray-800 font-medium"
+                  >
+                  Close Screening
+                  </button>
                 
                 <div className="flex space-x-3">
                   {assessmentResult.eligibility_status === 'eligible' && (
@@ -603,7 +603,7 @@ const BenefitsAssessmentModal = ({
                     }}
                     className="flex items-center space-x-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl hover:from-blue-600 hover:to-purple-600 font-medium"
                   >
-                    <span>Retake Assessment</span>
+                    <span>Retake Screening</span>
                   </button>
                 </div>
               </div>
