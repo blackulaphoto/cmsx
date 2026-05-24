@@ -1110,6 +1110,323 @@ class SimpleSearchCoordinator:
                 return state_hits
 
         return [] if strict else items
+
+    def _rank_job_results_for_exact_relevance(
+        self,
+        items: List[Dict[str, Any]],
+        query: str,
+        location: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        """Prefer exact job matches and real employer/application pages over generic listings."""
+        if not items:
+            return items
+
+        query_terms = [
+            term for term in re.findall(r"[a-z0-9]+", (query or "").lower())
+            if term not in {"jobs", "job", "hiring", "employment", "career", "position", "in", "the", "for", "and"}
+        ]
+        requested_city = (location or "").split(",")[0].strip().lower()
+
+        employer_domains = [
+            "myworkdayjobs.com",
+            "icims.com",
+            "lever.co",
+            "greenhouse.io",
+            "workforcenow.adp.com",
+            "smartrecruiters.com",
+        ]
+        aggregator_domains = [
+            "indeed.com",
+            "linkedin.com",
+            "glassdoor.com",
+            "ziprecruiter.com",
+            "monster.com",
+            "careerbuilder.com",
+            "simplyhired.com",
+            "jooble.org",
+            "lensa.com",
+            "talent.com",
+            "jobcase.com",
+            "adzuna.com",
+        ]
+
+        scored_items = []
+        for item in items:
+            link = item.get("link", "") or item.get("url", "")
+            hostname = (urlparse(link).hostname or "").lower()
+            title = (item.get("title") or "").lower()
+            snippet = (item.get("snippet") or item.get("description") or "").lower()
+            company = (item.get("company_name") or item.get("company") or "").lower()
+            combined = f"{title} {snippet} {company}"
+            path = (urlparse(link).path or "").lower()
+
+            score = 0
+            for term in query_terms:
+                if term in title:
+                    score += 10
+                elif term in combined:
+                    score += 3
+
+            if requested_city and requested_city in combined:
+                score += 8
+
+            if any(hostname.endswith(domain) for domain in employer_domains):
+                score += 18
+            if any(hostname.endswith(domain) for domain in aggregator_domains):
+                score -= 4
+
+            if any(marker in path for marker in ["/job", "/jobs", "/careers", "/career", "/apply", "/position"]):
+                score += 6
+            if any(marker in path for marker in ["/browse", "/company", "/companies", "/salaries"]):
+                score -= 8
+
+            if "no experience" in combined or "entry level" in combined:
+                score += 3
+
+            scored_items.append((score, item))
+
+        scored_items.sort(key=lambda pair: pair[0], reverse=True)
+        return [item for _, item in scored_items]
+
+    def _rank_service_results_for_direct_providers(
+        self,
+        items: List[Dict[str, Any]],
+        query: str,
+        location: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        """Prefer direct provider and official organization pages over directories and listicles."""
+        if not items:
+            return items
+
+        query_terms = [
+            term for term in re.findall(r"[a-z0-9]+", (query or "").lower())
+            if term not in {"in", "near", "for", "and", "the", "services", "service", "help", "assistance"}
+        ]
+        requested_city = (location or "").split(",")[0].strip().lower()
+
+        preferred_domains = [
+            "lacounty.gov",
+            "ca.gov",
+            "211la.org",
+            "211.org",
+        ]
+        penalized_domains = [
+            "yelp.com",
+            "findhelp.org",
+            "psychologytoday.com",
+            "recovery.com",
+            "rehabs.com",
+            "addictions.com",
+            "expertise.com",
+            "mapquest.com",
+        ]
+        generic_title_markers = [
+            "best ",
+            "top ",
+            "near me",
+            "directory",
+            "list of",
+            "find ",
+            "compare ",
+        ]
+
+        scored_items = []
+        for item in items:
+            link = item.get("link", "")
+            hostname = (urlparse(link).hostname or "").lower()
+            title = (item.get("title") or "").lower()
+            snippet = (item.get("snippet") or item.get("description") or "").lower()
+            combined = f"{title} {snippet}"
+
+            score = 0
+
+            if hostname.endswith(".gov") or hostname.endswith(".org"):
+                score += 18
+            if any(hostname.endswith(domain) for domain in preferred_domains):
+                score += 20
+            if any(hostname.endswith(domain) for domain in penalized_domains):
+                score -= 25
+
+            if any(marker in title for marker in generic_title_markers):
+                score -= 15
+            if any(marker in snippet for marker in generic_title_markers):
+                score -= 8
+
+            provider_markers = ["clinic", "center", "services", "program", "foundation", "mission", "hospital", "housing", "agency"]
+            if any(marker in title for marker in provider_markers):
+                score += 10
+            if requested_city and requested_city in combined:
+                score += 12
+
+            for term in query_terms:
+                if term in title:
+                    score += 6
+                elif term in combined:
+                    score += 2
+
+            scored_items.append((score, item))
+
+        scored_items.sort(key=lambda pair: pair[0], reverse=True)
+        return [item for _, item in scored_items]
+
+    def _filter_service_results_by_location(self, items: List[Dict[str, Any]], location: Optional[str]) -> List[Dict[str, Any]]:
+        """Prefer service results that mention the requested city or ZIP when present."""
+        if not items or not location:
+            return items
+
+        requested_location = location.strip().lower()
+        requested_city = requested_location.split(",")[0].strip()
+        zip_match = re.search(r"\b\d{5}\b", requested_location)
+        requested_zip = zip_match.group(0) if zip_match else ""
+
+        filtered: List[Dict[str, Any]] = []
+        for item in items:
+            searchable_text = " ".join(
+                filter(
+                    None,
+                    [
+                        str(item.get("title", "")),
+                        str(item.get("snippet", "")),
+                        str(item.get("description", "")),
+                        str(item.get("link", "")),
+                    ],
+                )
+            ).lower()
+
+            if requested_location in searchable_text:
+                filtered.append(item)
+                continue
+            if requested_city and requested_city in searchable_text:
+                filtered.append(item)
+                continue
+            if requested_zip and requested_zip in searchable_text:
+                filtered.append(item)
+
+        return filtered or items
+
+    def _build_service_search_query(self, query: str, location: Optional[str]) -> str:
+        """Expand service queries with category-aware terms for better provider retrieval."""
+        base_query = (query or "services").strip()
+        normalized = base_query.lower()
+        location_suffix = f" {location}" if location and location.lower() not in normalized else ""
+
+        profiles = [
+            (
+                {"dental", "dentist", "teeth", "tooth", "oral"},
+                "dental clinic low cost sliding scale medi-cal dentist community health center",
+            ),
+            (
+                {"std", "sti", "hiv", "sexual health", "testing"},
+                "std testing sti clinic hiv testing sexual health clinic free low cost public health",
+            ),
+            (
+                {"mental health", "therapy", "therapist", "psychiatry", "counseling", "depression", "anxiety"},
+                "mental health clinic counseling therapy psychiatrist medi-cal community services",
+            ),
+            (
+                {"substance", "detox", "rehab", "recovery", "sober", "mat"},
+                "substance use treatment detox rehab recovery clinic outpatient residential medi-cal",
+            ),
+            (
+                {"housing", "shelter", "homeless", "rbh", "transitional"},
+                "housing assistance shelter bridge housing transitional housing rapid rehousing coordinated entry",
+            ),
+            (
+                {"benefits", "calfresh", "snap", "medi-cal", "wic", "tanf", "gr"},
+                "benefits enrollment dpSS calfresh medi-cal application help caseworker community center",
+            ),
+            (
+                {"legal", "expungement", "court", "probation", "record", "immigration"},
+                "legal aid expungement clinic public defender reentry legal services nonprofit",
+            ),
+            (
+                {"id", "identification", "license", "birth certificate", "documents"},
+                "id assistance document assistance birth certificate dmv help reentry services",
+            ),
+            (
+                {"food", "pantry", "meals", "groceries"},
+                "food pantry meal program groceries assistance distribution community center",
+            ),
+            (
+                {"transportation", "bus", "metro", "transit"},
+                "transportation assistance bus pass metro transit mobility services",
+            ),
+            (
+                {"employment", "job", "resume", "workforce", "training"},
+                "employment services workforce development job training career center reentry employment",
+            ),
+        ]
+
+        extra_terms = "community services nonprofit clinic assistance"
+        for triggers, terms in profiles:
+            if any(trigger in normalized for trigger in triggers):
+                extra_terms = terms
+                break
+
+        return f"{base_query}{location_suffix} {extra_terms}".strip()
+
+    def _extract_contact_details(self, item: Dict[str, Any]) -> Dict[str, str]:
+        """Infer phone/address details from result text when explicit fields are unavailable."""
+        title = str(item.get("title", ""))
+        snippet = str(item.get("snippet", "") or item.get("description", ""))
+        combined = f"{title} {snippet}"
+
+        phone_match = re.search(r"(\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4})", combined)
+        address_match = re.search(
+            r"(\d{2,6}\s+[A-Za-z0-9.\-\s]+(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Way|Ln|Lane|Ct|Court|Pl|Place)\b[^.,;]*,?\s*[A-Za-z\s]+,\s*CA(?:\s+\d{5})?)",
+            combined,
+            re.IGNORECASE,
+        )
+
+        return {
+            "phone": phone_match.group(1) if phone_match else "",
+            "address": address_match.group(1).strip() if address_match else "",
+        }
+
+    def _infer_service_type(self, query: str, item: Dict[str, Any]) -> str:
+        combined = f"{query} {item.get('title', '')} {item.get('snippet', '')} {item.get('description', '')}".lower()
+        service_types = [
+            ("Dental", ["dental", "dentist", "oral"]),
+            ("STD Testing", ["std", "sti", "hiv", "sexual health"]),
+            ("Mental Health", ["mental health", "therapy", "therapist", "counseling", "psychiatry"]),
+            ("Substance Use", ["substance", "detox", "rehab", "recovery", "sober", "mat"]),
+            ("Housing", ["housing", "shelter", "homeless", "rbh", "rapid rehousing"]),
+            ("Benefits", ["benefits", "calfresh", "snap", "medi-cal", "wic", "tanf", "gr"]),
+            ("Legal", ["legal", "expungement", "court", "probation", "immigration"]),
+            ("Food", ["food", "pantry", "meal", "groceries"]),
+            ("Transportation", ["transportation", "bus", "metro", "transit"]),
+            ("Employment", ["employment", "job", "resume", "training", "workforce"]),
+        ]
+        for label, terms in service_types:
+            if any(term in combined for term in terms):
+                return label
+        return "General Services"
+
+    def _build_service_match_reason(self, query: str, item: Dict[str, Any], location: Optional[str]) -> str:
+        title = (item.get("title") or "").lower()
+        snippet = (item.get("snippet") or item.get("description") or "").lower()
+        query_terms = [
+            term for term in re.findall(r"[a-z0-9]+", (query or "").lower())
+            if term not in {"services", "service", "help", "assistance", "near", "in", "the", "for"}
+        ]
+        matched_terms = [term for term in query_terms if term in title or term in snippet]
+        requested_city = (location or "").split(",")[0].strip().lower()
+        location_hit = requested_city and requested_city in f"{title} {snippet}"
+
+        reasons: List[str] = []
+        if matched_terms:
+            reasons.append(f"matches {', '.join(matched_terms[:3])}")
+        if location_hit:
+            reasons.append(f"mentions {requested_city.title()}")
+
+        hostname = (urlparse(item.get("link", "")).hostname or "").lower()
+        if hostname.endswith(".gov") or hostname.endswith(".org"):
+            reasons.append("provider or official organization page")
+
+        if not reasons:
+            reasons.append("best provider-style match from current search results")
+
+        return "; ".join(reasons)
     
     async def search_jobs(self, query: str, location: str = None, page: int = 1, per_page: int = 10):
         """Search for jobs using dedicated Jobs CSE with pagination support"""
@@ -1124,6 +1441,7 @@ class SimpleSearchCoordinator:
                 job_query = f"{query} jobs hiring{location_phrase}"
                 serp_jobs = self._serpapi_jobs_search(job_query, location, page, per_page)
                 serp_results = self._filter_job_results_by_location(serp_jobs.get("results", []), location, strict=False)
+                serp_results = self._rank_job_results_for_exact_relevance(serp_results, query, location)
                 job_results = []
                 seen_links = set()
                 for item in serp_results:
@@ -1163,6 +1481,7 @@ class SimpleSearchCoordinator:
                     serp_fallback = self._serpapi_paginated_search(job_query, location, page, per_page)
                     serp_items = self._filter_job_results(serp_fallback.get("results", []))
                     serp_items = self._filter_job_results_by_location(serp_items, location, strict=True)
+                    serp_items = self._rank_job_results_for_exact_relevance(serp_items, query, location)
                     for item in serp_items:
                         link = item.get('link', '')
                         if link and link in seen_links:
@@ -1196,6 +1515,7 @@ class SimpleSearchCoordinator:
                     serp_fallback = self._serpapi_paginated_search(job_query, "California", page, per_page)
                     serp_items = self._filter_job_results(serp_fallback.get("results", []))
                     serp_items = self._filter_job_results_by_location(serp_items, "CA", strict=True)
+                    serp_items = self._rank_job_results_for_exact_relevance(serp_items, query, location)
                     for item in serp_items:
                         link = item.get('link', '')
                         if link and link in seen_links:
@@ -1246,6 +1566,7 @@ class SimpleSearchCoordinator:
                 serper_payload = self._serpapi_paginated_search(job_query, location, page, per_page)
                 serper_results = self._filter_job_results(serper_payload.get("results", []))
                 serper_results = self._filter_job_results_by_location(serper_results, location, strict=False)
+                serper_results = self._rank_job_results_for_exact_relevance(serper_results, query, location)
                 if serper_results:
                     job_results = []
                     for item in serper_results:
@@ -1324,6 +1645,7 @@ class SimpleSearchCoordinator:
             formatted_results = []
             filtered_items = self._filter_job_results(paginated_results.get('items', []))
             filtered_items = self._filter_job_results_by_location(filtered_items, location, strict=False)
+            filtered_items = self._rank_job_results_for_exact_relevance(filtered_items, query, location)
             for item in filtered_items:
                 formatted_results.append({
                     'title': item.get('title', ''),
@@ -1383,7 +1705,8 @@ class SimpleSearchCoordinator:
             
             # Format results
             formatted_results = []
-            for item in paginated_results['items']:
+            ranked_items = self._rank_job_results_for_exact_relevance(paginated_results['items'], query, location)
+            for item in ranked_items:
                 formatted_results.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
@@ -1446,21 +1769,24 @@ class SimpleSearchCoordinator:
             per_page = min(max(1, per_page), 40)  # Limit per_page between 1 and 40
 
             def build_openai_services_response(warning: str) -> Optional[Dict[str, Any]]:
-                openai_payload = self._openai_web_search(query, location, "services", per_page)
+                openai_payload = self._openai_web_search(self._build_service_search_query(query, location), location, "services", per_page)
                 openai_results = openai_payload.get("results", [])[:per_page]
                 if not openai_results:
                     return None
 
                 formatted_results = []
                 for item in openai_results:
+                    contact_details = self._extract_contact_details(item)
                     formatted_results.append({
                         "title": item.get("title", ""),
                         "description": item.get("description", ""),
                         "link": item.get("url") or item.get("link", ""),
                         "source": item.get("source", "openai_web_search"),
                         "location": item.get("location", ""),
-                        "relevance_reason": item.get("relevance_reason", ""),
-                        "service_type": item.get("service_type", ""),
+                        "relevance_reason": item.get("relevance_reason", "") or self._build_service_match_reason(query, item, location),
+                        "service_type": item.get("service_type", "") or self._infer_service_type(query, item),
+                        "phone": contact_details.get("phone", ""),
+                        "address": contact_details.get("address", ""),
                     })
 
                 return {
@@ -1483,41 +1809,54 @@ class SimpleSearchCoordinator:
                     }
                 }
 
-            # Primary: SerpAPI when available
-            if self.serper_api_key:
-                serper_payload = self._serpapi_paginated_search(query, location, page, per_page)
-                serper_results = serper_payload.get("results", [])[:per_page]
-                if serper_results:
-                    formatted_results = []
-                    for item in serper_results:
-                        formatted_results.append({
-                            'title': item.get('title', ''),
-                            'description': item.get('snippet') or item.get('description', ''),
-                            'link': item.get('link', ''),
-                            'source': 'serpapi'
-                        })
+            provider_query = self._build_service_search_query(query, location)
 
-                    return {
-                        "success": True,
-                        "query": query,
-                        "location": location,
-                        "results": formatted_results,
-                        "source": "serpapi",
-                        "pagination": {
-                            "current_page": page,
-                            "per_page": per_page,
-                            "total_results": len(formatted_results),
-                            "total_pages": 1,
-                            "has_next_page": False,
-                            "has_prev_page": False,
-                            "start_index": 1 if formatted_results else 0,
-                            "end_index": len(formatted_results)
-                        }
-                    }
-            
             # Use original CSE for services
             cse_id = self.google_cse_id
             if not self.google_api_key or not cse_id:
+                if self.serper_api_key:
+                    serper_payload = self._serpapi_paginated_search(provider_query, location, page, per_page)
+                    serper_results = self._rank_service_results_for_direct_providers(
+                        serper_payload.get("results", []),
+                        query,
+                        location,
+                    )
+                    serper_results = self._filter_service_results_by_location(serper_results, location)[:per_page]
+                    if serper_results:
+                        formatted_results = []
+                        for item in serper_results:
+                            contact_details = self._extract_contact_details(item)
+                            formatted_results.append({
+                                'title': item.get('title', ''),
+                                'description': item.get('snippet') or item.get('description', ''),
+                                'link': item.get('link', ''),
+                                'source': 'serpapi',
+                                'location': location or '',
+                                'relevance_reason': self._build_service_match_reason(query, item, location),
+                                'service_type': self._infer_service_type(query, item),
+                                'phone': contact_details.get('phone', ''),
+                                'address': contact_details.get('address', '')
+                            })
+
+                        return {
+                            "success": True,
+                            "query": query,
+                            "location": location,
+                            "results": formatted_results,
+                            "source": "serpapi",
+                            "degraded": True,
+                            "warning": "Google service search credentials are incomplete, so results are coming from the fallback provider.",
+                            "pagination": {
+                                "current_page": page,
+                                "per_page": per_page,
+                                "total_results": len(formatted_results),
+                                "total_pages": 1,
+                                "has_next_page": False,
+                                "has_prev_page": False,
+                                "start_index": 1 if formatted_results else 0,
+                                "end_index": len(formatted_results)
+                            }
+                        }
                 openai_fallback = build_openai_services_response(
                     "Search credentials are incomplete, so service results are coming from OpenAI web search."
                 )
@@ -1542,13 +1881,7 @@ class SimpleSearchCoordinator:
                     }
                 }
             
-            enhanced_query = query
-            if location:
-                enhanced_query = f"{query} {location}"
-            
-            # Add service-specific keywords
-            service_keywords = "therapy counseling medical benefits social services"
-            enhanced_query = f"{enhanced_query} {service_keywords}"
+            enhanced_query = provider_query
             
             logger.info(f"Services search: '{enhanced_query}' using CSE: {cse_id} (page {page}, per_page {per_page})")
             
@@ -1563,15 +1896,26 @@ class SimpleSearchCoordinator:
             # If Google errored, fallback to SerpAPI
             if not paginated_results or paginated_results.get("error"):
                 if self.serper_api_key:
-                    serper_payload = self._serpapi_paginated_search(query, location, page, per_page)
-                    serper_results = serper_payload.get("results", [])[:per_page]
+                    serper_payload = self._serpapi_paginated_search(provider_query, location, page, per_page)
+                    serper_results = self._rank_service_results_for_direct_providers(
+                        serper_payload.get("results", []),
+                        query,
+                        location,
+                    )
+                    serper_results = self._filter_service_results_by_location(serper_results, location)[:per_page]
                     formatted_results = []
                     for item in serper_results:
+                        contact_details = self._extract_contact_details(item)
                         formatted_results.append({
                             'title': item.get('title', ''),
                             'description': item.get('snippet') or item.get('description', ''),
                             'link': item.get('link', ''),
-                            'source': 'serpapi'
+                            'source': 'serpapi',
+                            'location': location or '',
+                            'relevance_reason': self._build_service_match_reason(query, item, location),
+                            'service_type': self._infer_service_type(query, item),
+                            'phone': contact_details.get('phone', ''),
+                            'address': contact_details.get('address', '')
                         })
                     return {
                         "success": True,
@@ -1597,13 +1941,25 @@ class SimpleSearchCoordinator:
                     return openai_fallback
 
             # Format results
+            ranked_google_items = self._rank_service_results_for_direct_providers(
+                paginated_results['items'],
+                query,
+                location,
+            )
+            ranked_google_items = self._filter_service_results_by_location(ranked_google_items, location)
             formatted_results = []
-            for item in paginated_results['items']:
+            for item in ranked_google_items:
+                contact_details = self._extract_contact_details(item)
                 formatted_results.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
                     'link': item.get('link', ''),
-                    'source': 'google_services_cse'
+                    'source': 'google_services_cse',
+                    'location': location or '',
+                    'relevance_reason': self._build_service_match_reason(query, item, location),
+                    'service_type': self._infer_service_type(query, item),
+                    'phone': contact_details.get('phone', ''),
+                    'address': contact_details.get('address', '')
                 })
             
             # Calculate pagination metadata
@@ -1634,19 +1990,22 @@ class SimpleSearchCoordinator:
             
         except Exception as e:
             logger.error(f"Services search error: {e}")
-            openai_fallback = self._openai_web_search(query, location, "services", per_page)
+            openai_fallback = self._openai_web_search(self._build_service_search_query(query, location), location, "services", per_page)
             openai_results = openai_fallback.get("results", [])[:per_page]
             if openai_results:
                 formatted_results = []
                 for item in openai_results:
+                    contact_details = self._extract_contact_details(item)
                     formatted_results.append({
                         "title": item.get("title", ""),
                         "description": item.get("description", ""),
                         "link": item.get("url") or item.get("link", ""),
                         "source": item.get("source", "openai_web_search"),
                         "location": item.get("location", ""),
-                        "relevance_reason": item.get("relevance_reason", ""),
-                        "service_type": item.get("service_type", ""),
+                        "relevance_reason": item.get("relevance_reason", "") or self._build_service_match_reason(query, item, location),
+                        "service_type": item.get("service_type", "") or self._infer_service_type(query, item),
+                        "phone": contact_details.get("phone", ""),
+                        "address": contact_details.get("address", ""),
                     })
                 return {
                     "success": True,

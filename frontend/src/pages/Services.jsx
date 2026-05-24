@@ -4,6 +4,7 @@ import { Briefcase, Search, MapPin, Phone, User, Building2, Heart, Users, Car, H
 import ClientSelector from '../components/ClientSelector'
 import Pagination from '../components/Pagination'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 function Services() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -119,7 +120,7 @@ function Services() {
       newSearchParams.set('page', String(page))
       setSearchParams(newSearchParams)
       
-      const response = await fetch(`/api/services/search?${params}`, {
+      const response = await apiFetch(`/api/services/search?${params}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -145,13 +146,15 @@ function Services() {
           const transformedServices = (data.service_providers || []).map((result, index) => ({
             id: `service_${data.pagination.current_page}_${index}`,
             name: result.title,
-            address: (result.description || '').substring(0, 150) + '...',
-            phone: 'Visit website for contact details',
+            address: result.address || result.location || 'Address not shown in current result',
+            phone: result.phone || 'Visit website for contact details',
             backgroundFriendly: (result.background_friendly_score || 0) >= 60,
-            category: category,
+            category: result.service_type || category,
             url: result.url || result.link,
             description: result.description || '',
-            source: result.source
+            source: result.source,
+            relevanceReason: result.relevance_reason || '',
+            serviceType: result.service_type || 'General Services'
           }))
           
           setServices(transformedServices)
@@ -332,6 +335,13 @@ function Services() {
                   </h3>
                 </div>
                 <div className="flex items-center gap-4">
+                  {services[0]?.source && (
+                    <div className="px-4 py-2 bg-gradient-to-r from-slate-500/20 to-slate-600/20 backdrop-blur-sm rounded-xl border border-slate-500/30">
+                      <span className="text-sm text-slate-200">
+                        Source: {services[0].source}
+                      </span>
+                    </div>
+                  )}
                   {pagination.totalResults > 0 && (
                     <div className="px-4 py-2 bg-gradient-to-r from-purple-500/20 to-indigo-500/20 backdrop-blur-sm rounded-xl border border-purple-500/30">
                       <span className="text-sm text-purple-200">
@@ -371,6 +381,12 @@ function Services() {
                           )}
                         </div>
                         <div className="space-y-3 text-sm text-gray-300 mb-6">
+                          <div className="flex items-center gap-3">
+                            <div className="p-1 bg-emerald-500/20 rounded">
+                              <Sparkles className="h-4 w-4 text-emerald-400" />
+                            </div>
+                            <span className="font-medium text-emerald-200">{service.serviceType}</span>
+                          </div>
                           <div className="flex items-start gap-3">
                             <div className="p-1 bg-teal-500/20 rounded mt-0.5">
                               <MapPin className="h-4 w-4 text-teal-400" />
@@ -399,6 +415,15 @@ function Services() {
                             </div>
                           )}
                         </div>
+
+                        {service.relevanceReason && (
+                          <div className="mb-6 rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300 mb-1">
+                              Why this matched
+                            </p>
+                            <p className="text-sm text-cyan-100">{service.relevanceReason}</p>
+                          </div>
+                        )}
                         
                         <div className="flex gap-3">
                           <button 
