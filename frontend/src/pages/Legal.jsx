@@ -86,7 +86,7 @@ function Legal() {
         fetch(`/api/legal/cases${clientQuery}`),
         fetch(`/api/legal/documents${clientQuery}`),
         fetch(`/api/legal/court-dates${clientQuery}`),
-        fetch(`/api/legal/tasks${clientQuery}`)
+        fetch(`/api/legal/expungement/tasks${clientQuery}`)
       ])
 
       if (!casesRes.ok || !docsRes.ok || !datesRes.ok || !tasksRes.ok) {
@@ -127,7 +127,7 @@ function Legal() {
     }
 
     try {
-      const response = await fetch('/api/legal/tasks', {
+      const response = await fetch('/api/legal/expungement/tasks', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
