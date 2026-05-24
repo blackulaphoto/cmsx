@@ -18,6 +18,7 @@ import HousingTest from './pages/HousingTest'
 import Benefits from './pages/Benefits'
 import Resume from './pages/Resume'
 import Legal from './pages/Legal'
+import FMLA from './pages/FMLA'
 import Expungement from './pages/Expungement'
 import AIChat from './pages/AIChat'
 import Services from './pages/Services'
@@ -61,6 +62,7 @@ function App() {
         <Route path="/benefits" element={<Benefits />} />
         <Route path="/resume" element={<Resume />} />
         <Route path="/legal" element={<Legal />} />
+        <Route path="/fmla" element={<FMLA />} />
         <Route path="/expungement" element={<Expungement />} />
         <Route path="/ai-chat" element={<AIChat />} />
         <Route path="/services" element={<Services />} />

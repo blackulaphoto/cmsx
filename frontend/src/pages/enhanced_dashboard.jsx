@@ -10,6 +10,7 @@ import {
   Building2,
   Calendar,
   Briefcase,
+  ClipboardList,
   TrendingUp,
   AlertCircle,
   Sparkles,
@@ -45,6 +46,14 @@ const EnhancedDashboard = () => {
     recent_intakes: 0
   })
   const [loading, setLoading] = useState(true)
+  const [fmlaSummary, setFmlaSummary] = useState({
+    total_active_cases: 0,
+    deadlines_next_7_days: 0,
+    missing_paperwork: 0,
+    needing_follow_up: 0,
+    approved_cases: 0,
+    denied_cases: 0
+  })
 
   // ClickUp-style component states
   // Ensure notes is always defined as an array
@@ -82,6 +91,7 @@ const EnhancedDashboard = () => {
 
   useEffect(() => {
     fetchDashboardStats()
+    fetchFmlaSummary()
     loadClickUpData()
   }, [])
 
@@ -99,6 +109,28 @@ const EnhancedDashboard = () => {
       console.error('Failed to load dashboard stats:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchFmlaSummary = async () => {
+    try {
+      const response = await apiFetch(`/api/fmla/summary?case_manager_id=${encodeURIComponent(caseManagerId)}`)
+      if (!response.ok) {
+        throw new Error('Failed to load FMLA summary')
+      }
+      const data = await response.json()
+      if (data.success) {
+        setFmlaSummary({
+          total_active_cases: data.total_active_cases || 0,
+          deadlines_next_7_days: data.deadlines_next_7_days || 0,
+          missing_paperwork: data.missing_paperwork || 0,
+          needing_follow_up: data.needing_follow_up || 0,
+          approved_cases: data.approved_cases || 0,
+          denied_cases: data.denied_cases || 0
+        })
+      }
+    } catch (error) {
+      console.error('Failed to load FMLA summary:', error)
     }
   }
 
@@ -482,6 +514,15 @@ const EnhancedDashboard = () => {
       accent: 'bg-orange-500/20 border-orange-500/30'
     },
     {
+      title: 'FMLA Tracker',
+      description: 'Track paperwork, employer/provider follow-up, deadlines, and reminders',
+      path: '/fmla',
+      icon: ClipboardList,
+      gradient: 'from-cyan-500 via-sky-600 to-blue-600',
+      stats: `${fmlaSummary.total_active_cases} Active Cases`,
+      accent: 'bg-cyan-500/20 border-cyan-500/30'
+    },
+    {
       title: 'Resume Builder',
       description: 'AI-powered resume creation tailored for second chance employment',
       path: '/resume',
@@ -655,6 +696,42 @@ const EnhancedDashboard = () => {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-cyan-500/20 bg-gradient-to-r from-cyan-500/10 via-slate-900/30 to-blue-500/10 backdrop-blur-xl p-6 mb-12">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-200">
+                  <ClipboardList className="h-4 w-4" />
+                  FMLA Tracker
+                </div>
+                <h2 className="mt-4 text-2xl font-bold text-white">Keep every FMLA deadline, fax, and follow-up visible</h2>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                  Open the FMLA workspace to manage employer packets, provider certifications, document status, communication history, and linked reminders in one case file.
+                </p>
+              </div>
+              <Link
+                to="/fmla"
+                className="inline-flex items-center justify-center rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+              >
+                Open FMLA Tracker
+              </Link>
+            </div>
+            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+              {[
+                { label: 'Active', value: fmlaSummary.total_active_cases, to: '/fmla' },
+                { label: 'Due In 7 Days', value: fmlaSummary.deadlines_next_7_days, to: '/fmla?deadline=next_7_days' },
+                { label: 'Missing Paperwork', value: fmlaSummary.missing_paperwork, to: '/fmla' },
+                { label: 'Needs Follow-Up', value: fmlaSummary.needing_follow_up, to: '/fmla?status=Confirmation+pending' },
+                { label: 'Approved', value: fmlaSummary.approved_cases, to: '/fmla?status=Approved' },
+                { label: 'Denied', value: fmlaSummary.denied_cases, to: '/fmla?status=Denied' }
+              ].map((item) => (
+                <Link key={item.label} to={item.to} className="rounded-2xl border border-white/10 bg-black/20 p-4 transition hover:-translate-y-0.5 hover:bg-white/10">
+                  <div className="text-3xl font-bold text-white">{item.value}</div>
+                  <div className="mt-2 text-sm text-slate-300">{item.label}</div>
+                </Link>
+              ))}
             </div>
           </div>
 
