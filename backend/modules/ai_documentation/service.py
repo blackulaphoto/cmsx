@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from openai import AsyncOpenAI
 
+from backend.modules.resume.file_processor import ResumeFileProcessor
 from backend.shared.database.workspace_store import workspace_store
 from backend.shared.database.core_client_service import CoreClientService
 
@@ -15,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 # Create singleton instance of core client service
 _core_client_service = CoreClientService()
+_file_processor = ResumeFileProcessor()
+DEFAULT_CASE_MANAGER_ID = "cm_001"
 
 VAGUE_LANGUAGE_PATTERNS = [
     r"\bdoing better\b",
@@ -106,6 +109,115 @@ class DocumentationAIService:
         self.model = os.getenv("OPENAI_DOCUMENTATION_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o"))
         self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
         self.template_library_text = self._load_template_library()
+
+    @staticmethod
+    def _normalize_text(text: str, limit: int = 12000) -> str:
+        normalized = re.sub(r"\s+", " ", (text or "")).strip()
+        return normalized[:limit]
+
+    def extract_brand_guidance_text(self, file_path: str, content_type: str) -> Dict[str, Any]:
+        suffix = Path(file_path).suffix.lower()
+
+        if suffix in {".txt", ".md", ".markdown", ".html", ".htm"} or content_type.startswith("text/"):
+            try:
+                text = Path(file_path).read_text(encoding="utf-8", errors="ignore")
+                normalized = self._normalize_text(text)
+                return {
+                    "extracted_text": normalized,
+                    "extraction_status": "ready" if normalized else "empty",
+                }
+            except Exception as exc:
+                logger.warning("Unable to read text brand guidance file %s: %s", file_path, exc)
+                return {"extracted_text": "", "extraction_status": "failed"}
+
+        if suffix in {".pdf", ".doc", ".docx"}:
+            success, text, _ = _file_processor.extract_text_from_file(file_path)
+            normalized = self._normalize_text(text)
+            return {
+                "extracted_text": normalized,
+                "extraction_status": "ready" if success and normalized else "failed",
+            }
+
+        if content_type.startswith("image/") or suffix in {".png", ".jpg", ".jpeg", ".gif", ".webp"}:
+            return {
+                "extracted_text": "",
+                "extraction_status": "reference_only",
+            }
+
+        return {
+            "extracted_text": "",
+            "extraction_status": "unsupported",
+        }
+
+    def get_brand_guidance_context(
+        self,
+        query: str,
+        note_kind: str,
+        case_manager_id: str = DEFAULT_CASE_MANAGER_ID,
+        limit: int = 3,
+    ) -> Optional[str]:
+        resources = workspace_store.list_brand_resources(case_manager_id)
+        if not resources:
+            return None
+
+        query_terms = set(re.findall(r"[a-z0-9]+", f"{query} {note_kind}".lower()))
+        scored: List[tuple[int, Dict[str, Any]]] = []
+        for resource in resources:
+            searchable = " ".join(
+                [
+                    resource.get("name", ""),
+                    resource.get("category", ""),
+                    resource.get("description", ""),
+                    resource.get("extracted_text", "")[:4000],
+                ]
+            ).lower()
+            score = 0
+            for term in query_terms:
+                if len(term) < 3:
+                    continue
+                if term in searchable:
+                    score += 2
+            if note_kind.replace("_", " ") in searchable:
+                score += 3
+            if resource.get("category", "").lower().replace("_", " ") in searchable:
+                score += 2
+            if resource.get("extraction_status") == "ready":
+                score += 1
+            scored.append((score, resource))
+
+        selected = [resource for score, resource in sorted(scored, key=lambda item: item[0], reverse=True) if score > 0][:limit]
+        if not selected:
+            selected = [resource for resource in resources if resource.get("extraction_status") == "ready"][:limit]
+
+        if not selected:
+            return None
+
+        blocks = []
+        for resource in selected:
+            excerpt = (resource.get("extracted_text") or "").strip()
+            if not excerpt and resource.get("extraction_status") == "reference_only":
+                excerpt = "Image uploaded for brand reference only. Text was not extracted from this file."
+            if not excerpt:
+                continue
+            blocks.append(
+                "\n".join(
+                    [
+                        f"Document: {resource.get('name', 'Untitled')}",
+                        f"Category: {resource.get('category', 'general')}",
+                        f"Description: {resource.get('description', '') or 'No description provided.'}",
+                        f"Guidance excerpt: {excerpt[:1800]}",
+                    ]
+                )
+            )
+
+        if not blocks:
+            return None
+
+        return (
+            "COMPANY DOCUMENTATION GUIDANCE LIBRARY:\n"
+            "Use these organization-specific materials to match wording, structure, tone, and compliance preferences when drafting.\n\n"
+            + "\n\n---\n\n".join(blocks)
+        )
 
     def _load_template_library(self) -> str:
         template_path = Path(__file__).resolve().parents[3] / "UNIVERSAL_CM_TEMPLATES.md"
@@ -696,6 +808,11 @@ class DocumentationAIService:
         client_name = payload.get("client_name") or "[Client Name]"
         note_kind = payload.get("note_kind", "progress_note")
         current_date = datetime.now().strftime("%B %d, %Y")
+        brand_guidance_context = self.get_brand_guidance_context(
+            query=user_prompt or payload.get("current_text") or note_kind,
+            note_kind=note_kind,
+            case_manager_id=payload.get("case_manager_id") or DEFAULT_CASE_MANAGER_ID,
+        )
 
         # Build comprehensive client context for AI
         client_context_parts = []
@@ -766,6 +883,7 @@ class DocumentationAIService:
             "5. Write full narrative paragraphs integrating client-specific details",
             "6. Follow the EXACT structure and formatting from the template library",
             "7. ONLY leave [VERBATIM QUOTE] brackets for case manager to fill - everything else should be populated",
+            "8. Follow organization-specific guidance materials when they are provided below",
             "",
             "TEMPLATE LIBRARY EXCERPT (your primary format guide):",
             "─────────────────────────────────────────────────────────────",
@@ -773,6 +891,8 @@ class DocumentationAIService:
             "─────────────────────────────────────────────────────────────",
             "",
             client_context_str,
+            "",
+            brand_guidance_context or "No organization-specific guidance documents are currently uploaded.",
             "",
             "CASE MANAGER'S NOTES FOR THIS SESSION:",
             f"• User provided: {user_prompt or '(Case manager has not provided session notes yet - use recent history to fill template)'}",

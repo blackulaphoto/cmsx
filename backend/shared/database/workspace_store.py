@@ -96,6 +96,20 @@ class WorkspaceStore:
                     uploaded_at TEXT NOT NULL,
                     file_path TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS documentation_brand_resources (
+                    id TEXT PRIMARY KEY,
+                    case_manager_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    description TEXT,
+                    size INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    extracted_text TEXT,
+                    extraction_status TEXT NOT NULL,
+                    uploaded_at TEXT NOT NULL
+                );
                 """
             )
             note_columns = {
@@ -451,6 +465,87 @@ class WorkspaceStore:
                 (resource_id,),
             ).fetchone()
         return self._row_to_dict(row) if row else None
+
+    def list_brand_resources(self, case_manager_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM documentation_brand_resources
+                WHERE case_manager_id = ?
+                ORDER BY uploaded_at DESC
+                """,
+                (case_manager_id,),
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def create_brand_resource(
+        self,
+        case_manager_id: str,
+        resource_id: str,
+        name: str,
+        category: str,
+        description: Optional[str],
+        size: int,
+        content_type: str,
+        file_path: str,
+        extracted_text: Optional[str],
+        extraction_status: str,
+    ) -> Dict[str, Any]:
+        item = {
+            "id": resource_id,
+            "case_manager_id": case_manager_id,
+            "name": name,
+            "category": category,
+            "description": description,
+            "size": size,
+            "type": content_type,
+            "file_path": file_path,
+            "extracted_text": extracted_text or "",
+            "extraction_status": extraction_status,
+            "uploaded_at": self._now(),
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO documentation_brand_resources (
+                    id, case_manager_id, name, category, description, size, type,
+                    file_path, extracted_text, extraction_status, uploaded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["id"],
+                    item["case_manager_id"],
+                    item["name"],
+                    item["category"],
+                    item["description"],
+                    item["size"],
+                    item["type"],
+                    item["file_path"],
+                    item["extracted_text"],
+                    item["extraction_status"],
+                    item["uploaded_at"],
+                ),
+            )
+            conn.commit()
+        return item
+
+    def get_brand_resource(self, resource_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM documentation_brand_resources WHERE id = ?",
+                (resource_id,),
+            ).fetchone()
+        return self._row_to_dict(row) if row else None
+
+    def delete_brand_resource(self, resource_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM documentation_brand_resources WHERE id = ?",
+                (resource_id,),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
 
 workspace_store = WorkspaceStore()

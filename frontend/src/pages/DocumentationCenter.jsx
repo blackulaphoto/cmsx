@@ -12,6 +12,8 @@ import {
   Search,
   User,
   CheckCircle2,
+  Upload,
+  Download,
   ScrollText,
   Filter,
   Clock,
@@ -25,6 +27,7 @@ import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
 import { apiFetch } from '../api/config'
 
 const TEMPLATE_CATEGORIES = ['all', 'clinical', 'planning', 'letters', 'fmla']
+const BRAND_RESOURCE_CATEGORIES = ['general', 'templates', 'style guide', 'policy', 'sample note', 'letterhead', 'workflow']
 
 const DOCUMENTATION_TEMPLATES = [
   {
@@ -263,6 +266,14 @@ function DocumentationCenter() {
   const [searchTerm, setSearchTerm] = useState('')
   const [roughNotes, setRoughNotes] = useState('')
   const [generatingDraft, setGeneratingDraft] = useState(false)
+  const [brandResources, setBrandResources] = useState([])
+  const [loadingBrandResources, setLoadingBrandResources] = useState(false)
+  const [uploadingBrandResource, setUploadingBrandResource] = useState(false)
+  const [brandUpload, setBrandUpload] = useState({
+    category: 'general',
+    description: '',
+    file: null,
+  })
 
   const filteredTemplates = useMemo(
     () =>
@@ -285,6 +296,7 @@ function DocumentationCenter() {
 
   useEffect(() => {
     loadDocs()
+    loadBrandResources()
   }, [])
 
   useEffect(() => {
@@ -328,6 +340,21 @@ function DocumentationCenter() {
       toast.error(error.message || 'Failed to load documents')
     } finally {
       setLoadingDocs(false)
+    }
+  }
+
+  const loadBrandResources = async () => {
+    try {
+      setLoadingBrandResources(true)
+      const response = await apiFetch('/api/ai-documentation/brand-resources')
+      if (!response.ok) throw new Error('Failed to load company guidance library')
+      const data = await response.json()
+      setBrandResources(Array.isArray(data.resources) ? data.resources : [])
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || 'Failed to load company guidance library')
+    } finally {
+      setLoadingBrandResources(false)
     }
   }
 
@@ -533,6 +560,57 @@ function DocumentationCenter() {
     } catch (error) {
       console.error(error)
       toast.error(error.message || 'Failed to delete item')
+    }
+  }
+
+  const uploadBrandResource = async () => {
+    if (!brandUpload.file) {
+      toast.error('Choose a file to upload')
+      return
+    }
+
+    try {
+      setUploadingBrandResource(true)
+      const formData = new FormData()
+      formData.append('file', brandUpload.file)
+      formData.append('category', brandUpload.category)
+      formData.append('description', brandUpload.description)
+
+      const response = await apiFetch('/api/ai-documentation/brand-resources/upload', {
+        method: 'POST',
+        body: formData,
+      })
+      if (!response.ok) {
+        throw new Error('Failed to upload company guidance file')
+      }
+      await loadBrandResources()
+      setBrandUpload({
+        category: 'general',
+        description: '',
+        file: null,
+      })
+      toast.success('Company guidance uploaded')
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || 'Failed to upload company guidance file')
+    } finally {
+      setUploadingBrandResource(false)
+    }
+  }
+
+  const deleteBrandResource = async (resourceId) => {
+    try {
+      const response = await apiFetch(`/api/ai-documentation/brand-resources/${resourceId}`, {
+        method: 'DELETE',
+      })
+      if (!response.ok) {
+        throw new Error('Failed to delete company guidance file')
+      }
+      await loadBrandResources()
+      toast.success('Company guidance deleted')
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || 'Failed to delete company guidance file')
     }
   }
 
@@ -896,6 +974,130 @@ function DocumentationCenter() {
           </div>
 
           <aside className="space-y-8">
+            <div className="rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-bold text-white">Company Guidance Library</h2>
+                  <p className="mt-1 text-sm text-slate-300">
+                    Upload templates, SOPs, style guides, sample notes, and branded documents so the AI drafts in your organization&apos;s voice.
+                  </p>
+                </div>
+                <div className="rounded-xl bg-cyan-500/15 p-3 text-cyan-200">
+                  <Upload className="h-5 w-5" />
+                </div>
+              </div>
+
+              <div className="mt-6 space-y-4 rounded-2xl border border-white/10 bg-slate-950/35 p-5">
+                <div className="grid gap-4">
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-300">Category</label>
+                    <select
+                      value={brandUpload.category}
+                      onChange={(e) => setBrandUpload((prev) => ({ ...prev, category: e.target.value }))}
+                      className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none"
+                    >
+                      {BRAND_RESOURCE_CATEGORIES.map((category) => (
+                        <option key={category} value={category} className="bg-slate-900">
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-300">Description</label>
+                    <textarea
+                      value={brandUpload.description}
+                      onChange={(e) => setBrandUpload((prev) => ({ ...prev, description: e.target.value }))}
+                      rows={3}
+                      placeholder="Example: preferred weekly CM note wording, signature format, no-shows policy, discharge style."
+                      className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-300">Upload file</label>
+                    <input
+                      type="file"
+                      accept=".pdf,.doc,.docx,.txt,.md,.html,.htm,.png,.jpg,.jpeg,.webp"
+                      onChange={(e) => setBrandUpload((prev) => ({ ...prev, file: e.target.files?.[0] || null }))}
+                      className="block w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-xl file:border-0 file:bg-cyan-500 file:px-4 file:py-2 file:font-semibold file:text-slate-950"
+                    />
+                    <p className="mt-2 text-xs text-slate-400">
+                      PDF, DOC, DOCX, TXT, MD, and HTML are used for AI guidance. Images upload successfully for reference, but they are stored as reference-only and are not parsed into drafting guidance yet.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={uploadBrandResource}
+                  disabled={uploadingBrandResource}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-blue-400 disabled:opacity-60"
+                >
+                  {uploadingBrandResource ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  Upload company guidance
+                </button>
+              </div>
+
+              <div className="mt-6 space-y-3">
+                {loadingBrandResources ? (
+                  <div className="py-6 text-center text-slate-400">Loading company guidance...</div>
+                ) : brandResources.length === 0 ? (
+                  <EmptyState
+                    icon={FolderOpen}
+                    title="No company guidance uploaded yet"
+                    body="Upload templates, sample notes, policies, and brand docs so AI drafts match your clinical style."
+                  />
+                ) : (
+                  brandResources.map((resource) => (
+                    <div key={resource.id} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-white">{resource.name}</p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-slate-200">{resource.category}</span>
+                            <span className={`rounded-full px-2.5 py-1 text-[11px] ${
+                              resource.extraction_status === 'ready'
+                                ? 'bg-emerald-500/15 text-emerald-200'
+                                : resource.extraction_status === 'reference_only'
+                                  ? 'bg-amber-500/15 text-amber-200'
+                                  : 'bg-slate-500/15 text-slate-300'
+                            }`}>
+                              {resource.extraction_status === 'ready'
+                                ? 'Used by AI'
+                                : resource.extraction_status === 'reference_only'
+                                  ? 'Reference only'
+                                  : resource.extraction_status}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <p className="mt-3 text-sm text-slate-300">{resource.description || 'No description provided.'}</p>
+                      <p className="mt-2 text-xs text-slate-400">{formatSavedDate(resource.uploaded_at)} • {resource.type}</p>
+
+                      <div className="mt-4 flex items-center gap-2">
+                        <button
+                          onClick={() => window.open(`/api/ai-documentation/brand-resources/${resource.id}/download`, '_blank', 'noopener,noreferrer')}
+                          className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Download
+                        </button>
+                        <button
+                          onClick={() => deleteBrandResource(resource.id)}
+                          className="inline-flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-red-200 transition hover:bg-red-500/20"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
             <div className="rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
               <div className="flex items-center justify-between gap-3">
                 <div>

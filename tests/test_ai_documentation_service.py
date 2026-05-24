@@ -5,12 +5,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from backend.modules.ai_documentation.service import DocumentationAIService
+from backend.shared.database.workspace_store import workspace_store
 
 
 class DocumentationAIServiceTests(unittest.TestCase):
     def setUp(self):
         self.service = DocumentationAIService()
         self.service.client = None
+        self._brand_resource_ids = []
 
     def test_fallback_progress_note_contains_sections(self):
         result = self.service._build_fallback_draft(
@@ -72,6 +74,34 @@ class DocumentationAIServiceTests(unittest.TestCase):
         self.assertIsNotNone(context)
         self.assertIn("UNIVERSAL_CM_TEMPLATES.md", context)
         self.assertIn("treatment_plan", context)
+
+    def test_brand_guidance_context_uses_uploaded_company_material(self):
+        resource = workspace_store.create_brand_resource(
+            case_manager_id="cm_001",
+            resource_id="test_brand_resource_context",
+            name="Weekly CM Brand Guide.txt",
+            category="style guide",
+            description="Preferred clinical voice and signature line",
+            size=120,
+            content_type="text/plain",
+            file_path="test_brand_resource_context.txt",
+            extracted_text="Use GOAL, INTERVENTION, RESPONSE, PLAN headers. End every weekly note with the organization's signature format.",
+            extraction_status="ready",
+        )
+        self._brand_resource_ids.append(resource["id"])
+
+        context = self.service.get_brand_guidance_context(
+            query="write a weekly case management note",
+            note_kind="progress_note",
+            case_manager_id="cm_001",
+        )
+        self.assertIsNotNone(context)
+        self.assertIn("Weekly CM Brand Guide.txt", context)
+        self.assertIn("organization-specific materials", context)
+
+    def tearDown(self):
+        for resource_id in self._brand_resource_ids:
+            workspace_store.delete_brand_resource(resource_id)
 
 
 if __name__ == "__main__":
