@@ -15,12 +15,13 @@ import toast from 'react-hot-toast'
 import PDFService from '../services/pdfService'
 
 // Import new enhanced components
-import SearchableDropdown from '../components/SearchableDropdown'
+import ClientSelector from '../components/ClientSelector'
 import WorkExperienceForm from '../components/WorkExperienceForm'
 import LivePreview from '../components/LivePreview'
 import TemplateSelector from '../components/TemplateSelector'
 import ResumeModal from '../components/ResumeModal'
 import DebugPanel from '../components/DebugPanel'
+import { apiFetch } from '../api/config'
 
 // Import CSS for layout fixes
 import '../styles/ResumeBuilder.css'
@@ -118,7 +119,6 @@ function Resume() {
   const [resumeImportMode, setResumeImportMode] = useState('rewrite')
 
   useEffect(() => {
-    fetchAvailableClients()
     checkPDFServiceHealth() // Add this line
     // Ensure we have a default template selected
     if (!selectedTemplate && templates.length > 0) {
@@ -155,14 +155,38 @@ function Resume() {
 
   const fetchAvailableClients = async () => {
     try {
-      const response = await fetch('/api/resume/clients')
-      if (response.ok) {
-        const data = await response.json()
-        setAvailableClients(data.clients || [])
+      const normalizeClient = (client) => ({
+        client_id: client.client_id || client.id || '',
+        first_name: client.first_name || '',
+        last_name: client.last_name || '',
+        phone: client.phone || '',
+        email: client.email || '',
+        has_resume: Boolean(client.has_resume),
+        active_resumes: Number(client.active_resumes || 0)
+      })
+
+      const resumeResponse = await apiFetch('/api/resume/clients')
+      if (resumeResponse.ok) {
+        const data = await resumeResponse.json()
+        const resumeClients = (data.clients || []).map(normalizeClient).filter(client => client.client_id)
+        if (resumeClients.length > 0) {
+          setAvailableClients(resumeClients)
+          return
+        }
       }
+
+      const sharedResponse = await apiFetch('/api/clients?limit=200')
+      if (!sharedResponse.ok) {
+        throw new Error(`Shared client lookup failed with HTTP ${sharedResponse.status}`)
+      }
+
+      const sharedData = await sharedResponse.json()
+      const sharedClients = (sharedData.clients || []).map(normalizeClient).filter(client => client.client_id)
+      setAvailableClients(sharedClients)
     } catch (error) {
       console.error('Error fetching clients:', error)
       toast.error('Failed to load clients')
+      setAvailableClients([])
     }
   }
 
@@ -773,13 +797,12 @@ function Resume() {
               </div>
             ) : (
               /* Client Selection Dropdown */
-              <SearchableDropdown
-                options={availableClients}
+              <ClientSelector
+                selectedClientId={selectedClient?.client_id || null}
+                onClientSelect={handleClientSelection}
+                showCreateNew={false}
+                showViewDashboard={false}
                 placeholder="Search and select client..."
-                onSelect={handleClientSelection}
-                displayField={(client) => `${client.first_name} ${client.last_name} - ${client.email}`}
-                showThumbnail={true}
-                value={selectedClient}
                 className="max-w-md"
               />
             )}
