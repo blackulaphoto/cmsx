@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -8,9 +9,12 @@ from typing import Any, Dict, List, Optional
 from openai import AsyncOpenAI
 
 from backend.shared.database.workspace_store import workspace_store
-from backend.shared.database.core_client_service import core_client_service
+from backend.shared.database.core_client_service import CoreClientService
 
 logger = logging.getLogger(__name__)
+
+# Create singleton instance of core client service
+_core_client_service = CoreClientService()
 
 VAGUE_LANGUAGE_PATTERNS = [
     r"\bdoing better\b",
@@ -114,6 +118,47 @@ class DocumentationAIService:
             logger.warning("Unable to read universal template library: %s", exc)
             return ""
 
+    def _get_comprehensive_client_data(self, client_id: Optional[str]) -> Dict[str, Any]:
+        """Pull ALL available client data from all databases for intelligent auto-population."""
+        if not client_id:
+            return {}
+
+        comprehensive_data = {}
+
+        try:
+            # Get core client data (basic demographics from core_clients.db)
+            core_data = _core_client_service.get_client(client_id)
+            if core_data:
+                comprehensive_data['core'] = core_data
+
+            # Get comprehensive case management data (substance history, legal status, etc.)
+            with sqlite3.connect('databases/case_management.db') as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                # Get full client profile
+                cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+                case_mgmt_row = cursor.fetchone()
+                if case_mgmt_row:
+                    comprehensive_data['case_management'] = dict(case_mgmt_row)
+
+                # Get recent case notes (last 5)
+                cursor.execute("""
+                    SELECT note_type, content, client_mood, progress_rating,
+                           barriers_identified, action_items, created_at
+                    FROM case_notes
+                    WHERE client_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT 5
+                """, (client_id,))
+                notes = [dict(row) for row in cursor.fetchall()]
+                comprehensive_data['recent_notes'] = notes
+
+        except Exception as exc:
+            logger.warning("Error gathering comprehensive client data: %s", exc)
+
+        return comprehensive_data
+
     def _get_recent_note_context(self, client_id: Optional[str]) -> List[Dict[str, Any]]:
         if not client_id:
             return []
@@ -175,25 +220,25 @@ class DocumentationAIService:
         )
 
     def _auto_fill_placeholders(self, draft: str, client_id: Optional[str], client_name: Optional[str]) -> str:
-        """Automatically replace ALL placeholders with real client data."""
+        """Automatically replace ALL placeholders with real client data from comprehensive database pull."""
         filled = draft
         current_date = datetime.now().strftime("%B %d, %Y")
         current_time = datetime.now().strftime("%-I:%M %p" if os.name != "nt" else "%#I:%M %p")
         next_week = (datetime.now() + timedelta(days=7)).strftime("%B %d, %Y")
+        thirty_days = (datetime.now() + timedelta(days=30)).strftime("%B %d, %Y")
+        sixty_days = (datetime.now() + timedelta(days=60)).strftime("%B %d, %Y")
+        ninety_days = (datetime.now() + timedelta(days=90)).strftime("%B %d, %Y")
 
-        # Get real client data if available
-        client_data = None
-        if client_id:
-            try:
-                client_data = core_client_service.get_client(client_id)
-            except Exception as exc:
-                logger.warning("Could not fetch client data for auto-fill: %s", exc)
+        # Get comprehensive client data from all databases
+        comprehensive_data = self._get_comprehensive_client_data(client_id) if client_id else {}
+        core_data = comprehensive_data.get('core', {})
+        case_mgmt_data = comprehensive_data.get('case_management', {})
 
         # Auto-fill client name variations
-        if client_data:
-            full_name = f"{client_data.get('first_name', '')} {client_data.get('last_name', '')}".strip()
-            first_name = client_data.get('first_name', '[CLIENT FIRST NAME]')
-            last_name = client_data.get('last_name', '[CLIENT LAST NAME]')
+        if core_data or case_mgmt_data:
+            first_name = core_data.get('first_name') or case_mgmt_data.get('first_name', '[CLIENT FIRST NAME]')
+            last_name = core_data.get('last_name') or case_mgmt_data.get('last_name', '[CLIENT LAST NAME]')
+            full_name = f"{first_name} {last_name}".strip()
         elif client_name:
             full_name = client_name
             parts = client_name.split()
@@ -204,6 +249,27 @@ class DocumentationAIService:
             first_name = "[CLIENT FIRST NAME]"
             last_name = "[CLIENT LAST NAME]"
 
+        # Calculate age from date of birth
+        age_str = "[AGE]"
+        dob = core_data.get('date_of_birth') or case_mgmt_data.get('date_of_birth')
+        if dob:
+            try:
+                dob_date = datetime.strptime(dob, '%Y-%m-%d')
+                age = (datetime.now() - dob_date).days // 365
+                age_str = str(age)
+            except:
+                pass
+
+        # Get demographic and status information
+        gender = case_mgmt_data.get('gender', '[GENDER]')
+        race = case_mgmt_data.get('race', '[RACE]')
+        housing_status = case_mgmt_data.get('housing_status', 'Unknown')
+        employment_status = case_mgmt_data.get('employment_status', 'Unemployed')
+        legal_status = case_mgmt_data.get('legal_status', 'No Active Cases')
+        substance_history = case_mgmt_data.get('substance_abuse_history', 'No documented history')
+        mental_health = case_mgmt_data.get('mental_health_status', 'Stable')
+        prior_convictions = case_mgmt_data.get('prior_convictions', 'None documented')
+
         # Replace all client name placeholders
         filled = filled.replace("[CT NAME]", full_name)
         filled = filled.replace("[Client Name]", full_name)
@@ -211,12 +277,29 @@ class DocumentationAIService:
         filled = filled.replace("[CT FIRST NAME]", first_name)
         filled = filled.replace("[CT LAST NAME]", last_name)
 
+        # Replace demographic placeholders
+        filled = filled.replace("[AGE]", age_str)
+        filled = filled.replace("[GENDER]", gender)
+        filled = filled.replace("[RACE]", race)
+
+        # Replace status placeholders
+        filled = filled.replace("[HOUSING STATUS]", housing_status)
+        filled = filled.replace("[EMPLOYMENT STATUS]", employment_status)
+        filled = filled.replace("[LEGAL STATUS]", legal_status)
+        filled = filled.replace("[SUBSTANCE HISTORY]", substance_history)
+        filled = filled.replace("[SUBSTANCES / PRESENTING CONCERNS]", substance_history)
+        filled = filled.replace("[MENTAL HEALTH STATUS]", mental_health)
+        filled = filled.replace("[PRIOR CONVICTIONS]", prior_convictions)
+
         # Replace dates
         filled = filled.replace("[DATE]", current_date)
         filled = filled.replace("[TODAY]", current_date)
         filled = filled.replace("[CURRENT DATE]", current_date)
         filled = filled.replace("[TIME]", current_time)
         filled = filled.replace("[NEXT WEEK]", next_week)
+        filled = filled.replace("[30 DAYS]", thirty_days)
+        filled = filled.replace("[60 DAYS]", sixty_days)
+        filled = filled.replace("[90 DAYS]", ninety_days)
 
         # Case manager defaults (user should customize these)
         filled = filled.replace("[CM NAME]", "Case Manager Name")
@@ -224,11 +307,12 @@ class DocumentationAIService:
         filled = filled.replace("[CM LICENSE #]", "License #12345")
         filled = filled.replace("[CM EMAIL]", "cm@facility.org")
         filled = filled.replace("[CM PHONE]", "(555) 123-4567")
+        filled = filled.replace("[FACILITY NAME]", "Treatment Facility")
 
         return filled
 
     def _build_fallback_draft(self, payload: Dict[str, Any], recent_notes: List[Dict[str, Any]]) -> str:
-        """Build a complete template-style draft using bracket placeholders."""
+        """Build a complete template-style draft using bracket placeholders and real client data."""
         note_kind = payload.get("note_kind", "progress_note")
         sections = FALLBACK_SKELETONS.get(note_kind, FALLBACK_SKELETONS["progress_note"])
         prompt = (payload.get("user_prompt") or "").strip()
@@ -241,6 +325,11 @@ class DocumentationAIService:
         current_time = "2:00 PM"
         next_week_date = (datetime.now() + timedelta(days=7)).strftime("%B %d, %Y")
 
+        # Get comprehensive client data for intelligent fallback
+        client_id = payload.get("client_id")
+        comprehensive_data = self._get_comprehensive_client_data(client_id) if client_id else {}
+        case_mgmt_data = comprehensive_data.get('case_management', {})
+
         # Build complete template-formatted content
         output: List[str] = []
 
@@ -250,21 +339,41 @@ class DocumentationAIService:
 
             # Generate full, template-formatted content for each section
             if heading in {"RESPONSE", "STATUS / RESPONSE", "CLIENT RESPONSE"}:
-                # Follow the CM-ONGOING-01 template format
+                # Follow the CM-ONGOING-01 template format with real client data
+                section_parts = []
+
+                # Add discussion paragraph
                 if prompt:
-                    section_text = f"CM and client discussed {prompt}. "
+                    section_parts.append(f"CM and client discussed {prompt}.")
                 else:
-                    section_text = "CM and client discussed aftercare plans, which is an ongoing conversation. "
+                    section_parts.append("CM and client discussed aftercare plans, which is an ongoing conversation.")
 
+                # Add client demographic and history paragraph (like template shows)
+                section_parts.append(
+                    f"Client is a [AGE]-year-old [RACE], [GENDER] with a history of [SUBSTANCES / PRESENTING CONCERNS]. "
+                    f"Current housing: [HOUSING STATUS]. Employment: [EMPLOYMENT STATUS]. Legal: [LEGAL STATUS]."
+                )
+
+                # Add barriers/progress from database if available
+                if case_mgmt_data.get('barriers'):
+                    section_parts.append(f"Current barriers include: {case_mgmt_data.get('barriers')}.")
+                if case_mgmt_data.get('goals'):
+                    section_parts.append(f"Client goals: {case_mgmt_data.get('goals')}.")
+
+                # Add verbatim quote placeholder
                 if direct_quotes:
-                    section_text += "Client stated, \"" + direct_quotes[0] + "\". "
+                    section_parts.append(f"Client stated, \"{direct_quotes[0]}\".")
                 else:
-                    section_text += "Client stated, \"[VERBATIM CLIENT QUOTE THIS WEEK]\". "
+                    section_parts.append("Client stated, \"[VERBATIM CLIENT QUOTE THIS WEEK]\".")
 
+                # Add any additional current text
                 if current_text:
-                    section_text += current_text + " "
+                    section_parts.append(current_text)
 
-                section_text += "CM and client will continue making progress toward discharge plans and treatment plan goals."
+                # Add continuity statement
+                section_parts.append("CM and client will continue making progress toward discharge plans and treatment plan goals.")
+
+                section_text = " ".join(section_parts)
 
             elif heading in {"INTERVENTION", "ACTION TAKEN"}:
                 # Follow CM-ONGOING-01 template format
@@ -576,60 +685,124 @@ class DocumentationAIService:
                 "suggested_tasks": self._build_suggested_tasks(payload, fallback_draft, review),
             }
 
+        # Pull comprehensive client data for intelligent auto-population
+        client_id = payload.get("client_id")
+        comprehensive_data = self._get_comprehensive_client_data(client_id) if client_id else {}
+        core_data = comprehensive_data.get('core', {})
+        case_mgmt_data = comprehensive_data.get('case_management', {})
+        recent_case_notes = comprehensive_data.get('recent_notes', [])
+
         user_prompt = (payload.get("user_prompt") or "").strip()
         client_name = payload.get("client_name") or "[Client Name]"
         note_kind = payload.get("note_kind", "progress_note")
         current_date = datetime.now().strftime("%B %d, %Y")
 
+        # Build comprehensive client context for AI
+        client_context_parts = []
+        if core_data or case_mgmt_data:
+            first_name = core_data.get('first_name') or case_mgmt_data.get('first_name', '')
+            last_name = core_data.get('last_name') or case_mgmt_data.get('last_name', '')
+            full_name = f"{first_name} {last_name}".strip() or client_name
+
+            # Calculate age
+            age_str = "unknown age"
+            dob = core_data.get('date_of_birth') or case_mgmt_data.get('date_of_birth')
+            if dob:
+                try:
+                    dob_date = datetime.strptime(dob, '%Y-%m-%d')
+                    age = (datetime.now() - dob_date).days // 365
+                    age_str = f"{age} years old"
+                except:
+                    pass
+
+            # Gather all available client information
+            gender = case_mgmt_data.get('gender', 'unknown gender')
+            race = case_mgmt_data.get('race', 'unknown race')
+            housing_status = case_mgmt_data.get('housing_status', 'Unknown housing')
+            employment_status = case_mgmt_data.get('employment_status', 'Unknown employment')
+            legal_status = case_mgmt_data.get('legal_status', 'No documented legal status')
+            substance_history = case_mgmt_data.get('substance_abuse_history', 'No documented substance history')
+            mental_health = case_mgmt_data.get('mental_health_status', 'Unknown mental health status')
+            barriers = case_mgmt_data.get('barriers', 'No documented barriers')
+            goals = case_mgmt_data.get('goals', 'No documented goals')
+
+            client_context_parts.append(f"CLIENT PROFILE (from database):")
+            client_context_parts.append(f"• Name: {full_name}")
+            client_context_parts.append(f"• Demographics: {age_str}, {gender}, {race}")
+            client_context_parts.append(f"• Housing: {housing_status}")
+            client_context_parts.append(f"• Employment: {employment_status}")
+            client_context_parts.append(f"• Legal: {legal_status}")
+            client_context_parts.append(f"• Substance History: {substance_history}")
+            client_context_parts.append(f"• Mental Health: {mental_health}")
+            client_context_parts.append(f"• Current Barriers: {barriers}")
+            client_context_parts.append(f"• Goals: {goals}")
+        else:
+            client_context_parts.append(f"CLIENT: {client_name} (limited data available)")
+
+        # Add recent notes context
+        if recent_case_notes:
+            client_context_parts.append("")
+            client_context_parts.append("RECENT CASE NOTES (for continuity):")
+            for note in recent_case_notes[:3]:
+                note_date = note.get('created_at', 'Unknown date')
+                note_type = note.get('note_type', 'Note')
+                content_preview = (note.get('content', '') or '')[:150]
+                client_context_parts.append(f"  - {note_date} ({note_type}): {content_preview}...")
+                if note.get('barriers_identified'):
+                    client_context_parts.append(f"    Barriers: {note.get('barriers_identified')}")
+                if note.get('action_items'):
+                    client_context_parts.append(f"    Actions: {note.get('action_items')}")
+
+        client_context_str = "\n".join(client_context_parts)
+
         prompt = [
-            "You are an AI documentation assistant for a case management suite.",
+            "You are an AI documentation assistant for a case management suite competing with professional tools like Twofold Health, Clinical Notes AI, and Mentalyc.",
             "",
             "CRITICAL INSTRUCTIONS:",
             "1. Use the template from the library below as your PRIMARY FORMAT",
-            "2. Generate COMPLETE, FULLY-WRITTEN professional documentation",
-            "3. Use placeholder brackets EXACTLY like the template: [FACILITY NAME], [CT NAME], [DATE], [VERBATIM QUOTE]",
-            "4. DO NOT write generic descriptions - write full narrative paragraphs like the template shows",
-            "5. Follow the EXACT structure and formatting from the template library",
+            "2. Generate COMPLETE, FULLY-WRITTEN professional documentation using ALL available client data",
+            "3. AUTO-FILL ALL POSSIBLE FIELDS using the client profile data provided",
+            "4. DO NOT leave demographic/status brackets empty if data is available",
+            "5. Write full narrative paragraphs integrating client-specific details",
+            "6. Follow the EXACT structure and formatting from the template library",
+            "7. ONLY leave [VERBATIM QUOTE] brackets for case manager to fill - everything else should be populated",
             "",
             "TEMPLATE LIBRARY EXCERPT (your primary format guide):",
             "─────────────────────────────────────────────────────────────",
             template_excerpt or "No template available.",
             "─────────────────────────────────────────────────────────────",
             "",
-            "User context for this specific note:",
-            f"• Client: {client_name}",
-            f"• Date: {current_date}",
-            f"• User's notes: {user_prompt or '(none provided)'}",
-            f"• Note type: {note_kind.replace('_', ' ')}",
+            client_context_str,
             "",
-            "Recent history:" if recent_notes else "",
-            "\n".join([
-                f"  - {n.get('note_type')}: {(n.get('content') or '')[:80]}..."
-                for n in recent_notes[:2]
-            ]) if recent_notes else "",
+            "CASE MANAGER'S NOTES FOR THIS SESSION:",
+            f"• User provided: {user_prompt or '(Case manager has not provided session notes yet - use recent history to fill template)'}",
+            f"• Date: {current_date}",
+            f"• Note type: {note_kind.replace('_', ' ')}",
             "",
             "INSTRUCTIONS:",
             "- Copy the template format EXACTLY as shown above",
-            "- Fill in realistic placeholder content in brackets",
-            "- If user provided notes/context, incorporate them into the RESPONSE/CLIENT RESPONSE section",
-            "- Use professional case management language like the template",
-            "- Include specific examples in brackets: [specific barrier], [concrete intervention], [observable detail]",
-            "- Add quote placeholders: Client stated, \"[insert verbatim client quote about...] \"",
+            "- Fill in ALL demographic/status fields using the CLIENT PROFILE data",
+            "- For RESPONSE section: Write complete paragraph using: demographics (age/race/gender), substance history, legal status, employment status, recent barriers",
+            "- If case manager provided session notes, incorporate them into the narrative",
+            "- If no session notes provided, use recent case notes to write continuity note",
+            "- Include realistic placeholder for client quote: Client stated, \"[VERBATIM CLIENT QUOTE]\"",
+            "- Use professional case management language matching the template style",
+            "- Make it comprehensive so case manager only needs to add the verbatim quote",
             "",
             "Return ONLY the formatted note - no explanations, no meta-commentary.",
         ]
         try:
             response = await self.client.chat.completions.create(
                 model=self.model,
-                temperature=0.3,
-                max_tokens=900,
+                temperature=0.4,
+                max_tokens=1200,
                 messages=[
-                    {"role": "system", "content": "You produce concise, audit-safe case management documentation drafts."},
+                    {"role": "system", "content": "You produce complete, client-specific case management documentation that requires minimal case manager editing. Auto-fill all available data from the client profile."},
                     {"role": "user", "content": "\n\n".join(prompt)},
                 ],
             )
             draft = (response.choices[0].message.content or "").strip() or fallback_draft
-            # Auto-fill all placeholders with real client data
+            # Auto-fill all remaining placeholders with real client data
             draft = self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
             review = self.compliance_review(
                 {
