@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from openai import AsyncOpenAI
 
 from backend.shared.database.workspace_store import workspace_store
+from backend.shared.database.core_client_service import core_client_service
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +173,59 @@ class DocumentationAIService:
             "Relevant template excerpt:\n"
             f"{excerpt}"
         )
+
+    def _auto_fill_placeholders(self, draft: str, client_id: Optional[str], client_name: Optional[str]) -> str:
+        """Automatically replace ALL placeholders with real client data."""
+        filled = draft
+        current_date = datetime.now().strftime("%B %d, %Y")
+        current_time = datetime.now().strftime("%-I:%M %p" if os.name != "nt" else "%#I:%M %p")
+        next_week = (datetime.now() + timedelta(days=7)).strftime("%B %d, %Y")
+
+        # Get real client data if available
+        client_data = None
+        if client_id:
+            try:
+                client_data = core_client_service.get_client(client_id)
+            except Exception as exc:
+                logger.warning("Could not fetch client data for auto-fill: %s", exc)
+
+        # Auto-fill client name variations
+        if client_data:
+            full_name = f"{client_data.get('first_name', '')} {client_data.get('last_name', '')}".strip()
+            first_name = client_data.get('first_name', '[CLIENT FIRST NAME]')
+            last_name = client_data.get('last_name', '[CLIENT LAST NAME]')
+        elif client_name:
+            full_name = client_name
+            parts = client_name.split()
+            first_name = parts[0] if parts else '[CLIENT FIRST NAME]'
+            last_name = parts[-1] if len(parts) > 1 else '[CLIENT LAST NAME]'
+        else:
+            full_name = "[CLIENT FULL NAME]"
+            first_name = "[CLIENT FIRST NAME]"
+            last_name = "[CLIENT LAST NAME]"
+
+        # Replace all client name placeholders
+        filled = filled.replace("[CT NAME]", full_name)
+        filled = filled.replace("[Client Name]", full_name)
+        filled = filled.replace("[CLIENT NAME]", full_name)
+        filled = filled.replace("[CT FIRST NAME]", first_name)
+        filled = filled.replace("[CT LAST NAME]", last_name)
+
+        # Replace dates
+        filled = filled.replace("[DATE]", current_date)
+        filled = filled.replace("[TODAY]", current_date)
+        filled = filled.replace("[CURRENT DATE]", current_date)
+        filled = filled.replace("[TIME]", current_time)
+        filled = filled.replace("[NEXT WEEK]", next_week)
+
+        # Case manager defaults (user should customize these)
+        filled = filled.replace("[CM NAME]", "Case Manager Name")
+        filled = filled.replace("[CM CREDENTIALS]", "CADC, LCSW")
+        filled = filled.replace("[CM LICENSE #]", "License #12345")
+        filled = filled.replace("[CM EMAIL]", "cm@facility.org")
+        filled = filled.replace("[CM PHONE]", "(555) 123-4567")
+
+        return filled
 
     def _build_fallback_draft(self, payload: Dict[str, Any], recent_notes: List[Dict[str, Any]]) -> str:
         """Build a complete template-style draft using bracket placeholders."""
@@ -344,7 +398,9 @@ class DocumentationAIService:
         output.append(f"[CM NAME], Case Manager [CM CREDENTIALS] [CM LICENSE #]")
         output.append(f"Date: {current_date}")
 
-        return "\n".join(output).strip()
+        draft = "\n".join(output).strip()
+        # Auto-fill all placeholders with real data
+        return self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
 
     def _build_suggested_tasks(self, payload: Dict[str, Any], draft: str, review: Dict[str, Any]) -> List[Dict[str, Any]]:
         due_date = (datetime.now() + timedelta(days=3)).date().isoformat()
@@ -573,6 +629,8 @@ class DocumentationAIService:
                 ],
             )
             draft = (response.choices[0].message.content or "").strip() or fallback_draft
+            # Auto-fill all placeholders with real client data
+            draft = self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
             review = self.compliance_review(
                 {
                     "draft": draft,
