@@ -15,6 +15,8 @@ import {
   ScrollText,
   Filter,
   Clock,
+  Wand2,
+  ArrowRight,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -26,24 +28,76 @@ const TEMPLATE_CATEGORIES = ['all', 'clinical', 'planning', 'letters', 'fmla']
 
 const DOCUMENTATION_TEMPLATES = [
   {
-    id: 'progress-note',
-    label: 'Progress Note',
+    id: 'initial-cm-note',
+    label: 'Initial CM Note',
     mode: 'note',
     category: 'clinical',
     noteType: 'Progress',
-    noteKind: 'progress_note',
-    bestFor: 'Weekly CM updates, care coordination, barriers, and follow-up.',
-    body: `GOAL:\nDocument the current service or recovery goal.\n\nINTERVENTION:\nDescribe the case management support, outreach, or coordination completed.\n\nRESPONSE:\nDocument the client's response, participation, barriers, and any direct quotes.\n\nPLAN:\nList next steps, due dates, and who is responsible.`,
+    noteKind: 'initial_note',
+    bestFor: 'Week 1 intake - introduce treatment team, establish client goals and treatment plan.',
+    body: `GOAL:
+Introduce client to the current treatment team and establish client's treatment plan. Answer any questions the client has about the program and establish any needs the client has. Establish client goals to stabilize condition medically, behaviorally, emotionally, and cognitively, and return to functioning within normal parameters.
+
+INTERVENTION:
+CM and client began the discussion of aftercare.
+CM addressed immediate needs.
+CM assessed for financial stability.
+CM inquired about legal issues and FMLA.
+CM inquired about discharge planning.
+CM asked about 12-step / sponsor involvement.
+CM encouraged client to get the most out of treatment by engaging in groups and 1:1 sessions with TH and CM.
+CM used open-ended questions, positive affirmations, motivational interviewing, reflection, and enduring questions.
+
+RESPONSE:
+Client is a [AGE]-year-old [RACE], [GENDER] with a history of [SUBSTANCES / PRESENTING CONCERNS]. Client [DID / DID NOT] report current medical issues and reported [LEGAL STATUS]. Client [HAS / DOES NOT HAVE] children; if applicable, [CUSTODY / CAREGIVER ARRANGEMENT].
+
+Client reported [EMPLOYMENT / ID / VOCATIONAL STATUS]. Client's long-term goals after completing the program include [GOALS]. Client identified strengths as [STRENGTHS] and identified [WEAKNESS / BARRIER]. Client presents [MOTIVATION / AFFECT / ENGAGEMENT].
+
+Client stated, "[VERBATIM DISCHARGE / MOTIVATION QUOTE]"
+
+MEDICAL:
+Client will stabilize on all medications as prescribed and comply with physician's orders. No intervention needed at this time.
+
+PLAN:
+CM will continue to meet with the client on a weekly basis to solidify a discharge treatment plan. Client's tentative step-down / discharge date: [DATE].
+
+[CM NAME], Case Manager [CM CREDENTIALS] [CM LICENSE #]
+Date: [TODAY]`,
   },
   {
-    id: 'weekly-cm-note',
+    id: 'progress-note',
     label: 'Weekly CM Note',
     mode: 'note',
     category: 'clinical',
     noteType: 'Progress',
     noteKind: 'progress_note',
-    bestFor: 'Structured weekly note that ties together services, barriers, and progress.',
-    body: `PRESENTING NEEDS:\nSummarize the client's current priorities this week.\n\nSERVICES PROVIDED:\nList outreach, coordination, referrals, and advocacy completed.\n\nBARRIERS:\nNote unresolved barriers affecting progress or stability.\n\nFOLLOW-UP:\nDocument deadlines, pending items, and next contact plan.`,
+    bestFor: 'Ongoing weekly notes after week 1 - discharge planning and progress tracking.',
+    body: `GOAL:
+To discuss and plan a comprehensive discharge from treatment. Identify any needs for transition including sober living, aftercare, and financial stability.
+
+INTERVENTION:
+CM validated client's feelings and addressed concerns.
+CM addressed immediate needs.
+CM assessed for financial stability.
+CM inquired about legal issues and FMLA.
+CM inquired about discharge planning.
+CM asked about 12-step / sponsor involvement.
+CM continued to encourage client to engage in groups and 1:1 sessions with TH and CM.
+CM used open-ended questions, positive affirmations, motivational interviewing, reflection, and enduring questions.
+
+RESPONSE:
+CM and client discussed aftercare plans, which is an ongoing conversation.
+Client stated, "[VERBATIM CLIENT QUOTE THIS WEEK]"
+CM and client will continue making progress toward discharge plans and treatment plan goals.
+
+MEDICAL:
+Client will stabilize on all medications as prescribed and comply with physician's orders. No intervention needed at this time.
+
+PLAN:
+CM will continue to meet with the client on a weekly basis to solidify a discharge treatment plan. Client's tentative step-down / discharge date: [DATE].
+
+[CM NAME], Case Manager [CM CREDENTIALS] [CM LICENSE #]
+Date: [TODAY]`,
   },
   {
     id: 'treatment-plan-review',
@@ -53,7 +107,53 @@ const DOCUMENTATION_TEMPLATES = [
     noteType: 'Treatment Plan',
     noteKind: 'treatment_plan',
     bestFor: 'Goal reviews, objective updates, and intervention planning.',
-    body: `PROBLEM:\nDescribe the functional issue, barrier, or treatment need.\n\nGOAL:\nState the client-centered goal.\n\nOBJECTIVE:\nDescribe the measurable short-term target.\n\nINTERVENTIONS:\nList the case management or clinical support to be provided.\n\nREVIEW TIMELINE:\nDocument when progress will be reviewed and what will be measured.`,
+    body: `TREATMENT PLAN REVIEW
+
+Level of Care: [ ] RTC  [ ] PHP  [ ] IOP  [ ] OP
+Date of Review: [TODAY]
+Case Manager: [CM NAME], Case Manager [CM CREDENTIALS] [CM LICENSE #]
+Date Assigned: [ADMIT DATE]
+Projected Length of Stay: 30-45 days
+
+Client Strengths:
+CT stated, "[CLIENT QUOTE — strengths]"
+
+Client Weaknesses:
+CT stated, "[CLIENT QUOTE — weaknesses]"
+
+I am here because:
+CT stated, "[CLIENT QUOTE — motivation for treatment]"
+
+My discharge plans are:
+CT stated, "[CLIENT QUOTE — discharge goals]"
+
+Problem 1: Discharge Planning
+
+Problem 1: Goal
+[LIST CLIENT'S THREE SPECIFIC IDENTIFIED NEEDS — e.g., "Maintain sobriety while developing coping skills to manage environmental triggers. Secure stable employment in the recovery field after obtaining ID and completing certification. Strengthen family stability by maintaining custody and consistent visitation."] CT stated, "[REPEAT 'I AM HERE BECAUSE' QUOTE]"
+
+Problem 1: Objective
+CM will meet with client weekly to discuss options for aftercare planning and explore high-risk situations and motivation for maintaining sobriety. CM will educate client on various sober support groups and the importance of building sober support networks.
+
+Problem 1: Plan
+Client to work on developing safe aftercare plans AEB reviewing sober support systems, exploring various sober support groups, reviewing potential outpatient programs, and procuring therapy and psychiatry referrals as appropriate.
+- [BULLET 1 — specific to client situation, e.g., "Case Manager will assist client with ID application follow-up and provide transportation resources."]
+- [BULLET 2 — e.g., "Case Manager will connect client with employment resources and training programs in recovery services."]
+- [BULLET 3 — e.g., "Client will engage with therapy to address environmental triggers and build relapse prevention skills."]
+- [BULLET 4 — e.g., "Client will explore 12-step or recovery support groups weekly to build community support."]
+
+Problem 1: Frequency/Duration:
+  RTC:  1x1x3 weeks RTC
+  PHP/IOP:  1x1x4 weeks PHP/IOP
+
+Problem 1: Target Date: [3-4 WEEKS FROM TODAY]
+Problem 1: Status: open
+Problem 1: Outcome: in progress
+Problem 1: Comment: Initial Goal Developed
+
+I acknowledge that I have participated in the development of my treatment plan, I have reviewed and received a copy of this Treatment Plan, and I agree to participate in this part of my treatment to the best of my ability.
+
+I have read this report and: agree with its contents.`,
   },
   {
     id: 'group-note',
@@ -63,7 +163,7 @@ const DOCUMENTATION_TEMPLATES = [
     noteType: 'Group',
     noteKind: 'group_note',
     bestFor: 'Attendance, participation, interventions, and client response in groups.',
-    body: `GROUP TOPIC:\nDocument the focus of the group.\n\nINTERVENTION:\nDescribe the facilitation approach and psychoeducation provided.\n\nCLIENT RESPONSE:\nDocument participation level, observed affect, and direct quotes.\n\nPLAN:\nList follow-up, coping skills reinforcement, and treatment connection.`,
+    body: `Location of Client: [Sober Living / Home / Treatment Facility]. The client attended the group virtually via [Google Meet / Zoom / In-Person]. The client displayed active listening and self-awareness, AEB maintaining eye contact, nodding in agreement, and responding respectfully to others. The client participated in each group activity and offered insight into their emotional progress. The client stated, "[VERBATIM TOPIC-RELATED QUOTE]"`,
   },
   {
     id: 'discharge-summary',
@@ -73,7 +173,30 @@ const DOCUMENTATION_TEMPLATES = [
     noteType: 'Discharge',
     noteKind: 'discharge_summary',
     bestFor: 'Transition planning, aftercare coordination, and discharge readiness.',
-    body: `DISCHARGE STATUS:\nSummarize current stability, readiness, and major progress.\n\nSERVICES COMPLETED:\nList key interventions, referrals, and supports arranged.\n\nOUTSTANDING RISKS:\nDocument unresolved barriers, relapse risks, or social needs.\n\nAFTERCARE PLAN:\nList housing, treatment, employment, legal, benefits, transportation, and follow-up appointments.`,
+    body: `DISCHARGE SUMMARY
+
+Date of Admission: [ADMIT DATE]
+Date of Discharge: [DC DATE]
+Reason for Discharge: Completed treatment
+Initiated By: [☑] Mutual  [ ] Patient  [ ] Family  [ ] Clinical
+
+NARRATIVE:
+Client has successfully completed [#] days in Residential treatment and is transitioning to the outpatient facility of [NAME OF OP FACILITY]: [ADDRESS].
+
+While in our care, client met weekly with their Case Manager and Therapist for individual sessions. Client was also seen by psychiatry and nursing to coordinate medical needs and monitor adjustment to medications. Client attended evidence-based group programming.
+
+Client was able to gain insight into triggers for substance use and incorporate coping strategies such as physical and emotional self-care, building a sober support network, use of distraction and avoidance strategies, establishing and adhering to routine, and practicing vulnerability by avoiding isolation and communicating with others in order to decrease the chances of relapse. Client attained all treatment plan goals.
+
+During the length of treatment, client made positive progress toward increasing self-care as evidenced by making and maintaining medical appointments, establishing a relapse prevention plan, coordinating a safe place of living, obtaining referrals for financial resources, and compiling a list of local ongoing 12-step meetings. Client continuously participated in self-assessment of triggers and cravings.
+
+Case Manager and Therapist recommendations are for client to participate in an outpatient program, attend individual therapy, and continue in a 12-step recovery process to aid in sober social support and ongoing abstinence.
+
+Aftercare Appointments & Recommendations: [SEE TABLE BELOW]
+AA/NA/GA: Attend 90 meetings in 90 days, obtain sponsor, aftercare, obtain home group, get phone numbers, attend 12-step functions, develop a sober support system.
+Return to Independent Residence: [FULL ADDRESS — do not leave blank or write only "home"]
+Patient Diagnosis: [COPY FROM DX BOX]
+
+Client took all personal belongings and all approved medications upon leaving the facility.`,
   },
   {
     id: 'referral-summary',
@@ -138,6 +261,8 @@ function DocumentationCenter() {
   const [saving, setSaving] = useState(false)
   const [editingItem, setEditingItem] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
+  const [roughNotes, setRoughNotes] = useState('')
+  const [generatingDraft, setGeneratingDraft] = useState(false)
 
   const filteredTemplates = useMemo(
     () =>
@@ -208,6 +333,7 @@ function DocumentationCenter() {
 
   const resetComposer = () => {
     setEditingItem(null)
+    setRoughNotes('')
     setComposer({
       ...EMPTY_COMPOSER,
       noteType: selectedTemplate?.noteType || 'Progress',
@@ -221,13 +347,75 @@ function DocumentationCenter() {
     setSelectedTemplateId(template.id)
     setMode(template.mode)
     setEditingItem(null)
+    setRoughNotes('')
     setComposer((prev) => ({
       ...prev,
       title: prev.title && prev.title.trim() ? prev.title : `${template.label}${clientLabel}`,
       noteType: template.noteType,
-      body: template.body,
+      body: '',
       url: prev.url || '',
     }))
+  }
+
+  const generateDraftFromBrief = async () => {
+    if (!selectedTemplate) {
+      toast.error('Select a template first')
+      return
+    }
+
+    if (!roughNotes.trim()) {
+      toast.error('Type rough notes in the case manager brief first')
+      return
+    }
+
+    if (mode === 'note' && !selectedClient?.client_id) {
+      toast.error('Select a client before generating a client note')
+      return
+    }
+
+    try {
+      setGeneratingDraft(true)
+      const response = await apiFetch('/api/ai-documentation/note-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          module: 'documentation_center',
+          note_kind: selectedTemplate.noteKind,
+          client_id: selectedClient?.client_id || undefined,
+          client_name: selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : undefined,
+          user_prompt: roughNotes,
+          current_text: selectedTemplate.body,
+          context: {
+            template_label: selectedTemplate.label,
+            template_category: selectedTemplate.category,
+            observations: `Template: ${selectedTemplate.label}. Mode: ${mode}.`,
+            next_steps: '',
+            direct_quotes: [],
+          },
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate draft')
+      }
+
+      const data = await response.json()
+      setComposer((prev) => ({
+        ...prev,
+        title:
+          prev.title && prev.title.trim()
+            ? prev.title
+            : `${selectedTemplate.label}${selectedClient ? ` - ${selectedClient.first_name} ${selectedClient.last_name}` : ''}`,
+        noteType: selectedTemplate.noteType,
+        body: data.draft || '',
+      }))
+      toast.success('Draft generated from your rough notes')
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || 'Failed to generate draft')
+    } finally {
+      setGeneratingDraft(false)
+    }
   }
 
   const saveCurrentItem = async () => {
@@ -297,6 +485,7 @@ function DocumentationCenter() {
     setEditingItem({ ...item, source })
     if (source === 'note') {
       setMode('note')
+      setRoughNotes('')
       setComposer({
         title: item.title || '',
         noteType: item.note_type || 'Progress',
@@ -306,6 +495,7 @@ function DocumentationCenter() {
       })
     } else {
       setMode('document')
+      setRoughNotes('')
       setComposer({
         title: item.title || '',
         noteType: 'Document',
@@ -491,8 +681,56 @@ function DocumentationCenter() {
                 </div>
               </div>
 
-              <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_0.9fr]">
+              <div className="mt-6">
                 <div className="space-y-5">
+                  <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+                    <div className="rounded-[24px] border border-cyan-400/20 bg-cyan-500/10 p-5">
+                      <div className="flex items-start gap-3">
+                        <div className="rounded-2xl bg-cyan-500/20 p-3 text-cyan-200">
+                          <Wand2 className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">Start here</h3>
+                          <p className="mt-1 text-sm text-slate-300">
+                            This page should work like a writing assistant, not a separate chat app. Type your rough notes once in the case manager brief, then generate the draft below.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 text-sm text-slate-200 md:grid-cols-3">
+                        <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                          <p className="font-semibold text-white">1. Pick template</p>
+                          <p className="mt-1 text-slate-400">Choose treatment plan, weekly note, discharge, FMLA, or another template above.</p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                          <p className="font-semibold text-white">2. Type rough notes</p>
+                          <p className="mt-1 text-slate-400">Use bullets, fragments, quotes, or a quick request in plain language.</p>
+                        </div>
+                        <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                          <p className="font-semibold text-white">3. Edit final draft</p>
+                          <p className="mt-1 text-slate-400">The generated note appears in the final draft editor and stays fully editable before saving.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[24px] border border-white/10 bg-slate-950/35 p-5">
+                      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Selected template</p>
+                      <h3 className="mt-3 text-xl font-semibold text-white">{selectedTemplate.label}</h3>
+                      <p className="mt-2 text-sm leading-6 text-slate-300">{selectedTemplate.bestFor}</p>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">
+                          {selectedTemplate.mode === 'note' ? 'Client note' : 'Document'}
+                        </span>
+                        <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-200">
+                          {selectedTemplate.noteType}
+                        </span>
+                        <span className="rounded-full bg-fuchsia-500/15 px-3 py-1 text-xs font-semibold text-fuchsia-200">
+                          {selectedTemplate.category}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="mb-2 block text-sm font-medium text-slate-300">Linked Client</label>
                     <ClientSelector
@@ -501,6 +739,39 @@ function DocumentationCenter() {
                       placeholder={mode === 'note' ? 'Select a client for this note' : 'Optional client context'}
                       className="max-w-xl"
                     />
+                  </div>
+
+                  <div className="rounded-[24px] border border-cyan-400/20 bg-slate-950/35 p-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <h3 className="text-lg font-semibold text-white">Case manager brief</h3>
+                        <p className="mt-1 text-sm text-slate-400">
+                          This is the main input. If you want AI to turn freehand notes into a treatment plan or note, type them here.
+                        </p>
+                      </div>
+                      <button
+                        onClick={generateDraftFromBrief}
+                        disabled={generatingDraft}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-blue-400 disabled:opacity-60"
+                      >
+                        {generatingDraft ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                        Generate Draft
+                      </button>
+                    </div>
+
+                    <textarea
+                      value={roughNotes}
+                      onChange={(e) => setRoughNotes(e.target.value)}
+                      rows={8}
+                      placeholder={`Example: Write a ${selectedTemplate.label.toLowerCase()} for CT Johnson. 34, needs dental work, on probation, needs to stay in contact with PO, wants to relocate to LA, work in treatment, strengths are hardworking, barrier is relationship triggers, quote: "I need to take control of my life."`}
+                      className="mt-4 w-full rounded-[24px] border border-white/10 bg-slate-950/50 px-5 py-4 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+                    />
+
+                    <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Use bullets or fragments</span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Include direct quotes if you have them</span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">The popup AI chat is not required for this workflow</span>
+                    </div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-[1.4fr_0.9fr]">
@@ -542,12 +813,18 @@ function DocumentationCenter() {
                   )}
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-300">Content</label>
+                    <div className="mb-2 flex items-center justify-between gap-3">
+                      <label className="block text-sm font-medium text-slate-300">Final draft</label>
+                      <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-400">
+                        <ArrowRight className="h-3.5 w-3.5" />
+                        Generate from the case manager brief, then edit here
+                      </div>
+                    </div>
                     <textarea
                       value={composer.body}
                       onChange={(e) => setComposer((prev) => ({ ...prev, body: e.target.value }))}
                       rows={18}
-                      placeholder="Start from a template or write from scratch."
+                      placeholder="Your generated or hand-written final draft appears here."
                       className="w-full rounded-[24px] border border-white/10 bg-slate-950/50 px-5 py-4 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
                     />
                   </div>
@@ -579,6 +856,13 @@ function DocumentationCenter() {
                 </div>
 
                 <div className="space-y-5">
+                  <div className="rounded-[24px] border border-white/10 bg-slate-950/35 p-5">
+                    <h3 className="text-lg font-semibold text-white">Review and follow-up tools</h3>
+                    <p className="mt-1 text-sm text-slate-400">
+                      Use these after you already have a draft. They are for refinement, compliance checks, and follow-up task creation.
+                    </p>
+                  </div>
+
                   <DocumentationAssistPanel
                     module="documentation_center"
                     noteKind={selectedTemplate.noteKind}
