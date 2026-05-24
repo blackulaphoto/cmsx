@@ -33,53 +33,53 @@ TEMPLATE_KEYWORDS = {
 
 FALLBACK_SKELETONS = {
     "progress_note": [
-        ("GOAL", "Support progress toward current treatment, housing, legal, employment, and stability goals."),
-        ("INTERVENTION", "Case manager reviewed current needs, addressed barriers, provided coordination support, and discussed next action steps."),
-        ("RESPONSE", "Client engaged in discussion regarding current progress, barriers, and supports. Staff observations and client statements are documented below."),
-        ("PLAN", "Continue follow-up on identified needs, update treatment/discharge planning, and complete any pending referrals or paperwork."),
+        ("GOAL", ""),
+        ("INTERVENTION", ""),
+        ("RESPONSE", ""),
+        ("PLAN", ""),
     ],
     "initial_note": [
-        ("GOAL", "Complete initial case management engagement and identify immediate needs, barriers, and discharge priorities."),
-        ("INTERVENTION", "Case manager introduced services, reviewed immediate needs, assessed barriers, and discussed treatment/discharge priorities."),
-        ("RESPONSE", "Client reviewed current needs, identified goals, and participated in planning discussion."),
-        ("PLAN", "Maintain weekly contact, address identified barriers, and move forward with referrals and documentation needs."),
+        ("GOAL", ""),
+        ("INTERVENTION", ""),
+        ("RESPONSE", ""),
+        ("PLAN", ""),
     ],
     "group_note": [
-        ("GROUP TOPIC", "Document the focus of the group session."),
-        ("INTERVENTION", "Staff facilitated discussion, encouraged participation, and linked the topic to recovery and treatment goals."),
-        ("CLIENT RESPONSE", "Document participation level, engagement, observed affect, and any direct quotes provided by staff."),
-        ("PLAN", "Reinforce coping skills, follow up on barriers, and monitor progress toward treatment goals."),
+        ("GROUP TOPIC", ""),
+        ("INTERVENTION", ""),
+        ("CLIENT RESPONSE", ""),
+        ("PLAN", ""),
     ],
     "treatment_plan": [
-        ("PROBLEM", "Summarize the primary treatment need affecting functioning and recovery."),
-        ("GOAL", "Describe the target outcome in client-centered language."),
-        ("OBJECTIVE", "Describe a measurable short-term objective tied to the goal."),
-        ("INTERVENTION", "Describe the specific staff intervention or service support."),
-        ("NEXT REVIEW", "Document how progress will be reviewed and when follow-up is needed."),
+        ("PROBLEM", ""),
+        ("GOAL", ""),
+        ("OBJECTIVE", ""),
+        ("INTERVENTION", ""),
+        ("NEXT REVIEW", ""),
     ],
     "referral_summary": [
-        ("REFERRAL NEED", "Summarize the presenting need and why referral is indicated."),
-        ("ACTION TAKEN", "Document outreach, referral details, and information provided to the client."),
-        ("CLIENT RESPONSE", "Document the client response to the referral and any barriers discussed."),
-        ("NEXT STEP", "Document required follow-up, verification, and timeline."),
+        ("REFERRAL NEED", ""),
+        ("ACTION TAKEN", ""),
+        ("CLIENT RESPONSE", ""),
+        ("NEXT STEP", ""),
     ],
     "discharge_summary": [
-        ("DISCHARGE STATUS", "Summarize current stability, functioning, and treatment readiness."),
-        ("SERVICES PROVIDED", "Document the services coordinated during the reporting period."),
-        ("BARRIERS / RISKS", "Document unresolved issues that may affect transition."),
-        ("AFTERCARE PLAN", "Document appointments, referrals, housing, benefits, and follow-up needs."),
+        ("DISCHARGE STATUS", ""),
+        ("SERVICES COMPLETED", ""),
+        ("OUTSTANDING RISKS", ""),
+        ("AFTERCARE PLAN", ""),
     ],
     "fmla_case_note": [
-        ("PURPOSE", "Document the current FMLA paperwork or coordination purpose."),
-        ("INTERVENTION", "Document contacts, paperwork actions, follow-up efforts, and coordination completed."),
-        ("STATUS / RESPONSE", "Document the current status of the packet and any response from client, employer, or provider."),
-        ("NEXT STEP", "Document deadlines, follow-up, and pending items."),
+        ("PURPOSE", ""),
+        ("INTERVENTION", ""),
+        ("STATUS / RESPONSE", ""),
+        ("NEXT STEP", ""),
     ],
     "fmla_correspondence": [
-        ("CONTACT", "Document who was contacted and by what method."),
-        ("SUMMARY", "Summarize what was discussed, requested, or confirmed."),
-        ("OUTCOME", "Document what was learned or completed."),
-        ("FOLLOW-UP", "Document next required action and due date."),
+        ("CONTACT", ""),
+        ("SUMMARY", ""),
+        ("OUTCOME", ""),
+        ("FOLLOW-UP", ""),
     ],
 }
 
@@ -179,42 +179,178 @@ class DocumentationAIService:
         context = payload.get("context") or {}
         direct_quotes = context.get("direct_quotes") or []
         observations = context.get("observations") or ""
-        client_name = payload.get("client_name") or "Client"
-        recent_excerpt = ""
-        if recent_notes:
-            recent_excerpt = " Recent documentation themes: " + " | ".join(
-                f"{note.get('note_type', 'Note')}: {(note.get('content', '') or '')[:120]}"
-                for note in recent_notes
-            )
+        client_name = payload.get("client_name") or "[Client Name]"
+        current_date = datetime.now().strftime("%B %d, %Y")
+        current_time = "2:00 PM"
+        next_week_date = (datetime.now() + timedelta(days=7)).strftime("%B %d, %Y")
 
+        # Build comprehensive example content
         output: List[str] = []
+
         for heading, body in sections:
             output.append(f"{heading}:")
             section_text = body
+
+            # Generate full, realistic content for each section
             if heading in {"RESPONSE", "STATUS / RESPONSE", "CLIENT RESPONSE"}:
-                detail_parts = []
                 if prompt:
-                    detail_parts.append(prompt)
+                    # Use user's prompt as the main content
+                    section_text = (
+                        f"During this {current_date} contact at {current_time}, case manager met with {client_name} to review current progress and barriers. "
+                        f"{prompt} "
+                    )
+                else:
+                    section_text = (
+                        f"During this {current_date} contact at {current_time}, case manager met with {client_name} to review current status, address barriers, and coordinate next steps. "
+                        f"Client presented as [describe affect/appearance]. "
+                    )
+
                 if observations:
-                    detail_parts.append(f"Observed: {observations}")
+                    section_text += f"Staff observed: {observations}. "
+
                 if direct_quotes:
-                    detail_parts.append("Client stated: " + "; ".join(direct_quotes[:2]))
+                    section_text += "Client stated: \"" + "\"; \"".join(direct_quotes[:2]) + "\". "
+                else:
+                    section_text += f"Client stated, \"[Insert specific client quote about current progress, barriers, or needs].\" "
+
                 if current_text:
-                    detail_parts.append(current_text)
-                if recent_excerpt:
-                    detail_parts.append(recent_excerpt.strip())
-                if detail_parts:
-                    section_text = " ".join(detail_parts)
-            elif heading in {"INTERVENTION", "ACTION TAKEN"} and context.get("interventions"):
-                section_text = f"{body} Interventions addressed: {context.get('interventions')}."
-            elif heading in {"PLAN", "NEXT STEP", "FOLLOW-UP"} and context.get("next_steps"):
-                section_text = f"{body} Next steps: {context.get('next_steps')}."
-            elif heading == "GOAL" and context.get("goals"):
-                section_text = f"{body} Current goal focus: {context.get('goals')}."
+                    section_text += current_text + " "
+
+                section_text += f"Client [engaged/participated/cooperated] with the discussion and [agreed to/expressed concerns about/requested support with] the identified action steps."
+
+            elif heading in {"INTERVENTION", "ACTION TAKEN"}:
+                interventions = context.get("interventions") or "[housing coordination/benefits application/court follow-up/treatment referral]"
+                section_text = (
+                    f"Case manager provided direct support by [reviewing current barriers/coordinating referrals/completing paperwork/conducting outreach]. "
+                    f"Specific interventions included: {interventions}. "
+                    f"Case manager utilized [motivational interviewing/care coordination/problem-solving/psychoeducation] to support client progress toward identified goals. "
+                    f"Documentation, phone contacts, and follow-up were completed to advance [housing/employment/legal/benefits/treatment] stability."
+                )
+
+            elif heading in {"PLAN", "NEXT STEP", "FOLLOW-UP"}:
+                next_steps = context.get("next_steps") or "[verify benefits application status/follow up on housing referral/confirm court date compliance/schedule treatment intake]"
+                section_text = (
+                    f"Next steps: {next_steps}. "
+                    f"Case manager will follow up by {next_week_date} to verify progress and address any emerging barriers. "
+                    f"Client is scheduled for next contact on [specific date/time]. "
+                    f"Responsible party: [Case Manager Name/Client/Provider]. "
+                    f"Outstanding tasks: [list specific pending items with deadlines]."
+                )
+
+            elif heading == "GOAL":
+                goals = context.get("goals") or "stable housing, employment readiness, legal compliance, and recovery support"
+                section_text = (
+                    f"Current treatment and case management goals focus on: {goals}. "
+                    f"This session directly supports progress toward [specific measurable objective]. "
+                    f"Client is working to achieve [concrete outcome] by [target date/timeframe]."
+                )
+
+            elif heading in {"GROUP TOPIC"}:
+                group_topic = context.get("group_topic") or "[Coping Skills/Relapse Prevention/Anger Management/Life Skills/Recovery Support]"
+                section_text = (
+                    f"Today's group focused on: {group_topic}. "
+                    f"Session objectives included: [skill building/peer support/psychoeducation/community building]. "
+                    f"Duration: [60/90] minutes. Attendance: [number] clients."
+                )
+
+            elif heading in {"PROBLEM"}:
+                section_text = (
+                    f"Client presents with [specific functional impairment/barrier/treatment need] that impacts [daily functioning/recovery/stability/goal achievement]. "
+                    f"Current challenges include: [concrete observable issues]. "
+                    f"This problem affects client's ability to: [specific functional outcomes]."
+                )
+
+            elif heading in {"OBJECTIVE"}:
+                section_text = (
+                    f"Client will [specific measurable action] at least [number] times per [week/month] for the next [30/60/90] days. "
+                    f"Progress will be measured by: [specific observable indicator]. "
+                    f"Target achievement date: [specific date]. "
+                    f"Client will demonstrate progress by: [concrete behavioral outcome]."
+                )
+
+            elif heading in {"NEXT REVIEW", "REVIEW TIMELINE"}:
+                section_text = (
+                    f"Treatment plan will be reviewed on [specific date], approximately [30/60/90] days from today. "
+                    f"Progress indicators to be assessed: [list specific outcomes]. "
+                    f"Review will include: client self-report, staff observations, and measurable data on [specific metrics]. "
+                    f"Plan will be updated based on: goal achievement, barrier resolution, and client feedback."
+                )
+
+            elif heading in {"REFERRAL NEED"}:
+                section_text = (
+                    f"Client requires referral to [specific service type/provider] to address [presenting barrier/need]. "
+                    f"Clinical/case management rationale: [why this referral is indicated now]. "
+                    f"Expected outcome: [what this referral should accomplish]. "
+                    f"Urgency level: [routine/priority/urgent]."
+                )
+
+            elif heading in {"PURPOSE"}:
+                section_text = (
+                    f"This contact addresses FMLA documentation required for [client's leave/return to work/intermittent leave/certification renewal]. "
+                    f"Employer: [Company Name]. Leave dates: [start date] through [end date or ongoing]. "
+                    f"Current packet status: [initial certification/recertification/extension request/provider follow-up]."
+                )
+
+            elif heading in {"CONTACT"}:
+                contact_party = context.get("contact_party") or "[HR Representative Name/Provider Name/Client]"
+                contact_method = context.get("contact_method") or "[phone/email/fax/in-person]"
+                section_text = (
+                    f"Date: {current_date} at {current_time}. "
+                    f"Contact method: {contact_method}. "
+                    f"Party contacted: {contact_party} at [organization/phone number]. "
+                    f"Purpose: [certification request/clarification/deadline extension/status update]."
+                )
+
+            elif heading in {"SUMMARY"}:
+                section_text = (
+                    f"Case manager [requested/clarified/confirmed/submitted] [specific FMLA documentation element]. "
+                    f"Information provided: [what was given to employer/provider/client]. "
+                    f"Information received: [what was confirmed or learned]. "
+                    f"Outstanding items discussed: [pending signatures/medical opinions/deadline extensions]."
+                )
+
+            elif heading in {"OUTCOME"}:
+                section_text = (
+                    f"Result of contact: [certification approved/additional information requested/deadline extended/packet returned incomplete]. "
+                    f"Next required action identified: [specific task]. "
+                    f"Responsible party: [case manager/client/provider/HR]. "
+                    f"Confirmed deadline: [specific date]."
+                )
+
+            elif heading in {"DISCHARGE STATUS", "SERVICES PROVIDED", "SERVICES COMPLETED"}:
+                section_text = (
+                    f"Client has completed [duration] of services with focus on [treatment/case management/housing/employment] support. "
+                    f"Key interventions included: [list 3-5 major service categories completed]. "
+                    f"Client demonstrated [progress/stabilization/goal achievement] in the following areas: [specific domains]. "
+                    f"Current functioning level: [describe stability, barriers, readiness]."
+                )
+
+            elif heading in {"BARRIERS / RISKS", "OUTSTANDING RISKS"}:
+                section_text = (
+                    f"Unresolved barriers that may impact transition include: [housing instability/legal obligations/employment gaps/treatment needs/benefits delays/transportation barriers]. "
+                    f"Risk factors requiring monitoring: [relapse risk/housing loss risk/legal compliance challenges/financial instability]. "
+                    f"Client strengths and protective factors: [support system/motivation/prior success/compliance history]."
+                )
+
+            elif heading in {"AFTERCARE PLAN"}:
+                section_text = (
+                    f"Housing: [confirmed placement/pending application/ongoing search] at [specific location/program]. Move-in date: [date]. "
+                    f"Treatment: Confirmed intake at [Provider Name] on [date/time]. Contact: [phone]. "
+                    f"Employment: [job placement/job search support/vocational referral] scheduled for [date]. "
+                    f"Benefits: [SNAP/Medicaid/SSI] status confirmed. Next review: [date]. "
+                    f"Legal: Probation check-in scheduled for [date]. Court date: [date]. "
+                    f"Transportation: [bus pass/ride support/client transport plan]. "
+                    f"Follow-up appointments: [list 3-5 specific appointments with dates, times, providers, phone numbers]."
+                )
+
             output.append(section_text)
             output.append("")
 
-        output.append(f"Client reference: {client_name}.")
+        output.append(f"\n--- End of Note ---")
+        output.append(f"Client: {client_name}")
+        output.append(f"Date: {current_date}")
+        output.append(f"Case Manager: [Your Name]")
+
         return "\n".join(output).strip()
 
     def _build_suggested_tasks(self, payload: Dict[str, Any], draft: str, review: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -391,25 +527,46 @@ class DocumentationAIService:
                 "suggested_tasks": self._build_suggested_tasks(payload, fallback_draft, review),
             }
 
+        user_prompt = (payload.get("user_prompt") or "").strip()
+        client_name = payload.get("client_name") or "[Client Name]"
+        note_kind = payload.get("note_kind", "progress_note")
+        current_date = datetime.now().strftime("%B %d, %Y")
+
         prompt = [
             "You are an AI documentation assistant embedded in a case management suite.",
-            "Draft documentation only. Do not fabricate facts, quotes, dates, diagnoses, or contacts.",
-            "Preserve current workflow and produce editable documentation in the organization's existing style.",
-            "Use the following template guidance when relevant:",
+            "IMPORTANT: Generate a COMPLETE, FULLY-WRITTEN professional note with realistic placeholder content.",
+            "Do NOT generate section headings with brief descriptions - write actual documentation content.",
+            "",
+            "Requirements:",
+            "1. Write full paragraphs with specific, realistic details",
+            f"2. Use realistic placeholders: [Client Name], [Case Manager Name], specific dates like '{current_date}', times like '2:00 PM'",
+            "3. Include measurable details: specific barriers, concrete interventions, observable responses",
+            "4. Add direct quote placeholders like: 'Client stated, \"[insert actual quote]\"'",
+            "5. Include next steps with specific dates and responsible parties",
+            "6. Make it look like a real completed note that just needs names/dates customized",
+            "",
+            "Template guidance:",
             template_excerpt or "No template excerpt available.",
-            "Case context JSON:",
+            "",
+            "Case context:",
             str(
                 {
                     "module": payload.get("module"),
-                    "note_kind": payload.get("note_kind"),
-                    "client_name": payload.get("client_name"),
-                    "user_prompt": payload.get("user_prompt"),
+                    "note_kind": note_kind,
+                    "client_name": client_name,
+                    "user_prompt": user_prompt,
                     "current_text": payload.get("current_text"),
                     "context": payload.get("context") or {},
-                    "recent_notes": recent_notes,
+                    "recent_notes_summary": [
+                        {"type": n.get("note_type"), "excerpt": (n.get("content") or "")[:100]}
+                        for n in recent_notes[:2]
+                    ] if recent_notes else [],
                 }
             ),
-            "Return only the draft note text with clear documentation sections.",
+            "",
+            f"Generate a complete, professional {note_kind.replace('_', ' ')} with full narrative content.",
+            "Write as if you're showing a case manager what a finished note looks like.",
+            "Return ONLY the draft note text - no explanations or meta-commentary.",
         ]
         try:
             response = await self.client.chat.completions.create(
