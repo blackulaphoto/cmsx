@@ -21,6 +21,40 @@ import SearchableDropdown from '../components/SearchableDropdown'
 import HousingSitesIframe from '../components/HousingSitesIframe'
 import { apiFetch } from '../api/config'
 
+const FALLBACK_HOUSING_CITIES = [
+  'Los Angeles',
+  'Van Nuys',
+  'Panorama City',
+  'North Hollywood',
+  'Hollywood',
+  'West Hollywood',
+  'Burbank',
+  'Glendale',
+  'Pasadena',
+  'Long Beach',
+  'Santa Monica',
+  'Venice',
+  'Culver City',
+  'Inglewood',
+  'Compton',
+  'Torrance',
+  'Gardena',
+  'Hawthorne',
+  'Pomona',
+  'El Monte',
+  'Montebello',
+  'Whittier',
+  'Downey',
+  'Norwalk',
+  'Lancaster',
+  'Palmdale',
+  'Anaheim',
+  'Santa Ana',
+  'Orange',
+  'Riverside',
+  'San Bernardino',
+]
+
 function HousingSearch() {
   const [selectedClient, setSelectedClient] = useState(null)
   const [searchResults, setSearchResults] = useState([])
@@ -52,8 +86,10 @@ function HousingSearch() {
       }
 
       const data = await response.json()
-      const cityOptions = (data.cities || [])
+      const dbCities = (data.cities || [])
         .filter(Boolean)
+      const mergedCities = Array.from(new Set([...dbCities, ...FALLBACK_HOUSING_CITIES]))
+      const cityOptions = mergedCities
         .map((city) => ({
           id: city,
           name: city,
@@ -63,7 +99,13 @@ function HousingSearch() {
       setAvailableCities(cityOptions)
     } catch (error) {
       console.error('Failed to load housing cities:', error)
-      setAvailableCities([])
+      setAvailableCities(
+        FALLBACK_HOUSING_CITIES.map((city) => ({
+          id: city,
+          name: city,
+          label: city
+        }))
+      )
     }
   }
 
@@ -280,30 +322,17 @@ function HousingSearch() {
                     <label className="block text-sm font-medium text-gray-300 mb-3">
                       Location
                     </label>
-                    {availableCities.length > 0 ? (
-                      <SearchableDropdown
-                        options={availableCities}
-                        placeholder="Select city..."
-                        onSelect={(city) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(city.name) }))}
-                        displayField={(city) => city.label}
-                        value={availableCities.find((city) => normalizeHousingLocation(city.name) === normalizeHousingLocation(searchParams.location)) || null}
-                        className="w-full"
-                        searchPlaceholder="Search cities..."
-                        emptyMessage="No cities found"
-                        itemKey={(city) => city.id}
-                      />
-                    ) : (
-                      <div className="relative">
-                        <MapPin className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                        <input
-                          type="text"
-                          placeholder="City, State or ZIP"
-                          value={searchParams.location}
-                          onChange={(e) => setSearchParams(prev => ({ ...prev, location: e.target.value }))}
-                          className="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
-                        />
-                      </div>
-                    )}
+                    <SearchableDropdown
+                      options={availableCities}
+                      placeholder="Select city..."
+                      onSelect={(city) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(city.name) }))}
+                      displayField={(city) => city.label}
+                      value={availableCities.find((city) => normalizeHousingLocation(city.name) === normalizeHousingLocation(searchParams.location)) || null}
+                      className="w-full"
+                      searchPlaceholder="Search cities..."
+                      emptyMessage="No cities found"
+                      itemKey={(city) => city.id}
+                    />
                   </div>
                   
                   <div>
