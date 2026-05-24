@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(curl:*)",
-      "Bash(npx vercel:*)"
+      "Bash(npx vercel:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nAdd dedicated documentation workspace with named note persistence\n\nCreates a professional documentation command center at /documentation with template gallery, client selector, large editor, AI assistance, and saved-items rail for managing named documentation entries.\n\nUpgrades note persistence to support real titles instead of body-only notes, enabling the documentation center to save entries as named records across workspace_store.py, case_management routes, and frontend note hooks.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push)",
+      "Bash(git check-ignore:*)",
+      "Bash(git commit:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(python:*)",
+      "Bash(sqlite3:*)"
     ],
     "deny": [],
     "ask": []
