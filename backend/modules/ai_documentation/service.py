@@ -83,6 +83,17 @@ FALLBACK_SKELETONS = {
     ],
 }
 
+TEMPLATE_QUERY_HINTS = {
+    "treatment_plan": ["treatment plan", "tx plan", "goal", "objective", "intervention", "smart goal"],
+    "discharge_summary": ["discharge", "aftercare", "transition note"],
+    "fmla_case_note": ["fmla", "leave paperwork", "employer packet", "return to work", "rtw"],
+    "fmla_correspondence": ["fmla correspondence", "hr contact", "provider contact", "fax confirmation"],
+    "group_note": ["group note", "group session", "attendance", "participation level"],
+    "referral_summary": ["referral", "provider summary", "handoff", "care coordination"],
+    "initial_note": ["intake note", "initial note", "assessment note"],
+    "progress_note": ["progress note", "case note", "documentation", "template", "templates", "note format"],
+}
+
 
 class DocumentationAIService:
     def __init__(self) -> None:
@@ -121,6 +132,44 @@ class DocumentationAIService:
             if idx >= 0:
                 return self.template_library_text[idx: idx + 2200]
         return self.template_library_text[:1800]
+
+    def _infer_note_kind_from_query(self, query: str) -> str:
+        lowered = (query or "").lower()
+        for note_kind, hints in TEMPLATE_QUERY_HINTS.items():
+            if any(hint in lowered for hint in hints):
+                return note_kind
+        return "progress_note"
+
+    def get_template_reference_context(self, query: str) -> Optional[str]:
+        if not self.template_library_text:
+            return None
+
+        note_kind = self._infer_note_kind_from_query(query)
+        excerpt = self._get_template_excerpt(note_kind)
+        if not excerpt:
+            return None
+
+        available_templates = ", ".join(
+            [
+                "progress notes",
+                "initial notes",
+                "group notes",
+                "treatment plans",
+                "referral summaries",
+                "discharge summaries",
+                "FMLA case notes",
+                "FMLA correspondence",
+            ]
+        )
+        return (
+            "Internal documentation template library is available from UNIVERSAL_CM_TEMPLATES.md.\n"
+            "Do not claim you lack access to templates or documentation guidance.\n"
+            f"Relevant template category: {note_kind}.\n"
+            f"Available template families: {available_templates}.\n"
+            "Use this internal guidance before answering template or documentation questions.\n"
+            "Relevant template excerpt:\n"
+            f"{excerpt}"
+        )
 
     def _build_fallback_draft(self, payload: Dict[str, Any], recent_notes: List[Dict[str, Any]]) -> str:
         note_kind = payload.get("note_kind", "progress_note")

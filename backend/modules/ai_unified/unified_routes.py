@@ -11,12 +11,17 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend.modules.ai_documentation.service import documentation_ai_service
 from .unified_service import UnifiedAIService
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 unified_ai = UnifiedAIService()
+
+
+def _build_documentation_context(message: str) -> Optional[str]:
+    return documentation_ai_service.get_template_reference_context(message)
 
 def _cleanup_tool_messages(case_manager_id: str) -> None:
     """Remove stale tool-role rows that break OpenAI message validation."""
@@ -56,6 +61,7 @@ async def chat(request: ChatRequest) -> Dict[str, Any]:
             message=message,
             case_manager_id=case_manager_id,
             mode="central",
+            injected_context=_build_documentation_context(message),
         )
     except Exception as exc:
         logger.error(f"Unified AI chat error: {exc}")
@@ -73,6 +79,7 @@ async def assistant_chat(request: ChatRequest) -> Dict[str, Any]:
             message=message,
             case_manager_id=case_manager_id,
             mode="assistant",
+            injected_context=_build_documentation_context(message),
         )
     except Exception as exc:
         logger.error(f"Unified AI assistant error: {exc}")

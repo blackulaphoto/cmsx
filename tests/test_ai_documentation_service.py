@@ -67,6 +67,12 @@ class DocumentationAIServiceTests(unittest.TestCase):
         self.assertIn("Group note is missing attendance details.", review["warnings"])
         self.assertIn("Group note is missing participation level.", review["warnings"])
 
+    def test_template_reference_context_exposes_internal_templates(self):
+        context = self.service.get_template_reference_context("Do you have access to treatment plan templates?")
+        self.assertIsNotNone(context)
+        self.assertIn("UNIVERSAL_CM_TEMPLATES.md", context)
+        self.assertIn("treatment_plan", context)
+
 
 if __name__ == "__main__":
     unittest.main()

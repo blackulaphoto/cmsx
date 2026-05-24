@@ -799,6 +799,7 @@ class UnifiedAIService:
         message: str,
         case_manager_id: str,
         mode: str = "central",
+        injected_context: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Process a chat message and persist conversation history."""
         await self.initialize()
@@ -825,6 +826,8 @@ class UnifiedAIService:
             }
         ]
         messages.extend({"role": h["role"], "content": h["content"]} for h in history)
+        if injected_context:
+            messages.append({"role": "system", "content": injected_context})
         resource_context = await self._maybe_build_case_manager_resource_context(message, history)
         if resource_context:
             messages.append({"role": "system", "content": resource_context})
