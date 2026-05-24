@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ClientSelector from '../components/ClientSelector'
+import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
 import { apiFetch } from '../api/config'
 import {
   filterFmlaCases,
@@ -675,6 +676,22 @@ function FMLA() {
                     <Field label="Notes">
                       <Textarea rows={4} value={caseForm.notes || ''} onChange={(e) => handleCaseFieldChange('notes', e.target.value)} placeholder="Add case notes, blockers, missing items, or follow-up details." />
                     </Field>
+                    <div className="mt-4">
+                      <DocumentationAssistPanel
+                        module="fmla"
+                        noteKind="fmla_case_note"
+                        clientId={caseForm.client_id || ''}
+                        clientName={caseForm.client_name || ''}
+                        currentText={caseForm.notes || ''}
+                        context={{
+                          goals: caseForm.fmla_request_type,
+                          observations: `Status: ${caseForm.status}; Approval: ${caseForm.approval_status}; Employer: ${caseForm.employer_name}; Provider: ${caseForm.provider_name || caseForm.clinic_name}`,
+                          next_steps: `Paperwork deadline ${caseForm.paperwork_deadline || 'not set'}, expected return ${caseForm.expected_return_date || 'not set'}`,
+                          paperwork_deadline: caseForm.paperwork_deadline
+                        }}
+                        onApplyDraft={(draft) => handleCaseFieldChange('notes', draft)}
+                      />
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap gap-3">
@@ -871,6 +888,21 @@ function FMLA() {
                     <Field label="Follow-up date"><Input type="date" value={correspondenceForm.follow_up_date} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, follow_up_date: e.target.value }))} /></Field>
                     <div className="md:col-span-2">
                       <Field label="Summary"><Textarea rows={3} value={correspondenceForm.summary} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, summary: e.target.value }))} /></Field>
+                    </div>
+                    <div className="md:col-span-2">
+                      <DocumentationAssistPanel
+                        module="fmla"
+                        noteKind="fmla_correspondence"
+                        clientId={caseForm.client_id || ''}
+                        clientName={caseForm.client_name || ''}
+                        currentText={correspondenceForm.summary}
+                        context={{
+                          observations: `Contact type: ${correspondenceForm.contact_type}; Person: ${correspondenceForm.person_contacted}; Organization: ${correspondenceForm.organization}`,
+                          next_steps: correspondenceForm.next_step_needed,
+                          paperwork_deadline: caseForm.paperwork_deadline
+                        }}
+                        onApplyDraft={(draft) => setCorrespondenceForm((prev) => ({ ...prev, summary: draft }))}
+                      />
                     </div>
                     <Field label="Outcome"><Input value={correspondenceForm.outcome} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, outcome: e.target.value }))} /></Field>
                     <Field label="Next step needed"><Input value={correspondenceForm.next_step_needed} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, next_step_needed: e.target.value }))} /></Field>

@@ -181,6 +181,14 @@ except Exception as e:
     loaded_modules["ai_unified"] = f"error: {e}"
     logger.warning(f"Unified AI module not loaded: {e}")
 try:
+    from backend.modules.ai_documentation.routes import router as ai_documentation_router
+    app.include_router(ai_documentation_router, prefix="/api", tags=["ai-documentation"])
+    loaded_modules["ai_documentation"] = "loaded"
+    logger.info("AI Documentation module loaded successfully")
+except Exception as e:
+    loaded_modules["ai_documentation"] = f"error: {e}"
+    logger.warning(f"AI Documentation module not loaded: {e}")
+try:
     from backend.modules.services.routes import router as services_router
     app.include_router(services_router, prefix="/api/services", tags=["services"])
     loaded_modules["services"] = "loaded"
@@ -316,6 +324,7 @@ async def root():
             "fmla": "/api/fmla",
             "resume": "/api/resume",
             "ai": "/api/ai",
+            "ai_documentation": "/api/ai-documentation",
             "services": "/api/services",
             "jobs": "/api/jobs",
             "reminders": "/api/reminders",

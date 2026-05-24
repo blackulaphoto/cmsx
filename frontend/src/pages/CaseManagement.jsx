@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Users, TrendingUp, Clock, CheckCircle, AlertCircle, Plus, Search, Filter, Edit, Trash2, Save, X, ExternalLink, Sparkles, Zap, Home, DollarSign, Scale } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
+import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
+import TreatmentPlanAssistCard from '../components/TreatmentPlanAssistCard'
 import toast from 'react-hot-toast'
 import { clientsAPI } from '../api/config'
 
@@ -50,6 +52,15 @@ function CaseManagement() {
   
   const [formErrors, setFormErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const applyTreatmentPlanSuggestions = (suggestions) => {
+    setClientForm(prev => ({
+      ...prev,
+      goals: [prev.goals, suggestions.goal, `Objective: ${suggestions.objective}`].filter(Boolean).join('\n\n'),
+      notes: [prev.notes, 'Suggested interventions:', ...(suggestions.interventions || []).map(item => `- ${item}`), '', 'Progress summary:', suggestions.progress_summary].filter(Boolean).join('\n'),
+    }))
+    toast.success('Treatment plan suggestions added to the client form')
+  }
 
   // Load clients on component mount
   useEffect(() => {
@@ -990,6 +1001,14 @@ function CaseManagement() {
                         />
                       </div>
                     </div>
+                    <TreatmentPlanAssistCard
+                      clientId={editingClient?.client_id || ''}
+                      clientName={`${clientForm.first_name} ${clientForm.last_name}`.trim()}
+                      clientGoals={clientForm.goals}
+                      barriers={clientForm.barriers}
+                      needs={generateInitialNeeds(clientForm)}
+                      onApplySuggestions={applyTreatmentPlanSuggestions}
+                    />
                   </div>
 
                   {/* Medical & Special Needs Section */}
@@ -1040,6 +1059,23 @@ function CaseManagement() {
                         className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
                         rows="4"
                         placeholder="Any additional information about the client, family situation, immediate concerns, etc..."
+                      />
+                    </div>
+                    <div className="mt-4">
+                      <DocumentationAssistPanel
+                        module="case_management"
+                        noteKind={editingClient ? 'progress_note' : 'initial_note'}
+                        clientId={editingClient?.client_id || ''}
+                        clientName={`${clientForm.first_name} ${clientForm.last_name}`.trim()}
+                        currentText={clientForm.notes}
+                        context={{
+                          goals: clientForm.goals,
+                          barriers: clientForm.barriers,
+                          observations: `Program: ${clientForm.program_type}; Housing: ${clientForm.housing_status}; Employment: ${clientForm.employment_status}; Benefits: ${clientForm.benefits_status}; Legal: ${clientForm.legal_status}`,
+                          interventions: 'Case management assessment, service coordination, barrier review',
+                          next_steps: clientForm.needs?.join?.(', ') || ''
+                        }}
+                        onApplyDraft={(draft) => setClientForm(prev => ({ ...prev, notes: draft }))}
                       />
                     </div>
                   </div>
