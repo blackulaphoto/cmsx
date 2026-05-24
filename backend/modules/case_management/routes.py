@@ -505,6 +505,7 @@ async def _generate_initial_tasks(client: Client):
 # =============================================================================
 
 class NoteCreateRequest(BaseModel):
+    title: Optional[str] = Field(None, description="Optional note title")
     note_type: str = Field(..., description="Type of note")
     content: str = Field(..., min_length=1, description="Note content")
     created_by: str = Field(..., description="User who created the note")
@@ -518,6 +519,7 @@ async def add_client_note(client_id: str, note_data: NoteCreateRequest):
             note_type=note_data.note_type,
             content=note_data.content,
             created_by=note_data.created_by,
+            title=note_data.title,
         )
         logger.info("Added note %s for client %s", note["note_id"], client_id)
         
@@ -571,6 +573,7 @@ async def update_note(note_id: str, note_data: NoteCreateRequest):
             note_type=note_data.note_type,
             content=note_data.content,
             created_by=note_data.created_by,
+            title=note_data.title,
         )
         if not note:
             raise HTTPException(status_code=404, detail="Note not found")

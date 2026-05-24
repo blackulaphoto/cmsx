@@ -38,6 +38,7 @@ const useNotes = (clientId) => {
       setLoading(true)
       
       const newNote = {
+        title: noteData.title || '',
         note_type: noteData.note_type || 'General',
         content: noteData.content || '',
         created_by: noteData.created_by || 'Case Manager'
@@ -69,6 +70,7 @@ const useNotes = (clientId) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          title: updateData.title ?? existingNote.title ?? '',
           note_type: updateData.note_type || existingNote.note_type,
           content: updateData.content || existingNote.content,
           created_by: updateData.created_by || existingNote.created_by || 'Case Manager'
@@ -120,6 +122,7 @@ const useNotes = (clientId) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          title: note.title || '',
           note_type: note.note_type,
           content: note.content,
           created_by: note.created_by

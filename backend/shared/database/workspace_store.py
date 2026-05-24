@@ -35,6 +35,7 @@ class WorkspaceStore:
                 CREATE TABLE IF NOT EXISTS client_notes (
                     note_id TEXT PRIMARY KEY,
                     client_id TEXT NOT NULL,
+                    title TEXT,
                     note_type TEXT NOT NULL,
                     content TEXT NOT NULL,
                     created_by TEXT,
@@ -97,6 +98,12 @@ class WorkspaceStore:
                 );
                 """
             )
+            note_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(client_notes)").fetchall()
+            }
+            if "title" not in note_columns:
+                conn.execute("ALTER TABLE client_notes ADD COLUMN title TEXT")
             conn.commit()
 
     @staticmethod
@@ -111,7 +118,7 @@ class WorkspaceStore:
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT note_id, client_id, note_type, content, created_by, created_at, updated_at
+                SELECT note_id, client_id, title, note_type, content, created_by, created_at, updated_at
                 FROM client_notes
                 WHERE client_id = ?
                 ORDER BY created_at DESC
@@ -120,10 +127,18 @@ class WorkspaceStore:
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
-    def create_client_note(self, client_id: str, note_type: str, content: str, created_by: str) -> Dict[str, Any]:
+    def create_client_note(
+        self,
+        client_id: str,
+        note_type: str,
+        content: str,
+        created_by: str,
+        title: Optional[str] = None,
+    ) -> Dict[str, Any]:
         note = {
             "note_id": f"note_{uuid4().hex[:12]}",
             "client_id": client_id,
+            "title": title or "",
             "note_type": note_type or "General",
             "content": content,
             "created_by": created_by or "Case Manager",
@@ -133,12 +148,13 @@ class WorkspaceStore:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO client_notes (note_id, client_id, note_type, content, created_by, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO client_notes (note_id, client_id, title, note_type, content, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     note["note_id"],
                     note["client_id"],
+                    note["title"],
                     note["note_type"],
                     note["content"],
                     note["created_by"],
@@ -149,7 +165,14 @@ class WorkspaceStore:
             conn.commit()
         return note
 
-    def update_client_note(self, note_id: str, note_type: str, content: str, created_by: Optional[str]) -> Optional[Dict[str, Any]]:
+    def update_client_note(
+        self,
+        note_id: str,
+        note_type: str,
+        content: str,
+        created_by: Optional[str],
+        title: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
             existing = conn.execute(
                 "SELECT * FROM client_notes WHERE note_id = ?",
@@ -161,10 +184,11 @@ class WorkspaceStore:
             conn.execute(
                 """
                 UPDATE client_notes
-                SET note_type = ?, content = ?, created_by = ?, updated_at = ?
+                SET title = ?, note_type = ?, content = ?, created_by = ?, updated_at = ?
                 WHERE note_id = ?
                 """,
                 (
+                    title if title is not None else existing["title"],
                     note_type or existing["note_type"],
                     content,
                     created_by or existing["created_by"],
