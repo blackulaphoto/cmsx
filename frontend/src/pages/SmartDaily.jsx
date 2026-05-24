@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Calendar, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Bell, MessageSquare, Search, Filter, Sparkles, Zap, Brain, Star } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 function SmartDaily() {
   const [tasks, setTasks] = useState([])
@@ -14,32 +15,37 @@ function SmartDaily() {
   useEffect(() => {
     const fetchDailyTasks = async () => {
       try {
-        // Fetch real data from sophisticated reminders API
-        const [dashboardResponse, tasksResponse] = await Promise.all([
-          fetch('/api/reminders/smart-dashboard/default_cm'),
-          fetch('/api/reminders/tasks?case_manager_id=default_cm')
+        const [dashboardResponse, todayResponse] = await Promise.all([
+          apiFetch('/api/reminders/smart-dashboard/default_cm'),
+          apiFetch('/api/reminders/today')
         ])
         
-        if (dashboardResponse.ok && tasksResponse.ok) {
+        if (dashboardResponse.ok && todayResponse.ok) {
           const dashboardData = await dashboardResponse.json()
-          const tasksData = await tasksResponse.json()
+          const todayData = await todayResponse.json()
           
-          // Transform API data to component format
-          const transformedTasks = tasksData.tasks?.map(task => ({
-            id: task.task_id,
-            title: task.title,
-            priority: task.priority.toLowerCase(),
-            dueTime: new Date(task.due_date).toLocaleTimeString('en-US', { 
-              hour: '2-digit', 
-              minute: '2-digit',
-              hour12: false 
-            }),
-            status: task.status,
-            client: task.client_name,
-            category: task.task_type,
-            dueDate: new Date(task.due_date).toLocaleDateString(),
-            notes: task.description
-          })) || []
+          const transformedTasks = (todayData.tasks || []).map((task, index) => {
+            const rawTaskId = task.task_id != null ? String(task.task_id) : ''
+            const taskSource = task.source || 'task'
+            const stableId = rawTaskId
+              ? `${taskSource}:${rawTaskId}`
+              : `${taskSource}:${task.client_id || 'unknown'}:${index}`
+
+            return {
+              id: stableId,
+              rawTaskId,
+              source: taskSource,
+              completionSupported: taskSource === 'intelligent_task',
+              title: task.task || task.title || 'Untitled task',
+              priority: String(task.urgency || task.priority || 'low').toLowerCase(),
+              dueTime: task.scheduled_time || '09:00',
+              status: String(task.status || 'pending').toLowerCase(),
+              client: task.client_name || 'Unknown Client',
+              category: task.task_type || task.category || 'task',
+              dueDate: task.scheduled_for || task.due_date || '',
+              notes: task.description || ''
+            }
+          })
           
           // Generate priority alerts from dashboard data
           const alerts = dashboardData.dashboard?.urgent_items?.map((item, index) => ({
@@ -96,11 +102,42 @@ function SmartDaily() {
     return matchesSearch && matchesFilter
   })
 
-  const markTaskComplete = (taskId) => {
-    setTasks(prev => prev.map(task => 
-      task.id === taskId ? { ...task, status: 'completed' } : task
-    ))
-    toast.success('Task marked as complete!')
+  const markTaskComplete = async (taskId) => {
+    const targetTask = tasks.find((task) => task.id === taskId)
+    if (!targetTask) {
+      toast.error('Task could not be found')
+      return
+    }
+
+    if (!targetTask.completionSupported || !targetTask.rawTaskId) {
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId ? { ...task, status: 'completed' } : task
+        )
+      )
+      toast.success('Task marked as complete')
+      return
+    }
+
+    try {
+      const response = await apiFetch(`/api/reminders/tasks/${encodeURIComponent(targetTask.rawTaskId)}/complete`, {
+        method: 'POST'
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to complete task')
+      }
+
+      setTasks((prev) =>
+        prev.map((task) =>
+          task.id === taskId ? { ...task, status: 'completed' } : task
+        )
+      )
+      toast.success('Task marked as complete!')
+    } catch (error) {
+      console.error('Failed to complete reminder task:', error)
+      toast.error(error.message || 'Failed to complete task')
+    }
   }
 
   const acknowledgeReminder = (reminderId) => {
@@ -114,7 +151,7 @@ function SmartDaily() {
     { icon: Clock, label: 'Today\'s Tasks', value: tasks.length.toString(), variant: 'primary' },
     { icon: CheckCircle, label: 'Completed', value: tasks.filter(t => t.status === 'completed').length.toString(), variant: 'success' },
     { icon: AlertCircle, label: 'Urgent', value: tasks.filter(t => t.priority === 'high').length.toString(), variant: 'warning' },
-    { icon: TrendingUp, label: 'Progress', value: `${Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100)}%`, variant: 'secondary' },
+    { icon: TrendingUp, label: 'Progress', value: `${tasks.length ? Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100) : 0}%`, variant: 'secondary' },
   ]
 
   const getPriorityColor = (priority) => {
