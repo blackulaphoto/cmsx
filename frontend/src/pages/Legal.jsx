@@ -13,11 +13,42 @@ function Legal() {
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(false)
   const [showTaskModal, setShowTaskModal] = useState(false)
+  const [showCaseModal, setShowCaseModal] = useState(false)
+  const [showCourtDateModal, setShowCourtDateModal] = useState(false)
+  const [showDocumentModal, setShowDocumentModal] = useState(false)
   const [taskForm, setTaskForm] = useState({
     description: '',
     priority: 'Medium',
     deadline: '',
     client_id: ''
+  })
+  const [caseForm, setCaseForm] = useState({
+    case_number: '',
+    court_name: '',
+    case_type: 'General Legal',
+    charges: '',
+    probation_officer: '',
+    probation_phone: '',
+    probation_start_date: '',
+    probation_end_date: ''
+  })
+  const [courtDateForm, setCourtDateForm] = useState({
+    case_id: '',
+    hearing_date: '',
+    hearing_time: '',
+    court_name: '',
+    courtroom: '',
+    hearing_type: 'Court Hearing',
+    judge_name: ''
+  })
+  const [documentForm, setDocumentForm] = useState({
+    case_id: '',
+    document_type: 'General Legal Document',
+    document_title: '',
+    document_purpose: '',
+    due_date: '',
+    submitted_to: '',
+    urgency_level: 'Medium'
   })
 
   useEffect(() => {
@@ -30,6 +61,21 @@ function Legal() {
       client_id: selectedClient?.client_id || ''
     }))
   }, [selectedClient?.client_id])
+
+  useEffect(() => {
+    if (!selectedClient?.client_id) {
+      return
+    }
+
+    setCourtDateForm(prev => ({
+      ...prev,
+      case_id: prev.case_id || cases[0]?.case_id || ''
+    }))
+    setDocumentForm(prev => ({
+      ...prev,
+      case_id: prev.case_id || cases[0]?.case_id || ''
+    }))
+  }, [selectedClient?.client_id, cases])
 
   const fetchLegalData = async () => {
     setLoading(true)
@@ -103,28 +149,150 @@ function Legal() {
     }
   }
 
-  const scheduleAppointment = async (date, time) => {
+  const createLegalCase = async () => {
+    if (!selectedClient?.client_id) {
+      toast.error('Please select a client first')
+      return
+    }
+    if (!caseForm.case_number || !caseForm.court_name || !caseForm.case_type) {
+      toast.error('Please complete the required case fields')
+      return
+    }
+
     try {
-      const response = await fetch('/api/legal/appointments', {
+      const charges = caseForm.charges
+        .split(',')
+        .map((charge) => charge.trim())
+        .filter(Boolean)
+
+      const response = await fetch('/api/legal/cases', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          client_id: selectedClient?.client_id || '',
-          appointment_type: 'Legal Aid Meeting',
-          date: date,
-          time: time,
-          purpose: 'Court preparation and document review'
+          client_id: selectedClient.client_id,
+          case_number: caseForm.case_number,
+          court_name: caseForm.court_name,
+          case_type: caseForm.case_type,
+          charges,
+          probation_officer: caseForm.probation_officer || null,
+          probation_phone: caseForm.probation_phone || null,
+          probation_start_date: caseForm.probation_start_date || null,
+          probation_end_date: caseForm.probation_end_date || null
         })
       })
 
-      if (response.ok) {
-        toast.success('Legal appointment scheduled!')
-        fetchLegalData()
-      } else {
-        throw new Error('Failed to schedule appointment')
+      if (!response.ok) {
+        throw new Error('Failed to create legal case')
       }
+
+      toast.success('Legal case created successfully')
+      setShowCaseModal(false)
+      resetCaseForm()
+      fetchLegalData()
+    } catch (error) {
+      console.error('Create legal case error:', error)
+      toast.error(error?.message || 'Failed to create legal case')
+    }
+  }
+
+  const createCourtDate = async (dateOverride = null, timeOverride = null) => {
+    if (!selectedClient?.client_id) {
+      toast.error('Please select a client first')
+      return
+    }
+    if (!courtDateForm.case_id) {
+      toast.error('Please create or select a legal case first')
+      return
+    }
+
+    const payload = {
+      case_id: courtDateForm.case_id,
+      client_id: selectedClient.client_id,
+      client_name: `${selectedClient.first_name || ''} ${selectedClient.last_name || ''}`.trim(),
+      hearing_date: dateOverride || courtDateForm.hearing_date,
+      hearing_time: timeOverride || courtDateForm.hearing_time,
+      court_name: courtDateForm.court_name,
+      courtroom: courtDateForm.courtroom,
+      hearing_type: courtDateForm.hearing_type,
+      judge_name: courtDateForm.judge_name
+    }
+
+    if (!payload.hearing_date || !payload.hearing_time || !payload.court_name) {
+      toast.error('Please complete the required court date fields')
+      return
+    }
+
+    try {
+      const response = await fetch('/api/legal/court-dates', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create court date')
+      }
+
+      toast.success('Court date added successfully')
+      setShowCourtDateModal(false)
+      resetCourtDateForm()
+      fetchLegalData()
+    } catch (error) {
+      console.error('Create court date error:', error)
+      toast.error(error?.message || 'Failed to create court date')
+    }
+  }
+
+  const createLegalDocument = async () => {
+    if (!selectedClient?.client_id) {
+      toast.error('Please select a client first')
+      return
+    }
+    if (!documentForm.case_id || !documentForm.document_type || !documentForm.document_title || !documentForm.document_purpose || !documentForm.due_date || !documentForm.submitted_to) {
+      toast.error('Please complete the required document fields')
+      return
+    }
+
+    try {
+      const response = await fetch('/api/legal/documents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: selectedClient.client_id,
+          case_id: documentForm.case_id,
+          client_name: `${selectedClient.first_name || ''} ${selectedClient.last_name || ''}`.trim(),
+          document_type: documentForm.document_type,
+          document_title: documentForm.document_title,
+          document_purpose: documentForm.document_purpose,
+          due_date: documentForm.due_date,
+          submitted_to: documentForm.submitted_to,
+          urgency_level: documentForm.urgency_level
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create legal document')
+      }
+
+      toast.success('Legal document added successfully')
+      setShowDocumentModal(false)
+      resetDocumentForm()
+      fetchLegalData()
+    } catch (error) {
+      console.error('Create legal document error:', error)
+      toast.error(error?.message || 'Failed to create legal document')
+    }
+  }
+
+  const scheduleAppointment = async (date, time) => {
+    try {
+      await createCourtDate(date, time)
     } catch (error) {
       console.error('Schedule appointment error:', error)
       toast.error(error?.message || 'Failed to schedule legal appointment')
@@ -137,6 +305,43 @@ function Legal() {
       priority: 'Medium',
       deadline: '',
       client_id: selectedClient?.client_id || ''
+    })
+  }
+
+  const resetCaseForm = () => {
+    setCaseForm({
+      case_number: '',
+      court_name: '',
+      case_type: 'General Legal',
+      charges: '',
+      probation_officer: '',
+      probation_phone: '',
+      probation_start_date: '',
+      probation_end_date: ''
+    })
+  }
+
+  const resetCourtDateForm = () => {
+    setCourtDateForm({
+      case_id: cases[0]?.case_id || '',
+      hearing_date: '',
+      hearing_time: '',
+      court_name: '',
+      courtroom: '',
+      hearing_type: 'Court Hearing',
+      judge_name: ''
+    })
+  }
+
+  const resetDocumentForm = () => {
+    setDocumentForm({
+      case_id: cases[0]?.case_id || '',
+      document_type: 'General Legal Document',
+      document_title: '',
+      document_purpose: '',
+      due_date: '',
+      submitted_to: '',
+      urgency_level: 'Medium'
     })
   }
 
@@ -162,7 +367,7 @@ function Legal() {
   const stats = [
     { icon: Scale, label: 'Active Cases', value: cases.filter(c => c.status === 'Active').length.toString(), variant: 'primary' },
     { icon: FileText, label: 'Documents', value: documents.length.toString(), variant: 'secondary' },
-    { icon: Calendar, label: 'Court Dates', value: cases.filter(c => c.court_date).length.toString(), variant: 'warning' },
+    { icon: Calendar, label: 'Court Dates', value: appointments.length.toString(), variant: 'warning' },
     { icon: CheckCircle, label: 'Completed', value: documents.filter(d => d.status === 'Completed').length.toString(), variant: 'success' },
   ]
 
@@ -260,12 +465,29 @@ function Legal() {
               {/* Case Overview Tab */}
               {activeTab === 'overview' && (
                 <div>
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="p-2 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg">
-                      <Gavel className="h-6 w-6 text-white" />
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg">
+                        <Gavel className="h-6 w-6 text-white" />
+                      </div>
+                      <h2 className="text-2xl font-bold text-white">Active Legal Cases</h2>
                     </div>
-                    <h2 className="text-2xl font-bold text-white">Active Legal Cases</h2>
+                    <button
+                      onClick={() => setShowCaseModal(true)}
+                      className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-purple-500/25"
+                    >
+                      <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
+                        <Plus className="h-5 w-5" />
+                      </div>
+                      Add Legal Case
+                    </button>
                   </div>
+
+                  {cases.length === 0 && (
+                    <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6 mb-6">
+                      <p className="text-gray-300">No legal cases recorded for this client yet. Add a case to start tracking court dates and documents.</p>
+                    </div>
+                  )}
                   
                   <div className="space-y-6">
                     {cases.map((legalCase) => (
@@ -306,7 +528,7 @@ function Legal() {
                             </h4>
                             <div className="space-y-2 text-sm">
                               <p className="text-gray-300">
-                                <span className="text-blue-400">Date:</span> {legalCase.court_date} at {legalCase.court_time}
+                                <span className="text-blue-400">Date:</span> {legalCase.court_date || 'Not scheduled'} {legalCase.court_time ? `at ${legalCase.court_time}` : ''}
                               </p>
                               <p className="text-gray-300">
                                 <span className="text-blue-400">Location:</span> {legalCase.court_location}
@@ -353,37 +575,52 @@ function Legal() {
               {/* Court Calendar Tab */}
               {activeTab === 'calendar' && (
                 <div>
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
-                      <Calendar className="h-6 w-6 text-white" />
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
+                        <Calendar className="h-6 w-6 text-white" />
+                      </div>
+                      <h2 className="text-2xl font-bold text-white">Court Calendar</h2>
                     </div>
-                    <h2 className="text-2xl font-bold text-white">Court Calendar</h2>
+                    <button
+                      onClick={() => setShowCourtDateModal(true)}
+                      className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-blue-500/25"
+                    >
+                      <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
+                        <Plus className="h-5 w-5" />
+                      </div>
+                      Add Court Date
+                    </button>
                   </div>
                   
                   <div className="space-y-6 mb-8" data-testid="court-calendar">
-                    {cases.filter(c => c.court_date).map((legalCase) => (
-                      <div key={legalCase.case_id} className="group bg-gradient-to-br from-blue-500/10 to-cyan-500/5 backdrop-blur-xl border border-blue-500/20 rounded-2xl p-6 hover:border-blue-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-blue-500/20">
+                    {appointments.length > 0 ? appointments.map((appointment) => (
+                      <div key={appointment.court_date_id} className="group bg-gradient-to-br from-blue-500/10 to-cyan-500/5 backdrop-blur-xl border border-blue-500/20 rounded-2xl p-6 hover:border-blue-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-blue-500/20">
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="text-xl font-bold text-white group-hover:text-blue-200 transition-colors">
-                            {legalCase.case_type} - {legalCase.client_name}
+                            {appointment.hearing_type} - {appointment.client_name}
                           </h3>
                           <div className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-xl border border-blue-500/30">
                             <Clock className="h-4 w-4 text-blue-300" />
                             <span className="text-sm text-blue-200 font-medium">
-                              {legalCase.court_date} at {legalCase.court_time}
+                              {appointment.hearing_date} at {appointment.hearing_time}
                             </span>
                           </div>
                         </div>
                         <p className="text-blue-200 mb-3 flex items-center gap-2">
                           <Scale className="h-4 w-4 text-blue-400" />
-                          {legalCase.court_location}
+                          {appointment.court_name} {appointment.courtroom ? `• ${appointment.courtroom}` : ''}
                         </p>
                         <p className="text-blue-300 flex items-center gap-2">
                           <Zap className="h-4 w-4 text-yellow-400" />
-                          Next Action: {legalCase.next_action}
+                          Judge: {appointment.judge_name || 'Not provided'}
                         </p>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
+                        <p className="text-gray-300">No court dates recorded for this client.</p>
+                      </div>
+                    )}
                   </div>
 
                   {/* Schedule Appointment */}
@@ -399,6 +636,8 @@ function Legal() {
                         <label className="block text-sm font-medium text-gray-300 mb-2">Date</label>
                         <input
                           type="date"
+                          value={courtDateForm.hearing_date}
+                          onChange={(e) => setCourtDateForm(prev => ({ ...prev, hearing_date: e.target.value }))}
                           className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white transition-all duration-300"
                           data-testid="appointment-date"
                         />
@@ -407,13 +646,15 @@ function Legal() {
                         <label className="block text-sm font-medium text-gray-300 mb-2">Time</label>
                         <input
                           type="time"
+                          value={courtDateForm.hearing_time}
+                          onChange={(e) => setCourtDateForm(prev => ({ ...prev, hearing_time: e.target.value }))}
                           className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white transition-all duration-300"
                           data-testid="appointment-time"
                         />
                       </div>
                       <div className="flex items-end">
                         <button
-                          onClick={() => scheduleAppointment('2024-07-23', '10:00 AM')}
+                          onClick={() => scheduleAppointment(courtDateForm.hearing_date, courtDateForm.hearing_time)}
                           className="group w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-emerald-500/25"
                           data-testid="confirm-appointment"
                         >
@@ -429,11 +670,22 @@ function Legal() {
               {/* Documents Tab */}
               {activeTab === 'documents' && (
                 <div>
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg">
-                      <FileText className="h-6 w-6 text-white" />
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg">
+                        <FileText className="h-6 w-6 text-white" />
+                      </div>
+                      <h2 className="text-2xl font-bold text-white">Case Documents</h2>
                     </div>
-                    <h2 className="text-2xl font-bold text-white">Case Documents</h2>
+                    <button
+                      onClick={() => setShowDocumentModal(true)}
+                      className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-emerald-500/25"
+                    >
+                      <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
+                        <Plus className="h-5 w-5" />
+                      </div>
+                      Add Document
+                    </button>
                   </div>
                   
                   <div className="space-y-6 mb-8" data-testid="case-documents">
@@ -540,6 +792,270 @@ function Legal() {
           </div>
         </div>
       </div>
+
+      {showCaseModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl max-w-2xl w-full">
+            <div className="p-8">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg">
+                    <Briefcase className="h-5 w-5 text-white" />
+                  </div>
+                  <h2 className="text-xl font-bold text-white">Add Legal Case</h2>
+                </div>
+                <button
+                  onClick={() => setShowCaseModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Case Number</label>
+                  <input
+                    value={caseForm.case_number}
+                    onChange={(e) => setCaseForm(prev => ({ ...prev, case_number: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Case Type</label>
+                  <input
+                    value={caseForm.case_type}
+                    onChange={(e) => setCaseForm(prev => ({ ...prev, case_type: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Court Name</label>
+                  <input
+                    value={caseForm.court_name}
+                    onChange={(e) => setCaseForm(prev => ({ ...prev, court_name: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Charges</label>
+                  <textarea
+                    value={caseForm.charges}
+                    onChange={(e) => setCaseForm(prev => ({ ...prev, charges: e.target.value }))}
+                    rows="3"
+                    placeholder="Comma-separated charges"
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white placeholder-gray-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Probation Officer</label>
+                  <input
+                    value={caseForm.probation_officer}
+                    onChange={(e) => setCaseForm(prev => ({ ...prev, probation_officer: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Probation Phone</label>
+                  <input
+                    value={caseForm.probation_phone}
+                    onChange={(e) => setCaseForm(prev => ({ ...prev, probation_phone: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Probation Start</label>
+                  <input
+                    type="date"
+                    value={caseForm.probation_start_date}
+                    onChange={(e) => setCaseForm(prev => ({ ...prev, probation_start_date: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Probation End</label>
+                  <input
+                    type="date"
+                    value={caseForm.probation_end_date}
+                    onChange={(e) => setCaseForm(prev => ({ ...prev, probation_end_date: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-4 mt-8">
+                <button
+                  onClick={createLegalCase}
+                  className="group flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white rounded-xl font-medium transition-all duration-300"
+                >
+                  <Save className="h-5 w-5" />
+                  Save Case
+                </button>
+                <button
+                  onClick={() => setShowCaseModal(false)}
+                  className="px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCourtDateModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl max-w-2xl w-full">
+            <div className="p-8">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
+                    <Calendar className="h-5 w-5 text-white" />
+                  </div>
+                  <h2 className="text-xl font-bold text-white">Add Court Date</h2>
+                </div>
+                <button
+                  onClick={() => setShowCourtDateModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Case</label>
+                  <select
+                    value={courtDateForm.case_id}
+                    onChange={(e) => setCourtDateForm(prev => ({ ...prev, case_id: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white"
+                  >
+                    <option value="" className="bg-gray-800 text-white">Select case</option>
+                    {cases.map((legalCase) => (
+                      <option key={legalCase.case_id} value={legalCase.case_id} className="bg-gray-800 text-white">
+                        {legalCase.case_type} • {legalCase.case_id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Hearing Date</label>
+                  <input type="date" value={courtDateForm.hearing_date} onChange={(e) => setCourtDateForm(prev => ({ ...prev, hearing_date: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Hearing Time</label>
+                  <input type="time" value={courtDateForm.hearing_time} onChange={(e) => setCourtDateForm(prev => ({ ...prev, hearing_time: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Court Name</label>
+                  <input value={courtDateForm.court_name} onChange={(e) => setCourtDateForm(prev => ({ ...prev, court_name: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Courtroom</label>
+                  <input value={courtDateForm.courtroom} onChange={(e) => setCourtDateForm(prev => ({ ...prev, courtroom: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Hearing Type</label>
+                  <input value={courtDateForm.hearing_type} onChange={(e) => setCourtDateForm(prev => ({ ...prev, hearing_type: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Judge Name</label>
+                  <input value={courtDateForm.judge_name} onChange={(e) => setCourtDateForm(prev => ({ ...prev, judge_name: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+              </div>
+
+              <div className="flex gap-4 mt-8">
+                <button onClick={() => createCourtDate()} className="group flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-xl font-medium transition-all duration-300">
+                  <Save className="h-5 w-5" />
+                  Save Court Date
+                </button>
+                <button onClick={() => setShowCourtDateModal(false)} className="px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDocumentModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl max-w-2xl w-full">
+            <div className="p-8">
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg">
+                    <FileText className="h-5 w-5 text-white" />
+                  </div>
+                  <h2 className="text-xl font-bold text-white">Add Legal Document</h2>
+                </div>
+                <button
+                  onClick={() => setShowDocumentModal(false)}
+                  className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Case</label>
+                  <select
+                    value={documentForm.case_id}
+                    onChange={(e) => setDocumentForm(prev => ({ ...prev, case_id: e.target.value }))}
+                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white"
+                  >
+                    <option value="" className="bg-gray-800 text-white">Select case</option>
+                    {cases.map((legalCase) => (
+                      <option key={legalCase.case_id} value={legalCase.case_id} className="bg-gray-800 text-white">
+                        {legalCase.case_type} • {legalCase.case_id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Document Type</label>
+                  <input value={documentForm.document_type} onChange={(e) => setDocumentForm(prev => ({ ...prev, document_type: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Urgency</label>
+                  <select value={documentForm.urgency_level} onChange={(e) => setDocumentForm(prev => ({ ...prev, urgency_level: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white">
+                    <option value="Low" className="bg-gray-800 text-white">Low</option>
+                    <option value="Medium" className="bg-gray-800 text-white">Medium</option>
+                    <option value="High" className="bg-gray-800 text-white">High</option>
+                  </select>
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Document Title</label>
+                  <input value={documentForm.document_title} onChange={(e) => setDocumentForm(prev => ({ ...prev, document_title: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Document Purpose</label>
+                  <textarea rows="3" value={documentForm.document_purpose} onChange={(e) => setDocumentForm(prev => ({ ...prev, document_purpose: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Due Date</label>
+                  <input type="date" value={documentForm.due_date} onChange={(e) => setDocumentForm(prev => ({ ...prev, due_date: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Submitted To</label>
+                  <input value={documentForm.submitted_to} onChange={(e) => setDocumentForm(prev => ({ ...prev, submitted_to: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+              </div>
+
+              <div className="flex gap-4 mt-8">
+                <button onClick={createLegalDocument} className="group flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all duration-300">
+                  <Save className="h-5 w-5" />
+                  Save Document
+                </button>
+                <button onClick={() => setShowDocumentModal(false)} className="px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Task Modal */}
       {showTaskModal && (
