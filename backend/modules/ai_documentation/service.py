@@ -123,6 +123,7 @@ class DocumentationAIService:
             return []
 
     def _get_template_excerpt(self, note_kind: str) -> str:
+        """Extract the full relevant template section from the library."""
         if not self.template_library_text:
             return ""
         keywords = TEMPLATE_KEYWORDS.get(note_kind, ["CASE MANAGER NOTES"])
@@ -130,8 +131,9 @@ class DocumentationAIService:
         for keyword in keywords:
             idx = lower_text.find(keyword.lower())
             if idx >= 0:
-                return self.template_library_text[idx: idx + 2200]
-        return self.template_library_text[:1800]
+                # Extract a larger section to get the complete template with examples
+                return self.template_library_text[idx: idx + 3500]
+        return self.template_library_text[:2500]
 
     def _infer_note_kind_from_query(self, query: str) -> str:
         lowered = (query or "").lower()
@@ -172,6 +174,7 @@ class DocumentationAIService:
         )
 
     def _build_fallback_draft(self, payload: Dict[str, Any], recent_notes: List[Dict[str, Any]]) -> str:
+        """Build a complete template-style draft using bracket placeholders."""
         note_kind = payload.get("note_kind", "progress_note")
         sections = FALLBACK_SKELETONS.get(note_kind, FALLBACK_SKELETONS["progress_note"])
         prompt = (payload.get("user_prompt") or "").strip()
@@ -179,70 +182,61 @@ class DocumentationAIService:
         context = payload.get("context") or {}
         direct_quotes = context.get("direct_quotes") or []
         observations = context.get("observations") or ""
-        client_name = payload.get("client_name") or "[Client Name]"
+        client_name = payload.get("client_name") or "[CT NAME]"
         current_date = datetime.now().strftime("%B %d, %Y")
         current_time = "2:00 PM"
         next_week_date = (datetime.now() + timedelta(days=7)).strftime("%B %d, %Y")
 
-        # Build comprehensive example content
+        # Build complete template-formatted content
         output: List[str] = []
 
         for heading, body in sections:
             output.append(f"{heading}:")
             section_text = body
 
-            # Generate full, realistic content for each section
+            # Generate full, template-formatted content for each section
             if heading in {"RESPONSE", "STATUS / RESPONSE", "CLIENT RESPONSE"}:
+                # Follow the CM-ONGOING-01 template format
                 if prompt:
-                    # Use user's prompt as the main content
-                    section_text = (
-                        f"During this {current_date} contact at {current_time}, case manager met with {client_name} to review current progress and barriers. "
-                        f"{prompt} "
-                    )
+                    section_text = f"CM and client discussed {prompt}. "
                 else:
-                    section_text = (
-                        f"During this {current_date} contact at {current_time}, case manager met with {client_name} to review current status, address barriers, and coordinate next steps. "
-                        f"Client presented as [describe affect/appearance]. "
-                    )
-
-                if observations:
-                    section_text += f"Staff observed: {observations}. "
+                    section_text = "CM and client discussed aftercare plans, which is an ongoing conversation. "
 
                 if direct_quotes:
-                    section_text += "Client stated: \"" + "\"; \"".join(direct_quotes[:2]) + "\". "
+                    section_text += "Client stated, \"" + direct_quotes[0] + "\". "
                 else:
-                    section_text += f"Client stated, \"[Insert specific client quote about current progress, barriers, or needs].\" "
+                    section_text += "Client stated, \"[VERBATIM CLIENT QUOTE THIS WEEK]\". "
 
                 if current_text:
                     section_text += current_text + " "
 
-                section_text += f"Client [engaged/participated/cooperated] with the discussion and [agreed to/expressed concerns about/requested support with] the identified action steps."
+                section_text += "CM and client will continue making progress toward discharge plans and treatment plan goals."
 
             elif heading in {"INTERVENTION", "ACTION TAKEN"}:
-                interventions = context.get("interventions") or "[housing coordination/benefits application/court follow-up/treatment referral]"
+                # Follow CM-ONGOING-01 template format
                 section_text = (
-                    f"Case manager provided direct support by [reviewing current barriers/coordinating referrals/completing paperwork/conducting outreach]. "
-                    f"Specific interventions included: {interventions}. "
-                    f"Case manager utilized [motivational interviewing/care coordination/problem-solving/psychoeducation] to support client progress toward identified goals. "
-                    f"Documentation, phone contacts, and follow-up were completed to advance [housing/employment/legal/benefits/treatment] stability."
+                    "CM validated client's feelings and addressed concerns.\n"
+                    "CM addressed immediate needs.\n"
+                    "CM assessed for financial stability.\n"
+                    "CM inquired about legal issues and FMLA.\n"
+                    "CM inquired about discharge planning.\n"
+                    "CM asked about 12-step / sponsor involvement.\n"
+                    "CM continued to encourage client to engage in groups and 1:1 sessions with TH and CM.\n"
+                    "CM used open-ended questions, positive affirmations, motivational interviewing, reflection, and enduring questions."
                 )
 
             elif heading in {"PLAN", "NEXT STEP", "FOLLOW-UP"}:
-                next_steps = context.get("next_steps") or "[verify benefits application status/follow up on housing referral/confirm court date compliance/schedule treatment intake]"
+                # Follow CM-ONGOING-01 template
                 section_text = (
-                    f"Next steps: {next_steps}. "
-                    f"Case manager will follow up by {next_week_date} to verify progress and address any emerging barriers. "
-                    f"Client is scheduled for next contact on [specific date/time]. "
-                    f"Responsible party: [Case Manager Name/Client/Provider]. "
-                    f"Outstanding tasks: [list specific pending items with deadlines]."
+                    f"CM will continue to meet with the client on a weekly basis to solidify a discharge treatment plan. "
+                    f"Client's tentative step-down / discharge date: [DATE]."
                 )
 
             elif heading == "GOAL":
-                goals = context.get("goals") or "stable housing, employment readiness, legal compliance, and recovery support"
+                # Follow CM-ONGOING-01 template
                 section_text = (
-                    f"Current treatment and case management goals focus on: {goals}. "
-                    f"This session directly supports progress toward [specific measurable objective]. "
-                    f"Client is working to achieve [concrete outcome] by [target date/timeframe]."
+                    "To discuss and plan a comprehensive discharge from treatment. "
+                    "Identify any needs for transition including sober living, aftercare, and financial stability."
                 )
 
             elif heading in {"GROUP TOPIC"}:
@@ -317,39 +311,38 @@ class DocumentationAIService:
                     f"Confirmed deadline: [specific date]."
                 )
 
-            elif heading in {"DISCHARGE STATUS", "SERVICES PROVIDED", "SERVICES COMPLETED"}:
-                section_text = (
-                    f"Client has completed [duration] of services with focus on [treatment/case management/housing/employment] support. "
-                    f"Key interventions included: [list 3-5 major service categories completed]. "
-                    f"Client demonstrated [progress/stabilization/goal achievement] in the following areas: [specific domains]. "
-                    f"Current functioning level: [describe stability, barriers, readiness]."
-                )
+            elif heading in {"DISCHARGE STATUS"}:
+                section_text = "Summarize current stability, readiness, and major progress. [Describe client's current functional status and treatment completion]."
+
+            elif heading in {"SERVICES PROVIDED", "SERVICES COMPLETED"}:
+                section_text = "List key interventions, referrals, and supports arranged. [Document weekly CM/TH sessions, group programming, medication management, aftercare coordination completed]."
 
             elif heading in {"BARRIERS / RISKS", "OUTSTANDING RISKS"}:
-                section_text = (
-                    f"Unresolved barriers that may impact transition include: [housing instability/legal obligations/employment gaps/treatment needs/benefits delays/transportation barriers]. "
-                    f"Risk factors requiring monitoring: [relapse risk/housing loss risk/legal compliance challenges/financial instability]. "
-                    f"Client strengths and protective factors: [support system/motivation/prior success/compliance history]."
-                )
+                section_text = "Document unresolved barriers, relapse risks, or social needs. [List housing instability, legal obligations, employment gaps, treatment continuity needs, transportation barriers, or other risks requiring monitoring]."
 
             elif heading in {"AFTERCARE PLAN"}:
                 section_text = (
-                    f"Housing: [confirmed placement/pending application/ongoing search] at [specific location/program]. Move-in date: [date]. "
-                    f"Treatment: Confirmed intake at [Provider Name] on [date/time]. Contact: [phone]. "
-                    f"Employment: [job placement/job search support/vocational referral] scheduled for [date]. "
-                    f"Benefits: [SNAP/Medicaid/SSI] status confirmed. Next review: [date]. "
-                    f"Legal: Probation check-in scheduled for [date]. Court date: [date]. "
-                    f"Transportation: [bus pass/ride support/client transport plan]. "
-                    f"Follow-up appointments: [list 3-5 specific appointments with dates, times, providers, phone numbers]."
+                    "Housing: [confirmed placement/pending application/ongoing search at specific location]. Move-in date: [DATE].\n"
+                    "Treatment: Confirmed intake at [PROVIDER NAME] on [DATE/TIME]. Contact: [PHONE].\n"
+                    "Employment: [job placement/job search support/vocational referral] scheduled for [DATE].\n"
+                    "Benefits: [SNAP/Medicaid/SSI] status confirmed. Next review: [DATE].\n"
+                    "Legal: Probation check-in scheduled for [DATE]. Court date: [DATE].\n"
+                    "Transportation: [bus pass/ride support/client plan].\n"
+                    "Follow-up appointments: [List 3-5 specific appointments with dates, times, providers, phone numbers]."
                 )
 
             output.append(section_text)
             output.append("")
 
-        output.append(f"\n--- End of Note ---")
-        output.append(f"Client: {client_name}")
+        # Add MEDICAL section for case manager notes
+        if note_kind in {"progress_note", "initial_note"}:
+            output.append("MEDICAL:")
+            output.append("Client will stabilize on all medications as prescribed and comply with physician's orders. No intervention needed at this time.")
+            output.append("")
+
+        # Add signature block following template format
+        output.append(f"[CM NAME], Case Manager [CM CREDENTIALS] [CM LICENSE #]")
         output.append(f"Date: {current_date}")
-        output.append(f"Case Manager: [Your Name]")
 
         return "\n".join(output).strip()
 
@@ -533,40 +526,41 @@ class DocumentationAIService:
         current_date = datetime.now().strftime("%B %d, %Y")
 
         prompt = [
-            "You are an AI documentation assistant embedded in a case management suite.",
-            "IMPORTANT: Generate a COMPLETE, FULLY-WRITTEN professional note with realistic placeholder content.",
-            "Do NOT generate section headings with brief descriptions - write actual documentation content.",
+            "You are an AI documentation assistant for a case management suite.",
             "",
-            "Requirements:",
-            "1. Write full paragraphs with specific, realistic details",
-            f"2. Use realistic placeholders: [Client Name], [Case Manager Name], specific dates like '{current_date}', times like '2:00 PM'",
-            "3. Include measurable details: specific barriers, concrete interventions, observable responses",
-            "4. Add direct quote placeholders like: 'Client stated, \"[insert actual quote]\"'",
-            "5. Include next steps with specific dates and responsible parties",
-            "6. Make it look like a real completed note that just needs names/dates customized",
+            "CRITICAL INSTRUCTIONS:",
+            "1. Use the template from the library below as your PRIMARY FORMAT",
+            "2. Generate COMPLETE, FULLY-WRITTEN professional documentation",
+            "3. Use placeholder brackets EXACTLY like the template: [FACILITY NAME], [CT NAME], [DATE], [VERBATIM QUOTE]",
+            "4. DO NOT write generic descriptions - write full narrative paragraphs like the template shows",
+            "5. Follow the EXACT structure and formatting from the template library",
             "",
-            "Template guidance:",
-            template_excerpt or "No template excerpt available.",
+            "TEMPLATE LIBRARY EXCERPT (your primary format guide):",
+            "─────────────────────────────────────────────────────────────",
+            template_excerpt or "No template available.",
+            "─────────────────────────────────────────────────────────────",
             "",
-            "Case context:",
-            str(
-                {
-                    "module": payload.get("module"),
-                    "note_kind": note_kind,
-                    "client_name": client_name,
-                    "user_prompt": user_prompt,
-                    "current_text": payload.get("current_text"),
-                    "context": payload.get("context") or {},
-                    "recent_notes_summary": [
-                        {"type": n.get("note_type"), "excerpt": (n.get("content") or "")[:100]}
-                        for n in recent_notes[:2]
-                    ] if recent_notes else [],
-                }
-            ),
+            "User context for this specific note:",
+            f"• Client: {client_name}",
+            f"• Date: {current_date}",
+            f"• User's notes: {user_prompt or '(none provided)'}",
+            f"• Note type: {note_kind.replace('_', ' ')}",
             "",
-            f"Generate a complete, professional {note_kind.replace('_', ' ')} with full narrative content.",
-            "Write as if you're showing a case manager what a finished note looks like.",
-            "Return ONLY the draft note text - no explanations or meta-commentary.",
+            "Recent history:" if recent_notes else "",
+            "\n".join([
+                f"  - {n.get('note_type')}: {(n.get('content') or '')[:80]}..."
+                for n in recent_notes[:2]
+            ]) if recent_notes else "",
+            "",
+            "INSTRUCTIONS:",
+            "- Copy the template format EXACTLY as shown above",
+            "- Fill in realistic placeholder content in brackets",
+            "- If user provided notes/context, incorporate them into the RESPONSE/CLIENT RESPONSE section",
+            "- Use professional case management language like the template",
+            "- Include specific examples in brackets: [specific barrier], [concrete intervention], [observable detail]",
+            "- Add quote placeholders: Client stated, \"[insert verbatim client quote about...] \"",
+            "",
+            "Return ONLY the formatted note - no explanations, no meta-commentary.",
         ]
         try:
             response = await self.client.chat.completions.create(
