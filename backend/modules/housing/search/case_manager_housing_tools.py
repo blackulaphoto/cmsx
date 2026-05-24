@@ -51,9 +51,10 @@ class CaseManagerHousingTools:
         
         # Perform the housing search using existing coordinator
         try:
+            normalized_location = self._normalize_location(location)
             search_results = await self.coordinator.search_housing(
-                query=f"{query} {location}",
-                location=location
+                query=query,
+                location=normalized_location
             )
             
             if not search_results.get('success'):
@@ -63,6 +64,7 @@ class CaseManagerHousingTools:
             # Transform results for case manager workflow
             enhanced_results = []
             raw_results = search_results.get('results') or search_results.get('housing_listings') or []
+            raw_results = self._filter_results_for_requested_location(raw_results, normalized_location)
             for result in raw_results:
                 enhanced = await self._enhance_result_for_case_manager(
                     result, client_budget, client_needs, client_id
@@ -74,11 +76,75 @@ class CaseManagerHousingTools:
             
             # Create case manager dashboard response
             return self._create_case_manager_response(
-                enhanced_results, client_id, client_budget, client_needs, query, location
+                enhanced_results, client_id, client_budget, client_needs, query, normalized_location
             )
             
         except Exception as e:
             return self._create_error_response(f"Search error: {str(e)}")
+
+    def _normalize_location(self, location: str) -> str:
+        """Normalize location text for consistent city matching."""
+        normalized = (location or "").strip()
+        if not normalized:
+            return "Los Angeles, CA"
+        return re.sub(r"\s+", " ", normalized)
+
+    def _filter_results_for_requested_location(self, results: List[Dict[str, Any]], location: str) -> List[Dict[str, Any]]:
+        """Discard housing results that clearly point to a different city."""
+        requested_city = self._extract_requested_city(location)
+        if not requested_city:
+            return results
+
+        filtered_results = []
+        for result in results:
+            text = " ".join([
+                str(result.get("title", "")),
+                str(result.get("description", "")),
+                str(result.get("url", "")),
+                str(result.get("location", "")),
+            ]).lower()
+
+            # Keep direct matches for the requested city.
+            if requested_city in text:
+                filtered_results.append(result)
+                continue
+
+            # Keep county-wide Los Angeles results when the requested city is inside LA.
+            if "los angeles" in requested_city and "los angeles" in text:
+                filtered_results.append(result)
+                continue
+
+            # Reject results that explicitly mention a different city.
+            if self._mentions_other_city(text, requested_city):
+                continue
+
+            # If the result does not expose a city either way, keep it as a low-signal fallback.
+            filtered_results.append(result)
+
+        return filtered_results
+
+    def _extract_requested_city(self, location: str) -> str:
+        """Extract the primary city token from a location string."""
+        if not location:
+            return ""
+        primary = location.split(",")[0].strip().lower()
+        return re.sub(r"\s+", " ", primary)
+
+    def _mentions_other_city(self, text: str, requested_city: str) -> bool:
+        """Return True when a result clearly references a different city."""
+        city_markers = [
+            "los angeles", "van nuys", "hollywood", "north hollywood", "burbank",
+            "glendale", "pasadena", "long beach", "downtown los angeles", "skokie",
+            "chicago", "evanston", "santa monica", "venice", "inglewood", "compton",
+            "san fernando", "panorama city", "sherman oaks", "studio city"
+        ]
+        normalized_text = re.sub(r"\s+", " ", text.lower())
+        for city in city_markers:
+            if city == requested_city:
+                continue
+            if city in normalized_text:
+                return True
+        return False
     
     async def _enhance_result_for_case_manager(self, result: Dict, client_budget: int, 
                                              client_needs: List[str], client_id: str) -> Dict[str, Any]:
