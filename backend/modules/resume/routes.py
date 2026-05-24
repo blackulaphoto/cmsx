@@ -411,6 +411,11 @@ class ResumeOptimizeRequest(BaseModel):
     optimization_type: str = "ats_optimization"
     job_description: Optional[str] = None
 
+class ResumeRewriteProfileRequest(BaseModel):
+    client_id: Optional[str] = None
+    instructions: str
+    profile: Dict[str, Any]
+
 class JobApplicationRequest(BaseModel):
     client_id: str
     resume_id: str
@@ -566,6 +571,69 @@ Requirements:
             }
     except Exception as e:
         logger.error(f"AI rewrite for imported resume failed: {e}")
+
+    return profile
+
+
+def _ai_rewrite_resume_profile_with_instructions(profile: Dict[str, Any], instructions: str) -> Dict[str, Any]:
+    """Rewrite an existing structured resume profile based on case-manager instructions."""
+    try:
+        openai_client = OpenAIClient()
+        prompt = f"""
+You are rewriting a structured resume-builder profile based on a case manager's instructions.
+
+Current profile JSON:
+{json.dumps(profile)}
+
+Instructions:
+{instructions}
+
+Requirements:
+- Return valid JSON only
+- Keep the exact profile structure keys:
+  work_history, education, skills, certifications, career_objective, preferred_industries, professional_references
+- Rewrite content to be more polished, targeted, and ATS-friendly
+- Follow the user's instructions directly
+- Do not invent employers, dates, licenses, degrees, or credentials
+- Preserve factual content while improving wording and clarity
+- For work history descriptions, convert weak prose into concise professional bullet-style text where helpful
+- Keep skills grounded in the existing profile unless the user explicitly asks to remove or regroup them
+"""
+        rewritten = openai_client.chat_completion(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert resume writer. Rewrite structured resume JSON based on user instructions and return only valid JSON."
+                },
+                {"role": "user", "content": prompt},
+            ],
+            model="gpt-4o",
+            temperature=0.4,
+            max_tokens=2200,
+        )
+
+        if not rewritten:
+            return profile
+
+        cleaned = rewritten.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.strip("`")
+            if cleaned.lower().startswith("json"):
+                cleaned = cleaned[4:].strip()
+
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return {
+                "work_history": parsed.get("work_history", profile.get("work_history", [])),
+                "education": parsed.get("education", profile.get("education", [])),
+                "skills": parsed.get("skills", profile.get("skills", [])),
+                "certifications": parsed.get("certifications", profile.get("certifications", [])),
+                "career_objective": parsed.get("career_objective", profile.get("career_objective", "")),
+                "preferred_industries": parsed.get("preferred_industries", profile.get("preferred_industries", [])),
+                "professional_references": parsed.get("professional_references", profile.get("professional_references", [])),
+            }
+    except Exception as e:
+        logger.error(f"AI rewrite with instructions failed: {e}")
 
     return profile
 
@@ -986,6 +1054,50 @@ async def get_employment_profile(client_id: str):
     except Exception as e:
         logger.error(f"Error getting employment profile for {client_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Profile retrieval error: {str(e)}")
+
+
+@router.post("/rewrite-profile")
+async def rewrite_resume_profile(rewrite_request: ResumeRewriteProfileRequest):
+    """Rewrite the in-progress resume builder profile using AI and explicit user instructions."""
+    try:
+        instructions = (rewrite_request.instructions or "").strip()
+        if not instructions:
+            raise HTTPException(status_code=400, detail="Instructions are required")
+
+        current_profile = rewrite_request.profile or {}
+        rewritten_profile = _ai_rewrite_resume_profile_with_instructions(current_profile, instructions)
+
+        if rewrite_request.client_id and rewrite_request.client_id != "guest":
+            db = get_employment_db()
+            existing_profile = db.profiles.get_profile_by_client(rewrite_request.client_id)
+            profile_id = getattr(existing_profile, 'profile_id', None) or f"profile-{rewrite_request.client_id}"
+
+            profile_record = ClientEmploymentProfile(
+                profile_id=profile_id,
+                client_id=rewrite_request.client_id,
+                work_history=rewritten_profile.get("work_history", []),
+                education=rewritten_profile.get("education", []),
+                skills=rewritten_profile.get("skills", []),
+                certifications=rewritten_profile.get("certifications", []),
+                professional_references=rewritten_profile.get("professional_references", []),
+                career_objective=rewritten_profile.get("career_objective", ""),
+                preferred_industries=rewritten_profile.get("preferred_industries", []),
+            )
+
+            updated = db.profiles.update_profile(profile_record)
+            if not updated:
+                db.profiles.create_profile(profile_record)
+
+        return {
+            "success": True,
+            "profile": rewritten_profile,
+            "message": "Resume profile rewritten successfully"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error rewriting resume profile: {e}")
+        raise HTTPException(status_code=500, detail=f"Resume rewrite error: {str(e)}")
 
 
 @router.post("/import")

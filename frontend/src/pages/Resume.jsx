@@ -117,6 +117,7 @@ function Resume() {
   const [resumeImportFile, setResumeImportFile] = useState(null)
   const [resumeImportSummary, setResumeImportSummary] = useState(null)
   const [resumeImportMode, setResumeImportMode] = useState('rewrite')
+  const [resumeAiInstructions, setResumeAiInstructions] = useState('')
 
   useEffect(() => {
     checkPDFServiceHealth() // Add this line
@@ -277,6 +278,48 @@ function Resume() {
     } catch (error) {
       toast.error(error.message || 'Resume import failed')
       console.error('Resume import error:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const rewriteResumeWithAI = async () => {
+    const effectiveClient = getEffectiveClient()
+    if (!resumeAiInstructions.trim()) {
+      toast.error('Enter what you want the AI to change first')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const response = await fetch('/api/resume/rewrite-profile', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: effectiveClient?.client_id || null,
+          instructions: resumeAiInstructions,
+          profile: employmentProfile
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Failed to rewrite resume profile' }))
+        throw new Error(errorData.detail || 'Failed to rewrite resume profile')
+      }
+
+      const data = await response.json()
+      if (data.profile) {
+        setEmploymentProfile(prev => ({
+          ...prev,
+          ...data.profile
+        }))
+      }
+      toast.success('Resume updated with AI changes')
+    } catch (error) {
+      toast.error(error.message || 'Resume rewrite failed')
+      console.error('Resume rewrite error:', error)
     } finally {
       setLoading(false)
     }
@@ -957,6 +1000,35 @@ function Resume() {
                               </div>
                             </div>
                           )}
+                        </div>
+
+                        <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 p-6 hover:bg-white/10 transition-all duration-300">
+                          <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
+                            <div>
+                              <label className="block text-lg font-medium text-white mb-1 flex items-center gap-2">
+                                <Sparkles className="h-5 w-5 text-pink-400" />
+                                AI Rewrite Assistant
+                              </label>
+                              <p className="text-sm text-gray-300">
+                                Tell AI exactly what you want changed after import, like "rewrite for warehouse jobs", "make this more administrative", or "tighten the summary and bullet points".
+                              </p>
+                            </div>
+                            <button
+                              onClick={rewriteResumeWithAI}
+                              disabled={loading || !resumeAiInstructions.trim()}
+                              className="bg-gradient-to-r from-pink-500 to-purple-500 text-white px-5 py-3 rounded-xl hover:from-pink-400 hover:to-purple-400 transition-all duration-300 flex items-center gap-2 font-medium disabled:opacity-50"
+                            >
+                              <Sparkles className="h-4 w-4" />
+                              {loading ? 'Rewriting...' : 'Rewrite with AI'}
+                            </button>
+                          </div>
+                          <textarea
+                            value={resumeAiInstructions}
+                            onChange={(e) => setResumeAiInstructions(e.target.value)}
+                            placeholder="Example: Rewrite this for entry-level office administration roles, make the summary stronger, turn job duties into sharper ATS-friendly bullet points, and emphasize customer service and reliability."
+                            className="w-full p-4 bg-white/5 border border-white/20 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent text-white placeholder-gray-400 resize-none"
+                            rows={4}
+                          />
                         </div>
 
                         {/* Career Objective */}
