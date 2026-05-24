@@ -18,9 +18,11 @@ import json
 import logging
 import os
 import re
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import aiosqlite
@@ -32,8 +34,113 @@ from backend.modules.services.case_management_api import (
 )
 from backend.modules.reminders.engine import IntelligentReminderEngine
 from backend.search.coordinator import get_coordinator
+from backend.shared.database.workspace_store import workspace_store
 
 logger = logging.getLogger(__name__)
+CRISIS_TERMS = {
+    "rehab", "treatment", "detox", "shelter", "housing", "homeless",
+    "street", "streets", "kicked out", "insurance", "benefits", "drug",
+    "drugs", "program", "sleeping on the street", "sleeping outside",
+}
+AGGREGATOR_DOMAINS = {
+    "recovery.com",
+    "rehabs.com",
+    "addictions.com",
+    "psychologytoday.com",
+    "yelp.com",
+    "findhelp.org",
+    "roomies.com",
+    "craigslist.org",
+    "roomster.com",
+    "rehabnet.com",
+    "drugrehabus.org",
+    "alcohol.org",
+}
+KNOWN_PROVIDER_BOOSTS = {
+    "muse",
+    "cri-help",
+    "tarzana",
+    "hope the mission",
+    "hope of the valley",
+    "la family housing",
+    "211 la",
+    "san fernando valley rescue mission",
+    "van nuys alcohol and drug abuse treatment center",
+}
+RESOURCE_CATEGORY_CONFIG = {
+    "housing": {
+        "terms": ["housing", "shelter", "homeless", "rbh", "room and board", "transitional housing", "bridge housing", "street", "eviction"],
+        "queries": ["housing assistance", "emergency shelter", "transitional housing", "rapid rehousing"],
+        "verticals": ["services", "housing"],
+        "preferred": {"housing", "shelter", "mission", "homeless", "rescue", "bridge"},
+    },
+    "substance_use": {
+        "terms": ["detox", "rehab", "recovery", "substance", "addiction", "drug", "alcohol", "treatment", "sober"],
+        "queries": ["detox program", "substance use treatment", "outpatient treatment", "rehab"],
+        "verticals": ["services"],
+        "preferred": {"detox", "rehab", "treatment", "recovery", "sobriety"},
+    },
+    "mental_health": {
+        "terms": ["mental health", "therapy", "therapist", "psychiatry", "counseling", "counsellor", "behavioral health"],
+        "queries": ["mental health counseling", "behavioral health clinic", "psychiatric services"],
+        "verticals": ["services"],
+        "preferred": {"mental health", "counseling", "therapy", "clinic", "behavioral"},
+    },
+    "medical": {
+        "terms": ["medical", "primary care", "clinic", "doctor", "urgent care", "health center"],
+        "queries": ["medical clinic", "primary care clinic", "community health center"],
+        "verticals": ["services"],
+        "preferred": {"medical", "clinic", "health", "care", "center"},
+    },
+    "dental": {
+        "terms": ["dental", "dentist", "tooth", "teeth", "oral health"],
+        "queries": ["low cost dental clinic", "community dental clinic", "dental services"],
+        "verticals": ["services"],
+        "preferred": {"dental", "dentist", "oral"},
+    },
+    "std_testing": {
+        "terms": ["std", "sti", "hiv", "testing", "prep", "pep", "sexual health"],
+        "queries": ["std testing clinic", "sti testing", "hiv testing", "sexual health clinic"],
+        "verticals": ["services"],
+        "preferred": {"std", "sti", "hiv", "testing", "sexual health", "prep"},
+    },
+    "food": {
+        "terms": ["food", "pantry", "meals", "groceries", "hungry"],
+        "queries": ["food pantry", "meal program", "food assistance"],
+        "verticals": ["services"],
+        "preferred": {"food", "pantry", "meal", "groceries"},
+    },
+    "benefits": {
+        "terms": ["benefits", "calfresh", "medi-cal", "medicaid", "gr", "general relief", "ssi", "ssdi", "insurance"],
+        "queries": ["benefits assistance", "medi-cal enrollment help", "calfresh help", "insurance enrollment assistance"],
+        "verticals": ["services"],
+        "preferred": {"benefits", "enrollment", "insurance", "medi-cal", "calfresh", "ssi"},
+    },
+    "legal": {
+        "terms": ["legal", "expungement", "court", "citation", "record clearing", "probation", "lawyer"],
+        "queries": ["legal aid", "expungement clinic", "court support", "record clearing assistance"],
+        "verticals": ["services"],
+        "preferred": {"legal", "aid", "expungement", "court", "record"},
+    },
+    "employment": {
+        "terms": ["job", "employment", "work", "resume", "interview", "hiring"],
+        "queries": ["employment assistance", "job center", "workforce development", "resume help"],
+        "verticals": ["services", "jobs"],
+        "preferred": {"employment", "job", "workforce", "resume", "career"},
+    },
+    "transportation": {
+        "terms": ["transportation", "bus pass", "ride", "transit", "metro"],
+        "queries": ["transportation assistance", "bus pass assistance", "transit help"],
+        "verticals": ["services"],
+        "preferred": {"transportation", "transit", "ride", "bus", "metro"},
+    },
+    "documents": {
+        "terms": ["id", "identification", "birth certificate", "social security card", "documents", "dmv"],
+        "queries": ["id assistance", "document replacement help", "birth certificate assistance"],
+        "verticals": ["services"],
+        "preferred": {"id", "identification", "document", "birth certificate", "social security"},
+    },
+}
 ASSISTANT_SYSTEM_PROMPT = """Case Management Suite – AI Copilot (Popup Assistant)
 ROLE & PURPOSE
 
@@ -231,6 +338,7 @@ class UnifiedAIService:
             "search_jobs": self.search_jobs,
             "search_housing": self.search_housing,
             "search_services": self.search_services,
+            "search_internal_resources": self.search_internal_resources,
         }
         if not self.client:
             logger.warning("OPENAI_API_KEY missing: Unified AI running in degraded mode.")
@@ -392,6 +500,240 @@ class UnifiedAIService:
         coordinator = get_coordinator()
         return await coordinator.search_services(query, location, page, per_page)
 
+    async def search_internal_resources(
+        self,
+        query: str,
+        location: str = "Los Angeles, CA",
+        limit: int = 8,
+    ) -> Dict[str, Any]:
+        """Search internal service and resource data before using the web."""
+        try:
+            location_city = (location or "").split(",")[0].strip()
+            queries = self._derive_resource_queries(query)
+            seen = set()
+            results: List[Dict[str, Any]] = []
+            project_root = Path(__file__).resolve().parents[3]
+            results.extend(
+                self._search_services_directory_db(
+                    project_root / "databases" / "services.db",
+                    queries,
+                    location_city,
+                    limit,
+                    seen,
+                )
+            )
+            if len(results) < limit:
+                results.extend(
+                    self._search_social_services_db(
+                        project_root / "databases" / "social_services.db",
+                        queries,
+                        location_city,
+                        limit - len(results),
+                        seen,
+                    )
+                )
+
+            dashboard_resources = workspace_store.list_dashboard_items("dashboard_resources", "cm_001")
+            query_tokens = {token for token in re.findall(r"[a-z0-9]+", (query or "").lower()) if len(token) > 2}
+            matched_resources = []
+            for resource in dashboard_resources:
+                haystack = f"{resource.get('name', '')} {resource.get('type', '')}".lower()
+                if not query_tokens or any(token in haystack for token in query_tokens):
+                    matched_resources.append({
+                        "title": resource.get("name", ""),
+                        "type": resource.get("type", ""),
+                        "download_path": f"/api/dashboard/resources/{resource.get('id')}/download",
+                        "uploaded_at": resource.get("uploaded_at", ""),
+                        "source": "dashboard_resources",
+                    })
+
+            return {
+                "success": True,
+                "query": query,
+                "location": location,
+                "services": results[:limit],
+                "resource_files": matched_resources[:5],
+                "source": "internal_resource_library",
+                "total_count": len(results),
+            }
+        except Exception as exc:
+            logger.error("Internal resource search failed: %s", exc)
+            return {
+                "success": False,
+                "query": query,
+                "location": location,
+                "services": [],
+                "resource_files": [],
+                "source": "internal_resource_library",
+                "error": str(exc),
+                "total_count": 0,
+            }
+
+    def _search_services_directory_db(
+        self,
+        db_path: Path,
+        queries: List[str],
+        location_city: str,
+        limit: int,
+        seen: set,
+    ) -> List[Dict[str, Any]]:
+        if limit <= 0 or not db_path.exists():
+            return []
+
+        results: List[Dict[str, Any]] = []
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            for search_term in queries:
+                keyword_param = f"%{search_term.lower()}%"
+                params: List[Any] = [keyword_param, keyword_param, keyword_param, keyword_param]
+                query_sql = """
+                    SELECT
+                        service_id,
+                        service_name,
+                        service_type,
+                        provider_name,
+                        provider_address,
+                        provider_phone,
+                        provider_email,
+                        provider_website,
+                        description,
+                        eligibility_criteria,
+                        cost,
+                        availability
+                    FROM service_directory
+                    WHERE
+                        LOWER(COALESCE(service_name, '')) LIKE ?
+                        OR LOWER(COALESCE(service_type, '')) LIKE ?
+                        OR LOWER(COALESCE(provider_name, '')) LIKE ?
+                        OR LOWER(COALESCE(description, '')) LIKE ?
+                """
+                query_sql += " ORDER BY service_type, provider_name LIMIT ?"
+                params.append(limit)
+
+                rows = conn.execute(query_sql, params).fetchall()
+                for row in rows:
+                    dedupe_key = ("service_directory", row["service_id"])
+                    if dedupe_key in seen:
+                        continue
+                    seen.add(dedupe_key)
+                    results.append({
+                        "title": f"{row['provider_name'] or 'Provider'} - {row['service_name'] or row['service_type'] or 'Service'}",
+                        "provider_name": row["provider_name"] or "",
+                        "service_category": row["service_type"] or "",
+                        "service_type": row["service_name"] or "",
+                        "description": row["description"] or "",
+                        "location": row["provider_address"] or "",
+                        "phone": row["provider_phone"] or "",
+                        "email": row["provider_email"] or "",
+                        "website": row["provider_website"] or "",
+                        "current_availability": row["availability"] or "",
+                        "waitlist_status": "",
+                        "background_policy": "",
+                        "accepts_medicaid": "insurance" in (row["cost"] or "").lower() or "insurance" in (row["description"] or "").lower(),
+                        "sliding_scale_available": "sliding" in (row["cost"] or "").lower(),
+                        "eligibility_criteria": row["eligibility_criteria"] or "",
+                        "cost": row["cost"] or "",
+                        "source": "services_directory_db",
+                    })
+                    if len(results) >= limit:
+                        return results
+        return results
+
+    def _search_social_services_db(
+        self,
+        db_path: Path,
+        queries: List[str],
+        location_city: str,
+        limit: int,
+        seen: set,
+    ) -> List[Dict[str, Any]]:
+        if limit <= 0 or not db_path.exists():
+            return []
+
+        results: List[Dict[str, Any]] = []
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            provider_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(service_providers)").fetchall()
+            }
+            service_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(social_services)").fetchall()
+            }
+
+            provider_name_col = "name" if "name" in provider_columns else "provider_name"
+            phone_col = "phone_main" if "phone_main" in provider_columns else "phone_number"
+            service_type_col = "service_type" if "service_type" in service_columns else "service_name"
+            waitlist_col = "waitlist_status" if "waitlist_status" in service_columns else None
+            accepts_medicaid_col = "accepts_medicaid" if "accepts_medicaid" in provider_columns else None
+            sliding_scale_col = "sliding_scale_available" if "sliding_scale_available" in provider_columns else None
+            is_active_provider_filter = "p.is_active = 1 AND " if "is_active" in provider_columns else ""
+            is_active_service_filter = "(s.is_active = 1 OR s.is_active IS NULL) AND " if "is_active" in service_columns else ""
+
+            for search_term in queries:
+                params: List[Any] = []
+                query_sql = f"""
+                    SELECT
+                        p.provider_id,
+                        p.{provider_name_col} AS provider_name,
+                        p.city,
+                        p.county,
+                        p.email,
+                        p.website,
+                        p.background_check_policy,
+                        p.{phone_col} AS phone_value,
+                        s.service_category,
+                        s.{service_type_col} AS service_type,
+                        s.description,
+                        s.current_availability
+                        {', p.' + accepts_medicaid_col + ' AS accepts_medicaid' if accepts_medicaid_col else ''}
+                        {', p.' + sliding_scale_col + ' AS sliding_scale_available' if sliding_scale_col else ''}
+                        {', s.' + waitlist_col + ' AS waitlist_status' if waitlist_col else ''}
+                    FROM service_providers p
+                    LEFT JOIN social_services s ON p.provider_id = s.provider_id
+                    WHERE {is_active_provider_filter}{is_active_service_filter}(
+                        LOWER(COALESCE(p.{provider_name_col}, '')) LIKE ?
+                        OR LOWER(COALESCE(s.service_category, '')) LIKE ?
+                        OR LOWER(COALESCE(s.{service_type_col}, '')) LIKE ?
+                        OR LOWER(COALESCE(s.description, '')) LIKE ?
+                    )
+                """
+                keyword_param = f"%{search_term.lower()}%"
+                params.extend([keyword_param, keyword_param, keyword_param, keyword_param])
+                if location_city and "city" in provider_columns:
+                    query_sql += " AND LOWER(COALESCE(p.city, '')) LIKE ?"
+                    params.append(f"%{location_city.lower()}%")
+                query_sql += f" ORDER BY p.{provider_name_col}, s.service_category LIMIT ?"
+                params.append(limit)
+
+                rows = conn.execute(query_sql, params).fetchall()
+                for row in rows:
+                    provider_id = row["provider_id"]
+                    service_type = row["service_type"]
+                    dedupe_key = ("social_services", provider_id, service_type)
+                    if dedupe_key in seen:
+                        continue
+                    seen.add(dedupe_key)
+                    results.append({
+                        "title": f"{row['provider_name']} - {service_type or row['service_category'] or 'Service'}",
+                        "provider_name": row["provider_name"],
+                        "service_category": row["service_category"] or "",
+                        "service_type": service_type or "",
+                        "description": row["description"] or "",
+                        "location": ", ".join(part for part in [row["city"] or "", row["county"] or ""] if part),
+                        "phone": row["phone_value"] or "",
+                        "email": row["email"] or "",
+                        "website": row["website"] or "",
+                        "current_availability": row["current_availability"] or "",
+                        "waitlist_status": row["waitlist_status"] if "waitlist_status" in row.keys() else "",
+                        "background_policy": row["background_check_policy"] or "",
+                        "accepts_medicaid": bool(row["accepts_medicaid"]) if "accepts_medicaid" in row.keys() else False,
+                        "sliding_scale_available": bool(row["sliding_scale_available"]) if "sliding_scale_available" in row.keys() else False,
+                        "source": "social_services_db",
+                    })
+                    if len(results) >= limit:
+                        return results
+        return results
+
     async def create_reminder(
         self,
         case_manager_id: str,
@@ -483,6 +825,13 @@ class UnifiedAIService:
             }
         ]
         messages.extend({"role": h["role"], "content": h["content"]} for h in history)
+        resource_context = await self._maybe_build_case_manager_resource_context(message, history)
+        if resource_context:
+            messages.append({"role": "system", "content": resource_context})
+        else:
+            internal_context = await self._maybe_build_internal_resource_context(message)
+            if internal_context:
+                messages.append({"role": "system", "content": internal_context})
         messages.append({"role": "user", "content": message})
 
         central_tools = [
@@ -580,6 +929,22 @@ class UnifiedAIService:
                             "location": {"type": "string"},
                             "page": {"type": "integer"},
                             "per_page": {"type": "integer"}
+                        },
+                        "required": ["query"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_internal_resources",
+                    "description": "Search the internal services database and dashboard resource library for local programs before using web search",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"},
+                            "location": {"type": "string"},
+                            "limit": {"type": "integer"}
                         },
                         "required": ["query"],
                     },
@@ -690,6 +1055,10 @@ class UnifiedAIService:
             "- Give concrete next steps.\n"
             "- Prefer short checklists and decision points over essays.\n"
             "- When discussing a client situation, focus on what the case manager should do next.\n"
+            "- For housing, treatment, benefits, or urgent support requests, use internal resources first when available.\n"
+            "- When provider names, phone numbers, addresses, or websites are available, include them directly.\n"
+            "- Do not send users to generic directory pages when provider-level options are available.\n"
+            "- For resource lookups, respond like a case-manager research tool: give 3 to 5 specific provider options, then who to call first.\n"
             "- If something depends on jurisdiction, policy, or a licensed professional, say that plainly.\n\n"
             "Boundaries:\n"
             "- No medical diagnosis or treatment advice.\n"
@@ -733,6 +1102,403 @@ class UnifiedAIService:
         cleaned = re.sub(r"\btrusted copilot\b", "copilot", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
+
+    def _derive_resource_queries(self, message: str) -> List[str]:
+        text = (message or "").lower()
+        queries = [message]
+        if any(term in text for term in ["rehab", "treatment", "detox", "sobriety", "sober", "addiction", "substance"]):
+            queries.extend([
+                "substance abuse",
+                "outpatient treatment",
+                "medication-assisted treatment",
+                "mental health",
+                "counseling",
+                "treatment",
+                "rehab",
+            ])
+        if any(term in text for term in ["street", "homeless", "shelter", "kicked out", "housing", "on the streets"]):
+            queries.extend([
+                "housing services",
+                "emergency shelter",
+                "transitional housing",
+                "housing",
+                "shelter",
+            ])
+        if any(term in text for term in ["insurance", "bcbs", "medical", "health"]):
+            queries.extend([
+                "medical services",
+                "benefits coordination",
+                "insurance",
+                "medical",
+                "health",
+            ])
+        seen = set()
+        ordered = []
+        for query in queries:
+            normalized = query.strip().lower()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                ordered.append(query)
+        return ordered
+
+    async def _maybe_build_internal_resource_context(self, message: str) -> Optional[str]:
+        text = (message or "").lower()
+        urgent_terms = list(CRISIS_TERMS) + ["legal aid"]
+        if not any(term in text for term in urgent_terms):
+            return None
+
+        resource_results = await self.search_internal_resources(message, "Los Angeles, CA", limit=6)
+        services = resource_results.get("services", [])
+        resource_files = resource_results.get("resource_files", [])
+        if not services and not resource_files:
+            return None
+
+        lines = [
+            "Internal resource context is available. Use it before giving generic advice.",
+            "If a local option appears relevant, mention the provider name and contact details directly.",
+        ]
+        if services:
+            lines.append("Internal service matches:")
+            for service in services[:6]:
+                lines.append(
+                    f"- {service.get('title')}; availability: {service.get('current_availability') or 'unknown'}; "
+                    f"phone: {service.get('phone') or 'not listed'}; website: {service.get('website') or 'not listed'}; "
+                    f"background policy: {service.get('background_policy') or 'not listed'}"
+                )
+        if resource_files:
+            lines.append("Matching uploaded resource files:")
+            for resource in resource_files[:5]:
+                lines.append(f"- {resource.get('title')} ({resource.get('type')})")
+        return "\n".join(lines)
+
+    async def _maybe_build_case_manager_resource_context(
+        self,
+        message: str,
+        history: List[Dict[str, Any]],
+    ) -> Optional[str]:
+        categories = self._classify_resource_categories(message, history)
+        if not categories:
+            return None
+
+        location = self._extract_location_from_conversation(message, history) or "Los Angeles, CA"
+        combined_text = " ".join([h.get("content", "") for h in history[-6:]] + [message]).lower()
+        internal_results = await self.search_internal_resources(combined_text, location, limit=8)
+        lines = [
+            "This is a case-manager resource lookup.",
+            f"Return specific provider options for {location}.",
+            "Use provider names, phone numbers, websites, addresses, eligibility notes, and hours when available.",
+            "Avoid generic directories when direct providers are available.",
+        ]
+
+        internal_services = internal_results.get("services", [])
+        if internal_services:
+            lines.append("Internal directory matches:")
+            for service in internal_services[:5]:
+                lines.append(
+                    f"- {service.get('title')}; phone: {service.get('phone') or 'not listed'}; "
+                    f"website: {service.get('website') or 'not listed'}; "
+                    f"eligibility: {service.get('eligibility_criteria') or 'not listed'}; "
+                    f"availability: {service.get('current_availability') or 'unknown'}"
+                )
+
+        for category in categories[:3]:
+            provider_cards = await self._collect_category_resource_cards(category, message, combined_text, location)
+            if not provider_cards:
+                continue
+            lines.append(f"{category.replace('_', ' ').title()} provider matches:")
+            for item in provider_cards[:4]:
+                lines.append(
+                    f"- {item.get('title')}; phone: {item.get('phone') or 'not listed'}; "
+                    f"website: {item.get('link') or item.get('url') or item.get('website') or 'not listed'}; "
+                    f"address: {item.get('address') or item.get('location') or location}; "
+                    f"notes: {item.get('insurance_notes') or item.get('hours') or item.get('description') or ''}"
+                )
+
+        if len(lines) <= 4:
+            return None
+        return "\n".join(lines)
+
+    def _classify_resource_categories(
+        self,
+        message: str,
+        history: List[Dict[str, Any]],
+    ) -> List[str]:
+        text = " ".join([h.get("content", "") for h in history[-6:]] + [message]).lower()
+        categories: List[str] = []
+        for category, config in RESOURCE_CATEGORY_CONFIG.items():
+            if any(term in text for term in config["terms"]):
+                categories.append(category)
+        return categories
+
+    async def _collect_category_resource_cards(
+        self,
+        category: str,
+        message: str,
+        combined_text: str,
+        location: str,
+    ) -> List[Dict[str, Any]]:
+        config = RESOURCE_CATEGORY_CONFIG.get(category)
+        if not config:
+            return []
+
+        queries = self._build_category_queries(category, message, combined_text)
+        results: List[Dict[str, Any]] = []
+        preferred_terms = set(config["preferred"])
+        for query in queries[:3]:
+            search_tasks = []
+            if "services" in config["verticals"]:
+                search_tasks.append(self.search_services(query, location, 1, 6))
+            if "housing" in config["verticals"]:
+                search_tasks.append(self.search_housing(query, location, 1, 6))
+            if "jobs" in config["verticals"]:
+                search_tasks.append(self.search_jobs(query, location, 1, 6))
+            raw_sets = await asyncio.gather(*search_tasks) if search_tasks else []
+            merged_items: List[Dict[str, Any]] = []
+            for payload in raw_sets:
+                merged_items.extend(payload.get("results", []))
+                merged_items.extend(payload.get("housing_listings", []))
+            ranked = self._rank_crisis_results(merged_items, location, preferred_terms)
+            enriched = await self._enrich_ranked_results(ranked, location, category, 4)
+            results.extend(enriched)
+            if results:
+                break
+
+        deduped: List[Dict[str, Any]] = []
+        seen = set()
+        for item in results:
+            key = (item.get("title"), item.get("link") or item.get("url"))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        return deduped[:4]
+
+    def _build_category_queries(self, category: str, message: str, combined_text: str) -> List[str]:
+        config = RESOURCE_CATEGORY_CONFIG.get(category, {})
+        queries = [message]
+        queries.extend(config.get("queries", []))
+        if category == "benefits" and "bcbs" in combined_text:
+            queries.insert(1, "bcbs insurance assistance")
+        if category == "housing" and "rbh" in combined_text:
+            queries.insert(1, "rbh housing")
+        if category == "employment":
+            queries.append("second chance employment")
+        seen = set()
+        ordered: List[str] = []
+        for query in queries:
+            normalized = query.strip().lower()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                ordered.append(query)
+        return ordered
+
+    async def _maybe_build_crisis_support_context(
+        self,
+        message: str,
+        history: List[Dict[str, Any]],
+    ) -> Optional[str]:
+        if not self._is_crisis_support_request(message, history):
+            return None
+
+        location = self._extract_location_from_conversation(message, history) or "Los Angeles, CA"
+        combined_text = " ".join([h.get("content", "") for h in history[-6:]] + [message]).lower()
+        detox_query = "detox rehab program"
+        if "bcbs" in combined_text or "blue cross" in combined_text or "insurance" in combined_text:
+            detox_query += " bcbs insurance"
+
+        internal_results, detox_results, shelter_service_results, shelter_housing_results = await asyncio.gather(
+            self.search_internal_resources(combined_text, location, limit=6),
+            self.search_services(detox_query, location, 1, 8),
+            self.search_services("emergency shelter homeless", location, 1, 8),
+            self.search_housing("emergency shelter homeless", location, 1, 8),
+        )
+
+        detox_candidates = self._rank_crisis_results(
+            detox_results.get("results", []),
+            location,
+            {"detox", "rehab", "treatment", "recovery"},
+        )
+        shelter_candidates = self._rank_crisis_results(
+            shelter_service_results.get("results", []) + shelter_housing_results.get("housing_listings", []),
+            location,
+            {"shelter", "housing", "mission", "homeless", "rescue"},
+        )
+        detox_candidates, shelter_candidates = await asyncio.gather(
+            self._enrich_ranked_results(detox_candidates, location, "detox", 4),
+            self._enrich_ranked_results(shelter_candidates, location, "shelter", 4),
+        )
+
+        internal_services = internal_results.get("services", [])
+        lines = [
+            "This is a crisis housing or detox request.",
+            f"Use the following local options for {location} before giving generic guidance.",
+            "Give specific provider names, direct links, and contact numbers when available.",
+            "Keep the response short, practical, and action-oriented.",
+        ]
+        if internal_services:
+            lines.append("Internal directory matches:")
+            for service in internal_services[:4]:
+                lines.append(
+                    f"- {service.get('title')}; phone: {service.get('phone') or 'not listed'}; "
+                    f"website: {service.get('website') or 'not listed'}; "
+                    f"availability: {service.get('current_availability') or 'unknown'}"
+                )
+        if detox_candidates:
+            lines.append("Detox or treatment web matches:")
+            for item in detox_candidates[:4]:
+                lines.append(
+                    f"- {item.get('title')}; phone: {item.get('phone') or 'not listed'}; "
+                    f"website: {item.get('link') or item.get('url') or item.get('website') or 'not listed'}; "
+                    f"address: {item.get('address') or item.get('location') or location}; "
+                    f"notes: {item.get('insurance_notes') or item.get('hours') or item.get('description') or ''}"
+                )
+        if shelter_candidates:
+            lines.append("Emergency housing or shelter web matches:")
+            for item in shelter_candidates[:4]:
+                lines.append(
+                    f"- {item.get('title')}; phone: {item.get('phone') or 'not listed'}; "
+                    f"website: {item.get('link') or item.get('url') or item.get('website') or 'not listed'}; "
+                    f"address: {item.get('address') or item.get('location') or location}; "
+                    f"notes: {item.get('insurance_notes') or item.get('hours') or item.get('description') or ''}"
+                )
+
+        if len(lines) <= 4:
+            return None
+        return "\n".join(lines)
+
+    def _is_crisis_support_request(self, message: str, history: List[Dict[str, Any]]) -> bool:
+        text = " ".join([h.get("content", "") for h in history[-6:]] + [message]).lower()
+        return any(term in text for term in CRISIS_TERMS)
+
+    def _extract_location_from_conversation(
+        self,
+        message: str,
+        history: List[Dict[str, Any]],
+    ) -> Optional[str]:
+        texts = [message] + [h.get("content", "") for h in reversed(history[-6:])]
+        patterns = [
+            r"\b(?:i am in|i'm in|im in|in|near)\s+([a-z][a-z\s]+?)\s*(?:,\s*| )ca\b",
+            r"\b([a-z][a-z\s]+),\s*ca\b",
+        ]
+        for text in texts:
+            lowered = text.lower()
+            for pattern in patterns:
+                match = re.search(pattern, lowered)
+                if match:
+                    location = match.group(1).strip()
+                    location = re.sub(r"\b(client|needs|need|cheap|testing|help|with|for)\b", "", location).strip()
+                    location = re.sub(r"\s{2,}", " ", location)
+                    return self._title_case_location(location)
+        return None
+
+    def _title_case_location(self, location: str) -> str:
+        parts = [part.strip() for part in location.split(",") if part.strip()]
+        if not parts:
+            return location
+        city = parts[0].title()
+        state = parts[1].upper() if len(parts) > 1 else "CA"
+        return f"{city}, {state}"
+
+    def _rank_crisis_results(
+        self,
+        items: List[Dict[str, Any]],
+        location: str,
+        preferred_terms: set,
+    ) -> List[Dict[str, Any]]:
+        scored: List[tuple] = []
+        location_l = (location or "").lower()
+        for item in items:
+            title = (item.get("title") or "").lower()
+            description = (item.get("description") or "").lower()
+            url = item.get("link") or item.get("url") or ""
+            hostname = (urlparse(url).hostname or "").lower().replace("www.", "")
+            score = 0
+            if hostname and hostname not in AGGREGATOR_DOMAINS:
+                score += 4
+            else:
+                score -= 3
+            if any(boost in title for boost in KNOWN_PROVIDER_BOOSTS):
+                score += 5
+            if any(term in title for term in preferred_terms):
+                score += 3
+            if any(term in description for term in preferred_terms):
+                score += 2
+            if location_l and location_l.split(",")[0] in f"{title} {description}":
+                score += 2
+            if any(bad in title for bad in ["directory", "centers near", "best", "find rehabs", "rooms for rent"]):
+                score -= 3
+            if hostname and hostname in AGGREGATOR_DOMAINS:
+                score -= 2
+            scored.append((score, item))
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+
+        deduped: List[Dict[str, Any]] = []
+        seen_titles = set()
+        for _, item in scored:
+            title = item.get("title") or ""
+            if title in seen_titles:
+                continue
+            seen_titles.add(title)
+            deduped.append(item)
+        return deduped
+
+    async def _enrich_ranked_results(
+        self,
+        items: List[Dict[str, Any]],
+        location: str,
+        category: str,
+        limit: int,
+    ) -> List[Dict[str, Any]]:
+        enriched: List[Dict[str, Any]] = []
+        for item in items[:limit]:
+            merged = dict(item)
+            merged.update(self._extract_contact_fields(item))
+            if not merged.get("phone") or not merged.get("address"):
+                follow_up_query = self._provider_follow_up_query(merged, category, location)
+                try:
+                    follow_up = await self.search_services(follow_up_query, location, 1, 3)
+                    follow_up_items = self._rank_crisis_results(
+                        follow_up.get("results", []),
+                        location,
+                        {"detox", "rehab", "treatment", "recovery"} if category == "detox" else {"shelter", "housing", "mission", "homeless", "rescue"},
+                    )
+                    if follow_up_items:
+                        merged.update({k: v for k, v in self._extract_contact_fields(follow_up_items[0]).items() if v})
+                        if follow_up_items[0].get("link") and not merged.get("link"):
+                            merged["link"] = follow_up_items[0]["link"]
+                            merged["url"] = follow_up_items[0]["link"]
+                except Exception as exc:
+                    logger.warning("Follow-up enrichment failed for %s: %s", follow_up_query, exc)
+            enriched.append(merged)
+        return enriched
+
+    def _provider_follow_up_query(self, item: Dict[str, Any], category: str, location: str) -> str:
+        title = item.get("title") or ""
+        if category == "detox":
+            return f"{title} phone official {location}"
+        return f"{title} phone address official {location}"
+
+    def _extract_contact_fields(self, item: Dict[str, Any]) -> Dict[str, str]:
+        description = item.get("description") or ""
+        title = item.get("title") or ""
+        text = f"{title} {description}"
+
+        phone_match = re.search(r"(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|\d{3}-\d{2}-[A-Z]+)", text, re.IGNORECASE)
+        address_match = re.search(
+            r"(\d{2,6}\s+[A-Za-z0-9.\-#'\s]+,\s*[A-Za-z\s]+,\s*CA\s*\d{5})",
+            text,
+        )
+        hours_match = re.search(
+            r"(Hours:\s*[^.]+(?:\.)?|Mon(?:day)?[^.]+|Tue(?:sday)?[^.]+|Open\s*24/7[^.]*)",
+            text,
+            re.IGNORECASE,
+        )
+
+        return {
+            "phone": phone_match.group(1).strip() if phone_match else item.get("phone", ""),
+            "address": address_match.group(1).strip() if address_match else item.get("address", ""),
+            "hours": hours_match.group(1).strip() if hours_match else item.get("hours", ""),
+        }
 
     async def get_conversation_history(self, case_manager_id: str) -> List[Dict[str, Any]]:
         await self.initialize()
