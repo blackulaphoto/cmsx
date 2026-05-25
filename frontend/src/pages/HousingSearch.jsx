@@ -69,12 +69,21 @@ function HousingSearch() {
   const [searchResults, setSearchResults] = useState([])
   const [loading, setLoading] = useState(false)
   const [viewMode, setViewMode] = useState('search') // 'search' or 'sites'
+  const [resourceMode, setResourceMode] = useState('sober_living')
+  const [resourceResults, setResourceResults] = useState([])
+  const [resourceLoading, setResourceLoading] = useState(false)
+  const [resourceTotal, setResourceTotal] = useState(0)
   const [availableCities, setAvailableCities] = useState([])
   const [searchParams, setSearchParams] = useState({
     location: '',
     maxPrice: '',
     bedrooms: '',
     backgroundFriendly: false
+  })
+  const [resourceFilters, setResourceFilters] = useState({
+    gender: '',
+    acceptsMediCal: false,
+    programKeywords: ''
   })
 
   useEffect(() => {
@@ -257,6 +266,58 @@ function HousingSearch() {
     }
   }
 
+  const searchHousingResources = async () => {
+    const normalizedLocation = normalizeHousingLocation(searchParams.location || 'Los Angeles, CA')
+
+    setResourceLoading(true)
+    try {
+      const city = normalizedLocation.replace(/,\s*[A-Z]{2}$/i, '')
+      let endpoint = ''
+
+      if (resourceMode === 'sober_living') {
+        const params = new URLSearchParams({
+          page: '1',
+          per_page: '20'
+        })
+        if (resourceFilters.gender) params.set('gender', resourceFilters.gender)
+        if (city) params.set('city', city)
+        if (resourceFilters.acceptsMediCal) params.set('accepts_medi_cal', 'true')
+        endpoint = `/api/housing/sober-living?${params.toString()}`
+      } else {
+        const params = new URLSearchParams({
+          page: '1',
+          per_page: '20',
+          location: city || 'Los Angeles'
+        })
+        if (resourceFilters.programKeywords.trim()) {
+          params.set('keywords', resourceFilters.programKeywords.trim())
+        }
+        endpoint = `/api/housing/programs?${params.toString()}`
+      }
+
+      const response = await apiFetch(endpoint)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+      setResourceResults(data.results || [])
+      setResourceTotal(data.total_count || 0)
+      toast.success(
+        resourceMode === 'sober_living'
+          ? `Found ${data.total_count || 0} sober living options`
+          : `Found ${data.total_count || 0} housing programs`
+      )
+    } catch (error) {
+      console.error('Housing resource search failed:', error)
+      setResourceResults([])
+      setResourceTotal(0)
+      toast.error('Failed to load housing resources')
+    } finally {
+      setResourceLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
       {/* Animated Background Elements */}
@@ -273,15 +334,17 @@ function HousingSearch() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-lg">
-                  {viewMode === 'sites' ? <Globe className="h-8 w-8 text-white" /> : <Home className="h-8 w-8 text-white" />}
+                  {viewMode === 'sites' ? <Globe className="h-8 w-8 text-white" /> : viewMode === 'resources' ? <Sparkles className="h-8 w-8 text-white" /> : <Home className="h-8 w-8 text-white" />}
                 </div>
                 <div>
                   <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-cyan-200 to-blue-200 bg-clip-text text-transparent">
-                    {viewMode === 'sites' ? 'Housing Sites Dashboard' : 'Housing Search'}
+                    {viewMode === 'sites' ? 'Housing Sites Dashboard' : viewMode === 'resources' ? 'Sober Living & Programs' : 'Housing Search'}
                   </h1>
                   <p className="text-gray-300 text-lg">
                     {viewMode === 'sites' 
                       ? 'Direct access to rental websites with case manager tools' 
+                      : viewMode === 'resources'
+                      ? 'Find sober living homes and housing assistance programs'
                       : 'Find background-friendly housing options'
                     }
                   </p>
@@ -312,6 +375,17 @@ function HousingSearch() {
                   <Globe size={16} />
                   Sites
                 </button>
+                <button
+                  onClick={() => setViewMode('resources')}
+                  className={`px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 ${
+                    viewMode === 'resources'
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg'
+                      : 'text-white/70 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <Sparkles size={16} />
+                  Resources
+                </button>
                 <Link
                   to="/housing/case-manager"
                   className="px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 text-white/70 hover:text-white hover:bg-white/10 flex items-center gap-2"
@@ -341,12 +415,14 @@ function HousingSearch() {
               <div className="p-2 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-lg">
                 <User className="h-5 w-5 text-white" />
               </div>
-              {viewMode === 'sites' ? 'Select Client for Housing Sites' : 'Select Client'}
+              {viewMode === 'sites' ? 'Select Client for Housing Sites' : viewMode === 'resources' ? 'Select Client for Housing Resources' : 'Select Client'}
             </h2>
             <ClientSelector 
               onClientSelect={setSelectedClient}
               placeholder={viewMode === 'sites' 
                 ? "Select a client to use case manager tools..." 
+                : viewMode === 'resources'
+                ? "Select a client to search sober living and programs for..."
                 : "Select a client to search housing for..."
               }
               className="max-w-md relative z-30"
@@ -354,7 +430,7 @@ function HousingSearch() {
             {selectedClient && (
               <div className="mt-4 p-4 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-xl border border-blue-500/30">
                 <p className="text-sm text-blue-200">
-                  {viewMode === 'sites' ? 'Using case manager tools for' : 'Searching housing for'}: <strong className="text-white">{selectedClient.first_name} {selectedClient.last_name}</strong>
+                  {viewMode === 'sites' ? 'Using case manager tools for' : viewMode === 'resources' ? 'Searching housing resources for' : 'Searching housing for'}: <strong className="text-white">{selectedClient.first_name} {selectedClient.last_name}</strong>
                 </p>
               </div>
             )}
@@ -364,6 +440,242 @@ function HousingSearch() {
           {viewMode === 'sites' ? (
             /* Housing Sites Dashboard */
             <HousingSitesIframe selectedClient={selectedClient} />
+          ) : viewMode === 'resources' ? (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10 mb-8">
+                <div className="flex items-center gap-3 mb-8">
+                  <div className="p-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg">
+                    <Sparkles className="h-6 w-6 text-white" />
+                  </div>
+                  <h2 className="text-2xl font-bold text-white">Sober Living & Housing Programs</h2>
+                </div>
+
+                <div className="flex flex-wrap gap-4 mb-8">
+                  <button
+                    onClick={() => setResourceMode('sober_living')}
+                    className={`px-5 py-3 rounded-xl text-sm font-medium transition-all duration-300 ${
+                      resourceMode === 'sober_living'
+                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg'
+                        : 'bg-white/10 text-white/70 hover:text-white hover:bg-white/15'
+                    }`}
+                  >
+                    Sober Living
+                  </button>
+                  <button
+                    onClick={() => setResourceMode('programs')}
+                    className={`px-5 py-3 rounded-xl text-sm font-medium transition-all duration-300 ${
+                      resourceMode === 'programs'
+                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg'
+                        : 'bg-white/10 text-white/70 hover:text-white hover:bg-white/15'
+                    }`}
+                  >
+                    Housing Programs
+                  </button>
+                </div>
+
+                {resourceMode === 'sober_living' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-3">City</label>
+                      <SearchableDropdown
+                        options={availableCities}
+                        placeholder="Select city..."
+                        onSelect={(city) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(city.name) }))}
+                        displayField={(city) => city.label}
+                        value={availableCities.find((city) => normalizeHousingLocation(city.name) === normalizeHousingLocation(searchParams.location)) || null}
+                        className="w-full"
+                        searchPlaceholder="Search cities..."
+                        emptyMessage="No cities found"
+                        itemKey={(city) => city.id}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-3">Gender Served</label>
+                      <select
+                        value={resourceFilters.gender}
+                        onChange={(e) => setResourceFilters(prev => ({ ...prev, gender: e.target.value }))}
+                        className="w-full px-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white transition-all duration-300 hover:bg-white/15"
+                      >
+                        <option value="" className="bg-gray-800 text-white">Any</option>
+                        <option value="men" className="bg-gray-800 text-white">Men</option>
+                        <option value="women" className="bg-gray-800 text-white">Women</option>
+                        <option value="coed" className="bg-gray-800 text-white">Coed</option>
+                      </select>
+                    </div>
+                    <div className="flex items-end">
+                      <label className="flex items-center group cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={resourceFilters.acceptsMediCal}
+                          onChange={(e) => setResourceFilters(prev => ({ ...prev, acceptsMediCal: e.target.checked }))}
+                          className="mr-3 h-5 w-5 text-emerald-500 focus:ring-emerald-400 border-gray-400 rounded bg-white/10"
+                        />
+                        <span className="text-sm text-gray-300 group-hover:text-white transition-colors">Accepts Medi-Cal</span>
+                      </label>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-3">City</label>
+                      <SearchableDropdown
+                        options={availableCities}
+                        placeholder="Select city..."
+                        onSelect={(city) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(city.name) }))}
+                        displayField={(city) => city.label}
+                        value={availableCities.find((city) => normalizeHousingLocation(city.name) === normalizeHousingLocation(searchParams.location)) || null}
+                        className="w-full"
+                        searchPlaceholder="Search cities..."
+                        emptyMessage="No cities found"
+                        itemKey={(city) => city.id}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-3">Program Search</label>
+                      <input
+                        type="text"
+                        placeholder="Section 8, voucher, CalWORKs, HOPWA..."
+                        value={resourceFilters.programKeywords}
+                        onChange={(e) => setResourceFilters(prev => ({ ...prev, programKeywords: e.target.value }))}
+                        className="w-full px-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={searchHousingResources}
+                  disabled={resourceLoading}
+                  className="group w-full md:w-auto px-8 py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-2xl hover:shadow-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-3"
+                >
+                  <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
+                    <Search className="h-5 w-5" />
+                  </div>
+                  {resourceLoading ? 'Searching...' : resourceMode === 'sober_living' ? 'Find Sober Living' : 'Find Housing Programs'}
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {resourceLoading ? (
+                  <div className="text-center py-16 bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm rounded-2xl border border-white/10">
+                    <div className="relative mx-auto mb-6 w-12 h-12">
+                      <div className="animate-spin rounded-full h-12 w-12 border-4 border-emerald-500/20 border-t-emerald-500"></div>
+                      <div className="absolute inset-2 animate-spin rounded-full border-2 border-teal-500/20 border-t-teal-500" style={{animationDirection: 'reverse'}}></div>
+                    </div>
+                    <p className="text-gray-300 font-medium">Searching housing resources...</p>
+                  </div>
+                ) : resourceResults.length > 0 ? (
+                  <>
+                    <div className="bg-gradient-to-r from-white/10 to-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/20 shadow-xl shadow-purple-500/10 mb-8">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg">
+                            <Home className="h-6 w-6 text-white" />
+                          </div>
+                          <span className="font-bold text-white text-lg">
+                            Found {resourceTotal} {resourceMode === 'sober_living' ? 'Housing Options' : 'Programs'}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-300 flex items-center gap-3">
+                          <span>{resourceMode === 'sober_living' ? 'Virgil sober living directory' : 'Virgil housing program directory'}</span>
+                          <div className="w-3 h-3 bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/50"></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {resourceResults.map((resource, index) => (
+                      <div key={resource.id || `${resourceMode}_${index}`} className="group bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 hover:border-white/30 transition-all duration-500 hover:scale-[1.02] hover:shadow-2xl hover:shadow-emerald-500/20">
+                        <div className="flex flex-col lg:flex-row gap-8">
+                          <div className="lg:w-1/3">
+                            <div className="bg-gradient-to-br from-emerald-500/20 to-teal-500/20 backdrop-blur-sm rounded-2xl h-48 flex items-center justify-center border border-emerald-500/30 group-hover:border-emerald-400/50 transition-all duration-300">
+                              <div className="text-center">
+                                <div className="p-4 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl mb-3 mx-auto w-fit">
+                                  <Home size={48} className="text-white" />
+                                </div>
+                                <span className="text-sm text-emerald-200 font-medium">{resource.type || 'Housing Resource'}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="lg:w-2/3">
+                            <div className="flex items-start justify-between mb-4">
+                              <div>
+                                <h3 className="text-2xl font-bold text-white mb-2 group-hover:text-emerald-200 transition-colors">
+                                  {resource.name}
+                                </h3>
+                                <p className="text-gray-300 flex items-center gap-2 mb-3">
+                                  <MapPin size={16} className="text-emerald-400" />
+                                  {resource.address}
+                                </p>
+                                <div className="flex flex-wrap items-center gap-3">
+                                  {resource.serves && (
+                                    <span className="px-3 py-1 bg-gradient-to-r from-blue-500/20 to-indigo-500/20 text-blue-300 rounded-full text-sm border border-blue-500/30">
+                                      Serves: {resource.serves}
+                                    </span>
+                                  )}
+                                  {resource.payment_options?.medi_cal && (
+                                    <span className="px-3 py-1 bg-gradient-to-r from-green-500/20 to-emerald-500/20 text-green-300 rounded-full text-sm border border-green-500/30">
+                                      Accepts Medi-Cal
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <p className="text-gray-300 mb-6 leading-relaxed">{resource.description}</p>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm mb-6">
+                              <div className="bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/10">
+                                <h4 className="font-semibold text-white mb-3">Contact</h4>
+                                <p className="text-gray-300">Phone: {resource.phone}</p>
+                                {resource.hours && <p className="text-gray-300 mt-2">Hours: {resource.hours}</p>}
+                              </div>
+                              {resource.payment_options && (
+                                <div className="bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm p-4 rounded-xl border border-white/10">
+                                  <h4 className="font-semibold text-white mb-3">Payment</h4>
+                                  <p className="text-gray-300">Medi-Cal: {resource.payment_options.medi_cal ? 'Yes' : 'No'}</p>
+                                  <p className="text-gray-300 mt-2">Price: {resource.payment_options.price_range}</p>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex gap-4 flex-wrap">
+                              {resource.website && (
+                                <button
+                                  onClick={() => window.open(resource.website, '_blank', 'noopener,noreferrer')}
+                                  className="group/btn px-8 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-emerald-500/25"
+                                >
+                                  Visit Website
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  if (selectedClient) {
+                                    toast.success(`Saved housing resource for ${selectedClient.first_name}`)
+                                  } else {
+                                    toast.error('Please select a client first')
+                                  }
+                                }}
+                                className="group/btn px-8 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white hover:border-white/30 transition-all duration-300 transform hover:scale-105"
+                              >
+                                Save for Client
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <div className="text-center py-16 bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm rounded-2xl border border-white/10">
+                    <div className="p-4 bg-gradient-to-r from-gray-500/20 to-gray-600/20 rounded-2xl w-fit mx-auto mb-6">
+                      <Home size={48} className="text-gray-400" />
+                    </div>
+                    <h3 className="text-xl font-medium mb-3 text-white">No housing resources found</h3>
+                    <p className="text-gray-400">Try adjusting the city or filter criteria.</p>
+                  </div>
+                )}
+              </div>
+            </div>
           ) : (
             /* Original Housing Search */
             <div className="space-y-6">

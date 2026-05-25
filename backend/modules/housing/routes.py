@@ -28,6 +28,7 @@ import json
 from datetime import datetime
 
 from .models import HousingResource, HousingDatabase
+from .simple_housing_tools import get_housing_tools, get_housing_search_urls
 # from ai_search_coordinator import get_ai_coordinator  # COMMENTED OUT - Using simple search
 
 # Import reminder integration
@@ -270,6 +271,81 @@ async def get_housing_cities():
         }
     except Exception as e:
         logger.error(f"Get cities error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/sober-living")
+async def get_sober_living_resources(
+    gender: Optional[str] = Query(None, description="men, women, or coed"),
+    city: Optional[str] = Query(None, description="City to filter by"),
+    accepts_medi_cal: bool = Query(False, description="Only show homes that accept Medi-Cal"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=50)
+):
+    """Get sober living homes from the Virgil database."""
+    try:
+        housing_tools = get_housing_tools()
+        result = housing_tools.search_sober_living(
+            gender=gender,
+            city=city,
+            accepts_medi_cal=accepts_medi_cal if accepts_medi_cal else None,
+            page=page,
+            per_page=per_page
+        )
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Sober living search failed"))
+
+        return {
+            "success": True,
+            "results": result.get("results", []),
+            "total_count": result.get("total_count", 0),
+            "pagination": result.get("pagination", {}),
+            "filters_applied": {
+                "gender": gender,
+                "city": city,
+                "accepts_medi_cal": accepts_medi_cal
+            },
+            "message": f"Found {result.get('total_count', 0)} sober living options"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Sober living search error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/programs")
+async def get_housing_programs(
+    keywords: Optional[str] = Query(None, description="Search housing assistance programs"),
+    location: Optional[str] = Query("Los Angeles", description="Location reference for external links"),
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=50)
+):
+    """Get housing assistance programs from the Virgil database."""
+    try:
+        housing_tools = get_housing_tools()
+        result = housing_tools.search_housing_programs(
+            keywords=keywords,
+            page=page,
+            per_page=per_page
+        )
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Housing programs search failed"))
+
+        return {
+            "success": True,
+            "results": result.get("results", []),
+            "total_count": result.get("total_count", 0),
+            "pagination": result.get("pagination", {}),
+            "search_urls": get_housing_search_urls(keywords or "affordable housing", location or "Los Angeles"),
+            "filters_applied": {
+                "keywords": keywords,
+                "location": location
+            },
+            "message": f"Found {result.get('total_count', 0)} housing assistance programs"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Housing programs search error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/resource/{resource_id}")

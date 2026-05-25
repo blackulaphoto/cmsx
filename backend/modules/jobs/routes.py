@@ -17,6 +17,7 @@ from datetime import datetime
 
 from .job_search_manager import job_search_manager
 from .scraper_search_manager import scraper_search_manager
+from .simple_job_tools import get_job_search_resources
 # from ai_search_coordinator import get_ai_coordinator  # COMMENTED OUT - Using simple search
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,31 @@ async def get_search_info():
             "ai_search": "POST /api/jobs/search/ai with {keywords, location}"
         }
     }
+
+@router.get("/search/links")
+async def get_job_search_links(
+    keywords: str = Query("", description="Job search keywords"),
+    location: str = Query("Los Angeles, CA", description="Job search location")
+):
+    """Generate client-ready job board search links for case manager workflow."""
+    try:
+        if not keywords.strip():
+            return {
+                "success": True,
+                "keywords": "",
+                "location": location,
+                "search_urls": {},
+                "background_friendly_searches": [],
+                "known_employers": [],
+                "message": "No keywords provided"
+            }
+
+        result = get_job_search_resources(keywords.strip(), location)
+        result["message"] = f"Generated client-ready job search links for '{keywords.strip()}'"
+        return result
+    except Exception as e:
+        logger.error(f"Job search links generation error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to generate job search links: {str(e)}")
 
 @router.post("/search", response_model=JobSearchResponse)
 async def start_job_search(request: JobSearchRequest):

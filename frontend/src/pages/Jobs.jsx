@@ -28,6 +28,8 @@ function Jobs() {
   })
   const [savedJobs, setSavedJobs] = useState([])
   const [activeTab, setActiveTab] = useState('search')
+  const [linkResources, setLinkResources] = useState(null)
+  const [linksLoading, setLinksLoading] = useState(false)
   const [clientResumes, setClientResumes] = useState([])
   const [showApplyModal, setShowApplyModal] = useState(false)
   const [applyingJob, setApplyingJob] = useState(null)
@@ -312,6 +314,36 @@ function Jobs() {
     searchJobs(1)
   }
 
+  const generateClientSearchLinks = async () => {
+    if (!searchForm.keywords.trim()) {
+      toast.error('Enter job keywords first')
+      return
+    }
+
+    try {
+      setLinksLoading(true)
+      const params = new URLSearchParams({
+        keywords: searchForm.keywords.trim(),
+        location: searchForm.location || 'Los Angeles, CA'
+      })
+
+      const response = await fetch(`/api/jobs/search/links?${params}`)
+      if (!response.ok) {
+        throw new Error('Failed to generate search links')
+      }
+
+      const data = await response.json()
+      setLinkResources(data)
+      toast.success('Client-ready search links generated')
+    } catch (error) {
+      console.error('Generate job links error:', error)
+      toast.error(error.message || 'Failed to generate search links')
+      setLinkResources(null)
+    } finally {
+      setLinksLoading(false)
+    }
+  }
+
   // Load initial results from URL parameters
   useEffect(() => {
     if (searchParams.get('keywords') || searchParams.get('location')) {
@@ -388,6 +420,7 @@ function Jobs() {
             <div className="flex border-b border-white/10">
               {[
                 { id: 'search', label: 'Job Search', icon: Search, gradient: 'from-emerald-500 to-blue-500' },
+                { id: 'links', label: 'Client Search Links', icon: ExternalLink, gradient: 'from-orange-500 to-amber-500' },
                 { id: 'saved', label: 'Saved Jobs', icon: Bookmark, gradient: 'from-purple-500 to-pink-500' }
               ].map((tab) => (
                 <button
@@ -726,6 +759,126 @@ function Jobs() {
                       </>
                     )}
                   </div>
+                </div>
+              )}
+
+              {activeTab === 'links' && (
+                <div>
+                  <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm rounded-2xl p-8 border border-white/20 mb-8">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="p-2 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg">
+                        <ExternalLink className="h-6 w-6 text-white" />
+                      </div>
+                      <h2 className="text-2xl font-bold text-white">Client Search Links</h2>
+                    </div>
+                    <p className="text-gray-300 mb-6">
+                      Generate direct search links you can text or email to a client instead of reviewing hundreds of scraped listings.
+                    </p>
+                    <button
+                      onClick={generateClientSearchLinks}
+                      disabled={linksLoading}
+                      className="group flex items-center gap-3 px-8 py-4 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-2xl hover:shadow-orange-500/25 disabled:opacity-50 disabled:hover:scale-100"
+                    >
+                      <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
+                        <ExternalLink className="h-5 w-5" />
+                      </div>
+                      {linksLoading ? 'Generating Links...' : 'Generate Search Links'}
+                    </button>
+                  </div>
+
+                  {linksLoading ? (
+                    <div className="text-center py-16 bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm rounded-2xl border border-white/10">
+                      <div className="relative mx-auto mb-6 w-12 h-12">
+                        <div className="animate-spin rounded-full h-12 w-12 border-4 border-orange-500/20 border-t-orange-500"></div>
+                        <div className="absolute inset-2 animate-spin rounded-full border-2 border-amber-500/20 border-t-amber-500" style={{animationDirection: 'reverse'}}></div>
+                      </div>
+                      <p className="text-gray-300 font-medium">Building client-ready job board links...</p>
+                    </div>
+                  ) : !linkResources ? (
+                    <div className="text-center py-16 bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm rounded-2xl border border-white/10">
+                      <div className="p-4 bg-gradient-to-r from-orange-500/20 to-amber-500/20 rounded-2xl w-fit mx-auto mb-6">
+                        <ExternalLink size={48} className="text-orange-400" />
+                      </div>
+                      <h3 className="text-xl font-medium mb-3 text-white">No search links generated yet</h3>
+                      <p className="text-gray-400">Use the current keywords and location above, then generate direct links for the client.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-8">
+                      <div className="bg-gradient-to-r from-white/10 to-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/20 shadow-xl shadow-purple-500/10">
+                        <div className="flex items-center justify-between gap-4 flex-wrap">
+                          <div>
+                            <h3 className="text-xl font-bold text-white">Search Links for {linkResources.keywords}</h3>
+                            <p className="text-gray-300 mt-1">Location: {linkResources.location}</p>
+                          </div>
+                          <div className="px-4 py-2 bg-gradient-to-r from-orange-500/20 to-amber-500/20 backdrop-blur-sm rounded-xl border border-orange-500/30">
+                            <span className="text-sm text-orange-200">Send these links directly to the client</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+                        {Object.entries(linkResources.search_urls || {}).map(([platform, url]) => (
+                          <div key={platform} className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl p-6 hover:border-white/30 transition-all duration-300">
+                            <h4 className="text-lg font-bold text-white mb-2 capitalize">{platform.replace(/_/g, ' ')}</h4>
+                            <p className="text-sm text-gray-400 mb-4 break-all">{url}</p>
+                            <button
+                              onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+                              className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-xl font-medium transition-all duration-300"
+                            >
+                              <ExternalLink size={16} />
+                              Open Search
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {!!linkResources.background_friendly_searches?.length && (
+                        <div>
+                          <h3 className="text-xl font-bold text-white mb-4">Background-Friendly Search Variations</h3>
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            {linkResources.background_friendly_searches.map((searchLink, index) => (
+                              <div key={`${searchLink.platform}-${index}`} className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl p-5">
+                                <div className="flex items-center justify-between gap-4 mb-3">
+                                  <div>
+                                    <p className="text-sm uppercase tracking-wide text-amber-300">{searchLink.platform}</p>
+                                    <p className="text-white font-semibold">{searchLink.keywords}</p>
+                                  </div>
+                                  <button
+                                    onClick={() => window.open(searchLink.url, '_blank', 'noopener,noreferrer')}
+                                    className="px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg hover:bg-white/20"
+                                  >
+                                    Open
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {!!linkResources.known_employers?.length && (
+                        <div>
+                          <h3 className="text-xl font-bold text-white mb-4">Known Fair-Chance Employer Leads</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {linkResources.known_employers.map((employer) => (
+                              <div key={employer.name} className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl p-5">
+                                <h4 className="text-lg font-bold text-white">{employer.name}</h4>
+                                <p className="text-emerald-300 text-sm mt-1">{employer.industry}</p>
+                                <p className="text-gray-300 text-sm mt-3">{employer.why}</p>
+                                <button
+                                  onClick={() => window.open(employer.careers_url, '_blank', 'noopener,noreferrer')}
+                                  className="mt-4 flex items-center gap-2 px-4 py-2 bg-white/10 border border-white/20 text-white rounded-lg hover:bg-white/20"
+                                >
+                                  <ExternalLink size={15} />
+                                  Open Careers Page
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
