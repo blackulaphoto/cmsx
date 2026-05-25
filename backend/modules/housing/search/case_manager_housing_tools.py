@@ -454,7 +454,7 @@ class CaseManagerHousingTools:
                 "query": query,
                 "location": location,
                 "client_id": client_id,
-                "client_name": client_info.get('name', 'Unknown Client'),
+                "client_name": client_info.get('name') or client_id or 'Client record unavailable',
                 "budget": budget,
                 "needs": needs or [],
                 "search_timestamp": datetime.now().isoformat()

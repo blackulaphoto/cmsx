@@ -333,9 +333,14 @@ async def get_expungement_cases(client_id: Optional[str] = Query(None)):
             offense_description = case_dict.get('offense_description')
             if not offense_description:
                 offense_description = case_dict.get('offense_type') or 'Unknown offense'
+            client_name = (
+                case_dict.get('client_name')
+                or case_dict.get('client_id')
+                or 'Client record unavailable'
+            )
             cases.append({
                 **case_dict,
-                'client_name': case_dict.get('client_name', 'Unknown Client'),
+                'client_name': client_name,
                 'offense_description': offense_description,
                 'progress_percentage': round(case.document_completion_percentage, 2),
                 'next_actions': []

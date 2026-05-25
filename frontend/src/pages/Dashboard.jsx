@@ -17,6 +17,7 @@ import {
 import NotesList from '../components/NotesList'
 import NoteForm from '../components/NoteForm'
 import useNotes from '../hooks/useNotes'
+import { apiFetch } from '../api/config'
 
 const Dashboard = () => {
   const [dashboardStats, setDashboardStats] = useState({
@@ -46,7 +47,7 @@ const Dashboard = () => {
   const fetchDashboardStats = async () => {
     try {
       const caseManagerId = 'cm_001' // This would come from auth context
-      const response = await fetch(`/api/dashboard/${caseManagerId}`)
+      const response = await apiFetch(`/api/dashboard/${caseManagerId}`)
       
       if (response.ok) {
         const data = await response.json()
