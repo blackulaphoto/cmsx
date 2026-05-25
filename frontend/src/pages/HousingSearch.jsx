@@ -409,7 +409,7 @@ function HousingSearch() {
                       <label className="block text-sm font-medium text-gray-300 mb-3">City</label>
                       <LocationSelector
                         value={searchParams.location}
-                        onChange={(nextValue) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(nextValue) }))}
+                        onChange={(nextValue) => setSearchParams(prev => ({ ...prev, location: nextValue }))}
                         placeholder="Search city or state"
                         className="w-full"
                         inputClassName="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
@@ -616,7 +616,7 @@ function HousingSearch() {
                     </label>
                     <LocationSelector
                       value={searchParams.location}
-                      onChange={(nextValue) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(nextValue) }))}
+                      onChange={(nextValue) => setSearchParams(prev => ({ ...prev, location: nextValue }))}
                       placeholder="Search city or state"
                       className="w-full"
                       inputClassName="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
