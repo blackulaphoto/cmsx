@@ -29,7 +29,7 @@ import { apiFetch } from '../api/config'
 const TEMPLATE_CATEGORIES = ['all', 'clinical', 'planning', 'letters', 'fmla']
 const BRAND_RESOURCE_CATEGORIES = ['general', 'templates', 'style guide', 'policy', 'sample note', 'letterhead', 'workflow']
 
-const DOCUMENTATION_TEMPLATES = [
+const FALLBACK_DOCUMENTATION_TEMPLATES = [
   {
     id: 'initial-cm-note',
     label: 'Initial CM Note',
@@ -256,6 +256,8 @@ function DocumentationCenter() {
   const [selectedClient, setSelectedClient] = useState(null)
   const [templateFilter, setTemplateFilter] = useState('all')
   const [selectedTemplateId, setSelectedTemplateId] = useState('progress-note')
+  const [fileTemplates, setFileTemplates] = useState([])
+  const [loadingTemplates, setLoadingTemplates] = useState(false)
   const [composer, setComposer] = useState(EMPTY_COMPOSER)
   const [notes, setNotes] = useState([])
   const [docs, setDocs] = useState([])
@@ -275,9 +277,18 @@ function DocumentationCenter() {
     file: null,
   })
 
+  const availableTemplates = useMemo(() => {
+    const seen = new Set()
+    return [...fileTemplates, ...FALLBACK_DOCUMENTATION_TEMPLATES].filter((template) => {
+      if (!template?.id || seen.has(template.id)) return false
+      seen.add(template.id)
+      return true
+    })
+  }, [fileTemplates])
+
   const filteredTemplates = useMemo(
     () =>
-      DOCUMENTATION_TEMPLATES.filter((template) => {
+      availableTemplates.filter((template) => {
         const categoryMatch = templateFilter === 'all' || template.category === templateFilter
         const searchMatch =
           !searchTerm ||
@@ -285,19 +296,26 @@ function DocumentationCenter() {
           template.bestFor.toLowerCase().includes(searchTerm.toLowerCase())
         return categoryMatch && searchMatch
       }),
-    [searchTerm, templateFilter]
+    [availableTemplates, searchTerm, templateFilter]
   )
 
   const selectedTemplate =
-    DOCUMENTATION_TEMPLATES.find((template) => template.id === selectedTemplateId) ||
-    DOCUMENTATION_TEMPLATES[0]
+    availableTemplates.find((template) => template.id === selectedTemplateId) ||
+    availableTemplates[0]
 
   const recentItems = mode === 'note' ? notes : docs
 
   useEffect(() => {
+    loadTemplates()
     loadDocs()
     loadBrandResources()
   }, [])
+
+  useEffect(() => {
+    if (!selectedTemplate && availableTemplates.length > 0) {
+      setSelectedTemplateId(availableTemplates[0].id)
+    }
+  }, [availableTemplates, selectedTemplate])
 
   useEffect(() => {
     if (selectedClient?.client_id) {
@@ -340,6 +358,22 @@ function DocumentationCenter() {
       toast.error(error.message || 'Failed to load documents')
     } finally {
       setLoadingDocs(false)
+    }
+  }
+
+  const loadTemplates = async () => {
+    try {
+      setLoadingTemplates(true)
+      const response = await apiFetch('/api/ai-documentation/templates')
+      if (!response.ok) throw new Error('Failed to load templates')
+      const data = await response.json()
+      setFileTemplates(Array.isArray(data.templates) ? data.templates : [])
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || 'Failed to load templates')
+      setFileTemplates([])
+    } finally {
+      setLoadingTemplates(false)
     }
   }
 
@@ -638,12 +672,12 @@ function DocumentationCenter() {
               </div>
               <h1 className="text-4xl font-bold text-white">Notes and Documents Command Center</h1>
               <p className="mt-3 max-w-2xl text-lg text-slate-300">
-                One professional workspace for progress notes, treatment plans, discharge summaries, referral packets, court letters, and FMLA documentation.
+                One professional workspace for progress notes, treatment plans, discharge summaries, referral packets, court letters, FMLA documentation, and file-backed templates.
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <StatCard icon={ClipboardList} label="Templates" value={String(DOCUMENTATION_TEMPLATES.length)} accent="from-cyan-500 to-blue-500" />
+              <StatCard icon={ClipboardList} label="Templates" value={String(availableTemplates.length)} accent="from-cyan-500 to-blue-500" />
               <StatCard icon={FileText} label="Client Notes" value={String(notes.length)} accent="from-blue-500 to-indigo-500" />
               <StatCard icon={FolderOpen} label="Documents" value={String(docs.length)} accent="from-fuchsia-500 to-purple-500" />
               <StatCard icon={User} label="Client Linked" value={selectedClient ? 'Yes' : 'No'} accent="from-emerald-500 to-teal-500" />
@@ -688,6 +722,11 @@ function DocumentationCenter() {
               </div>
 
               <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+                {loadingTemplates && (
+                  <div className="md:col-span-2 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
+                    Loading file-based templates from the templates folder...
+                  </div>
+                )}
                 {filteredTemplates.map((template) => (
                   <button
                     key={template.id}
@@ -709,9 +748,17 @@ function DocumentationCenter() {
                             {template.mode === 'note' ? 'Client Note' : 'Document'}
                           </span>
                           <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{template.category}</span>
+                          {template.source === 'file' && (
+                            <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                              File template
+                            </span>
+                          )}
                         </div>
                         <h3 className="mt-3 text-xl font-semibold text-white">{template.label}</h3>
                         <p className="mt-2 text-sm leading-6 text-slate-300">{template.bestFor}</p>
+                        {template.relativePath && (
+                          <p className="mt-2 truncate text-xs text-slate-500">{template.relativePath}</p>
+                        )}
                       </div>
                       <div className="rounded-xl bg-white/10 p-3 text-slate-200">
                         {template.mode === 'note' ? <PenSquare className="h-5 w-5" /> : <ScrollText className="h-5 w-5" />}
@@ -778,7 +825,7 @@ function DocumentationCenter() {
                       <div className="mt-4 grid gap-3 text-sm text-slate-200 md:grid-cols-3">
                         <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
                           <p className="font-semibold text-white">1. Pick template</p>
-                          <p className="mt-1 text-slate-400">Choose treatment plan, weekly note, discharge, FMLA, or another template above.</p>
+                          <p className="mt-1 text-slate-400">Choose a file-backed template or built-in template above.</p>
                         </div>
                         <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
                           <p className="font-semibold text-white">2. Type rough notes</p>
@@ -805,7 +852,15 @@ function DocumentationCenter() {
                         <span className="rounded-full bg-fuchsia-500/15 px-3 py-1 text-xs font-semibold text-fuchsia-200">
                           {selectedTemplate.category}
                         </span>
+                        {selectedTemplate.source === 'file' && (
+                          <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-100">
+                            Templates folder
+                          </span>
+                        )}
                       </div>
+                      {selectedTemplate.relativePath && (
+                        <p className="mt-3 truncate text-xs text-slate-500">{selectedTemplate.relativePath}</p>
+                      )}
                     </div>
                   </div>
 
@@ -963,6 +1018,7 @@ function DocumentationCenter() {
                     </div>
                     <dl className="mt-4 space-y-3 text-sm">
                       <InfoRow label="Template" value={selectedTemplate.label} />
+                      <InfoRow label="Template source" value={selectedTemplate.source === 'file' ? 'Templates folder' : 'Built-in fallback'} />
                       <InfoRow label="Save target" value={mode === 'note' ? 'Client note record' : 'Document library'} />
                       <InfoRow label="Client" value={selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : 'Not linked'} />
                       <InfoRow label="Editor mode" value={editingItem ? 'Editing existing item' : 'New draft'} />

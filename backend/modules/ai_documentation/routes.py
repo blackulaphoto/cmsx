@@ -1,7 +1,8 @@
 import logging
 import os
+import re
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -17,6 +18,10 @@ router = APIRouter(prefix="/ai-documentation", tags=["ai-documentation"])
 DEFAULT_CASE_MANAGER_ID = "cm_001"
 BRAND_UPLOADS_DIR = Path(__file__).resolve().parents[3] / "uploads" / "documentation_brand"
 BRAND_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+PROJECT_TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "templates"
+DOCUMENT_TEMPLATES_DIR = PROJECT_TEMPLATES_DIR / "document-templates"
+REFERENCE_LIBRARY_DIR = PROJECT_TEMPLATES_DIR / "reference-library"
+AI_INSTRUCTIONS_DIR = PROJECT_TEMPLATES_DIR / "ai-instructions"
 
 
 class NoteDraftRequest(BaseModel):
@@ -62,6 +67,164 @@ class FollowUpTaskRequest(BaseModel):
 def _safe_filename(filename: str) -> str:
     name = os.path.basename(filename or "upload")
     return "".join(char for char in name if char.isalnum() or char in {" ", ".", "-", "_"}) or "upload"
+
+
+def _slugify(value: str) -> str:
+    lowered = (value or "").strip().lower()
+    lowered = re.sub(r"[^a-z0-9]+", "-", lowered)
+    return lowered.strip("-") or "template"
+
+
+def _guess_template_metadata(file_name: str, body: str) -> Dict[str, str]:
+    normalized_name = file_name.lower()
+    normalized_body = body.lower()
+
+    if "fmla" in normalized_name or "fmla" in normalized_body:
+        return {
+            "mode": "document",
+            "category": "fmla",
+            "noteType": "FMLA",
+            "noteKind": "fmla_correspondence",
+            "bestFor": "Employer, provider, HR, and paperwork communication tied to leave management.",
+        }
+
+    if "group" in normalized_name or "group note" in normalized_body:
+        return {
+            "mode": "note",
+            "category": "clinical",
+            "noteType": "Group",
+            "noteKind": "group_note",
+            "bestFor": "Attendance, participation, interventions, and client response in groups.",
+        }
+
+    if "treatment plan" in normalized_name or "treatment plan" in normalized_body:
+        return {
+            "mode": "document",
+            "category": "planning",
+            "noteType": "Treatment Plan",
+            "noteKind": "treatment_plan",
+            "bestFor": "Goal reviews, objective updates, and intervention planning.",
+        }
+
+    if "discharge" in normalized_name or "discharge summary" in normalized_body:
+        return {
+            "mode": "document",
+            "category": "planning",
+            "noteType": "Discharge",
+            "noteKind": "discharge_summary",
+            "bestFor": "Transition planning, aftercare coordination, and discharge readiness.",
+        }
+
+    if "progress report" in normalized_name or "progress report" in normalized_body:
+        return {
+            "mode": "document",
+            "category": "letters",
+            "noteType": "Court",
+            "noteKind": "referral_summary",
+            "bestFor": "Formal treatment progress updates for court, probation, employer, or benefits requests.",
+        }
+
+    if "proof of residence" in normalized_name or "proof of residency" in normalized_body:
+        return {
+            "mode": "document",
+            "category": "letters",
+            "noteType": "Housing",
+            "noteKind": "referral_summary",
+            "bestFor": "Residency verification for sober living, benefits, DMV, court, or probation needs.",
+        }
+
+    if "presence" in normalized_name or "presence in treatment" in normalized_body:
+        return {
+            "mode": "document",
+            "category": "letters",
+            "noteType": "Court",
+            "noteKind": "referral_summary",
+            "bestFor": "Treatment presence verification for court, probation, or administrative requests.",
+        }
+
+    if "completion" in normalized_name or "successfully completed treatment" in normalized_body:
+        return {
+            "mode": "document",
+            "category": "letters",
+            "noteType": "Discharge",
+            "noteKind": "discharge_summary",
+            "bestFor": "Completion verification for court, probation, employer, housing, or aftercare coordination.",
+        }
+
+    if "initial cm note" in normalized_name or "cm-init-01" in normalized_body:
+        return {
+            "mode": "note",
+            "category": "clinical",
+            "noteType": "Progress",
+            "noteKind": "initial_note",
+            "bestFor": "Week 1 intake, treatment orientation, and early case management documentation.",
+        }
+
+    if "weekly cm note" in normalized_name or "ongoing weekly cm note" in normalized_body:
+        return {
+            "mode": "note",
+            "category": "clinical",
+            "noteType": "Progress",
+            "noteKind": "progress_note",
+            "bestFor": "Ongoing weekly case management notes and progress tracking.",
+        }
+
+    return {
+        "mode": "document",
+        "category": "planning",
+        "noteType": "General",
+        "noteKind": "progress_note",
+        "bestFor": "General documentation template.",
+    }
+
+
+def _load_document_templates() -> List[Dict[str, Any]]:
+    templates: List[Dict[str, Any]] = []
+    if not DOCUMENT_TEMPLATES_DIR.exists():
+        return templates
+
+    for template_path in sorted(DOCUMENT_TEMPLATES_DIR.glob("*")):
+        if not template_path.is_file() or template_path.suffix.lower() not in {".md", ".txt"}:
+            continue
+
+        body = template_path.read_text(encoding="utf-8", errors="ignore").strip()
+        label = template_path.stem
+        metadata = _guess_template_metadata(template_path.name, body)
+        templates.append(
+            {
+                "id": f"file-{_slugify(label)}",
+                "label": label,
+                "source": "file",
+                "fileName": template_path.name,
+                "relativePath": str(template_path.relative_to(PROJECT_TEMPLATES_DIR)).replace("\\", "/"),
+                "body": body,
+                **metadata,
+            }
+        )
+
+    return templates
+
+
+def _load_reference_files(directory: Path, source: str) -> List[Dict[str, Any]]:
+    resources: List[Dict[str, Any]] = []
+    if not directory.exists():
+        return resources
+
+    for resource_path in sorted(directory.glob("*")):
+        if not resource_path.is_file():
+            continue
+        text = resource_path.read_text(encoding="utf-8", errors="ignore").strip()
+        resources.append(
+            {
+                "name": resource_path.stem,
+                "fileName": resource_path.name,
+                "relativePath": str(resource_path.relative_to(PROJECT_TEMPLATES_DIR)).replace("\\", "/"),
+                "source": source,
+                "excerpt": text[:1200],
+            }
+        )
+
+    return resources
 
 
 @router.post("/note-draft")
@@ -112,6 +275,23 @@ async def create_follow_up_task(payload: FollowUpTaskRequest):
     except Exception as exc:
         logger.error("Failed to create documentation follow-up task: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to create documentation follow-up task") from exc
+
+
+@router.get("/templates")
+async def list_documentation_templates():
+    try:
+        templates = _load_document_templates()
+        references = _load_reference_files(REFERENCE_LIBRARY_DIR, "reference")
+        instructions = _load_reference_files(AI_INSTRUCTIONS_DIR, "instruction")
+        return {
+            "success": True,
+            "templates": templates,
+            "reference_library": references,
+            "ai_instructions": instructions,
+        }
+    except Exception as exc:
+        logger.error("Failed to load documentation templates: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to load documentation templates") from exc
 
 
 @router.get("/brand-resources")
