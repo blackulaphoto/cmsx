@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react'
 import { Home, Search, MapPin, DollarSign, Bed, Bath, Users, Star, User, ExternalLink, Phone, Eye, Calendar, Bookmark, Target, TrendingUp, Clock, CheckCircle, AlertCircle, Sparkles, Zap } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ClientSelector from '../components/ClientSelector'
-import { API_BASE_URL } from '../api/config'
+import LocationSelector from '../components/LocationSelector'
+import { apiFetch } from '../api/config'
 
 function CaseManagerHousing() {
-  const apiBase = API_BASE_URL ? API_BASE_URL.replace(/\/$/, '') : ''
   const [selectedClient, setSelectedClient] = useState(null)
   const [searchResults, setSearchResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -46,12 +46,12 @@ function CaseManagerHousing() {
       const params = new URLSearchParams({
         query: query,
         location: searchParams.location,
-        ...(selectedClient?.id && { client_id: selectedClient.id }),
+        ...(selectedClient?.client_id && { client_id: selectedClient.client_id }),
         ...(searchParams.maxPrice && { client_budget: searchParams.maxPrice }),
         ...(clientNeeds.length > 0 && { client_needs: clientNeeds.join(',') })
       })
       
-      const response = await fetch(`${apiBase}/api/housing/case-manager-search?${params}`, {
+      const response = await apiFetch(`/api/housing/case-manager-search?${params}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -88,11 +88,11 @@ function CaseManagerHousing() {
   const loadDashboard = async () => {
     try {
       const params = new URLSearchParams()
-      if (selectedClient?.id) {
-        params.append('client_id', selectedClient.id)
+      if (selectedClient?.client_id) {
+        params.append('client_id', selectedClient.client_id)
       }
       
-      const response = await fetch(`${apiBase}/api/housing/case-manager-dashboard?${params}`)
+      const response = await apiFetch(`/api/housing/case-manager-dashboard?${params}`)
       if (response.ok) {
         const data = await response.json()
         setDashboardData(data)
@@ -112,8 +112,28 @@ function CaseManagerHousing() {
         
       case 'save_client':
         if (selectedClient) {
-          // Here you would save to client's housing resources
-          toast.success(`Saved to ${selectedClient.first_name}'s housing resources`)
+          try {
+            const response = await apiFetch('/api/dashboard/bookmarks', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                title: `${result.title} (${selectedClient.first_name} ${selectedClient.last_name})`,
+                url: result.url,
+                description: `Housing lead for ${selectedClient.first_name} ${selectedClient.last_name}. ${result.pricing_info?.price_display || 'See listing'} • ${result.site_info?.name || 'Housing listing'}`
+              })
+            })
+
+            if (!response.ok) {
+              throw new Error('Failed to save housing lead')
+            }
+
+            toast.success(`Saved to Dashboard bookmarks for ${selectedClient.first_name}`)
+          } catch (error) {
+            console.error('Save housing lead error:', error)
+            toast.error(error?.message || 'Failed to save housing lead')
+          }
         } else {
           toast.error('Please select a client first')
         }
@@ -121,8 +141,31 @@ function CaseManagerHousing() {
         
       case 'schedule_followup':
         if (selectedClient) {
-          // Here you would create a follow-up reminder
-          toast.success(`Follow-up scheduled for ${selectedClient.first_name}`)
+          try {
+            const dueDate = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+            const response = await apiFetch('/api/reminders/create', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                client_id: selectedClient.client_id,
+                reminder_text: `Housing follow-up: ${result.title}${result.contact_info?.phones?.[0] ? ` (${result.contact_info.phones[0]})` : ''}`,
+                due_date: dueDate,
+                case_manager_id: selectedClient.case_manager_id || 'default_cm',
+                priority: 'Medium'
+              })
+            })
+
+            if (!response.ok) {
+              throw new Error('Failed to create housing follow-up')
+            }
+
+            toast.success(`Follow-up scheduled for ${selectedClient.first_name}`)
+          } catch (error) {
+            console.error('Housing follow-up error:', error)
+            toast.error(error?.message || 'Failed to create housing follow-up')
+          }
         } else {
           toast.error('Please select a client first')
         }
@@ -273,16 +316,13 @@ function CaseManagerHousing() {
                 <label className="block text-sm font-medium text-gray-300 mb-3">
                   Location
                 </label>
-                <div className="relative">
-                  <MapPin className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                  <input
-                    type="text"
-                    placeholder="City, State or ZIP"
-                    value={searchParams.location}
-                    onChange={(e) => setSearchParams(prev => ({ ...prev, location: e.target.value }))}
-                    className="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
-                  />
-                </div>
+                <LocationSelector
+                  value={searchParams.location}
+                  onChange={(nextValue) => setSearchParams(prev => ({ ...prev, location: nextValue }))}
+                  placeholder="Search city or state"
+                  className="w-full"
+                  inputClassName="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
+                />
               </div>
               
               <div>

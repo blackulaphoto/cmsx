@@ -3,8 +3,10 @@ import { useSearchParams } from 'react-router-dom'
 import { Briefcase, Search, MapPin, Star, Bookmark, ExternalLink, Clock, DollarSign, User, Zap, TrendingUp, Send, X } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
+import LocationSelector from '../components/LocationSelector'
 import Pagination from '../components/Pagination'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 const CRAIGSLIST_JOB_REGIONS = [
   { match: ['los angeles', 'hollywood', 'van nuys', 'panorama city', 'north hollywood', 'burbank', 'glendale', 'pasadena', 'santa monica', 'venice', 'culver city', 'inglewood', 'compton', 'downey', 'whittier', 'long beach', 'torrance', 'gardena', 'hawthorne'], base: 'https://losangeles.craigslist.org' },
@@ -49,9 +51,11 @@ function Jobs() {
   useEffect(() => {
     if (selectedClient?.client_id) {
       fetchClientResumes(selectedClient.client_id)
+      fetchSavedJobs(selectedClient.client_id)
     } else {
       setClientResumes([])
       setSelectedResumeId('')
+      setSavedJobs([])
     }
   }, [selectedClient?.client_id])
 
@@ -92,7 +96,7 @@ function Jobs() {
 
   const fetchClientResumes = async (clientId) => {
     try {
-      const response = await fetch(`/api/resume/list/${clientId}`)
+      const response = await apiFetch(`/api/resume/list/${clientId}`)
       if (!response.ok) {
         throw new Error('Failed to load client resumes')
       }
@@ -104,6 +108,21 @@ function Jobs() {
       console.error('Error fetching client resumes:', error)
       setClientResumes([])
       setSelectedResumeId('')
+    }
+  }
+
+  const fetchSavedJobs = async (clientId) => {
+    try {
+      const response = await apiFetch(`/api/jobs/saved/${clientId}`)
+      if (!response.ok) {
+        throw new Error('Failed to load saved jobs')
+      }
+
+      const data = await response.json()
+      setSavedJobs(data.saved_jobs || [])
+    } catch (error) {
+      console.error('Error fetching saved jobs:', error)
+      setSavedJobs([])
     }
   }
 
@@ -144,7 +163,7 @@ function Jobs() {
       newSearchParams.set('page', String(page))
       setSearchParams(newSearchParams)
       
-      const response = await fetch(`${searchEndpoint}?${params}`, {
+      const response = await apiFetch(`${searchEndpoint}?${params}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -219,7 +238,7 @@ function Jobs() {
     }
 
     try {
-      const response = await fetch('/api/jobs/save', {
+      const response = await apiFetch('/api/jobs/save', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -227,12 +246,18 @@ function Jobs() {
         body: JSON.stringify({
           job_id: job.id,
           client_id: clientId,
+          title: job.title,
+          company: job.company,
+          location: job.location,
+          salary: job.salary,
+          url: job.url || '',
           notes: note
         })
       })
 
       if (response.ok) {
         toast.success('Job saved successfully!')
+        await fetchSavedJobs(clientId)
       } else {
         throw new Error('Save failed')
       }
@@ -271,7 +296,7 @@ function Jobs() {
 
     try {
       setApplyLoading(true)
-      const response = await fetch('/api/resume/apply-job', {
+      const response = await apiFetch('/api/resume/apply-job', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -327,7 +352,7 @@ function Jobs() {
         location: searchForm.location || 'Los Angeles, CA'
       })
 
-      const response = await fetch(`/api/jobs/search/links?${params}`)
+      const response = await apiFetch(`/api/jobs/search/links?${params}`)
       if (!response.ok) {
         throw new Error('Failed to generate search links')
       }
@@ -342,6 +367,22 @@ function Jobs() {
     } finally {
       setLinksLoading(false)
     }
+  }
+
+  const openJobPosting = (job) => {
+    if (job.url) {
+      window.open(job.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    const query = [job.title, job.company, job.location, 'job']
+      .filter(Boolean)
+      .join(' ')
+      .trim()
+
+    const fallbackUrl = `https://www.google.com/search?${new URLSearchParams({ q: query }).toString()}`
+    window.open(fallbackUrl, '_blank', 'noopener,noreferrer')
+    toast.success('Opened a search for this job because no direct posting link was available')
   }
 
   // Load initial results from URL parameters
@@ -513,16 +554,13 @@ function Jobs() {
                       
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-3">Location</label>
-                        <div className="relative">
-                          <MapPin className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                          <input
-                            type="text"
-                            value={searchForm.location}
-                            onChange={(e) => setSearchForm(prev => ({ ...prev, location: e.target.value }))}
-                            className="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
-                            data-testid="job-location"
-                          />
-                        </div>
+                        <LocationSelector
+                          value={searchForm.location}
+                          onChange={(nextValue) => setSearchForm(prev => ({ ...prev, location: nextValue }))}
+                          placeholder="Search city or state"
+                          className="w-full"
+                          inputClassName="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
+                        />
                       </div>
 
                       <div>
@@ -684,15 +722,9 @@ function Jobs() {
                                     Save
                                   </button>
                                   <button 
-                                    onClick={() => {
-                                      if (job.url) {
-                                        window.open(job.url, '_blank')
-                                      } else {
-                                        toast.info('No direct link available for this job')
-                                      }
-                                    }}
+                                    onClick={() => openJobPosting(job)}
                                     className="group/btn flex items-center gap-2 px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white hover:border-white/30 transition-all duration-300 transform hover:scale-105"
-                                    title={job.url ? 'Open job posting' : 'No direct link available'}
+                                    title={job.url ? 'Open job posting' : 'Open fallback search for this job'}
                                   >
                                     <ExternalLink size={16} className="group-hover/btn:scale-110 transition-transform duration-300" />
                                     {job.isScraped ? 'Search for Job' : 'View Job Posting'}
@@ -909,19 +941,35 @@ function Jobs() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {savedJobs.map((job, index) => (
+{savedJobs.map((job, index) => (
                         <div key={index} className="group bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-xl p-6 hover:border-white/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/10">
                           <div className="flex items-center justify-between mb-3">
-                            <h3 className="font-semibold text-white group-hover:text-purple-200 transition-colors">{job.title}</h3>
+                            <h3 className="font-semibold text-white group-hover:text-purple-200 transition-colors">{job.title || job.job_id}</h3>
                             <span className="text-sm text-gray-400 px-3 py-1 bg-white/10 rounded-full">
                               Saved: {new Date(job.saved_date).toLocaleDateString()}
                             </span>
                           </div>
-                          <p className="text-gray-300 text-sm mb-3">{job.company} • {job.location}</p>
+                          <p className="text-gray-300 text-sm mb-3">
+                            {[job.company, job.location].filter(Boolean).join(' • ') || 'Saved job lead'}
+                          </p>
+                          {job.salary && (
+                            <p className="text-emerald-300 text-sm mb-3">{job.salary}</p>
+                          )}
                           {job.notes && (
                             <p className="text-gray-400 text-sm italic bg-white/5 p-3 rounded-lg border border-white/10">
                               Notes: {job.notes}
                             </p>
+                          )}
+                          {job.url && (
+                            <div className="mt-4">
+                              <button
+                                onClick={() => window.open(job.url, '_blank', 'noopener,noreferrer')}
+                                className="inline-flex items-center gap-2 rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-white hover:bg-white/20"
+                              >
+                                <ExternalLink size={15} />
+                                Open Saved Posting
+                              </button>
+                            </div>
                           )}
                         </div>
                       ))}

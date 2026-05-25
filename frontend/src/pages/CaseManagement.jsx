@@ -4,12 +4,15 @@ import { Users, TrendingUp, Clock, CheckCircle, AlertCircle, Plus, Search, Filte
 import StatsCard from '../components/StatsCard'
 import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
 import TreatmentPlanAssistCard from '../components/TreatmentPlanAssistCard'
+import LocationSelector from '../components/LocationSelector'
 import toast from 'react-hot-toast'
 import { apiFetch, clientsAPI } from '../api/config'
+import { getStateOptions } from '../utils/locationIntelligence'
 
 function CaseManagement() {
   const navigate = useNavigate()
   const [clients, setClients] = useState([])
+  const [stateOptions, setStateOptions] = useState([{ code: 'CA', name: 'California' }])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [showAddClient, setShowAddClient] = useState(false)
@@ -65,6 +68,23 @@ function CaseManagement() {
   // Load clients on component mount
   useEffect(() => {
     fetchClients()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadStateOptions = async () => {
+      const options = await getStateOptions()
+      if (!cancelled && options.length > 0) {
+        setStateOptions(options)
+      }
+    }
+
+    loadStateOptions()
+
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const formatPhoneForDisplay = (value) => {
@@ -689,12 +709,17 @@ function CaseManagement() {
                         <label className="block text-sm font-medium text-gray-300 mb-2">
                           City
                         </label>
-                        <input
-                          type="text"
+                        <LocationSelector
                           value={clientForm.city}
-                          onChange={(e) => setClientForm(prev => ({ ...prev, city: e.target.value }))}
-                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
-                          placeholder="Los Angeles"
+                          onChange={(nextValue) => setClientForm(prev => ({ ...prev, city: nextValue }))}
+                          onOptionSelect={(option) => setClientForm(prev => ({
+                            ...prev,
+                            city: option.city,
+                            state: option.regionCode,
+                          }))}
+                          placeholder="Search city or state"
+                          className="w-full"
+                          inputClassName="w-full pl-12 pr-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
                         />
                       </div>
 
@@ -707,10 +732,11 @@ function CaseManagement() {
                           onChange={(e) => setClientForm(prev => ({ ...prev, state: e.target.value }))}
                           className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white transition-all duration-300"
                         >
-                          <option value="CA" className="bg-slate-800">California</option>
-                          <option value="NY" className="bg-slate-800">New York</option>
-                          <option value="TX" className="bg-slate-800">Texas</option>
-                          <option value="FL" className="bg-slate-800">Florida</option>
+                          {stateOptions.map((option) => (
+                            <option key={option.code} value={option.code} className="bg-slate-800">
+                              {option.name}
+                            </option>
+                          ))}
                         </select>
                       </div>
 

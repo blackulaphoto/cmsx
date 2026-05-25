@@ -17,43 +17,9 @@ import { Home, Search, MapPin, DollarSign, Bed, Bath, Users, Star, User, Globe, 
 import toast from 'react-hot-toast'
 import { Link } from 'react-router-dom'
 import ClientSelector from '../components/ClientSelector'
-import SearchableDropdown from '../components/SearchableDropdown'
+import LocationSelector from '../components/LocationSelector'
 import HousingSitesIframe from '../components/HousingSitesIframe'
 import { apiFetch } from '../api/config'
-
-const FALLBACK_HOUSING_CITIES = [
-  'Los Angeles',
-  'Van Nuys',
-  'Panorama City',
-  'North Hollywood',
-  'Hollywood',
-  'West Hollywood',
-  'Burbank',
-  'Glendale',
-  'Pasadena',
-  'Long Beach',
-  'Santa Monica',
-  'Venice',
-  'Culver City',
-  'Inglewood',
-  'Compton',
-  'Torrance',
-  'Gardena',
-  'Hawthorne',
-  'Pomona',
-  'El Monte',
-  'Montebello',
-  'Whittier',
-  'Downey',
-  'Norwalk',
-  'Lancaster',
-  'Palmdale',
-  'Anaheim',
-  'Santa Ana',
-  'Orange',
-  'Riverside',
-  'San Bernardino',
-]
 
 const CRAIGSLIST_REGIONS = [
   { match: ['los angeles', 'hollywood', 'van nuys', 'panorama city', 'north hollywood', 'burbank', 'glendale', 'pasadena', 'santa monica', 'venice', 'culver city', 'inglewood', 'compton', 'downey', 'whittier'], base: 'https://losangeles.craigslist.org' },
@@ -73,7 +39,6 @@ function HousingSearch() {
   const [resourceResults, setResourceResults] = useState([])
   const [resourceLoading, setResourceLoading] = useState(false)
   const [resourceTotal, setResourceTotal] = useState(0)
-  const [availableCities, setAvailableCities] = useState([])
   const [searchParams, setSearchParams] = useState({
     location: '',
     maxPrice: '',
@@ -85,10 +50,6 @@ function HousingSearch() {
     acceptsMediCal: false,
     programKeywords: ''
   })
-
-  useEffect(() => {
-    loadHousingCities()
-  }, [])
 
   const resolveCraigslistBase = (locationValue) => {
     const normalized = (locationValue || '').toLowerCase()
@@ -142,38 +103,7 @@ function HousingSearch() {
   const normalizeHousingLocation = (value) => {
     const cleaned = (value || '').trim()
     if (!cleaned) return ''
-    return /,\s*[A-Z]{2}$/i.test(cleaned) ? cleaned : `${cleaned}, CA`
-  }
-
-  const loadHousingCities = async () => {
-    try {
-      const response = await apiFetch('/api/housing/cities')
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-      const dbCities = (data.cities || [])
-        .filter(Boolean)
-      const mergedCities = Array.from(new Set([...dbCities, ...FALLBACK_HOUSING_CITIES]))
-      const cityOptions = mergedCities
-        .map((city) => ({
-          id: city,
-          name: city,
-          label: city
-        }))
-
-      setAvailableCities(cityOptions)
-    } catch (error) {
-      console.error('Failed to load housing cities:', error)
-      setAvailableCities(
-        FALLBACK_HOUSING_CITIES.map((city) => ({
-          id: city,
-          name: city,
-          label: city
-        }))
-      )
-    }
+    return /,\s*[A-Z]{2}$/i.test(cleaned) ? cleaned : cleaned
   }
 
   const searchHousing = async () => {
@@ -477,16 +407,12 @@ function HousingSearch() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-3">City</label>
-                      <SearchableDropdown
-                        options={availableCities}
-                        placeholder="Select city..."
-                        onSelect={(city) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(city.name) }))}
-                        displayField={(city) => city.label}
-                        value={availableCities.find((city) => normalizeHousingLocation(city.name) === normalizeHousingLocation(searchParams.location)) || null}
+                      <LocationSelector
+                        value={searchParams.location}
+                        onChange={(nextValue) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(nextValue) }))}
+                        placeholder="Search city or state"
                         className="w-full"
-                        searchPlaceholder="Search cities..."
-                        emptyMessage="No cities found"
-                        itemKey={(city) => city.id}
+                        inputClassName="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
                       />
                     </div>
                     <div>
@@ -518,16 +444,12 @@ function HousingSearch() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-3">City</label>
-                      <SearchableDropdown
-                        options={availableCities}
-                        placeholder="Select city..."
-                        onSelect={(city) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(city.name) }))}
-                        displayField={(city) => city.label}
-                        value={availableCities.find((city) => normalizeHousingLocation(city.name) === normalizeHousingLocation(searchParams.location)) || null}
+                      <LocationSelector
+                        value={searchParams.location}
+                        onChange={(nextValue) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(nextValue) }))}
+                        placeholder="Search city or state"
                         className="w-full"
-                        searchPlaceholder="Search cities..."
-                        emptyMessage="No cities found"
-                        itemKey={(city) => city.id}
+                        inputClassName="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
                       />
                     </div>
                     <div>
@@ -692,16 +614,12 @@ function HousingSearch() {
                     <label className="block text-sm font-medium text-gray-300 mb-3">
                       Location
                     </label>
-                    <SearchableDropdown
-                      options={availableCities}
-                      placeholder="Select city..."
-                      onSelect={(city) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(city.name) }))}
-                      displayField={(city) => city.label}
-                      value={availableCities.find((city) => normalizeHousingLocation(city.name) === normalizeHousingLocation(searchParams.location)) || null}
+                    <LocationSelector
+                      value={searchParams.location}
+                      onChange={(nextValue) => setSearchParams(prev => ({ ...prev, location: normalizeHousingLocation(nextValue) }))}
+                      placeholder="Search city or state"
                       className="w-full"
-                      searchPlaceholder="Search cities..."
-                      emptyMessage="No cities found"
-                      itemKey={(city) => city.id}
+                      inputClassName="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
                     />
                   </div>
                   
