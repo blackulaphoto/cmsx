@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 function Expungement() {
   const [activeTab, setActiveTab] = useState('overview')
@@ -37,8 +38,8 @@ function Expungement() {
     try {
       // Fetch expungement cases from sophisticated API
       const [casesResponse, tasksResponse] = await Promise.all([
-        fetch('/api/legal/expungement/cases'),
-        fetch('/api/legal/expungement/tasks')
+        apiFetch('/api/legal/expungement/cases'),
+        apiFetch('/api/legal/expungement/tasks')
       ])
 
       if (casesResponse.ok && tasksResponse.ok) {
@@ -91,7 +92,7 @@ function Expungement() {
         is_wobbler: quizResponses.is_wobbler
       }
 
-      const response = await fetch('/api/legal/expungement/check-eligibility', {
+      const response = await apiFetch('/api/legal/expungement/check-eligibility', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -119,7 +120,7 @@ function Expungement() {
     setShowCaseDetails(true)
     setCaseDetails(null)
     try {
-      const response = await fetch(`/api/legal/expungement/cases/${expungementCase.expungement_id}`)
+      const response = await apiFetch(`/api/legal/expungement/cases/${expungementCase.expungement_id}`)
       if (response.ok) {
         const data = await response.json()
         setCaseDetails(data)
@@ -137,7 +138,7 @@ function Expungement() {
     setShowStatusModal(true)
     setSelectedStage(expungementCase.process_stage || '')
     try {
-      const response = await fetch('/api/legal/expungement/workflow/stages')
+      const response = await apiFetch('/api/legal/expungement/workflow/stages')
       if (response.ok) {
         const data = await response.json()
         setWorkflowStages(data.stages || [])
@@ -151,7 +152,7 @@ function Expungement() {
     if (!selectedCase || !selectedStage) return
     setStatusUpdating(true)
     try {
-      const response = await fetch(`/api/legal/expungement/workflow/advance/${selectedCase.expungement_id}`, {
+      const response = await apiFetch(`/api/legal/expungement/workflow/advance/${selectedCase.expungement_id}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ new_stage: selectedStage })
@@ -196,7 +197,7 @@ function Expungement() {
         contact_information: 'N/A'
       }
 
-      const response = await fetch('/api/legal/expungement/documents/generate', {
+      const response = await apiFetch('/api/legal/expungement/documents/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -234,7 +235,7 @@ function Expungement() {
 
   const createExpungementCase = async (caseData) => {
     try {
-      const response = await fetch('/api/legal/expungement/cases', {
+      const response = await apiFetch('/api/legal/expungement/cases', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -243,7 +244,6 @@ function Expungement() {
       })
 
       if (response.ok) {
-        const result = await response.json()
         toast.success('Expungement case created successfully!')
         setShowNewCaseModal(false)
         fetchExpungementData()
@@ -252,14 +252,13 @@ function Expungement() {
       }
     } catch (error) {
       console.error('Create case error:', error)
-      toast.success('Expungement case created successfully!')
-      setShowNewCaseModal(false)
+      toast.error(error?.message || 'Failed to create expungement case')
     }
   }
 
   const updateTaskStatus = async (taskId, newStatus) => {
     try {
-      const response = await fetch(`/api/legal/expungement/tasks/${taskId}`, {
+      const response = await apiFetch(`/api/legal/expungement/tasks/${taskId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -278,7 +277,7 @@ function Expungement() {
       }
     } catch (error) {
       console.error('Update task error:', error)
-      toast.success('Task updated successfully!')
+      toast.error(error?.message || 'Failed to update task')
     }
   }
 

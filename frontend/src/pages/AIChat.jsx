@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { MessageSquare, Send, Bot, User, Loader2, Sparkles, Zap, Brain, Stars, Save, BookOpen, StickyNote, Bookmark } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 const SESSION_KEY = 'ai_assistant_session_id'
 
@@ -71,7 +72,7 @@ function AIChat() {
     setIsLoading(true)
 
     try {
-      const response = await fetch('/api/ai/chat', {
+      const response = await apiFetch('/api/ai/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

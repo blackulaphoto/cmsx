@@ -5,7 +5,7 @@ import StatsCard from '../components/StatsCard'
 import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
 import TreatmentPlanAssistCard from '../components/TreatmentPlanAssistCard'
 import toast from 'react-hot-toast'
-import { clientsAPI } from '../api/config'
+import { apiFetch, clientsAPI } from '../api/config'
 
 function CaseManagement() {
   const navigate = useNavigate()
@@ -249,7 +249,7 @@ function CaseManagement() {
     }
 
     try {
-      const response = await fetch(`/api/clients/${clientId}`, {
+      const response = await apiFetch(`/api/clients/${clientId}`, {
         method: 'DELETE'
       })
 

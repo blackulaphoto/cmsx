@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { MessageCircle, Minimize2, Send, X } from 'lucide-react'
 import AIAssistantButton from './AIAssistantButton'
+import { apiFetch } from '../../api/config'
 
 const SESSION_KEY = 'ai_assistant_session_id'
 
@@ -37,7 +38,7 @@ export default function AIAssistantPopup() {
     setLoading(true)
 
     try {
-      const response = await fetch('/api/ai/assistant', {
+      const response = await apiFetch('/api/ai/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
