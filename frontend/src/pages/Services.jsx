@@ -109,6 +109,7 @@ function Services() {
       const params = new URLSearchParams({
         search: searchQuery || 'social services',
         location: 'Los Angeles, CA',
+        category,
         page: String(page),
         per_page: String(pagination.perPage)
       })
@@ -207,6 +208,41 @@ function Services() {
   // Always display results returned by the server. Do not re-filter by the same term client-side,
   // as that can hide valid matches from external sources.
   const filteredServices = services
+
+  const createServiceReferralReminder = async (service) => {
+    if (!selectedClient?.client_id) {
+      toast.error('Please select a client first')
+      return
+    }
+
+    const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const reminderText = `Service referral follow-up: ${service.name}${service.phone ? ` (${service.phone})` : ''}`
+
+    try {
+      const response = await apiFetch('/api/reminders/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: selectedClient.client_id,
+          reminder_text: reminderText,
+          due_date: dueDate,
+          case_manager_id: selectedClient.case_manager_id || 'default_cm',
+          priority: 'Medium',
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create referral follow-up')
+      }
+
+      toast.success(`Referral follow-up created for ${selectedClient.first_name} ${selectedClient.last_name}`)
+    } catch (error) {
+      console.error('Service referral reminder error:', error)
+      toast.error(error?.message || 'Failed to create referral follow-up')
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
@@ -416,7 +452,7 @@ function Services() {
                           )}
                         </div>
 
-                        {service.relevanceReason && (
+                          {service.relevanceReason && (
                           <div className="mb-6 rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4">
                             <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300 mb-1">
                               Why this matched
@@ -427,7 +463,7 @@ function Services() {
                         
                         <div className="flex gap-3">
                           <button 
-                            onClick={() => toast.success('Client referral feature coming soon!')}
+                            onClick={() => createServiceReferralReminder(service)}
                             className="group/btn flex-1 px-4 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white text-sm rounded-lg font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg hover:shadow-teal-500/25"
                           >
                             Refer Client
