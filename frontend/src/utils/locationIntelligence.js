@@ -59,8 +59,8 @@ const loadLocationData = async () => {
 
   if (!dataLoadPromise) {
     dataLoadPromise = Promise.all([
-      import('../../../location-intelligence/data/locations-extended.json'),
-      import('../../../location-intelligence/data/aliases.json'),
+      import('../data/location-intelligence/locations-extended.json'),
+      import('../data/location-intelligence/aliases.json'),
     ]).then(([locationsModule, aliasesModule]) => {
       cachedLocations = locationsModule.default || []
       cachedAliases = aliasesModule.default || {}
