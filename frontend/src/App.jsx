@@ -16,6 +16,7 @@ import HousingSearch from './pages/HousingSearch'
 import CaseManagerHousing from './pages/CaseManagerHousing'
 import HousingTest from './pages/HousingTest'
 import Benefits from './pages/Benefits'
+import Medical from './pages/Medical'
 import Resume from './pages/Resume'
 import Legal from './pages/Legal'
 import FMLA from './pages/FMLA'
@@ -62,6 +63,7 @@ function App() {
         <Route path="/housing/case-manager" element={<CaseManagerHousing />} />
         <Route path="/housing/test" element={<HousingTest />} />
         <Route path="/benefits" element={<Benefits />} />
+        <Route path="/medical" element={<Medical />} />
         <Route path="/resume" element={<Resume />} />
         <Route path="/legal" element={<Legal />} />
         <Route path="/fmla" element={<FMLA />} />

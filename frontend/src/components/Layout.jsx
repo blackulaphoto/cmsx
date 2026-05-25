@@ -18,7 +18,8 @@ import {
   Zap,
   Heart,
   Search,
-  BarChart3
+  BarChart3,
+  Stethoscope
 } from 'lucide-react';
 
 const Layout = ({ children }) => {
@@ -30,6 +31,7 @@ const Layout = ({ children }) => {
     { path: '/documentation', label: 'Documentation', icon: ClipboardList, gradient: 'from-cyan-500 to-blue-500' },
     { path: '/housing', label: 'Housing', icon: Home, gradient: 'from-blue-500 to-cyan-500' },
     { path: '/benefits', label: 'Benefits', icon: Heart, gradient: 'from-pink-500 to-rose-500' },
+    { path: '/medical', label: 'Medical', icon: Stethoscope, gradient: 'from-teal-500 to-cyan-500' },
     { path: '/legal', label: 'Legal', icon: Scale, gradient: 'from-indigo-500 to-purple-500' },
     { path: '/fmla', label: 'FMLA', icon: ClipboardList, gradient: 'from-cyan-500 to-sky-500' },
     { path: '/resume', label: 'Resume', icon: FileText, gradient: 'from-emerald-500 to-green-500' },
@@ -77,7 +79,7 @@ const Layout = ({ children }) => {
 
             {/* Navigation - Desktop */}
             <nav className="hidden md:flex items-center gap-1">
-              {navigationItems.slice(0, 7).map((item) => {
+              {navigationItems.slice(0, 8).map((item) => {
                 const IconComponent = item.icon;
                 const isActive = location.pathname === item.path;
                 return (
@@ -182,6 +184,7 @@ const Layout = ({ children }) => {
               <ul className="space-y-2 text-sm text-gray-300">
                 <li><Link to="/housing" className="hover:text-white transition-colors">Housing Search</Link></li>
                 <li><Link to="/benefits" className="hover:text-white transition-colors">Benefits Assistance</Link></li>
+                <li><Link to="/medical" className="hover:text-white transition-colors">Medical Access</Link></li>
                 <li><Link to="/documentation" className="hover:text-white transition-colors">Documentation Center</Link></li>
                 <li><Link to="/legal" className="hover:text-white transition-colors">Legal Services</Link></li>
                 <li><Link to="/resume" className="hover:text-white transition-colors">Resume Builder</Link></li>

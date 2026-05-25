@@ -145,6 +145,15 @@ except Exception as e:
     logger.warning(f"Benefits module not loaded: {e}")
 
 try:
+    from backend.modules.medical.routes import router as medical_router
+    app.include_router(medical_router, prefix="/api/medical", tags=["medical"])
+    loaded_modules["medical"] = "loaded"
+    logger.info("Medical module loaded successfully")
+except Exception as e:
+    loaded_modules["medical"] = f"error: {e}"
+    logger.warning(f"Medical module not loaded: {e}")
+
+try:
     from backend.modules.legal.routes import router as legal_router
     app.include_router(legal_router, prefix="/api/legal", tags=["legal"])
     loaded_modules["legal"] = "loaded"
@@ -320,6 +329,7 @@ async def root():
             "case_management": "/api/case-management",
             "housing": "/api/housing",
             "benefits": "/api/benefits",
+            "medical": "/api/medical",
             "legal": "/api/legal",
             "fmla": "/api/fmla",
             "resume": "/api/resume",
