@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Calendar, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Bell, MessageSquare, Search, Filter, Sparkles, Zap, Brain, Star } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Calendar, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Bell, MessageSquare, Search, Filter, Sparkles, Zap, Brain, Star, PlusCircle, ArrowRight } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
@@ -302,6 +303,22 @@ function SmartDaily() {
 
           {/* Search and Filter */}
           <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10 mb-8">
+            <div className="flex flex-col gap-4 mb-6 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white">Task Intake</h2>
+                <p className="mt-1 text-sm text-slate-300">
+                  New tasks are created in Dashboard and will automatically appear here in Reminders once they are saved.
+                </p>
+              </div>
+              <Link
+                to="/"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-white transition-all duration-300 hover:from-cyan-400 hover:to-blue-400 hover:shadow-xl hover:shadow-cyan-500/20"
+              >
+                <PlusCircle size={18} />
+                Create Task in Dashboard
+                <ArrowRight size={16} />
+              </Link>
+            </div>
             <div className="flex flex-col sm:flex-row gap-4">
               <div className="relative flex-1">
                 <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
@@ -338,14 +355,20 @@ function SmartDaily() {
 
           {/* Daily Agenda */}
           <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10 p-8">
-            <div className="flex items-center gap-3 mb-8">
-              <div className="p-2 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-lg">
-                <Calendar className="h-6 w-6 text-white" />
+            <div className="flex flex-col gap-4 mb-8 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-lg">
+                  <Calendar className="h-6 w-6 text-white" />
+                </div>
+                <h2 className="text-2xl font-bold text-white">Today's Agenda</h2>
+                <span className="px-4 py-2 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-300 rounded-xl border border-indigo-500/30">
+                  {filteredTasks.length} tasks
+                </span>
               </div>
-              <h2 className="text-2xl font-bold text-white">Today's Agenda</h2>
-              <span className="px-4 py-2 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 text-indigo-300 rounded-xl border border-indigo-500/30">
-                {filteredTasks.length} tasks
-              </span>
+              <p className="text-sm text-slate-300 lg:text-right">
+                Reminders shows scheduled and synced tasks.
+                <span className="block text-slate-400">Use Dashboard to create new tasks.</span>
+              </p>
             </div>
             
             {loading ? (
