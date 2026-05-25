@@ -154,6 +154,15 @@ except Exception as e:
     logger.warning(f"Medical module not loaded: {e}")
 
 try:
+    from backend.modules.rolodex.routes import router as rolodex_router
+    app.include_router(rolodex_router, prefix="/api", tags=["rolodex"])
+    loaded_modules["rolodex"] = "loaded"
+    logger.info("Rolodex module loaded successfully")
+except Exception as e:
+    loaded_modules["rolodex"] = f"error: {e}"
+    logger.warning(f"Rolodex module not loaded: {e}")
+
+try:
     from backend.modules.legal.routes import router as legal_router
     app.include_router(legal_router, prefix="/api/legal", tags=["legal"])
     loaded_modules["legal"] = "loaded"
@@ -330,6 +339,7 @@ async def root():
             "housing": "/api/housing",
             "benefits": "/api/benefits",
             "medical": "/api/medical",
+            "rolodex": "/api/rolodex",
             "legal": "/api/legal",
             "fmla": "/api/fmla",
             "resume": "/api/resume",

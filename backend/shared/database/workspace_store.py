@@ -110,6 +110,27 @@ class WorkspaceStore:
                     extraction_status TEXT NOT NULL,
                     uploaded_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS case_manager_rolodex (
+                    id TEXT PRIMARY KEY,
+                    case_manager_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    custom_category TEXT,
+                    organization TEXT,
+                    role_title TEXT,
+                    phone TEXT,
+                    email TEXT,
+                    website TEXT,
+                    address TEXT,
+                    city TEXT,
+                    trusted_status TEXT,
+                    availability_notes TEXT,
+                    referral_notes TEXT,
+                    general_notes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
             note_columns = {
@@ -325,6 +346,7 @@ class WorkspaceStore:
             "dashboard_docs": "created_at DESC",
             "dashboard_bookmarks": "created_at DESC",
             "dashboard_resources": "uploaded_at DESC",
+            "case_manager_rolodex": "category ASC, name ASC, updated_at DESC",
         }[table]
         with self._connect() as conn:
             rows = conn.execute(
@@ -544,6 +566,127 @@ class WorkspaceStore:
                 "DELETE FROM documentation_brand_resources WHERE id = ?",
                 (resource_id,),
             )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def list_rolodex_entries(self, case_manager_id: str) -> List[Dict[str, Any]]:
+        return self.list_dashboard_items("case_manager_rolodex", case_manager_id)
+
+    def create_rolodex_entry(self, case_manager_id: str, entry_data: Dict[str, Any]) -> Dict[str, Any]:
+        item = {
+            "id": uuid4().hex,
+            "case_manager_id": case_manager_id,
+            "name": entry_data.get("name", "").strip(),
+            "category": entry_data.get("category", "").strip(),
+            "custom_category": (entry_data.get("custom_category") or "").strip(),
+            "organization": (entry_data.get("organization") or "").strip(),
+            "role_title": (entry_data.get("role_title") or "").strip(),
+            "phone": (entry_data.get("phone") or "").strip(),
+            "email": (entry_data.get("email") or "").strip(),
+            "website": (entry_data.get("website") or "").strip(),
+            "address": (entry_data.get("address") or "").strip(),
+            "city": (entry_data.get("city") or "").strip(),
+            "trusted_status": (entry_data.get("trusted_status") or "Trusted").strip(),
+            "availability_notes": (entry_data.get("availability_notes") or "").strip(),
+            "referral_notes": (entry_data.get("referral_notes") or "").strip(),
+            "general_notes": (entry_data.get("general_notes") or "").strip(),
+            "created_at": self._now(),
+            "updated_at": self._now(),
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO case_manager_rolodex (
+                    id, case_manager_id, name, category, custom_category, organization, role_title,
+                    phone, email, website, address, city, trusted_status, availability_notes,
+                    referral_notes, general_notes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["id"],
+                    item["case_manager_id"],
+                    item["name"],
+                    item["category"],
+                    item["custom_category"],
+                    item["organization"],
+                    item["role_title"],
+                    item["phone"],
+                    item["email"],
+                    item["website"],
+                    item["address"],
+                    item["city"],
+                    item["trusted_status"],
+                    item["availability_notes"],
+                    item["referral_notes"],
+                    item["general_notes"],
+                    item["created_at"],
+                    item["updated_at"],
+                ),
+            )
+            conn.commit()
+        return item
+
+    def update_rolodex_entry(self, entry_id: str, entry_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT * FROM case_manager_rolodex WHERE id = ?",
+                (entry_id,),
+            ).fetchone()
+            if not existing:
+                return None
+
+            updated = {
+                "name": entry_data.get("name", existing["name"]).strip(),
+                "category": entry_data.get("category", existing["category"]).strip(),
+                "custom_category": (entry_data.get("custom_category", existing["custom_category"]) or "").strip(),
+                "organization": (entry_data.get("organization", existing["organization"]) or "").strip(),
+                "role_title": (entry_data.get("role_title", existing["role_title"]) or "").strip(),
+                "phone": (entry_data.get("phone", existing["phone"]) or "").strip(),
+                "email": (entry_data.get("email", existing["email"]) or "").strip(),
+                "website": (entry_data.get("website", existing["website"]) or "").strip(),
+                "address": (entry_data.get("address", existing["address"]) or "").strip(),
+                "city": (entry_data.get("city", existing["city"]) or "").strip(),
+                "trusted_status": (entry_data.get("trusted_status", existing["trusted_status"]) or "Trusted").strip(),
+                "availability_notes": (entry_data.get("availability_notes", existing["availability_notes"]) or "").strip(),
+                "referral_notes": (entry_data.get("referral_notes", existing["referral_notes"]) or "").strip(),
+                "general_notes": (entry_data.get("general_notes", existing["general_notes"]) or "").strip(),
+                "updated_at": self._now(),
+            }
+
+            conn.execute(
+                """
+                UPDATE case_manager_rolodex
+                SET name = ?, category = ?, custom_category = ?, organization = ?, role_title = ?,
+                    phone = ?, email = ?, website = ?, address = ?, city = ?, trusted_status = ?,
+                    availability_notes = ?, referral_notes = ?, general_notes = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    updated["name"],
+                    updated["category"],
+                    updated["custom_category"],
+                    updated["organization"],
+                    updated["role_title"],
+                    updated["phone"],
+                    updated["email"],
+                    updated["website"],
+                    updated["address"],
+                    updated["city"],
+                    updated["trusted_status"],
+                    updated["availability_notes"],
+                    updated["referral_notes"],
+                    updated["general_notes"],
+                    updated["updated_at"],
+                    entry_id,
+                ),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM case_manager_rolodex WHERE id = ?", (entry_id,)).fetchone()
+        return self._row_to_dict(row) if row else None
+
+    def delete_rolodex_entry(self, entry_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM case_manager_rolodex WHERE id = ?", (entry_id,))
             conn.commit()
             return cursor.rowcount > 0
 
