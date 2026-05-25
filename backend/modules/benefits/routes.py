@@ -64,6 +64,9 @@ def ensure_benefits_applications_schema():
         "application_method": "TEXT DEFAULT 'Online'",
         "assistance_received": "INTEGER DEFAULT 0",
         "notes": "TEXT",
+        "current_step": "TEXT",
+        "next_action_required": "TEXT",
+        "follow_up_date": "TEXT",
         "created_at": "TEXT",
         "last_updated": "TEXT"
     }
@@ -170,7 +173,7 @@ async def get_benefits_applications(
         
         query = """
         SELECT id, application_id, client_id, COALESCE(benefit_type, application_type) AS benefit_type,
-               status, application_method, notes, created_at
+               status, application_method, notes, current_step, next_action_required, follow_up_date, created_at
         FROM benefits_applications
         WHERE 1=1
         """
@@ -207,8 +210,11 @@ async def get_benefits_applications(
                 'application_status': row[4] if row[4] else 'Pending',
                 'application_method': row[5] if row[5] else 'Online',
                 'notes': row[6] if row[6] else '',
-                'application_date': row[7][:10] if row[7] else None,
-                'created_at': row[7],
+                'current_step': row[7] if row[7] else 'Initial assessment completed',
+                'next_action_required': row[8] if row[8] else 'Review required documents and next filing step',
+                'follow_up_date': row[9],
+                'application_date': row[10][:10] if row[10] else None,
+                'created_at': row[10],
             })
         
         conn_unified.close()
@@ -303,8 +309,8 @@ async def create_benefits_application(application_data: BenefitApplication):
         cursor.execute("""
             INSERT INTO benefits_applications 
             (application_id, client_id, application_type, benefit_type, status, application_method,
-             assistance_received, notes, created_at, last_updated)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             assistance_received, notes, current_step, next_action_required, follow_up_date, created_at, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             application_id,
             application_data.client_id,
@@ -314,6 +320,9 @@ async def create_benefits_application(application_data: BenefitApplication):
             application_data.application_method,
             int(bool(application_data.assistance_received)),
             application_data.notes,
+            'Application created',
+            'Review required documents and submit packet',
+            None,
             datetime.now().isoformat(),
             datetime.now().isoformat()
         ))
@@ -681,6 +690,8 @@ async def api_start_disability_application(application_data: StartApplication):
         # Generate application ID
         application_id = f"{benefit_type.lower()}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         application_record['application_id'] = application_id
+        follow_up_date = (datetime.now() + timedelta(days=7)).date().isoformat()
+        application_record['follow_up_date'] = follow_up_date
 
         try:
             import sqlite3
@@ -690,8 +701,8 @@ async def api_start_disability_application(application_data: StartApplication):
             cursor.execute("""
                 INSERT INTO benefits_applications
                 (application_id, client_id, application_type, benefit_type, status,
-                 application_method, assistance_received, notes, created_at, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 application_method, assistance_received, notes, current_step, next_action_required, follow_up_date, created_at, last_updated)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 application_id,
                 client_id,
@@ -701,6 +712,9 @@ async def api_start_disability_application(application_data: StartApplication):
                 'Online',
                 0,
                 application_record.get('notes', ''),
+                application_record.get('current_step', 'Initial Assessment Completed'),
+                application_record.get('next_action_required', 'Gather medical documentation'),
+                follow_up_date,
                 datetime.now().isoformat(),
                 datetime.now().isoformat()
             ))

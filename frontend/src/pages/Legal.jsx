@@ -3,6 +3,7 @@ import { Scale, FileText, CheckCircle, Clock, AlertCircle, Calendar, Plus, Edit,
 import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 function Legal() {
   const [selectedClient, setSelectedClient] = useState(null)
@@ -116,6 +117,38 @@ function Legal() {
     }
   }
 
+  const createReminder = async ({ clientId, text, dueDate, priority = 'High' }) => {
+    if (!clientId || !dueDate || !text) {
+      toast.error('Missing reminder details')
+      return
+    }
+
+    try {
+      const response = await apiFetch('/api/reminders/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: clientId,
+          reminder_text: text,
+          due_date: dueDate,
+          case_manager_id: selectedClient?.case_manager_id || 'default_cm',
+          priority,
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create reminder')
+      }
+
+      toast.success('Reminder created')
+    } catch (error) {
+      console.error('Create reminder error:', error)
+      toast.error(error?.message || 'Failed to create reminder')
+    }
+  }
+
   const addLegalTask = async () => {
     if (!taskForm.description) {
       toast.error('Please enter task description')
@@ -188,6 +221,14 @@ function Legal() {
       }
 
       toast.success('Legal case created successfully')
+      if (caseForm.probation_end_date) {
+        await createReminder({
+          clientId: selectedClient.client_id,
+          text: `Legal case ${caseForm.case_number}: review probation milestone and case status`,
+          dueDate: caseForm.probation_end_date,
+          priority: 'High',
+        })
+      }
       setShowCaseModal(false)
       resetCaseForm()
       fetchLegalData()
@@ -238,6 +279,13 @@ function Legal() {
       }
 
       toast.success('Court date added successfully')
+      const reminderDate = payload.hearing_date
+      await createReminder({
+        clientId: selectedClient.client_id,
+        text: `Court date follow-up: ${payload.hearing_type} at ${payload.court_name}`,
+        dueDate: reminderDate,
+        priority: 'High',
+      })
       setShowCourtDateModal(false)
       resetCourtDateForm()
       fetchLegalData()
@@ -281,6 +329,12 @@ function Legal() {
       }
 
       toast.success('Legal document added successfully')
+      await createReminder({
+        clientId: selectedClient.client_id,
+        text: `Legal document due: ${documentForm.document_title} for ${documentForm.submitted_to}`,
+        dueDate: documentForm.due_date,
+        priority: documentForm.urgency_level === 'High' ? 'High' : 'Medium',
+      })
       setShowDocumentModal(false)
       resetDocumentForm()
       fetchLegalData()
@@ -566,6 +620,21 @@ function Legal() {
                             ></div>
                           </div>
                         </div>
+
+                        <div className="mt-4">
+                          <button
+                            onClick={() => createReminder({
+                              clientId: legalCase.client_id,
+                              text: `Legal case follow-up: ${legalCase.case_type} (${legalCase.next_action})`,
+                              dueDate: legalCase.court_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+                              priority: legalCase.priority || 'High',
+                            })}
+                            className="inline-flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-medium transition-all duration-300"
+                          >
+                            <Clock className="h-4 w-4" />
+                            Create Case Reminder
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -615,6 +684,20 @@ function Legal() {
                           <Zap className="h-4 w-4 text-yellow-400" />
                           Judge: {appointment.judge_name || 'Not provided'}
                         </p>
+                        <div className="mt-4">
+                          <button
+                            onClick={() => createReminder({
+                              clientId: appointment.client_id,
+                              text: `Court reminder: ${appointment.hearing_type} at ${appointment.court_name}`,
+                              dueDate: appointment.hearing_date,
+                              priority: 'High',
+                            })}
+                            className="inline-flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-medium transition-all duration-300"
+                          >
+                            <Clock className="h-4 w-4" />
+                            Create Court Reminder
+                          </button>
+                        </div>
                       </div>
                     )) : (
                       <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
@@ -702,6 +785,20 @@ function Legal() {
                         <div className="flex items-center gap-2 text-sm">
                           <Clock className="h-4 w-4 text-orange-400" />
                           <span className="text-orange-300">Required by: {doc.required_by}</span>
+                        </div>
+                        <div className="mt-4">
+                          <button
+                            onClick={() => createReminder({
+                              clientId: doc.client_id,
+                              text: `Legal document follow-up: ${doc.document_title || doc.document_type}`,
+                              dueDate: doc.required_by,
+                              priority: doc.urgency_level || 'High',
+                            })}
+                            className="inline-flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-medium transition-all duration-300"
+                          >
+                            <Clock className="h-4 w-4" />
+                            Create Document Reminder
+                          </button>
                         </div>
                       </div>
                     ))}

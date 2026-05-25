@@ -210,6 +210,41 @@ function Benefits() {
     return BENEFIT_APPLICATION_LINKS[benefitType] || null
   }
 
+  const createBenefitReminder = async (application) => {
+    if (!application?.client_id) {
+      toast.error('This application is missing a client ID')
+      return
+    }
+
+    const followUpDate = application.follow_up_date || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const reminderText = `${application.benefit_type}: ${application.next_action_required || 'Follow up on application status'}`
+
+    try {
+      const response = await apiFetch('/api/reminders/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: application.client_id,
+          reminder_text: reminderText,
+          due_date: followUpDate,
+          case_manager_id: selectedClient?.case_manager_id || 'default_cm',
+          priority: 'High',
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to create follow-up reminder')
+      }
+
+      toast.success(`Reminder created for ${application.benefit_type}`)
+    } catch (error) {
+      console.error('Reminder creation error:', error)
+      toast.error(error?.message || 'Failed to create reminder')
+    }
+  }
+
   const getApplicationClientLabel = (application) => {
     const fullName = selectedClient
       ? `${selectedClient.first_name || ''} ${selectedClient.last_name || ''}`.trim()
@@ -1015,9 +1050,12 @@ function Benefits() {
                           </div>
                           <p className="text-orange-400 font-semibold mb-2">Client: {getApplicationClientLabel(app)}</p>
                           <p className="text-gray-300 mb-2">Applied: {new Date(app.created_at).toLocaleDateString()}</p>
+                          <p className="text-gray-300 mb-2">Current step: {app.current_step || 'Application created'}</p>
+                          <p className="text-amber-200 mb-2">Next action: {app.next_action_required || 'Review required documents and filing steps'}</p>
+                          <p className="text-gray-400 mb-2">Follow up by: {app.follow_up_date || 'Not set'}</p>
                           {app.notes && <p className="text-gray-300">Notes: {app.notes}</p>}
-                          {getBenefitApplicationLink(app.benefit_type) && (
-                            <div className="mt-4">
+                          <div className="mt-4 flex flex-wrap gap-3">
+                            {getBenefitApplicationLink(app.benefit_type) && (
                               <button
                                 onClick={() => window.open(getBenefitApplicationLink(app.benefit_type).url, '_blank', 'noopener,noreferrer')}
                                 className="group/btn inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-orange-500/25"
@@ -1025,8 +1063,15 @@ function Benefits() {
                                 <Search className="h-4 w-4 group-hover/btn:scale-110 transition-transform duration-300" />
                                 Open Application Site
                               </button>
-                            </div>
-                          )}
+                            )}
+                            <button
+                              onClick={() => createBenefitReminder(app)}
+                              className="group/btn inline-flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-medium transition-all duration-300"
+                            >
+                              <Clock className="h-4 w-4 group-hover/btn:scale-110 transition-transform duration-300" />
+                              Create Follow-up Reminder
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
