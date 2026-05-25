@@ -45,12 +45,12 @@ class VirgilServiceDatabase:
             'outpatient': 'substance-abuse',
             'detox': 'substance-abuse',
             'food': 'support-groups',
-            'dental': 'mental-health',
-            'hygiene': 'support-groups',
+            'dental': 'dental-care',
+            'hygiene': 'hygiene-services',
             'legal': 'education',
             'transportation': 'transportation',
-            'couples_counseling': 'mental-health',
-            'parenting_classes': 'education',
+            'couples_counseling': 'couples-counseling',
+            'parenting_classes': 'parenting-classes',
         }
         return type_mapping.get(service_type, 'all')
 
@@ -75,6 +75,13 @@ class VirgilServiceDatabase:
             search_terms.append('food')
         if any(term in query_lower for term in ['dental', 'dentist', 'teeth']):
             search_terms.append('dental')
+        if any(term in query_lower for term in ['couples', 'relationship', 'marriage']):
+            search_terms.append('couples')
+            search_terms.append('counseling')
+        if any(term in query_lower for term in ['parenting', 'parent', 'family class']):
+            search_terms.append('parenting')
+        if any(term in query_lower for term in ['hygiene', 'shower', 'toiletries']):
+            search_terms.append('hygiene')
         if any(term in query_lower for term in ['legal', 'lawyer', 'attorney']):
             search_terms.append('legal')
         if any(term in query_lower for term in ['transport', 'bus', 'metro', 'ride']):
@@ -129,7 +136,7 @@ class VirgilServiceDatabase:
         normalized = self._normalize_category(category)
         category_map = {
             'mental-health': {
-                'resource_types': {'couples_counseling'},
+                'resource_types': set(),
                 'treatment_types': set(),
                 'meeting_types': set(),
                 'include_medical': True,
@@ -156,15 +163,43 @@ class VirgilServiceDatabase:
                 'include_medical': False,
                 'medical_terms': [],
             },
+            'dental-care': {
+                'resource_types': {'dental'},
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+            },
+            'couples-counseling': {
+                'resource_types': {'couples_counseling'},
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+            },
+            'parenting-classes': {
+                'resource_types': {'parenting_classes'},
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+            },
+            'hygiene-services': {
+                'resource_types': {'hygiene'},
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+            },
             'education': {
-                'resource_types': {'parenting_classes', 'legal'},
+                'resource_types': {'legal'},
                 'treatment_types': set(),
                 'meeting_types': set(),
                 'include_medical': False,
                 'medical_terms': [],
             },
             'support-groups': {
-                'resource_types': {'food', 'hygiene'},
+                'resource_types': {'food'},
                 'treatment_types': set(),
                 'meeting_types': {'aa', 'na', 'smart', 'cma'},
                 'include_medical': False,
@@ -206,6 +241,18 @@ class VirgilServiceDatabase:
                 return (1, result.get('title', ''))
         elif normalized == 'transportation':
             if 'transportation' in service_type:
+                return (0, result.get('title', ''))
+        elif normalized == 'dental-care':
+            if 'dental' in service_type:
+                return (0, result.get('title', ''))
+        elif normalized == 'couples-counseling':
+            if 'couples counseling' in service_type:
+                return (0, result.get('title', ''))
+        elif normalized == 'parenting-classes':
+            if 'parenting classes' in service_type:
+                return (0, result.get('title', ''))
+        elif normalized == 'hygiene-services':
+            if 'hygiene' in service_type:
                 return (0, result.get('title', ''))
 
         return (5, result.get('title', ''))

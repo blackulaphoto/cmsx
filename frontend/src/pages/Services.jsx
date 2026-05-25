@@ -70,6 +70,38 @@ function Services() {
       borderColor: 'border-yellow-500/30'
     },
     { 
+      id: 'dental-care', 
+      name: 'Dental Care', 
+      icon: Heart, 
+      gradient: 'from-rose-500 to-pink-600',
+      bgGradient: 'from-rose-500/20 to-pink-600/20',
+      borderColor: 'border-rose-500/30'
+    },
+    { 
+      id: 'couples-counseling', 
+      name: 'Couples Counseling', 
+      icon: Users, 
+      gradient: 'from-fuchsia-500 to-pink-600',
+      bgGradient: 'from-fuchsia-500/20 to-pink-600/20',
+      borderColor: 'border-fuchsia-500/30'
+    },
+    { 
+      id: 'parenting-classes', 
+      name: 'Parenting Classes', 
+      icon: GraduationCap, 
+      gradient: 'from-violet-500 to-purple-600',
+      bgGradient: 'from-violet-500/20 to-purple-600/20',
+      borderColor: 'border-violet-500/30'
+    },
+    { 
+      id: 'hygiene-services', 
+      name: 'Hygiene Services', 
+      icon: Sparkles, 
+      gradient: 'from-sky-500 to-cyan-600',
+      bgGradient: 'from-sky-500/20 to-cyan-600/20',
+      borderColor: 'border-sky-500/30'
+    },
+    { 
       id: 'education', 
       name: 'Education & Training', 
       icon: GraduationCap, 
