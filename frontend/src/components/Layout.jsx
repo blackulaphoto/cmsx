@@ -17,7 +17,8 @@ import {
   Sparkles,
   Zap,
   Heart,
-  Search
+  Search,
+  BarChart3
 } from 'lucide-react';
 
 const Layout = ({ children }) => {
@@ -33,6 +34,7 @@ const Layout = ({ children }) => {
     { path: '/fmla', label: 'FMLA', icon: ClipboardList, gradient: 'from-cyan-500 to-sky-500' },
     { path: '/resume', label: 'Resume', icon: FileText, gradient: 'from-emerald-500 to-green-500' },
     { path: '/jobs', label: 'Jobs', icon: Briefcase, gradient: 'from-emerald-500 to-green-500' },
+    { path: '/supervisor-dashboard', label: 'Supervisor', icon: BarChart3, gradient: 'from-cyan-500 to-blue-500' },
     { path: '/services', label: 'Services', icon: Building2, gradient: 'from-orange-500 to-amber-500' },
     { path: '/ai-chat', label: 'AI Assistant', icon: MessageSquare, gradient: 'from-yellow-500 to-amber-500' },
     { path: '/smart-dashboard', label: 'Smart Daily', icon: Calendar, gradient: 'from-purple-500 to-pink-500' },

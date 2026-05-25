@@ -566,6 +566,15 @@ const EnhancedDashboard = () => {
       gradient: 'from-cyan-500 via-sky-600 to-blue-600',
       stats: 'AI Powered',
       accent: 'bg-cyan-500/20 border-cyan-500/30'
+    },
+    {
+      title: 'Supervisor Reporting',
+      description: 'Review caseload pressure, overdue work, and cross-module team risk',
+      path: '/supervisor-dashboard',
+      icon: TrendingUp,
+      gradient: 'from-cyan-500 via-blue-600 to-indigo-600',
+      stats: 'Team Oversight',
+      accent: 'bg-cyan-500/20 border-cyan-500/30'
     }
   ]
 

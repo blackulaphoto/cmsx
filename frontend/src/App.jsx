@@ -25,6 +25,7 @@ import AIChat from './pages/AIChat'
 import Services from './pages/Services'
 import SmartDaily from './pages/SmartDaily'
 import Jobs from './pages/Jobs'
+import SupervisorDashboard from './pages/SupervisorDashboard'
 import AIAssistantPopup from './components/AIAssistant/AIAssistantPopup'
 // System administration and monitoring
 import SystemIntegrity from './pages/SystemIntegrity'
@@ -69,6 +70,7 @@ function App() {
         <Route path="/ai-chat" element={<AIChat />} />
         <Route path="/services" element={<Services />} />
         <Route path="/smart-dashboard" element={<SmartDaily />} />
+        <Route path="/supervisor-dashboard" element={<SupervisorDashboard />} />
         <Route path="/jobs" element={<Jobs />} />
         {/* System administration and monitoring */}
         <Route path="/system-integrity" element={<SystemIntegrity />} />
