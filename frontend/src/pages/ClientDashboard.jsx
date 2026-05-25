@@ -194,6 +194,41 @@ const ClientDashboard = () => {
     return new Date(dateString).toLocaleString()
   }
 
+  const getActivityStyles = (type) => {
+    switch (type) {
+      case 'task':
+        return {
+          badge: 'bg-gradient-to-r from-blue-500/20 to-cyan-500/20 text-blue-300 border border-blue-500/30',
+          card: 'from-blue-500/15 to-cyan-500/15 border-blue-500/20',
+        }
+      case 'note':
+        return {
+          badge: 'bg-gradient-to-r from-emerald-500/20 to-green-500/20 text-emerald-300 border border-emerald-500/30',
+          card: 'from-emerald-500/15 to-green-500/15 border-emerald-500/20',
+        }
+      case 'reminder':
+        return {
+          badge: 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/30',
+          card: 'from-amber-500/15 to-orange-500/15 border-amber-500/20',
+        }
+      case 'contact':
+        return {
+          badge: 'bg-gradient-to-r from-fuchsia-500/20 to-pink-500/20 text-fuchsia-300 border border-fuchsia-500/30',
+          card: 'from-fuchsia-500/15 to-pink-500/15 border-fuchsia-500/20',
+        }
+      case 'milestone':
+        return {
+          badge: 'bg-gradient-to-r from-violet-500/20 to-purple-500/20 text-violet-300 border border-violet-500/30',
+          card: 'from-violet-500/15 to-purple-500/15 border-violet-500/20',
+        }
+      default:
+        return {
+          badge: 'bg-gradient-to-r from-gray-500/20 to-slate-500/20 text-gray-300 border border-gray-500/30',
+          card: 'from-white/10 to-white/5 border-white/10',
+        }
+    }
+  }
+
   // Notes handler functions
   const handleAddNote = () => {
     setEditingNote(null)
@@ -352,9 +387,43 @@ const ClientDashboard = () => {
   }
 
   const { client } = clientData
+  const activityTimeline = [
+    ...(clientData.recent_activity || []).map((activity, index) => ({
+      id: `activity-${index}-${activity.date || ''}`,
+      type: activity.type || 'activity',
+      title: activity.action || 'Activity recorded',
+      detail: activity.category ? `Category: ${activity.category}` : '',
+      date: activity.date,
+      priority: activity.priority || null,
+    })),
+    ...(clientData.contact_history || []).map((contact, index) => ({
+      id: `contact-${contact.contact_id || index}`,
+      type: 'contact',
+      title: `${contact.contact_type || 'Contact'} via ${contact.contact_method || 'recorded method'}`,
+      detail: contact.notes || contact.outcome || '',
+      date: contact.contact_date || contact.created_at,
+      priority: null,
+    })),
+    ...(clientData.program_milestones || []).map((milestone, index) => ({
+      id: `milestone-${milestone.milestone_id || index}`,
+      type: 'milestone',
+      title: milestone.milestone_name || 'Program milestone',
+      detail: `${milestone.status || 'Pending'}${milestone.milestone_type ? ` • ${milestone.milestone_type}` : ''}`,
+      date: milestone.completion_date || milestone.due_date || milestone.created_at,
+      priority: milestone.priority || null,
+    })),
+  ]
+    .filter((entry) => entry.date)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  const recentTimeline = activityTimeline.slice(0, 8)
+  const pendingMilestones = (clientData.program_milestones || [])
+    .filter((milestone) => `${milestone.status || ''}`.toLowerCase() !== 'completed')
+    .slice(0, 5)
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: User, gradient: 'from-blue-500 to-indigo-500' },
+    { id: 'timeline', label: 'Timeline', icon: MessageSquare, gradient: 'from-teal-500 to-cyan-500' },
     { id: 'housing', label: 'Housing', icon: Home, gradient: 'from-orange-500 to-red-500' },
     { id: 'employment', label: 'Employment', icon: Briefcase, gradient: 'from-green-500 to-emerald-500' },
     { id: 'benefits', label: 'Benefits', icon: DollarSign, gradient: 'from-purple-500 to-violet-500' },
@@ -535,61 +604,60 @@ const ClientDashboard = () => {
                   </div>
                 </div>
 
-                {/* Recent Activity */}
+                {/* Unified Activity Feed */}
                 <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
                   <div className="flex items-center gap-3 mb-6">
                     <div className="p-2 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-lg">
                       <MessageSquare className="h-6 w-6 text-white" />
                     </div>
-                    <h3 className="text-2xl font-bold text-white">Recent Activity</h3>
+                    <h3 className="text-2xl font-bold text-white">Unified Activity Feed</h3>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Recent Notes */}
                     <div>
                       <h4 className="font-medium text-white mb-4 flex items-center">
-                        <div className="p-1 bg-green-500/20 rounded mr-2">
-                          <FileText className="h-4 w-4 text-green-400" />
+                        <div className="p-1 bg-cyan-500/20 rounded mr-2">
+                          <RefreshCw className="h-4 w-4 text-cyan-400" />
                         </div>
-                        Recent Notes
+                        Latest cross-module activity
                       </h4>
                       <div className="space-y-3">
-                        {notes?.slice(0, 3).map((note) => (
-                          <div key={note.note_id} className="p-4 bg-gradient-to-br from-green-500/20 to-emerald-500/20 backdrop-blur-sm rounded-xl border border-green-500/30">
+                        {recentTimeline.length > 0 ? recentTimeline.slice(0, 4).map((entry) => {
+                          const styles = getActivityStyles(entry.type)
+                          return (
+                          <div key={entry.id} className={`p-4 bg-gradient-to-br ${styles.card} backdrop-blur-sm rounded-xl border`}>
                             <div className="flex items-center justify-between mb-2">
-                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(note.note_type)}`}>
-                                {note.note_type}
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${styles.badge}`}>
+                                {entry.type}
                               </span>
-                              <span className="text-xs text-gray-400">{formatDate(note.created_at)}</span>
+                              <span className="text-xs text-gray-400">{formatDateTime(entry.date)}</span>
                             </div>
-                            <p className="text-sm text-gray-300 line-clamp-2">{note.content}</p>
+                            <p className="text-sm text-white font-medium">{entry.title}</p>
+                            {entry.detail && <p className="text-sm text-gray-300 mt-1 line-clamp-2">{entry.detail}</p>}
                           </div>
-                        )) || <p className="text-gray-400 text-sm">No recent notes</p>}
+                        )}) : <p className="text-gray-400 text-sm">No recent activity yet</p>}
                       </div>
                     </div>
 
-                    {/* Recent Tasks */}
                     <div>
                       <h4 className="font-medium text-white mb-4 flex items-center">
-                        <div className="p-1 bg-blue-500/20 rounded mr-2">
-                          <CheckCircle className="h-4 w-4 text-blue-400" />
+                        <div className="p-1 bg-violet-500/20 rounded mr-2">
+                          <Target className="h-4 w-4 text-violet-400" />
                         </div>
-                        Recent Tasks
+                        Upcoming milestones and follow-up
                       </h4>
                       <div className="space-y-3">
-                        {tasks?.slice(0, 3).map((task) => (
-                          <div key={task.task_id} className="p-4 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-xl border border-blue-500/30">
+                        {pendingMilestones.length > 0 ? pendingMilestones.map((milestone, index) => (
+                          <div key={milestone.milestone_id || index} className="p-4 bg-gradient-to-br from-violet-500/20 to-purple-500/20 backdrop-blur-sm rounded-xl border border-violet-500/30">
                             <div className="flex items-center justify-between mb-2">
-                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(task.priority)}`}>
-                                {task.priority}
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(milestone.status)}`}>
+                                {milestone.status || 'Pending'}
                               </span>
-                              <span className="text-xs text-gray-400">{formatDate(task.due_date)}</span>
+                              <span className="text-xs text-gray-400">{formatDate(milestone.due_date)}</span>
                             </div>
-                            <p className="text-sm text-white font-medium">{task.title}</p>
-                            <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(task.status)}`}>
-                              {task.status}
-                            </span>
+                            <p className="text-sm text-white font-medium">{milestone.milestone_name}</p>
+                            <p className="text-sm text-violet-200 mt-1">{milestone.milestone_type || 'Program milestone'}</p>
                           </div>
-                        )) || <p className="text-gray-400 text-sm">No recent tasks</p>}
+                        )) : <p className="text-gray-400 text-sm">No upcoming milestones</p>}
                       </div>
                     </div>
                   </div>
@@ -737,6 +805,94 @@ const ClientDashboard = () => {
                       </span>
                       <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" />
                     </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'timeline' && (
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+              <div className="xl:col-span-2 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="p-2 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-lg">
+                    <MessageSquare className="h-6 w-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold text-white">Client Timeline</h3>
+                    <p className="text-sm text-cyan-200">Notes, tasks, reminders, contacts, and milestones in one feed.</p>
+                  </div>
+                </div>
+                <div className="space-y-4">
+                  {activityTimeline.length > 0 ? activityTimeline.map((entry) => {
+                    const styles = getActivityStyles(entry.type)
+                    return (
+                      <div key={entry.id} className={`p-5 bg-gradient-to-br ${styles.card} backdrop-blur-sm rounded-xl border`}>
+                        <div className="flex items-start justify-between gap-4 mb-3">
+                          <div>
+                            <span className={`inline-flex px-3 py-1 rounded-full text-xs font-medium mb-3 ${styles.badge}`}>
+                              {entry.type}
+                            </span>
+                            <p className="text-white font-semibold">{entry.title}</p>
+                            {entry.detail && <p className="text-sm text-gray-300 mt-1">{entry.detail}</p>}
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-xs text-gray-400">{formatDateTime(entry.date)}</p>
+                            {entry.priority && (
+                              <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(entry.priority)}`}>
+                                {entry.priority}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  }) : (
+                    <p className="text-gray-400">No activity has been recorded for this client yet.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-8">
+                <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-gradient-to-r from-violet-500 to-purple-500 rounded-lg">
+                      <Target className="h-5 w-5 text-white" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white">Program Milestones</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {(clientData.program_milestones || []).length > 0 ? (clientData.program_milestones || []).slice(0, 6).map((milestone, index) => (
+                      <div key={milestone.milestone_id || index} className="p-4 bg-gradient-to-br from-violet-500/20 to-purple-500/20 backdrop-blur-sm rounded-xl border border-violet-500/30">
+                        <p className="font-medium text-white">{milestone.milestone_name}</p>
+                        <p className="text-sm text-violet-200">{milestone.milestone_type || 'Program milestone'}</p>
+                        <div className="flex items-center justify-between mt-3">
+                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(milestone.status)}`}>
+                            {milestone.status || 'Pending'}
+                          </span>
+                          <span className="text-xs text-gray-300">{formatDate(milestone.due_date)}</span>
+                        </div>
+                      </div>
+                    )) : <p className="text-gray-400">No milestones recorded.</p>}
+                  </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="p-2 bg-gradient-to-r from-fuchsia-500 to-pink-500 rounded-lg">
+                      <Phone className="h-5 w-5 text-white" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white">Contact History</h3>
+                  </div>
+                  <div className="space-y-3">
+                    {(clientData.contact_history || []).length > 0 ? (clientData.contact_history || []).slice(0, 6).map((contact, index) => (
+                      <div key={contact.contact_id || index} className="p-4 bg-gradient-to-br from-fuchsia-500/20 to-pink-500/20 backdrop-blur-sm rounded-xl border border-fuchsia-500/30">
+                        <p className="font-medium text-white">{contact.contact_type || 'Client contact'}</p>
+                        <p className="text-sm text-fuchsia-200">{contact.contact_method || 'Contact method not recorded'}</p>
+                        {contact.outcome && <p className="text-sm text-gray-300 mt-2 line-clamp-2">{contact.outcome}</p>}
+                        <p className="text-xs text-gray-300 mt-3">{formatDateTime(contact.contact_date || contact.created_at)}</p>
+                      </div>
+                    )) : <p className="text-gray-400">No contact history recorded.</p>}
                   </div>
                 </div>
               </div>

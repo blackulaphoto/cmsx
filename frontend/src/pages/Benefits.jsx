@@ -87,7 +87,7 @@ function Benefits() {
   // Load applications on component mount
   useEffect(() => {
     fetchApplications()
-  }, [])
+  }, [selectedClient?.client_id])
 
   // Backup URL parameter reading - fallback if ClientSelector doesn't sync
   useEffect(() => {
@@ -109,7 +109,10 @@ function Benefits() {
 
   const fetchApplications = async () => {
     try {
-      const response = await apiFetch('/api/benefits/applications')
+      const clientQuery = selectedClient?.client_id
+        ? `?client_id=${encodeURIComponent(selectedClient.client_id)}`
+        : ''
+      const response = await apiFetch(`/api/benefits/applications${clientQuery}`)
       if (response.ok) {
         const data = await response.json()
         setApplications(data.applications || [])
@@ -205,6 +208,22 @@ function Benefits() {
 
   const getBenefitApplicationLink = (benefitType) => {
     return BENEFIT_APPLICATION_LINKS[benefitType] || null
+  }
+
+  const getApplicationClientLabel = (application) => {
+    const fullName = selectedClient
+      ? `${selectedClient.first_name || ''} ${selectedClient.last_name || ''}`.trim()
+      : ''
+
+    if (selectedClient?.client_id && application.client_id === selectedClient.client_id && fullName) {
+      return fullName
+    }
+
+    if (application.client_name && application.client_name !== 'Unknown Client') {
+      return application.client_name
+    }
+
+    return application.client_id || 'Client record unavailable'
   }
 
   const handleStartApplication = (programName) => {
@@ -950,7 +969,14 @@ function Benefits() {
                       <div className="p-2 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg">
                         <FileText className="h-6 w-6 text-white" />
                       </div>
-                      <h2 className="text-2xl font-bold text-white">Benefits Applications</h2>
+                      <div>
+                        <h2 className="text-2xl font-bold text-white">Benefits Applications</h2>
+                        <p className="text-sm text-orange-200">
+                          {selectedClient
+                            ? `Showing tracked applications for ${selectedClient.first_name} ${selectedClient.last_name}`
+                            : 'Showing tracked applications across the caseload'}
+                        </p>
+                      </div>
                     </div>
                     <button
                       onClick={fetchApplications}
@@ -967,7 +993,11 @@ function Benefits() {
                         <FileText className="h-12 w-12 text-orange-400" />
                       </div>
                       <h3 className="text-xl font-medium mb-3 text-white">No applications found</h3>
-                      <p className="text-gray-400">Start by completing an assessment or eligibility check</p>
+                      <p className="text-gray-400">
+                        {selectedClient
+                          ? 'No tracked applications yet for the selected client'
+                          : 'Start by completing an assessment or eligibility check'}
+                      </p>
                     </div>
                   ) : (
                     <div className="space-y-6">
@@ -983,7 +1013,7 @@ function Benefits() {
                               {app.application_status || 'pending'}
                             </span>
                           </div>
-                          <p className="text-orange-400 font-semibold mb-2">Client: {app.client_name || app.client_id}</p>
+                          <p className="text-orange-400 font-semibold mb-2">Client: {getApplicationClientLabel(app)}</p>
                           <p className="text-gray-300 mb-2">Applied: {new Date(app.created_at).toLocaleDateString()}</p>
                           {app.notes && <p className="text-gray-300">Notes: {app.notes}</p>}
                           {getBenefitApplicationLink(app.benefit_type) && (

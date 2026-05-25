@@ -776,6 +776,8 @@ async def get_client_unified_view(client_id: str):
                 "recent_activity": overview_data.get("recent_activity", []),
                 "contact_history": overview_data.get("contact_history", []),
                 "program_milestones": overview_data.get("program_milestones", []),
+                "goals": overview_data.get("goals", []),
+                "barriers": overview_data.get("barriers", []),
                 "summary": overview_data.get("summary", {}),
             },
             "data_sources": {
