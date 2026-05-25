@@ -8,6 +8,49 @@ import AssessmentResults from '../components/AssessmentResults'
 import { apiFetch } from '../api/config'
 import toast from 'react-hot-toast'
 
+const BENEFIT_APPLICATION_LINKS = {
+  'SNAP/CalFresh': {
+    label: 'CalFresh application',
+    url: 'https://benefitscal.com/'
+  },
+  'SNAP': {
+    label: 'CalFresh application',
+    url: 'https://benefitscal.com/'
+  },
+  'Medicaid/Medi-Cal': {
+    label: 'Covered California / Medi-Cal application',
+    url: 'https://www.coveredca.com/'
+  },
+  'Medicaid': {
+    label: 'Covered California / Medi-Cal application',
+    url: 'https://www.coveredca.com/'
+  },
+  'SSI': {
+    label: 'SSA SSI application',
+    url: 'https://www.ssa.gov/ssi'
+  },
+  'SSDI': {
+    label: 'SSA SSDI application',
+    url: 'https://www.ssa.gov/benefits/disability/'
+  },
+  'Housing Vouchers/Section 8': {
+    label: 'HACLA Section 8 / housing assistance',
+    url: 'https://www.hacla.org/en/about-section-8'
+  },
+  'TANF': {
+    label: 'CalWORKs / cash aid application',
+    url: 'https://benefitscal.com/'
+  },
+  'WIC': {
+    label: 'California WIC application',
+    url: 'https://myfamily.wic.ca.gov/'
+  },
+  'LIHEAP': {
+    label: 'LIHEAP information and application',
+    url: 'https://www.csd.ca.gov/Pages/LIHEAPProgram.aspx'
+  }
+}
+
 function Benefits() {
   const [searchParams] = useSearchParams()
   const [selectedClient, setSelectedClient] = useState(null)
@@ -160,6 +203,10 @@ function Benefits() {
     setShowAssessmentModal(false)
   }
 
+  const getBenefitApplicationLink = (benefitType) => {
+    return BENEFIT_APPLICATION_LINKS[benefitType] || null
+  }
+
   const handleStartApplication = (programName) => {
     const assessment = programAssessments[programName]
     if (!assessment) {
@@ -201,9 +248,20 @@ function Benefits() {
       })
 
       if (response.ok) {
+        const destination = getBenefitApplicationLink(benefitType)
         toast.success(`${benefitType} application started!`)
         await fetchApplications()
         setActiveTab('applications')
+
+        if (destination?.url) {
+          window.open(destination.url, '_blank', 'noopener,noreferrer')
+          toast.success(`Opened ${destination.label}`, { duration: 5000 })
+        } else {
+          toast(`No official application link is configured for ${benefitType} yet. The case was tracked in Applications.`, {
+            duration: 5000,
+            icon: '⚠️'
+          })
+        }
       } else {
         throw new Error('Application start failed')
       }
@@ -928,6 +986,17 @@ function Benefits() {
                           <p className="text-orange-400 font-semibold mb-2">Client: {app.client_name || app.client_id}</p>
                           <p className="text-gray-300 mb-2">Applied: {new Date(app.created_at).toLocaleDateString()}</p>
                           {app.notes && <p className="text-gray-300">Notes: {app.notes}</p>}
+                          {getBenefitApplicationLink(app.benefit_type) && (
+                            <div className="mt-4">
+                              <button
+                                onClick={() => window.open(getBenefitApplicationLink(app.benefit_type).url, '_blank', 'noopener,noreferrer')}
+                                className="group/btn inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-orange-500/25"
+                              >
+                                <Search className="h-4 w-4 group-hover/btn:scale-110 transition-transform duration-300" />
+                                Open Application Site
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
