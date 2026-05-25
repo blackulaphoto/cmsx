@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Scale, FileText, CheckCircle, Clock, AlertCircle, Calendar, Plus, Edit, Trash2, X, Save, User, Sparkles, Zap, TrendingUp, Briefcase, Shield, Gavel } from 'lucide-react'
+import { Scale, FileText, CheckCircle, Clock, AlertCircle, Calendar, Plus, Edit, Trash2, X, Save, User, Sparkles, Zap, TrendingUp, Briefcase, Shield, Gavel, Upload, Download } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
 import toast from 'react-hot-toast'
@@ -17,6 +17,8 @@ function Legal() {
   const [showCaseModal, setShowCaseModal] = useState(false)
   const [showCourtDateModal, setShowCourtDateModal] = useState(false)
   const [showDocumentModal, setShowDocumentModal] = useState(false)
+  const [documentUploadFile, setDocumentUploadFile] = useState(null)
+  const [documentUploadFiles, setDocumentUploadFiles] = useState({})
   const [taskForm, setTaskForm] = useState({
     description: '',
     priority: 'Medium',
@@ -328,7 +330,21 @@ function Legal() {
         throw new Error('Failed to create legal document')
       }
 
-      toast.success('Legal document added successfully')
+      const result = await response.json()
+      if (documentUploadFile && result?.document_id) {
+        const uploadForm = new FormData()
+        uploadForm.append('file', documentUploadFile)
+        const uploadResponse = await fetch(`/api/legal/documents/${encodeURIComponent(result.document_id)}/upload`, {
+          method: 'POST',
+          body: uploadForm,
+        })
+
+        if (!uploadResponse.ok) {
+          throw new Error('Legal document created, but file upload failed')
+        }
+      }
+
+      toast.success(documentUploadFile ? 'Legal document and file added successfully' : 'Legal document added successfully')
       await createReminder({
         clientId: selectedClient.client_id,
         text: `Legal document due: ${documentForm.document_title} for ${documentForm.submitted_to}`,
@@ -337,6 +353,7 @@ function Legal() {
       })
       setShowDocumentModal(false)
       resetDocumentForm()
+      setDocumentUploadFile(null)
       fetchLegalData()
     } catch (error) {
       console.error('Create legal document error:', error)
@@ -397,6 +414,38 @@ function Legal() {
       submitted_to: '',
       urgency_level: 'Medium'
     })
+  }
+
+  const uploadExistingLegalDocumentFile = async (documentId) => {
+    const file = documentUploadFiles[documentId]
+    if (!file) {
+      toast.error('Choose a file first')
+      return
+    }
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const response = await fetch(`/api/legal/documents/${encodeURIComponent(documentId)}/upload`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to upload legal document file')
+      }
+
+      toast.success('File uploaded successfully')
+      setDocumentUploadFiles((prev) => {
+        const next = { ...prev }
+        delete next[documentId]
+        return next
+      })
+      fetchLegalData()
+    } catch (error) {
+      console.error('Upload legal document file error:', error)
+      toast.error(error?.message || 'Failed to upload legal document file')
+    }
   }
 
   const getStatusColor = (status) => {
@@ -786,19 +835,52 @@ function Legal() {
                           <Clock className="h-4 w-4 text-orange-400" />
                           <span className="text-orange-300">Required by: {doc.required_by}</span>
                         </div>
+                        <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                          <p className="text-sm font-medium text-white mb-2">Attachment status</p>
+                          <p className="text-sm text-gray-300">
+                            {doc.has_file ? `Attached file: ${doc.file_name || 'Uploaded legal document'}` : 'No file attached yet'}
+                          </p>
+                          {!doc.has_file && (
+                            <div className="mt-3 flex flex-col md:flex-row gap-3">
+                              <input
+                                type="file"
+                                onChange={(e) => setDocumentUploadFiles((prev) => ({ ...prev, [doc.document_id]: e.target.files?.[0] || null }))}
+                                className="block w-full text-sm text-gray-300 file:mr-4 file:rounded-lg file:border-0 file:bg-white/10 file:px-4 file:py-2 file:text-white hover:file:bg-white/20"
+                              />
+                              <button
+                                onClick={() => uploadExistingLegalDocumentFile(doc.document_id)}
+                                className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-medium transition-all duration-300"
+                              >
+                                <Upload className="h-4 w-4" />
+                                Upload File
+                              </button>
+                            </div>
+                          )}
+                        </div>
                         <div className="mt-4">
-                          <button
-                            onClick={() => createReminder({
-                              clientId: doc.client_id,
-                              text: `Legal document follow-up: ${doc.document_title || doc.document_type}`,
-                              dueDate: doc.required_by,
-                              priority: doc.urgency_level || 'High',
-                            })}
-                            className="inline-flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-medium transition-all duration-300"
-                          >
-                            <Clock className="h-4 w-4" />
-                            Create Document Reminder
-                          </button>
+                          <div className="flex flex-wrap gap-3">
+                            {doc.has_file && (
+                              <button
+                                onClick={() => window.open(`/api/legal/documents/${encodeURIComponent(doc.document_id)}/download`, '_blank', 'noopener,noreferrer')}
+                                className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all duration-300"
+                              >
+                                <Download className="h-4 w-4" />
+                                Download File
+                              </button>
+                            )}
+                            <button
+                              onClick={() => createReminder({
+                                clientId: doc.client_id,
+                                text: `Legal document follow-up: ${doc.document_title || doc.document_type}`,
+                                dueDate: doc.required_by,
+                                priority: doc.urgency_level || 'High',
+                              })}
+                              className="inline-flex items-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 border border-white/20 text-white rounded-xl font-medium transition-all duration-300"
+                            >
+                              <Clock className="h-4 w-4" />
+                              Create Document Reminder
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -1129,6 +1211,15 @@ function Legal() {
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-300 mb-3">Document Purpose</label>
                   <textarea rows="3" value={documentForm.document_purpose} onChange={(e) => setDocumentForm(prev => ({ ...prev, document_purpose: e.target.value }))} className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white" />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium text-gray-300 mb-3">Attach file now (optional)</label>
+                  <input
+                    type="file"
+                    onChange={(e) => setDocumentUploadFile(e.target.files?.[0] || null)}
+                    className="block w-full text-sm text-gray-300 file:mr-4 file:rounded-lg file:border-0 file:bg-white/10 file:px-4 file:py-2 file:text-white hover:file:bg-white/20"
+                  />
+                  <p className="mt-2 text-xs text-gray-400">Attach the court notice, motion, letter, or supporting file now, or upload it later from the document card.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-3">Due Date</label>

@@ -4,13 +4,17 @@ Benefits Routes - FastAPI Router for Second Chance Jobs Platform
 Benefits coordination and disability assessment
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends, Query, Body
-from fastapi.responses import HTMLResponse, JSONResponse
+import os
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException, Request, Depends, Query, Body, UploadFile, File, Form
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import Dict, List, Any, Optional
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .models import BenefitsApplication, BenefitsDatabase
 from .disability_assessment import DisabilityAssessment, QUALIFYING_CONDITIONS
@@ -20,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI router
 router = APIRouter(tags=["benefits"])
+BENEFITS_UPLOADS_DIR = Path(__file__).resolve().parents[3] / "uploads" / "benefits"
+BENEFITS_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Initialize services
 benefits_db = None
@@ -78,6 +84,33 @@ def ensure_benefits_applications_schema():
     conn.commit()
     conn.close()
 
+
+def ensure_benefits_documents_schema():
+    import sqlite3
+
+    conn = sqlite3.connect('databases/unified_platform.db')
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS benefits_documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id TEXT UNIQUE,
+            application_id TEXT NOT NULL,
+            client_id TEXT,
+            benefit_type TEXT,
+            document_type TEXT,
+            document_status TEXT DEFAULT 'Received',
+            file_name TEXT,
+            file_path TEXT,
+            file_size INTEGER DEFAULT 0,
+            content_type TEXT,
+            notes TEXT,
+            uploaded_at TEXT,
+            uploaded_by TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
 # Pydantic models
 class EligibilityCheck(BaseModel):
     client_id: str
@@ -117,6 +150,12 @@ class ProgramEligibilityRequest(BaseModel):
 class BulkEligibilityRequest(BaseModel):
     client_id: str
     responses: Dict[str, Any]
+
+
+class BenefitDocumentMetadata(BaseModel):
+    document_type: str = "Supporting Document"
+    document_status: str = "Received"
+    notes: str = ""
 
 # =============================================================================
 # API ROUTES
@@ -162,6 +201,7 @@ async def get_benefits_applications(
         import sqlite3
 
         ensure_benefits_applications_schema()
+        ensure_benefits_documents_schema()
         
         # Get applications from unified_platform.db
         conn_unified = sqlite3.connect('databases/unified_platform.db')
@@ -303,6 +343,7 @@ async def create_benefits_application(application_data: BenefitApplication):
         # Save to database
         import sqlite3
         ensure_benefits_applications_schema()
+        ensure_benefits_documents_schema()
         conn = sqlite3.connect('databases/unified_platform.db')
         cursor = conn.cursor()
         
@@ -423,6 +464,194 @@ async def get_benefit_types():
         
     except Exception as e:
         logger.error(f"Get benefit types error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/applications/{application_id}/documents")
+async def get_application_documents(application_id: str):
+    """List uploaded supporting documents for a benefits application"""
+    try:
+        import sqlite3
+
+        ensure_benefits_documents_schema()
+        conn = sqlite3.connect('databases/unified_platform.db')
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT document_id, application_id, client_id, benefit_type, document_type, document_status,
+                   file_name, file_path, file_size, content_type, notes, uploaded_at
+            FROM benefits_documents
+            WHERE application_id = ?
+            ORDER BY uploaded_at DESC, id DESC
+            """,
+            (application_id,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        documents = [{
+            "document_id": row["document_id"],
+            "application_id": row["application_id"],
+            "client_id": row["client_id"],
+            "benefit_type": row["benefit_type"],
+            "document_type": row["document_type"] or "Supporting Document",
+            "document_status": row["document_status"] or "Received",
+            "file_name": row["file_name"] or "",
+            "file_size": row["file_size"] or 0,
+            "content_type": row["content_type"] or "",
+            "notes": row["notes"] or "",
+            "uploaded_at": row["uploaded_at"] or "",
+            "has_file": bool(row["file_path"]),
+        } for row in rows]
+
+        return {"success": True, "documents": documents, "total_count": len(documents)}
+    except Exception as e:
+        logger.error(f"Get benefits application documents error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/applications/{application_id}/documents/upload")
+async def upload_application_document(
+    application_id: str,
+    file: UploadFile = File(...),
+    document_type: str = Form("Supporting Document"),
+    document_status: str = Form("Received"),
+    notes: str = Form(""),
+):
+    """Upload a supporting document for a benefits application"""
+    try:
+        import sqlite3
+
+        if not file or not file.filename:
+            raise HTTPException(status_code=400, detail="A file is required")
+
+        ensure_benefits_applications_schema()
+        ensure_benefits_documents_schema()
+
+        conn = sqlite3.connect('databases/unified_platform.db')
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT application_id, client_id, COALESCE(benefit_type, application_type) AS benefit_type
+            FROM benefits_applications
+            WHERE application_id = ?
+            """,
+            (application_id,),
+        )
+        application_row = cursor.fetchone()
+        if not application_row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Benefits application not found")
+
+        safe_client_id = "".join(char for char in (application_row["client_id"] or "client") if char.isalnum() or char in {"-", "_"})
+        upload_dir = BENEFITS_UPLOADS_DIR / safe_client_id
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        file_extension = Path(file.filename).suffix
+        document_id = f"bdoc_{uuid4().hex}"
+        stored_name = f"{document_id}{file_extension}"
+        stored_path = upload_dir / stored_name
+        content = await file.read()
+        with open(stored_path, "wb") as buffer:
+            buffer.write(content)
+
+        relative_path = str(Path(safe_client_id) / stored_name)
+        now = datetime.now().isoformat()
+        cursor.execute(
+            """
+            INSERT INTO benefits_documents
+            (document_id, application_id, client_id, benefit_type, document_type, document_status,
+             file_name, file_path, file_size, content_type, notes, uploaded_at, uploaded_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                document_id,
+                application_id,
+                application_row["client_id"],
+                application_row["benefit_type"],
+                document_type,
+                document_status,
+                file.filename,
+                relative_path,
+                len(content),
+                file.content_type or "application/octet-stream",
+                notes,
+                now,
+                "case_manager",
+            ),
+        )
+        cursor.execute(
+            """
+            UPDATE benefits_applications
+            SET current_step = ?, next_action_required = ?, last_updated = ?
+            WHERE application_id = ?
+            """,
+            (
+                "Supporting documents received",
+                "Review packet completeness and submit to agency",
+                now,
+                application_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        return {
+            "success": True,
+            "message": "Benefits document uploaded successfully",
+            "document_id": document_id,
+            "file_name": file.filename,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Upload benefits document error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/documents/{document_id}/download")
+async def download_benefits_document(document_id: str):
+    """Download a benefits application document"""
+    try:
+        import sqlite3
+
+        ensure_benefits_documents_schema()
+        conn = sqlite3.connect('databases/unified_platform.db')
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT file_path, file_name, content_type FROM benefits_documents WHERE document_id = ?",
+            (document_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Benefits document not found")
+        if not row["file_path"]:
+            raise HTTPException(status_code=404, detail="No uploaded file is attached to this document")
+
+        file_path = (BENEFITS_UPLOADS_DIR / row["file_path"]).resolve()
+        uploads_root = BENEFITS_UPLOADS_DIR.resolve()
+        try:
+            file_path.relative_to(uploads_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid file path") from exc
+
+        if not file_path.exists() or not file_path.is_file():
+            raise HTTPException(status_code=404, detail="Uploaded file not found")
+
+        return FileResponse(
+            path=file_path,
+            filename=row["file_name"] or os.path.basename(file_path),
+            media_type=row["content_type"] or "application/octet-stream",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Download benefits document error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/guidance/{benefit_type}")

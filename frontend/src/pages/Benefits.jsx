@@ -56,6 +56,9 @@ function Benefits() {
   const [selectedClient, setSelectedClient] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [applications, setApplications] = useState([])
+  const [applicationDocuments, setApplicationDocuments] = useState({})
+  const [applicationUploadFiles, setApplicationUploadFiles] = useState({})
+  const [applicationUploadMeta, setApplicationUploadMeta] = useState({})
   const [loading, setLoading] = useState(false)
   const [assessmentData, setAssessmentData] = useState({
     client_id: '',
@@ -115,10 +118,35 @@ function Benefits() {
       const response = await apiFetch(`/api/benefits/applications${clientQuery}`)
       if (response.ok) {
         const data = await response.json()
-        setApplications(data.applications || [])
+        const loadedApplications = data.applications || []
+        setApplications(loadedApplications)
+        if (loadedApplications.length > 0) {
+          await fetchApplicationDocuments(loadedApplications)
+        } else {
+          setApplicationDocuments({})
+        }
       }
     } catch (error) {
       console.error('Error fetching applications:', error)
+    }
+  }
+
+  const fetchApplicationDocuments = async (apps = applications) => {
+    try {
+      const responses = await Promise.all(
+        apps.map(async (app) => {
+          const response = await apiFetch(`/api/benefits/applications/${encodeURIComponent(app.application_id)}/documents`)
+          if (!response.ok) {
+            throw new Error(`Failed to load documents for ${app.benefit_type}`)
+          }
+          const data = await response.json()
+          return [app.application_id, data.documents || []]
+        })
+      )
+
+      setApplicationDocuments(Object.fromEntries(responses))
+    } catch (error) {
+      console.error('Error fetching benefits documents:', error)
     }
   }
 
@@ -242,6 +270,45 @@ function Benefits() {
     } catch (error) {
       console.error('Reminder creation error:', error)
       toast.error(error?.message || 'Failed to create reminder')
+    }
+  }
+
+  const uploadBenefitDocument = async (application) => {
+    const file = applicationUploadFiles[application.application_id]
+    if (!file) {
+      toast.error('Choose a file first')
+      return
+    }
+
+    const meta = applicationUploadMeta[application.application_id] || {}
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('document_type', meta.document_type || 'Supporting Document')
+      formData.append('document_status', meta.document_status || 'Received')
+      formData.append('notes', meta.notes || '')
+
+      const response = await fetch(`/api/benefits/applications/${encodeURIComponent(application.application_id)}/documents/upload`, {
+        method: 'POST',
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to upload benefits document')
+      }
+
+      toast.success(`Uploaded document for ${application.benefit_type}`)
+      setApplicationUploadFiles((prev) => {
+        const next = { ...prev }
+        delete next[application.application_id]
+        return next
+      })
+      await fetchApplicationDocuments()
+      await fetchApplications()
+    } catch (error) {
+      console.error('Upload benefits document error:', error)
+      toast.error(error?.message || 'Failed to upload benefits document')
     }
   }
 
@@ -1054,6 +1121,103 @@ function Benefits() {
                           <p className="text-amber-200 mb-2">Next action: {app.next_action_required || 'Review required documents and filing steps'}</p>
                           <p className="text-gray-400 mb-2">Follow up by: {app.follow_up_date || 'Not set'}</p>
                           {app.notes && <p className="text-gray-300">Notes: {app.notes}</p>}
+                          <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <div className="flex items-center justify-between gap-4 mb-3">
+                              <div>
+                                <h4 className="text-sm font-semibold text-white">Supporting documents</h4>
+                                <p className="text-xs text-gray-400">Upload verifications, ID, income proofs, medical records, or agency letters for this application.</p>
+                              </div>
+                              <span className="text-xs text-orange-200">{(applicationDocuments[app.application_id] || []).length} uploaded</span>
+                            </div>
+
+                            {(applicationDocuments[app.application_id] || []).length > 0 ? (
+                              <div className="space-y-2 mb-4">
+                                {(applicationDocuments[app.application_id] || []).map((doc) => (
+                                  <div key={doc.document_id} className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 rounded-xl border border-white/10 bg-black/10 px-4 py-3">
+                                    <div>
+                                      <p className="text-sm font-medium text-white">{doc.document_type}</p>
+                                      <p className="text-xs text-gray-400">
+                                        {doc.file_name || 'Uploaded document'} {doc.uploaded_at ? `• ${new Date(doc.uploaded_at).toLocaleDateString()}` : ''}
+                                      </p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
+                                        {doc.document_status || 'Received'}
+                                      </span>
+                                      <button
+                                        onClick={() => window.open(`/api/benefits/documents/${encodeURIComponent(doc.document_id)}/download`, '_blank', 'noopener,noreferrer')}
+                                        className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2 text-sm font-medium text-white transition-all duration-300 hover:bg-white/20"
+                                      >
+                                        <FileText className="h-4 w-4" />
+                                        Download
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mb-4 text-sm text-gray-400">No supporting documents uploaded yet.</p>
+                            )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                              <input
+                                type="text"
+                                value={applicationUploadMeta[app.application_id]?.document_type || ''}
+                                onChange={(e) => setApplicationUploadMeta((prev) => ({
+                                  ...prev,
+                                  [app.application_id]: {
+                                    ...(prev[app.application_id] || {}),
+                                    document_type: e.target.value,
+                                  },
+                                }))}
+                                placeholder="Document type"
+                                className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400"
+                              />
+                              <select
+                                value={applicationUploadMeta[app.application_id]?.document_status || 'Received'}
+                                onChange={(e) => setApplicationUploadMeta((prev) => ({
+                                  ...prev,
+                                  [app.application_id]: {
+                                    ...(prev[app.application_id] || {}),
+                                    document_status: e.target.value,
+                                  },
+                                }))}
+                                className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-white"
+                              >
+                                <option value="Received" className="bg-gray-900">Received</option>
+                                <option value="Pending Review" className="bg-gray-900">Pending Review</option>
+                                <option value="Submitted" className="bg-gray-900">Submitted</option>
+                              </select>
+                              <input
+                                type="file"
+                                onChange={(e) => setApplicationUploadFiles((prev) => ({
+                                  ...prev,
+                                  [app.application_id]: e.target.files?.[0] || null,
+                                }))}
+                                className="block w-full text-sm text-gray-300 file:mr-4 file:rounded-lg file:border-0 file:bg-white/10 file:px-4 file:py-2 file:text-white hover:file:bg-white/20"
+                              />
+                            </div>
+                            <textarea
+                              rows="2"
+                              value={applicationUploadMeta[app.application_id]?.notes || ''}
+                              onChange={(e) => setApplicationUploadMeta((prev) => ({
+                                ...prev,
+                                [app.application_id]: {
+                                  ...(prev[app.application_id] || {}),
+                                  notes: e.target.value,
+                                },
+                              }))}
+                              placeholder="Document notes or what still needs to be submitted"
+                              className="mb-3 w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-white placeholder-gray-400"
+                            />
+                            <button
+                              onClick={() => uploadBenefitDocument(app)}
+                              className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-5 py-3 text-sm font-medium text-white transition-all duration-300 hover:bg-white/20"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Upload Supporting Document
+                            </button>
+                          </div>
                           <div className="mt-4 flex flex-wrap gap-3">
                             {getBenefitApplicationLink(app.benefit_type) && (
                               <button

@@ -4,8 +4,12 @@ Legal Case Management Routes for Second Chance Jobs Platform
 Professional legal compliance tracking and court date management
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends, Query, Body
-from fastapi.responses import HTMLResponse, JSONResponse
+import os
+from pathlib import Path
+from uuid import uuid4
+
+from fastapi import APIRouter, HTTPException, Request, Depends, Query, Body, UploadFile, File
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 import logging
 import json
@@ -19,6 +23,8 @@ from .expungement_service import ExpungementEligibilityEngine
 
 # Create FastAPI router
 router = APIRouter(tags=["legal"])
+LEGAL_UPLOADS_DIR = Path(__file__).resolve().parents[3] / "uploads" / "legal"
+LEGAL_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 # Include expungement routes
 router.include_router(expungement_router)
@@ -151,6 +157,24 @@ def _get_client_name_map() -> Dict[str, str]:
         except Exception:
             pass
     return name_map
+
+
+def _ensure_legal_document_schema(connection: sqlite3.Connection) -> None:
+    cursor = connection.cursor()
+    cursor.execute("PRAGMA table_info(legal_documents)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    columns_to_add = {
+        "file_name": "TEXT",
+        "file_size": "INTEGER DEFAULT 0",
+        "content_type": "TEXT",
+    }
+
+    for column_name, definition in columns_to_add.items():
+        if column_name not in existing_columns:
+            cursor.execute(f"ALTER TABLE legal_documents ADD COLUMN {column_name} {definition}")
+
+    connection.commit()
 
 # Pydantic models
 class LegalCaseCreate(BaseModel):
@@ -446,12 +470,14 @@ async def get_legal_documents(client_id: Optional[str] = Query(None), document_t
         legal_db = get_legal_db()
         legal_db.connect()
         cursor = legal_db.connection.cursor()
+        _ensure_legal_document_schema(legal_db.connection)
         name_map = _get_client_name_map()
 
         query = """
             SELECT
                 document_id, case_id, client_id, document_type, document_title,
-                document_purpose, document_status, due_date, submitted_to, urgency_level, created_at
+                document_purpose, document_status, due_date, submitted_to, urgency_level, created_at,
+                file_path, file_name, file_size, content_type, file_format
             FROM legal_documents
             WHERE 1=1
         """
@@ -482,7 +508,13 @@ async def get_legal_documents(client_id: Optional[str] = Query(None), document_t
             "submitted_to": row["submitted_to"] or "",
             "urgency_level": row["urgency_level"] or "Normal",
             "description": row["document_purpose"] or "",
-            "created_at": row["created_at"] or ""
+            "created_at": row["created_at"] or "",
+            "file_path": row["file_path"] or "",
+            "file_name": row["file_name"] or "",
+            "file_size": row["file_size"] or 0,
+            "content_type": row["content_type"] or "",
+            "file_format": row["file_format"] or "",
+            "has_file": bool(row["file_path"]),
         } for row in rows]
 
         return {
@@ -508,6 +540,7 @@ async def create_legal_document(document_data: LegalDocumentCreate):
         legal_db = get_legal_db()
         legal_db.connect()
         cursor = legal_db.connection.cursor()
+        _ensure_legal_document_schema(legal_db.connection)
 
         cursor.execute(
             "SELECT client_id FROM legal_cases WHERE case_id = ?",
@@ -546,6 +579,130 @@ async def create_legal_document(document_data: LegalDocumentCreate):
         raise
     except Exception as e:
         logger.error(f"Create legal document error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            legal_db.close()
+        except Exception:
+            pass
+
+
+@router.post("/documents/{document_id}/upload")
+async def upload_legal_document_file(document_id: str, file: UploadFile = File(...)):
+    """Attach an uploaded file to an existing legal document record"""
+    legal_db = None
+    try:
+        legal_db = get_legal_db()
+        legal_db.connect()
+        _ensure_legal_document_schema(legal_db.connection)
+        cursor = legal_db.connection.cursor()
+
+        cursor.execute(
+            "SELECT document_id, client_id, case_id, document_title FROM legal_documents WHERE document_id = ?",
+            (document_id,),
+        )
+        document_row = cursor.fetchone()
+        if not document_row:
+            raise HTTPException(status_code=404, detail="Legal document not found")
+        if not file or not file.filename:
+            raise HTTPException(status_code=400, detail="A file is required")
+
+        safe_client_id = "".join(char for char in (document_row["client_id"] or "client") if char.isalnum() or char in {"-", "_"})
+        client_upload_dir = LEGAL_UPLOADS_DIR / safe_client_id
+        client_upload_dir.mkdir(parents=True, exist_ok=True)
+
+        file_extension = Path(file.filename).suffix
+        stored_name = f"{document_id}_{uuid4().hex}{file_extension}"
+        stored_path = client_upload_dir / stored_name
+        content = await file.read()
+        with open(stored_path, "wb") as buffer:
+            buffer.write(content)
+
+        relative_path = str(Path(safe_client_id) / stored_name)
+        file_format = file_extension.lstrip(".").upper() if file_extension else "FILE"
+        submitted_date = datetime.now().date().isoformat()
+
+        cursor.execute(
+            """
+            UPDATE legal_documents
+            SET file_path = ?, file_name = ?, file_size = ?, content_type = ?, file_format = ?,
+                document_status = CASE
+                    WHEN document_status IN ('Draft', 'Missing', 'Pending') THEN 'Received'
+                    ELSE document_status
+                END,
+                submitted_date = COALESCE(submitted_date, ?),
+                last_updated = ?
+            WHERE document_id = ?
+            """,
+            (
+                relative_path,
+                file.filename,
+                len(content),
+                file.content_type or "application/octet-stream",
+                file_format,
+                submitted_date,
+                datetime.now().isoformat(),
+                document_id,
+            ),
+        )
+        legal_db.connection.commit()
+
+        return {
+            "success": True,
+            "message": "Legal document file uploaded successfully",
+            "document_id": document_id,
+            "file_name": file.filename,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Upload legal document file error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            legal_db.close()
+        except Exception:
+            pass
+
+
+@router.get("/documents/{document_id}/download")
+async def download_legal_document_file(document_id: str):
+    """Download the uploaded file attached to a legal document"""
+    legal_db = None
+    try:
+        legal_db = get_legal_db()
+        legal_db.connect()
+        _ensure_legal_document_schema(legal_db.connection)
+        cursor = legal_db.connection.cursor()
+        cursor.execute(
+            "SELECT file_path, file_name, content_type FROM legal_documents WHERE document_id = ?",
+            (document_id,),
+        )
+        document_row = cursor.fetchone()
+        if not document_row:
+            raise HTTPException(status_code=404, detail="Legal document not found")
+        if not document_row["file_path"]:
+            raise HTTPException(status_code=404, detail="No uploaded file is attached to this document")
+
+        file_path = (LEGAL_UPLOADS_DIR / document_row["file_path"]).resolve()
+        uploads_root = LEGAL_UPLOADS_DIR.resolve()
+        try:
+            file_path.relative_to(uploads_root)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid file path") from exc
+
+        if not file_path.exists() or not file_path.is_file():
+            raise HTTPException(status_code=404, detail="Uploaded file not found")
+
+        return FileResponse(
+            path=file_path,
+            filename=document_row["file_name"] or os.path.basename(file_path),
+            media_type=document_row["content_type"] or "application/octet-stream",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Download legal document file error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         try:
