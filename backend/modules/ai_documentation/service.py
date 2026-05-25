@@ -778,7 +778,9 @@ class DocumentationAIService:
 
     async def generate_note_draft(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         recent_notes = self._get_recent_note_context(payload.get("client_id"))
-        template_excerpt = self._get_template_excerpt(payload.get("note_kind", "progress_note"))
+        selected_template_body = (payload.get("current_text") or "").strip()
+        library_excerpt = self._get_template_excerpt(payload.get("note_kind", "progress_note"))
+        template_excerpt = selected_template_body or library_excerpt
         fallback_draft = self._build_fallback_draft(payload, recent_notes)
         review = self.compliance_review(
             {
@@ -807,6 +809,8 @@ class DocumentationAIService:
         user_prompt = (payload.get("user_prompt") or "").strip()
         client_name = payload.get("client_name") or "[Client Name]"
         note_kind = payload.get("note_kind", "progress_note")
+        template_label = (payload.get("context") or {}).get("template_label", note_kind.replace("_", " ").title())
+        template_category = (payload.get("context") or {}).get("template_category", "")
         current_date = datetime.now().strftime("%B %d, %Y")
         brand_guidance_context = self.get_brand_guidance_context(
             query=user_prompt or payload.get("current_text") or note_kind,
@@ -881,14 +885,19 @@ class DocumentationAIService:
             "3. AUTO-FILL ALL POSSIBLE FIELDS using the client profile data provided",
             "4. DO NOT leave demographic/status brackets empty if data is available",
             "5. Write full narrative paragraphs integrating client-specific details",
-            "6. Follow the EXACT structure and formatting from the template library",
+            "6. Follow the EXACT structure and formatting from the selected template",
             "7. ONLY leave [VERBATIM QUOTE] brackets for case manager to fill - everything else should be populated",
             "8. Follow organization-specific guidance materials when they are provided below",
             "",
-            "TEMPLATE LIBRARY EXCERPT (your primary format guide):",
+            f"SELECTED TEMPLATE: {template_label}",
+            f"TEMPLATE CATEGORY: {template_category}",
+            "PRIMARY TEMPLATE TO FOLLOW EXACTLY:",
             "─────────────────────────────────────────────────────────────",
             template_excerpt or "No template available.",
             "─────────────────────────────────────────────────────────────",
+            "",
+            "REFERENCE LIBRARY CONTEXT:",
+            library_excerpt or "No additional library context available.",
             "",
             client_context_str,
             "",
@@ -900,7 +909,8 @@ class DocumentationAIService:
             f"• Note type: {note_kind.replace('_', ' ')}",
             "",
             "INSTRUCTIONS:",
-            "- Copy the template format EXACTLY as shown above",
+            "- Copy the SELECTED TEMPLATE format EXACTLY as shown above",
+            "- Do NOT switch to a treatment plan or CM note format unless the selected template is actually that format",
             "- Fill in ALL demographic/status fields using the CLIENT PROFILE data",
             "- For RESPONSE section: Write complete paragraph using: demographics (age/race/gender), substance history, legal status, employment status, recent barriers",
             "- If case manager provided session notes, incorporate them into the narrative",
