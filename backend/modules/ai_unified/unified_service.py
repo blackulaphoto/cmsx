@@ -32,6 +32,7 @@ from backend.modules.services.case_management_api import (
     get_dashboard_stats_from_db,
     get_clients_from_db,
 )
+from backend.modules.services.virgil_db_service import get_virgil_db
 from backend.modules.reminders.engine import IntelligentReminderEngine
 from backend.search.coordinator import get_coordinator
 from backend.shared.database.workspace_store import workspace_store
@@ -513,12 +514,43 @@ class UnifiedAIService:
             seen = set()
             results: List[Dict[str, Any]] = []
             project_root = Path(__file__).resolve().parents[3]
+            try:
+                virgil_result = get_virgil_db().search_services(query, location, 1, limit)
+                for item in virgil_result.get("results", [])[:limit]:
+                    dedupe_key = ("virgil_st_db", item.get("title", ""), item.get("address", ""))
+                    if dedupe_key in seen:
+                        continue
+                    seen.add(dedupe_key)
+                    results.append({
+                        "title": item.get("title", ""),
+                        "provider_name": item.get("title", ""),
+                        "service_category": item.get("service_type", ""),
+                        "service_type": item.get("service_type", ""),
+                        "description": item.get("description", ""),
+                        "location": item.get("location") or item.get("address", ""),
+                        "phone": item.get("phone", ""),
+                        "email": "",
+                        "website": item.get("url") or item.get("link", ""),
+                        "current_availability": "",
+                        "waitlist_status": "",
+                        "background_policy": "",
+                        "accepts_medicaid": "medi-cal" in f"{item.get('description', '')} {item.get('relevance_reason', '')}".lower(),
+                        "sliding_scale_available": "sliding" in item.get("description", "").lower(),
+                        "eligibility_criteria": "",
+                        "cost": "",
+                        "source": item.get("source", "virgil_st_db"),
+                    })
+                    if len(results) >= limit:
+                        break
+            except Exception as virgil_error:
+                logger.warning("Virgil internal resource search failed: %s", virgil_error)
+
             results.extend(
                 self._search_services_directory_db(
                     project_root / "databases" / "services.db",
                     queries,
                     location_city,
-                    limit,
+                    max(limit - len(results), 0),
                     seen,
                 )
             )

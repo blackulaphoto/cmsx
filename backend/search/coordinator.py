@@ -16,6 +16,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from enum import Enum
+from backend.modules.services.virgil_db_service import get_virgil_db
 
 # Load environment variables
 try:
@@ -1767,6 +1768,46 @@ class SimpleSearchCoordinator:
             # Validate pagination parameters
             page = max(1, page)  # Ensure page is at least 1
             per_page = min(max(1, per_page), 40)  # Limit per_page between 1 and 40
+
+            # Primary local-first path: Virgil St database
+            try:
+                virgil_result = get_virgil_db().search_services(query, location, page, per_page)
+                if virgil_result.get("success") and virgil_result.get("total_count", 0) > 0:
+                    formatted_results = []
+                    for item in virgil_result.get("results", [])[:per_page]:
+                        formatted_results.append({
+                            "title": item.get("title", ""),
+                            "description": item.get("description", ""),
+                            "link": item.get("url") or item.get("link", ""),
+                            "source": item.get("source", "virgil_st_db"),
+                            "location": item.get("location") or item.get("address", "") or (location or ""),
+                            "relevance_reason": item.get("relevance_reason", ""),
+                            "service_type": item.get("service_type", "") or self._infer_service_type(query, item),
+                            "phone": item.get("phone", ""),
+                            "address": item.get("address", ""),
+                        })
+
+                    return {
+                        "success": True,
+                        "query": query,
+                        "location": location,
+                        "results": formatted_results,
+                        "source": virgil_result.get("source", "virgil_st_db"),
+                        "degraded": False,
+                        "warning": None,
+                        "pagination": virgil_result.get("pagination", {
+                            "current_page": page,
+                            "per_page": per_page,
+                            "total_results": len(formatted_results),
+                            "total_pages": 1,
+                            "has_next_page": False,
+                            "has_prev_page": page > 1,
+                            "start_index": 1 if formatted_results else 0,
+                            "end_index": len(formatted_results),
+                        })
+                    }
+            except Exception as virgil_error:
+                logger.warning("Virgil services search failed, falling back to external providers: %s", virgil_error)
 
             def build_openai_services_response(warning: str) -> Optional[Dict[str, Any]]:
                 openai_payload = self._openai_web_search(self._build_service_search_query(query, location), location, "services", per_page)
