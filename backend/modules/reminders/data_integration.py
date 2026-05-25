@@ -196,10 +196,11 @@ class RealDataIntegrator:
             
             tasks = []
             for row in cursor.fetchall():
+                resolved_client_name = (row['client_name'] or '').strip() or self.get_client_name(row['client_id'])
                 tasks.append({
                     'task_id': f"task_{row['id']}",
                     'client_id': row['client_id'],
-                    'client_name': row['client_name'] or 'Unknown Client',
+                    'client_name': resolved_client_name,
                     'title': row['title'],
                     'description': row['description'],
                     'task_type': row['task_type'] or row['category'],
@@ -322,10 +323,11 @@ class RealDataIntegrator:
             
             tasks = []
             for row in cursor.fetchall():
+                resolved_client_name = (row['client_name'] or '').strip() or self.get_client_name(row['client_id'])
                 tasks.append({
                     'task_id': f"task_{row['id']}",
                     'client_id': row['client_id'],
-                    'client_name': row['client_name'] or 'Unknown Client',
+                    'client_name': resolved_client_name,
                     'title': row['title'],
                     'description': row['description'],
                     'task_type': row['task_type'] or row['category'],
@@ -375,11 +377,13 @@ class RealDataIntegrator:
             result = cursor.fetchone()
             conn.close()
             
-            return result[0] if result else 'Unknown Client'
+            if result and result[0] and result[0].strip():
+                return result[0].strip()
+            return f"Client {client_id[:8]}" if client_id else 'Client record unavailable'
             
         except Exception as e:
             logger.error(f"Error getting client name: {e}")
-            return 'Unknown Client'
+            return f"Client {client_id[:8]}" if client_id else 'Client record unavailable'
     
     def close(self):
         """Close database connections"""

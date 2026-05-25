@@ -72,6 +72,9 @@ const TaskViewModal = ({ isOpen, onClose, task, onEdit, onComplete }) => {
   }
 
   const taskIsOverdue = isOverdue(task.due_date, task.status)
+  const resolvedClientLabel = task.client_name && task.client_name !== 'Unknown Client'
+    ? task.client_name
+    : null
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -179,12 +182,15 @@ const TaskViewModal = ({ isOpen, onClose, task, onEdit, onComplete }) => {
               </div>
             </div>
 
-            {/* Client ID */}
+            {/* Client */}
             <div className="flex items-start space-x-3">
               <User className="h-5 w-5 mt-0.5 text-gray-400" />
               <div>
-                <h4 className="text-sm font-medium text-gray-700">Client ID</h4>
-                <p className="text-gray-900 font-mono text-sm">{task.client_id}</p>
+                <h4 className="text-sm font-medium text-gray-700">Client</h4>
+                <p className="text-gray-900">{resolvedClientLabel || 'Client record unavailable'}</p>
+                {task.client_id && (
+                  <p className="text-xs text-gray-500 font-mono mt-1">ID: {task.client_id}</p>
+                )}
               </div>
             </div>
           </div>

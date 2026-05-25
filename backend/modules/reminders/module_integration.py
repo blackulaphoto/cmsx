@@ -389,7 +389,8 @@ class ModuleIntegrationManager:
     def get_client_name(self, client_id: str) -> str:
         """Get client name"""
         try:
-            conn = sqlite3.connect(self.case_mgmt_db_path)
+            core_clients_db_path = getattr(self, 'core_clients_db_path', 'databases/core_clients.db')
+            conn = sqlite3.connect(core_clients_db_path)
             cursor = conn.cursor()
             
             cursor.execute("""
@@ -401,11 +402,13 @@ class ModuleIntegrationManager:
             result = cursor.fetchone()
             conn.close()
             
-            return result[0] if result else 'Unknown Client'
+            if result and result[0] and result[0].strip():
+                return result[0].strip()
+            return f"Client {client_id[:8]}" if client_id else 'Client record unavailable'
             
         except Exception as e:
             logger.error(f"Error getting client name: {e}")
-            return 'Unknown Client'
+            return f"Client {client_id[:8]}" if client_id else 'Client record unavailable'
     
     def save_reminder(self, reminder: ActiveReminder):
         """Save reminder to database"""
