@@ -8,6 +8,7 @@ import os
 import logging
 import asyncio
 import requests
+import hashlib
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 import json
@@ -79,6 +80,7 @@ class SimpleSearchCoordinator:
         self.cache_db_path = "databases/search_cache.db"
         self.sample_db_path = "databases/sample_data.db"
         self.blocked_google_cse_ids: Dict[str, str] = {}
+        self.job_search_memory_cache: Dict[str, Dict[str, Any]] = {}
         logger.info(f"SerpAPI Key: {'Loaded' if self.serper_api_key else 'Missing'}")
         
         # Debug API key loading
@@ -97,6 +99,68 @@ class SimpleSearchCoordinator:
         self.fallback_to_samples = False
         
         logger.info("Simple Search Coordinator initialized")
+
+    def _generate_job_search_cache_key(self, query: str, location: Optional[str]) -> str:
+        normalized = {
+            "query": (query or "").strip().lower(),
+            "location": (location or "").strip().lower(),
+        }
+        return hashlib.md5(json.dumps(normalized, sort_keys=True).encode()).hexdigest()
+
+    def _get_cached_job_search_results(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+        cached = self.job_search_memory_cache.get(cache_key)
+        if not cached:
+            return None
+        if datetime.now().timestamp() > cached["expires_at"]:
+            self.job_search_memory_cache.pop(cache_key, None)
+            return None
+        return cached["results"]
+
+    def _set_cached_job_search_results(self, cache_key: str, results: List[Dict[str, Any]]) -> None:
+        expires_at = datetime.now().timestamp() + (24 * 60 * 60)
+        self.job_search_memory_cache[cache_key] = {
+            "results": results,
+            "expires_at": expires_at,
+        }
+
+    def _extract_serpapi_job_links(self, job: Dict[str, Any]) -> Dict[str, Optional[str]]:
+        apply_option_link = next(
+            (opt.get("link") for opt in (job.get("apply_options") or []) if opt.get("link")),
+            None
+        )
+        related_link = next(
+            (item.get("link") for item in (job.get("related_links") or []) if item.get("link")),
+            None
+        )
+        source_url = job.get("share_link") or related_link
+        apply_link = job.get("apply_link") or apply_option_link or source_url
+        return {
+            "apply_link": apply_link,
+            "source_url": source_url,
+        }
+
+    def _is_generic_job_results_page(self, job: Dict[str, Any]) -> bool:
+        title = (job.get("title") or "").strip().lower()
+        company_name = (job.get("company_name") or "").strip().lower()
+        description = (job.get("description") or "").strip().lower()
+
+        if company_name:
+            return False
+
+        generic_title_patterns = [
+            r"\bjobs in\b",
+            r"\bnow hiring\b",
+            r"\b\d+\s+.*\bjobs\b",
+            r"\bjob openings\b",
+            r"\bopen positions\b",
+        ]
+        if any(re.search(pattern, title) for pattern in generic_title_patterns):
+            return True
+
+        if "search results" in description or "browse jobs" in description:
+            return True
+
+        return False
 
     def _clean_json_text(self, text: str) -> str:
         """Strip markdown fences from model-produced JSON."""
@@ -1446,22 +1510,37 @@ class SimpleSearchCoordinator:
                 job_results = []
                 seen_links = set()
                 for item in serp_results:
-                    link = ""
-                    related_links = item.get("related_links") or []
-                    if related_links:
-                        link = related_links[0].get("link", "")
-                    if not link:
-                        link = item.get("share_link") or item.get("job_id", "")
+                    if self._is_generic_job_results_page(item):
+                        continue
+                    link_info = self._extract_serpapi_job_links(item)
+                    link = link_info["apply_link"] or link_info["source_url"] or item.get("job_id", "")
                     if link and link in seen_links:
                         continue
                     if link:
                         seen_links.add(link)
+                    posted_date = ((item.get("detected_extensions") or {}).get("posted_at"))
+                    employment_type = ((item.get("detected_extensions") or {}).get("schedule_type"))
+                    salary = ((item.get("detected_extensions") or {}).get("salary"))
                     job_results.append({
                         'title': item.get('title', ''),
                         'description': item.get('description', ''),
                         'link': link,
+                        'url': link,
                         'source': 'serpapi_jobs',
                         'provider': item.get('company_name', ''),
+                        'location': item.get('location', location or ''),
+                        'salary': salary,
+                        'posted_date': posted_date,
+                        'metadata': {
+                            'company': item.get('company_name', ''),
+                            'location': item.get('location', location or ''),
+                            'salary': salary,
+                            'employment_type': employment_type,
+                            'posted_date': posted_date,
+                            'source_url': link_info["source_url"],
+                            'apply_link': link_info["apply_link"],
+                            'external_id': item.get('job_id', ''),
+                        },
                         'background_friendly': False
                     })
 
@@ -1484,6 +1563,12 @@ class SimpleSearchCoordinator:
                     serp_items = self._filter_job_results_by_location(serp_items, location, strict=True)
                     serp_items = self._rank_job_results_for_exact_relevance(serp_items, query, location)
                     for item in serp_items:
+                        if self._is_generic_job_results_page({
+                            "title": item.get("title", ""),
+                            "description": item.get("snippet", ""),
+                            "company_name": item.get("company_name", ""),
+                        }):
+                            continue
                         link = item.get('link', '')
                         if link and link in seen_links:
                             continue
@@ -1518,6 +1603,12 @@ class SimpleSearchCoordinator:
                     serp_items = self._filter_job_results_by_location(serp_items, "CA", strict=True)
                     serp_items = self._rank_job_results_for_exact_relevance(serp_items, query, location)
                     for item in serp_items:
+                        if self._is_generic_job_results_page({
+                            "title": item.get("title", ""),
+                            "description": item.get("snippet", ""),
+                            "company_name": item.get("company_name", ""),
+                        }):
+                            continue
                         link = item.get('link', '')
                         if link and link in seen_links:
                             continue
@@ -1534,6 +1625,9 @@ class SimpleSearchCoordinator:
                             break
 
                 if job_results:
+                    total_results = max(serp_jobs.get("total_results", len(job_results)), len(job_results))
+                    has_next_page = serp_jobs.get("has_next_page", False)
+                    total_pages = max(page, ((total_results + per_page - 1) // per_page) if total_results else 1)
                     return {
                         "success": True,
                         "query": query,
@@ -1542,16 +1636,16 @@ class SimpleSearchCoordinator:
                         "total_count": len(job_results[:per_page]),
                         "source": "serpapi_jobs",
                         "degraded": False,
-                        "warning": None,
+                        "warning": None if not serp_jobs.get("from_cache") else "Loaded from cached Google Jobs results.",
                         "pagination": {
                             "current_page": page,
                             "per_page": per_page,
-                            "total_results": len(job_results[:per_page]),
-                            "total_pages": 1,
-                            "has_next_page": False,
-                            "has_prev_page": False,
-                            "start_index": 1 if job_results else 0,
-                            "end_index": len(job_results[:per_page])
+                            "total_results": total_results,
+                            "total_pages": total_pages,
+                            "has_next_page": has_next_page,
+                            "has_prev_page": page > 1,
+                            "start_index": ((page - 1) * per_page) + 1 if job_results else 0,
+                            "end_index": min(page * per_page, total_results)
                         }
                     }
 
@@ -1571,6 +1665,12 @@ class SimpleSearchCoordinator:
                 if serper_results:
                     job_results = []
                     for item in serper_results:
+                        if self._is_generic_job_results_page({
+                            "title": item.get("title", ""),
+                            "description": item.get("snippet", ""),
+                            "company_name": item.get("company_name", ""),
+                        }):
+                            continue
                         job_results.append({
                             'title': item.get('title', ''),
                             'description': item.get('snippet', ''),
@@ -1648,6 +1748,12 @@ class SimpleSearchCoordinator:
             filtered_items = self._filter_job_results_by_location(filtered_items, location, strict=False)
             filtered_items = self._rank_job_results_for_exact_relevance(filtered_items, query, location)
             for item in filtered_items:
+                if self._is_generic_job_results_page({
+                    "title": item.get("title", ""),
+                    "description": item.get("snippet", ""),
+                    "company_name": item.get("company_name", ""),
+                }):
+                    continue
                 formatted_results.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
@@ -1708,6 +1814,12 @@ class SimpleSearchCoordinator:
             formatted_results = []
             ranked_items = self._rank_job_results_for_exact_relevance(paginated_results['items'], query, location)
             for item in ranked_items:
+                if self._is_generic_job_results_page({
+                    "title": item.get("title", ""),
+                    "description": item.get("snippet", ""),
+                    "company_name": item.get("company_name", ""),
+                }):
+                    continue
                 formatted_results.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
@@ -2827,30 +2939,77 @@ class SimpleSearchCoordinator:
             return {"results": [], "error": str(e)}
 
     def _serpapi_jobs_search(self, query: str, location: Optional[str], page: int, per_page: int) -> Dict[str, Any]:
-        """Use SerpAPI Google Jobs engine for cleaner job results."""
+        """Use SerpAPI Google Jobs engine with paging tokens and in-memory cache."""
         if not self.serper_api_key:
             return {"results": [], "error": "SerpAPI key not configured"}
 
         try:
             page = max(1, page)
             per_page = min(max(1, per_page), 40)
+            cache_key = self._generate_job_search_cache_key(query, location)
+            cached_results = self._get_cached_job_search_results(cache_key)
+            if cached_results is not None:
+                start_index = (page - 1) * per_page
+                end_index = start_index + per_page
+                page_results = cached_results[start_index:end_index]
+                return {
+                    "results": page_results,
+                    "total_results": len(cached_results),
+                    "has_next_page": end_index < len(cached_results),
+                    "error": None,
+                    "from_cache": True,
+                }
 
-            params = {
-                "engine": "google_jobs",
-                "q": query.strip(),
-                "location": location or "",
-                "hl": "en",
-                "gl": "us",
-                "api_key": self.serper_api_key
+            requested_limit = 100
+            listings: List[Dict[str, Any]] = []
+            seen_ids = set()
+            next_page_token = None
+
+            while len(listings) < requested_limit:
+                params = {
+                    "engine": "google_jobs",
+                    "q": query.strip(),
+                    "location": location or "",
+                    "hl": "en",
+                    "gl": "us",
+                    "api_key": self.serper_api_key
+                }
+                if next_page_token:
+                    params["next_page_token"] = next_page_token
+
+                response = requests.get("https://serpapi.com/search.json", params=params, timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                page_results = data.get("jobs_results", []) or []
+                next_page_token = ((data.get("serpapi_pagination") or {}).get("next_page_token"))
+
+                if not page_results:
+                    break
+
+                for job in page_results:
+                    stable_id = job.get("job_id") or f"{job.get('title', '')}-{job.get('company_name', '')}-{job.get('location', '')}"
+                    if stable_id in seen_ids:
+                        continue
+                    seen_ids.add(stable_id)
+                    listings.append(job)
+                    if len(listings) >= requested_limit:
+                        break
+
+                if not next_page_token:
+                    break
+
+            self._set_cached_job_search_results(cache_key, listings)
+
+            start_index = (page - 1) * per_page
+            end_index = start_index + per_page
+            page_results = listings[start_index:end_index]
+            return {
+                "results": page_results,
+                "total_results": len(listings),
+                "has_next_page": end_index < len(listings) or bool(next_page_token),
+                "error": None,
+                "from_cache": False,
             }
-
-            response = requests.get("https://serpapi.com/search.json", params=params, timeout=10)
-            response.raise_for_status()
-            data = response.json()
-            results = data.get("jobs_results", [])
-
-            # google_jobs does not reliably support pagination; return first page only
-            return {"results": results[:per_page], "error": None}
         except Exception as e:
             logger.error(f"SerpAPI jobs search error: {e}")
             return {"results": [], "error": str(e)}
