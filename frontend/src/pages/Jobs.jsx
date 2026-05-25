@@ -6,6 +6,13 @@ import ClientSelector from '../components/ClientSelector'
 import Pagination from '../components/Pagination'
 import toast from 'react-hot-toast'
 
+const CRAIGSLIST_JOB_REGIONS = [
+  { match: ['los angeles', 'hollywood', 'van nuys', 'panorama city', 'north hollywood', 'burbank', 'glendale', 'pasadena', 'santa monica', 'venice', 'culver city', 'inglewood', 'compton', 'downey', 'whittier', 'long beach', 'torrance', 'gardena', 'hawthorne'], base: 'https://losangeles.craigslist.org' },
+  { match: ['anaheim', 'santa ana', 'orange'], base: 'https://orangecounty.craigslist.org' },
+  { match: ['riverside', 'san bernardino'], base: 'https://inlandempire.craigslist.org' },
+  { match: ['lancaster', 'palmdale'], base: 'https://losangeles.craigslist.org' },
+]
+
 function Jobs() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [selectedClient, setSelectedClient] = useState(null)
@@ -45,6 +52,41 @@ function Jobs() {
       setSelectedResumeId('')
     }
   }, [selectedClient?.client_id])
+
+  const resolveCraigslistJobsBase = (locationValue) => {
+    const normalized = (locationValue || '').toLowerCase()
+    const matchedRegion = CRAIGSLIST_JOB_REGIONS.find((region) =>
+      region.match.some((token) => normalized.includes(token))
+    )
+    return matchedRegion?.base || 'https://losangeles.craigslist.org'
+  }
+
+  const openCraigslistJobsSearch = () => {
+    const location = (searchForm.location || 'Los Angeles, CA').trim()
+    const keywords = (searchForm.keywords || 'jobs').trim()
+    const base = resolveCraigslistJobsBase(location)
+    const queryParts = [keywords]
+
+    if (searchForm.backgroundFriendly) {
+      queryParts.push('second chance')
+      queryParts.push('felony friendly')
+    }
+
+    const craigslistParams = new URLSearchParams({
+      query: queryParts.join(' '),
+      sort: 'date'
+    })
+
+    if (searchForm.jobType === 'full-time') {
+      craigslistParams.set('employment_type', '1')
+    } else if (searchForm.jobType === 'part-time') {
+      craigslistParams.set('employment_type', '2')
+    } else if (searchForm.jobType === 'contract') {
+      craigslistParams.set('employment_type', '3')
+    }
+
+    window.open(`${base}/search/jjj?${craigslistParams.toString()}`, '_blank', 'noopener,noreferrer')
+  }
 
   const fetchClientResumes = async (clientId) => {
     try {
@@ -494,6 +536,19 @@ function Jobs() {
                         : 'Search Jobs'
                       }
                     </button>
+                    <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
+                      <button
+                        type="button"
+                        onClick={openCraigslistJobsSearch}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-500/30 bg-gradient-to-r from-orange-500/15 to-amber-500/15 px-6 py-3 text-sm font-medium text-orange-200 transition-all duration-300 hover:border-orange-400/50 hover:bg-orange-500/20 hover:text-white"
+                      >
+                        <ExternalLink size={16} />
+                        Search Craigslist Jobs
+                      </button>
+                      <p className="text-sm text-gray-400">
+                        Opens a Craigslist jobs search using these keywords and location for more direct local postings.
+                      </p>
+                    </div>
                   </div>
 
                   {/* Job Results */}

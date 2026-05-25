@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { Home, Search, MapPin, DollarSign, Bed, Bath, Users, Star, User, Globe, Target, Sparkles, Zap, TrendingUp } from 'lucide-react'
+import { Home, Search, MapPin, DollarSign, Bed, Bath, Users, Star, User, Globe, Target, Sparkles, Zap, TrendingUp, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Link } from 'react-router-dom'
 import ClientSelector from '../components/ClientSelector'
@@ -55,6 +55,15 @@ const FALLBACK_HOUSING_CITIES = [
   'San Bernardino',
 ]
 
+const CRAIGSLIST_REGIONS = [
+  { match: ['los angeles', 'hollywood', 'van nuys', 'panorama city', 'north hollywood', 'burbank', 'glendale', 'pasadena', 'santa monica', 'venice', 'culver city', 'inglewood', 'compton', 'downey', 'whittier'], base: 'https://losangeles.craigslist.org' },
+  { match: ['long beach', 'torrance', 'gardena', 'hawthorne'], base: 'https://losangeles.craigslist.org' },
+  { match: ['anaheim', 'santa ana', 'orange'], base: 'https://orangecounty.craigslist.org' },
+  { match: ['riverside'], base: 'https://inlandempire.craigslist.org' },
+  { match: ['san bernardino'], base: 'https://inlandempire.craigslist.org' },
+  { match: ['lancaster', 'palmdale'], base: 'https://losangeles.craigslist.org' },
+]
+
 function HousingSearch() {
   const [selectedClient, setSelectedClient] = useState(null)
   const [searchResults, setSearchResults] = useState([])
@@ -71,6 +80,55 @@ function HousingSearch() {
   useEffect(() => {
     loadHousingCities()
   }, [])
+
+  const resolveCraigslistBase = (locationValue) => {
+    const normalized = (locationValue || '').toLowerCase()
+    const matchedRegion = CRAIGSLIST_REGIONS.find((region) =>
+      region.match.some((token) => normalized.includes(token))
+    )
+    return matchedRegion?.base || 'https://losangeles.craigslist.org'
+  }
+
+  const openCraigslistHousingSearch = () => {
+    const normalizedLocation = normalizeHousingLocation(searchParams.location)
+    if (!normalizedLocation) {
+      toast.error('Please select a city first')
+      return
+    }
+
+    const base = resolveCraigslistBase(normalizedLocation)
+    const queryParts = []
+
+    if (searchParams.bedrooms) {
+      queryParts.push(`${searchParams.bedrooms} bedroom`)
+    }
+
+    queryParts.push('apartment')
+    queryParts.push(normalizedLocation.replace(/,\s*[A-Z]{2}$/i, ''))
+    queryParts.push('owner')
+    queryParts.push('private landlord')
+
+    if (searchParams.backgroundFriendly) {
+      queryParts.push('second chance')
+    }
+
+    const craigslistParams = new URLSearchParams({
+      query: queryParts.join(' '),
+      availabilityMode: '0',
+      sale_date: 'all dates'
+    })
+
+    if (searchParams.maxPrice) {
+      craigslistParams.set('max_price', searchParams.maxPrice)
+    }
+
+    if (searchParams.bedrooms && /^\d+$/.test(searchParams.bedrooms)) {
+      craigslistParams.set('min_bedrooms', searchParams.bedrooms)
+      craigslistParams.set('max_bedrooms', searchParams.bedrooms)
+    }
+
+    window.open(`${base}/search/apa?${craigslistParams.toString()}`, '_blank', 'noopener,noreferrer')
+  }
 
   const normalizeHousingLocation = (value) => {
     const cleaned = (value || '').trim()
@@ -391,6 +449,19 @@ function HousingSearch() {
                   </div>
                   {loading ? 'Searching...' : 'Search Housing'}
                 </button>
+                <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
+                  <button
+                    type="button"
+                    onClick={openCraigslistHousingSearch}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/15 to-teal-500/15 px-6 py-3 text-sm font-medium text-emerald-200 transition-all duration-300 hover:border-emerald-400/50 hover:bg-emerald-500/20 hover:text-white"
+                  >
+                    <ExternalLink size={16} />
+                    Search Craigslist Housing
+                  </button>
+                  <p className="text-sm text-gray-400">
+                    Opens a Craigslist rental search using this city, budget, and bedroom count for more direct owner-style listings.
+                  </p>
+                </div>
               </div>
 
               {/* Results */}
