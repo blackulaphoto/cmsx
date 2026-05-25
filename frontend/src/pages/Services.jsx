@@ -13,6 +13,10 @@ function Services() {
   const [services, setServices] = useState([])
   const [loading, setLoading] = useState(false)
   const [activeCategory, setActiveCategory] = useState(searchParams.get('category') || 'all')
+  const [treatmentFilters, setTreatmentFilters] = useState({
+    population: searchParams.get('population') || 'all',
+    insuranceType: searchParams.get('insurance_type') || 'all',
+  })
   
   // Pagination state
   const [pagination, setPagination] = useState({
@@ -92,19 +96,10 @@ function Services() {
     }
     
     try {
-      // Build search query based on category
-      let searchQuery = query
-      if (category !== 'all') {
-        const categoryNames = {
-          'mental-health': 'mental health counseling therapy',
-          'substance-abuse': 'substance abuse addiction recovery',
-          'housing': 'housing assistance shelter',
-          'transportation': 'transportation bus metro',
-          'education': 'education training GED',
-          'support-groups': 'support groups peer counseling'
-        }
-        searchQuery = `${categoryNames[category] || category} ${query}`.trim()
-      }
+      // Let the explicit category filter drive the search scope.
+      // Only use the user's actual query text; otherwise send a generic services query.
+      const trimmedQuery = query.trim()
+      const searchQuery = trimmedQuery || 'services'
       
       const params = new URLSearchParams({
         search: searchQuery || 'social services',
@@ -113,12 +108,29 @@ function Services() {
         page: String(page),
         per_page: String(pagination.perPage)
       })
+
+      if (category === 'substance-abuse' && treatmentFilters.population !== 'all') {
+        params.set('population', treatmentFilters.population)
+      }
+      if (category === 'substance-abuse' && treatmentFilters.insuranceType !== 'all') {
+        params.set('insurance_type', treatmentFilters.insuranceType)
+      }
       
       // Update URL parameters for bookmarking
       const newSearchParams = new URLSearchParams(searchParams)
       newSearchParams.set('search', query)
       newSearchParams.set('category', category)
       newSearchParams.set('page', String(page))
+      if (category === 'substance-abuse' && treatmentFilters.population !== 'all') {
+        newSearchParams.set('population', treatmentFilters.population)
+      } else {
+        newSearchParams.delete('population')
+      }
+      if (category === 'substance-abuse' && treatmentFilters.insuranceType !== 'all') {
+        newSearchParams.set('insurance_type', treatmentFilters.insuranceType)
+      } else {
+        newSearchParams.delete('insurance_type')
+      }
       setSearchParams(newSearchParams)
       
       const response = await apiFetch(`/api/services/search?${params}`, {
@@ -155,7 +167,11 @@ function Services() {
             description: result.description || '',
             source: result.source,
             relevanceReason: result.relevance_reason || '',
-            serviceType: result.service_type || 'General Services'
+            serviceType: result.service_type || 'General Services',
+            servesPopulation: result.serves_population || '',
+            acceptsMediCal: Boolean(result.accepts_medi_cal),
+            acceptsPrivateInsurance: Boolean(result.accepts_private_insurance),
+            acceptsMedicare: Boolean(result.accepts_medicare),
           }))
           
           setServices(transformedServices)
@@ -192,6 +208,11 @@ function Services() {
     setActiveCategory(category)
     setPagination(prev => ({ ...prev, currentPage: 1 }))
     searchServices(searchTerm, category, 1)
+  }
+
+  const handleTreatmentFilterChange = (field, value) => {
+    const nextFilters = { ...treatmentFilters, [field]: value }
+    setTreatmentFilters(nextFilters)
   }
 
   // Load services on component mount
@@ -351,6 +372,41 @@ function Services() {
                 {loading ? 'Searching...' : 'Search'}
               </button>
             </div>
+
+            {activeCategory === 'substance-abuse' && (
+              <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-blue-100">
+                    Population Type
+                  </label>
+                  <select
+                    value={treatmentFilters.population}
+                    onChange={(e) => handleTreatmentFilterChange('population', e.target.value)}
+                    className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-white focus:border-teal-500 focus:outline-none"
+                  >
+                    <option value="all" className="bg-slate-900">All populations</option>
+                    <option value="men" className="bg-slate-900">Men</option>
+                    <option value="women" className="bg-slate-900">Women</option>
+                    <option value="co-ed" className="bg-slate-900">Co-ed</option>
+                    <option value="couples" className="bg-slate-900">Couples</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-blue-100">
+                    Insurance Type
+                  </label>
+                  <select
+                    value={treatmentFilters.insuranceType}
+                    onChange={(e) => handleTreatmentFilterChange('insuranceType', e.target.value)}
+                    className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-white focus:border-teal-500 focus:outline-none"
+                  >
+                    <option value="all" className="bg-slate-900">All insurance</option>
+                    <option value="medi-cal" className="bg-slate-900">Medi-Cal</option>
+                    <option value="private" className="bg-slate-900">Private insurance</option>
+                  </select>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Services Results */}
@@ -423,6 +479,30 @@ function Services() {
                             </div>
                             <span className="font-medium text-emerald-200">{service.serviceType}</span>
                           </div>
+                          {(service.servesPopulation || service.acceptsMediCal || service.acceptsPrivateInsurance || service.acceptsMedicare) && (
+                            <div className="flex flex-wrap gap-2">
+                              {service.servesPopulation ? (
+                                <span className="rounded-full border border-cyan-500/30 bg-cyan-500/15 px-2.5 py-1 text-xs font-medium text-cyan-200">
+                                  {service.servesPopulation.replace('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase())}
+                                </span>
+                              ) : null}
+                              {service.acceptsMediCal ? (
+                                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-200">
+                                  Medi-Cal
+                                </span>
+                              ) : null}
+                              {service.acceptsPrivateInsurance ? (
+                                <span className="rounded-full border border-purple-500/30 bg-purple-500/15 px-2.5 py-1 text-xs font-medium text-purple-200">
+                                  Private Insurance
+                                </span>
+                              ) : null}
+                              {service.acceptsMedicare ? (
+                                <span className="rounded-full border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-200">
+                                  Medicare
+                                </span>
+                              ) : null}
+                            </div>
+                          )}
                           <div className="flex items-start gap-3">
                             <div className="p-1 bg-teal-500/20 rounded mt-0.5">
                               <MapPin className="h-4 w-4 text-teal-400" />

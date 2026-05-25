@@ -100,6 +100,31 @@ class VirgilServiceDatabase:
         normalized = category.strip().lower()
         return normalized if normalized and normalized != 'all' else None
 
+    def _normalize_population(self, population: Optional[str]) -> Optional[str]:
+        if not population:
+            return None
+        normalized = population.strip().lower()
+        mapping = {
+            'men': 'men',
+            'women': 'women',
+            'co-ed': 'coed',
+            'coed': 'coed',
+            'couples': 'couples',
+        }
+        return mapping.get(normalized)
+
+    def _normalize_insurance_type(self, insurance_type: Optional[str]) -> Optional[str]:
+        if not insurance_type:
+            return None
+        normalized = insurance_type.strip().lower()
+        mapping = {
+            'medi-cal': 'medi-cal',
+            'medical': 'medi-cal',
+            'private': 'private',
+            'private insurance': 'private',
+        }
+        return mapping.get(normalized)
+
     def _category_filters(self, category: Optional[str]) -> Dict[str, Any]:
         normalized = self._normalize_category(category)
         category_map = {
@@ -185,7 +210,16 @@ class VirgilServiceDatabase:
 
         return (5, result.get('title', ''))
 
-    def search_services(self, query: str, location: str = None, page: int = 1, per_page: int = 10, category: Optional[str] = None) -> Dict[str, Any]:
+    def search_services(
+        self,
+        query: str,
+        location: str = None,
+        page: int = 1,
+        per_page: int = 10,
+        category: Optional[str] = None,
+        population: Optional[str] = None,
+        insurance_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Search across all service tables (resources, treatment_centers, medi_cal_providers, meetings)
         """
@@ -195,14 +229,19 @@ class VirgilServiceDatabase:
         try:
             search_terms = self._build_search_conditions(query)
             normalized_category = self._normalize_category(category)
+            normalized_population = self._normalize_population(population)
+            normalized_insurance = self._normalize_insurance_type(insurance_type)
             category_filters = self._category_filters(normalized_category)
             all_results = []
+            treatment_filter_active = bool(normalized_population or normalized_insurance)
 
             has_category_filter = bool(normalized_category)
             include_resources = not has_category_filter or bool(category_filters['resource_types'])
             include_treatment = not has_category_filter or bool(category_filters['treatment_types'])
-            include_meetings = bool(category_filters['meeting_types']) or any(
+            include_meetings = not treatment_filter_active and (
+                bool(category_filters['meeting_types']) or any(
                 term in query.lower() for term in ['meeting', 'aa', 'na', 'support', 'group']
+                )
             )
 
             # 1. Search resources table
@@ -212,7 +251,14 @@ class VirgilServiceDatabase:
 
             # 2. Search treatment_centers table
             if include_treatment:
-                treatment_centers = self._search_treatment_centers(search_terms, location, normalized_category, category_filters)
+                treatment_centers = self._search_treatment_centers(
+                    search_terms,
+                    location,
+                    normalized_category,
+                    category_filters,
+                    population=normalized_population,
+                    insurance_type=normalized_insurance,
+                )
                 all_results.extend(treatment_centers)
 
             # 3. Search medi_cal_providers table (for mental health/medical queries)
@@ -347,7 +393,15 @@ class VirgilServiceDatabase:
 
         return results
 
-    def _search_treatment_centers(self, search_terms: List[str], location: str = None, category: Optional[str] = None, category_filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def _search_treatment_centers(
+        self,
+        search_terms: List[str],
+        location: str = None,
+        category: Optional[str] = None,
+        category_filters: Optional[Dict[str, Any]] = None,
+        population: Optional[str] = None,
+        insurance_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """Search the treatment_centers table"""
         cursor = self.connection.cursor()
 
@@ -361,6 +415,15 @@ class VirgilServiceDatabase:
             type_clause = " OR ".join(["LOWER(type) = ?"] * len(treatment_types))
             where_clauses.append(f"({type_clause})")
             params.extend(sorted(treatment_types))
+
+        if population:
+            where_clauses.append("LOWER(COALESCE(servesPopulation, '')) = ?")
+            params.append(population)
+
+        if insurance_type == 'medi-cal':
+            where_clauses.append("acceptsMediCal = 1")
+        elif insurance_type == 'private':
+            where_clauses.append("acceptsPrivateInsurance = 1")
 
         if search_terms:  # Specific search
             term_clauses = []
@@ -414,6 +477,10 @@ class VirgilServiceDatabase:
                 'source': 'virgil_st_treatment',
                 'relevance_reason': f"{row['type'].replace('_', ' ').title()} treatment facility serving {row['servesPopulation']}",
                 'background_friendly_score': 75,
+                'serves_population': row['servesPopulation'] or '',
+                'accepts_medi_cal': bool(row['acceptsMediCal']),
+                'accepts_private_insurance': bool(row['acceptsPrivateInsurance']),
+                'accepts_medicare': bool(row['acceptsMedicare']),
             })
 
         return results

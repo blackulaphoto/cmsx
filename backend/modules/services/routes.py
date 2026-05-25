@@ -45,6 +45,8 @@ async def api_services_search(
     location: Optional[str] = Query(None),
     service_type: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
+    population: Optional[str] = Query(None),
+    insurance_type: Optional[str] = Query(None),
     page: int = Query(1, description="Page number (starts from 1)", ge=1),
     per_page: int = Query(10, description="Results per page (max 30)", ge=1, le=30)
 ):
@@ -81,7 +83,15 @@ async def api_services_search(
         # STEP 1: Try Virgil St database first (fast, local, comprehensive)
         try:
             virgil_db = get_virgil_db()
-            db_result = virgil_db.search_services(search_query, location_param, page, per_page, category=category)
+            db_result = virgil_db.search_services(
+                search_query,
+                location_param,
+                page,
+                per_page,
+                category=category,
+                population=population,
+                insurance_type=insurance_type,
+            )
 
             if db_result['success'] and db_result['total_count'] > 0:
                 logger.info(f"Virgil St DB found {db_result['total_count']} services")
@@ -155,6 +165,9 @@ async def health_check():
 async def get_providers(
     location: Optional[str] = Query("Los Angeles, CA"),
     service_type: Optional[str] = Query(None),
+    category: Optional[str] = Query(None),
+    population: Optional[str] = Query(None),
+    insurance_type: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=1, le=30)
 ):
@@ -165,7 +178,15 @@ async def get_providers(
         # Try Virgil St database first
         try:
             virgil_db = get_virgil_db()
-            db_result = virgil_db.search_services(search_query, location, page, per_page)
+            db_result = virgil_db.search_services(
+                search_query,
+                location,
+                page,
+                per_page,
+                category=category,
+                population=population,
+                insurance_type=insurance_type,
+            )
 
             if db_result['success'] and db_result['total_count'] > 0:
                 return {
