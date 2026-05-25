@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Briefcase, Search, MapPin, Star, Bookmark, ExternalLink, Clock, DollarSign, User, Zap, TrendingUp, Send, X } from 'lucide-react'
+import { Briefcase, Search, MapPin, Star, Bookmark, ExternalLink, Clock, DollarSign, User, Zap, TrendingUp, Send, X, Package, ShoppingBag, Truck, UtensilsCrossed, Camera, Building2, Wrench, GraduationCap } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
 import LocationSelector from '../components/LocationSelector'
@@ -15,11 +15,23 @@ const CRAIGSLIST_JOB_REGIONS = [
   { match: ['lancaster', 'palmdale'], base: 'https://losangeles.craigslist.org' },
 ]
 
+const JOB_CATEGORY_TILES = [
+  { id: 'warehouse', label: 'Warehouse', keywords: 'warehouse', icon: Package, gradient: 'from-emerald-500 to-green-600' },
+  { id: 'retail', label: 'Retail', keywords: 'retail sales associate', icon: ShoppingBag, gradient: 'from-pink-500 to-rose-600' },
+  { id: 'delivery', label: 'Delivery', keywords: 'delivery driver', icon: Truck, gradient: 'from-amber-500 to-orange-600' },
+  { id: 'food-service', label: 'Food Service', keywords: 'food service', icon: UtensilsCrossed, gradient: 'from-cyan-500 to-blue-600' },
+  { id: 'photography', label: 'Photography', keywords: 'photographer', icon: Camera, gradient: 'from-violet-500 to-purple-600' },
+  { id: 'office', label: 'Office', keywords: 'office assistant', icon: Building2, gradient: 'from-sky-500 to-cyan-600' },
+  { id: 'maintenance', label: 'Maintenance', keywords: 'maintenance janitorial', icon: Wrench, gradient: 'from-slate-500 to-slate-700' },
+  { id: 'training', label: 'Training / Entry', keywords: 'entry level training', icon: GraduationCap, gradient: 'from-indigo-500 to-blue-600' },
+]
+
 function Jobs() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [selectedClient, setSelectedClient] = useState(null)
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(false)
+  const [selectedCategory, setSelectedCategory] = useState(searchParams.get('jobCategory') || '')
   const [searchForm, setSearchForm] = useState({
     keywords: searchParams.get('keywords') || '',
     location: searchParams.get('location') || 'Los Angeles',
@@ -126,7 +138,7 @@ function Jobs() {
     }
   }
 
-  const searchJobs = async (page = pagination.currentPage) => {
+  const searchJobs = async (page = pagination.currentPage, overrides = null) => {
     setLoading(true)
     
     // Scroll to top when changing pages
@@ -135,32 +147,38 @@ function Jobs() {
     }
     
     try {
+      const effectiveForm = overrides || searchForm
       // Choose endpoint based on search type
-      const searchEndpoint = searchForm.searchType === 'general' 
+      const searchEndpoint = effectiveForm.searchType === 'general' 
         ? '/api/jobs/search/quick'
         : '/api/jobs/search/scrapers';
       
       // Build search parameters
       const params = new URLSearchParams({
-        keywords: searchForm.keywords || 'jobs',
-        location: searchForm.location || 'Los Angeles, CA',
-        background_friendly: String(!!searchForm.backgroundFriendly),
+        keywords: effectiveForm.keywords || 'jobs',
+        location: effectiveForm.location || 'Los Angeles, CA',
+        background_friendly: String(!!effectiveForm.backgroundFriendly),
         page: String(page),
         per_page: String(pagination.perPage)
       })
       
       // Add sources parameter for scraper search
-      if (searchForm.searchType === 'specific') {
+      if (effectiveForm.searchType === 'specific') {
         params.set('sources', 'craigslist,builtinla,government,city_la')
       }
       
       // Update URL parameters for bookmarking
       const newSearchParams = new URLSearchParams(searchParams)
-      newSearchParams.set('keywords', searchForm.keywords || 'jobs')
-      newSearchParams.set('location', searchForm.location || 'Los Angeles, CA')
-      newSearchParams.set('backgroundFriendly', String(!!searchForm.backgroundFriendly))
-      newSearchParams.set('searchType', searchForm.searchType)
+      newSearchParams.set('keywords', effectiveForm.keywords || 'jobs')
+      newSearchParams.set('location', effectiveForm.location || 'Los Angeles, CA')
+      newSearchParams.set('backgroundFriendly', String(!!effectiveForm.backgroundFriendly))
+      newSearchParams.set('searchType', effectiveForm.searchType)
       newSearchParams.set('page', String(page))
+      if (selectedCategory) {
+        newSearchParams.set('jobCategory', selectedCategory)
+      } else {
+        newSearchParams.delete('jobCategory')
+      }
       setSearchParams(newSearchParams)
       
       const response = await apiFetch(`${searchEndpoint}?${params}`, {
@@ -190,7 +208,7 @@ function Jobs() {
             id: `job_${data.pagination.current_page}_${index}`,
             title: result.title,
             company: result.provider || result.metadata?.company || result.source || 'See job posting',
-            location: result.location || result.metadata?.location || searchForm.location,
+            location: result.location || result.metadata?.location || effectiveForm.location,
             salary: result.salary || result.metadata?.salary || 'See job posting',
             type: result.metadata?.employment_type || 'See job posting',
             posted: result.metadata?.posted_date || 'See job posting',
@@ -209,7 +227,7 @@ function Jobs() {
           }))
           
           setJobs(transformedJobs)
-          const searchTypeLabel = searchForm.searchType === 'general' ? 'job sites' : 'specific listings'
+          const searchTypeLabel = effectiveForm.searchType === 'general' ? 'job sites' : 'specific listings'
           toast.success(`Found ${data.pagination.total_results.toLocaleString()} ${searchTypeLabel} (showing page ${page})`)
         } else {
           throw new Error(data.error || 'Search API returned invalid data')
@@ -219,7 +237,7 @@ function Jobs() {
       }
     } catch (error) {
       console.error('Job search error:', error)
-      const errorMessage = searchForm.searchType === 'specific' 
+      const errorMessage = effectiveForm.searchType === 'specific' 
         ? 'Scraper search failed. Try switching to General Search.'
         : 'Search failed. Please try again.'
       toast.error(errorMessage)
@@ -337,6 +355,26 @@ function Jobs() {
     // Reset to page 1 for new searches
     setPagination(prev => ({ ...prev, currentPage: 1 }))
     searchJobs(1)
+  }
+
+  const applyJobCategory = (category) => {
+    const nextForm = {
+      ...searchForm,
+      keywords: category.keywords,
+    }
+    setSelectedCategory(category.id)
+    setSearchForm(nextForm)
+    setPagination(prev => ({ ...prev, currentPage: 1 }))
+    searchJobs(1, nextForm)
+  }
+
+  const clearJobCategory = () => {
+    setSelectedCategory('')
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current)
+      next.delete('jobCategory')
+      return next
+    })
   }
 
   const generateClientSearchLinks = async () => {
@@ -536,6 +574,46 @@ function Jobs() {
                             <p className="text-xs text-gray-400 group-hover:text-gray-300 transition-colors">Direct scraping from job sites (more detailed)</p>
                           </div>
                         </label>
+                      </div>
+                    </div>
+
+                    <div className="mb-8 p-6 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm rounded-xl border border-white/20">
+                      <div className="flex items-center justify-between gap-4 mb-5">
+                        <div>
+                          <h3 className="text-lg font-semibold text-white">Browse by category</h3>
+                          <p className="text-sm text-gray-300 mt-1">Give clients an easy starting point when they are not sure what kind of work to pursue.</p>
+                        </div>
+                        {selectedCategory && (
+                          <button
+                            type="button"
+                            onClick={clearJobCategory}
+                            className="px-4 py-2 rounded-xl border border-white/20 bg-white/10 text-sm font-medium text-gray-200 hover:bg-white/20 hover:text-white transition-all duration-300"
+                          >
+                            Clear category
+                          </button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {JOB_CATEGORY_TILES.map((category) => (
+                          <button
+                            key={category.id}
+                            type="button"
+                            onClick={() => applyJobCategory(category)}
+                            className={`group rounded-2xl border p-4 text-left transition-all duration-300 hover:scale-[1.02] hover:shadow-lg ${
+                              selectedCategory === category.id
+                                ? `bg-gradient-to-r ${category.gradient} border-white/20 text-white shadow-xl`
+                                : 'border-white/15 bg-white/5 text-gray-200 hover:bg-white/10 hover:border-white/25'
+                            }`}
+                          >
+                            <div className={`inline-flex rounded-xl p-2 mb-3 ${selectedCategory === category.id ? 'bg-white/20' : `bg-gradient-to-r ${category.gradient}`}`}>
+                              <category.icon className="h-5 w-5 text-white" />
+                            </div>
+                            <p className="font-semibold">{category.label}</p>
+                            <p className={`text-xs mt-1 ${selectedCategory === category.id ? 'text-white/80' : 'text-gray-400'}`}>
+                              Search: {category.keywords}
+                            </p>
+                          </button>
+                        ))}
                       </div>
                     </div>
                     
