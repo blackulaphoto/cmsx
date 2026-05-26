@@ -535,30 +535,40 @@ class UnifiedAIService:
             results: List[Dict[str, Any]] = []
             project_root = self.project_root
             try:
-                virgil_result = get_virgil_db().search_services(query, location, 1, limit)
-                for item in virgil_result.get("results", [])[:limit]:
-                    dedupe_key = ("virgil_st_db", item.get("title", ""), item.get("address", ""))
+                # Use enhanced search with multi-table queries and smart filtering
+                virgil_results = get_virgil_db().search_services_enhanced(query, location, limit=limit)
+                for item in virgil_results[:limit]:
+                    dedupe_key = ("virgil_st_db", item.get("name", ""), item.get("address", ""))
                     if dedupe_key in seen:
                         continue
                     seen.add(dedupe_key)
+
+                    # Extract insurance info from enhanced results
+                    insurance_accepted = item.get("insurance_accepted", [])
+                    accepts_medicaid = "medi_cal" in insurance_accepted or "medicaid" in insurance_accepted
+
                     results.append({
-                        "title": item.get("title", ""),
-                        "provider_name": item.get("title", ""),
+                        "title": item.get("name", ""),
+                        "provider_name": item.get("name", ""),
                         "service_category": item.get("service_type", ""),
                         "service_type": item.get("service_type", ""),
+                        "service_subtypes": ", ".join(item.get("service_subtypes", [])),
                         "description": item.get("description", ""),
                         "location": item.get("location") or item.get("address", ""),
+                        "city": item.get("city", ""),
                         "phone": item.get("phone", ""),
                         "email": "",
-                        "website": item.get("url") or item.get("link", ""),
+                        "website": item.get("website") or item.get("url", ""),
                         "current_availability": "",
                         "waitlist_status": "",
                         "background_policy": "",
-                        "accepts_medicaid": "medi-cal" in f"{item.get('description', '')} {item.get('relevance_reason', '')}".lower(),
+                        "accepts_medicaid": accepts_medicaid,
+                        "insurance_accepted": ", ".join(insurance_accepted),
                         "sliding_scale_available": "sliding" in item.get("description", "").lower(),
                         "eligibility_criteria": "",
                         "cost": "",
                         "source": item.get("source", "virgil_st_db"),
+                        "location_score": item.get("location_score", 0.5),
                     })
                     if len(results) >= limit:
                         break
