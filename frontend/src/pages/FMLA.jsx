@@ -591,7 +591,13 @@ function FMLA() {
                 <div className="space-y-8">
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <Field label="Client name"><Input value={caseForm.client_name} onChange={(e) => handleCaseFieldChange('client_name', e.target.value)} /></Field>
-                    <Field label="Client ID"><Input value={caseForm.client_id || ''} onChange={(e) => handleCaseFieldChange('client_id', e.target.value)} /></Field>
+                    <Field label="Linked client">
+                      <Input
+                        value={caseForm.client_name || ''}
+                        readOnly
+                        placeholder="Link a client from the selector above"
+                      />
+                    </Field>
                     <Field label="Date of birth"><Input type="date" value={caseForm.date_of_birth || ''} onChange={(e) => handleCaseFieldChange('date_of_birth', e.target.value)} /></Field>
                     <Field label="Assigned case manager"><Input value={caseForm.assigned_case_manager} onChange={(e) => handleCaseFieldChange('assigned_case_manager', e.target.value)} /></Field>
                     <Field label="Treatment/program status" hint="Optional"><Input value={caseForm.treatment_status || ''} onChange={(e) => handleCaseFieldChange('treatment_status', e.target.value)} /></Field>

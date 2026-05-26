@@ -67,6 +67,15 @@ function Benefits() {
     work_history: [],
     current_income: 0,
     years_out_of_work: 0,
+    condition_duration_months: 0,
+    expected_duration_12_months: false,
+    currently_working: false,
+    last_job_title: '',
+    treating_sources: [],
+    medications: [],
+    recent_tests: [],
+    hospitalizations_last_12_months: 0,
+    needs_help_daily_activities: false,
     functional_limitations: {}
   })
   const [eligibilityData, setEligibilityData] = useState({
@@ -76,7 +85,13 @@ function Benefits() {
     is_disabled: false,
     is_veteran: false,
     has_children: false,
-    age: null
+    age: null,
+    is_pregnant: false,
+    needs_food_assistance: false,
+    needs_healthcare: false,
+    housing_unstable: false,
+    utility_shutoff_risk: false,
+    unemployed: false,
   })
 
   const [assessmentResults, setAssessmentResults] = useState(null)
@@ -87,16 +102,60 @@ function Benefits() {
   const [selectedProgram, setSelectedProgram] = useState(null)
   const [programAssessments, setProgramAssessments] = useState({}) // Store assessment results by program
 
+  const calculateAgeFromDateOfBirth = (dateOfBirth) => {
+    if (!dateOfBirth) return null
+
+    const parsedDate = new Date(dateOfBirth)
+    if (Number.isNaN(parsedDate.getTime())) return null
+
+    const today = new Date()
+    let age = today.getFullYear() - parsedDate.getFullYear()
+    const monthDiff = today.getMonth() - parsedDate.getMonth()
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < parsedDate.getDate())) {
+      age -= 1
+    }
+
+    return age >= 0 ? age : null
+  }
+
+  const parseMultilineInput = (value) =>
+    value
+      .split('\n')
+      .map((item) => item.trim())
+      .filter(Boolean)
+
+  const formatSelectedClientName = () => {
+    if (!selectedClient) return ''
+    return `${selectedClient.first_name || ''} ${selectedClient.last_name || ''}`.trim()
+  }
+
   // Load applications on component mount
   useEffect(() => {
     fetchApplications()
   }, [selectedClient?.client_id])
 
+  useEffect(() => {
+    const selectedClientId = selectedClient?.client_id || ''
+    const selectedClientAge = calculateAgeFromDateOfBirth(selectedClient?.date_of_birth)
+
+    setAssessmentData((prev) => ({
+      ...prev,
+      client_id: selectedClientId,
+      age: selectedClientAge ?? prev.age
+    }))
+
+    setEligibilityData((prev) => ({
+      ...prev,
+      client_id: selectedClientId,
+      age: selectedClientAge ?? prev.age
+    }))
+  }, [selectedClient])
+
   // Backup URL parameter reading - fallback if ClientSelector doesn't sync
   useEffect(() => {
     const clientId = searchParams.get('client')
     if (clientId && !selectedClient) {
-      fetch(`/api/clients/${encodeURIComponent(clientId)}?module=case_management`)
+      apiFetch(`/api/clients/${encodeURIComponent(clientId)}?module=case_management`)
         .then((response) => {
           if (!response.ok) throw new Error('Client not found')
           return response.json()
@@ -151,19 +210,34 @@ function Benefits() {
   }
 
   const handleDisabilityAssessment = async () => {
-    if (!assessmentData.client_id || !assessmentData.age) {
-      toast.error('Please fill in Client ID and Age')
+    if (!selectedClient?.client_id) {
+      toast.error('Please select a client first')
+      return
+    }
+
+    if (!assessmentData.age) {
+      toast.error('Please enter age')
       return
     }
 
     setLoading(true)
     try {
-      const response = await fetch('/api/benefits/assess-disability', {
+      const derivedWorkHistory = assessmentData.last_job_title
+        ? [{
+            job_title: assessmentData.last_job_title,
+            years_worked: Math.max(0, 10 - (assessmentData.years_out_of_work || 0)),
+          }]
+        : assessmentData.work_history
+
+      const response = await apiFetch('/api/benefits/assess-disability', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(assessmentData)
+        body: JSON.stringify({
+          ...assessmentData,
+          work_history: derivedWorkHistory,
+        })
       })
 
       if (response.ok) {
@@ -182,14 +256,14 @@ function Benefits() {
   }
 
   const handleEligibilityCheck = async () => {
-    if (!eligibilityData.client_id) {
-      toast.error('Please enter Client ID')
+    if (!selectedClient?.client_id) {
+      toast.error('Please select a client first')
       return
     }
 
     setLoading(true)
     try {
-      const response = await fetch('/api/benefits/eligibility-check', {
+      const response = await apiFetch('/api/benefits/eligibility-check', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -289,7 +363,7 @@ function Benefits() {
       formData.append('document_status', meta.document_status || 'Received')
       formData.append('notes', meta.notes || '')
 
-      const response = await fetch(`/api/benefits/applications/${encodeURIComponent(application.application_id)}/documents/upload`, {
+      const response = await apiFetch(`/api/benefits/applications/${encodeURIComponent(application.application_id)}/documents/upload`, {
         method: 'POST',
         body: formData,
       })
@@ -467,6 +541,29 @@ function Benefits() {
     'Other Medical Condition'
   ]
 
+  const disabilityFunctionalLimitationOptions = [
+    { key: 'standing', label: 'Standing / walking for extended periods' },
+    { key: 'lifting', label: 'Lifting, carrying, or reaching' },
+    { key: 'sitting', label: 'Sitting for long periods' },
+    { key: 'using_hands', label: 'Using hands, typing, or repetitive motion' },
+    { key: 'concentration', label: 'Concentration, pace, or memory' },
+    { key: 'social_interaction', label: 'Getting along with supervisors, coworkers, or the public' },
+    { key: 'attendance', label: 'Keeping a regular schedule and consistent attendance' },
+    { key: 'stress_tolerance', label: 'Handling stress or change in routine' },
+  ]
+
+  const eligibilityFlagOptions = [
+    { key: 'is_disabled', label: 'Has disability or serious health limitation' },
+    { key: 'is_veteran', label: 'Military veteran' },
+    { key: 'has_children', label: 'Has dependent children' },
+    { key: 'is_pregnant', label: 'Pregnant or recently postpartum' },
+    { key: 'needs_food_assistance', label: 'Needs food assistance' },
+    { key: 'needs_healthcare', label: 'Needs health coverage or urgent medical access' },
+    { key: 'housing_unstable', label: 'Homeless or housing unstable' },
+    { key: 'utility_shutoff_risk', label: 'Utility shutoff or energy burden risk' },
+    { key: 'unemployed', label: 'Currently unemployed' },
+  ]
+
   const benefitPrograms = [
     { name: 'SNAP/CalFresh', description: 'Monthly food assistance benefits for eligible households', icon: '🎁', gradient: 'from-green-500 to-emerald-500' },
     { name: 'Medicaid/Medi-Cal', description: 'Comprehensive healthcare coverage for low-income individuals', icon: '🏥', gradient: 'from-blue-500 to-cyan-500' },
@@ -547,7 +644,7 @@ function Benefits() {
             <div className="flex border-b border-white/10">
               {[
                 { id: 'overview', label: 'Overview', icon: Heart, gradient: 'from-pink-500 to-rose-500' },
-                { id: 'assessment', label: 'Disability Assessment', icon: FileText, gradient: 'from-blue-500 to-cyan-500' },
+                { id: 'assessment', label: 'Disability Pre-Screen', icon: FileText, gradient: 'from-blue-500 to-cyan-500' },
                 { id: 'eligibility', label: 'Benefits Screening', icon: CheckCircle, gradient: 'from-emerald-500 to-green-500' },
                 { id: 'applications', label: 'Applications', icon: Clock, gradient: 'from-orange-500 to-amber-500' }
               ].map((tab) => (
@@ -656,21 +753,25 @@ function Benefits() {
                     <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
                       <Shield className="h-6 w-6 text-white" />
                     </div>
-                    <h2 className="text-2xl font-bold text-white">Disability Assessment Tool</h2>
+                    <h2 className="text-2xl font-bold text-white">SSI / SSDI Pre-Screen</h2>
+                  </div>
+
+                  <div className="mb-6 rounded-2xl border border-blue-400/30 bg-blue-500/10 p-4 text-sm text-blue-100">
+                    This is a case-manager pre-screen modeled around SSA intake factors like duration, work activity, treatment evidence, and functional limitations. It does not approve disability benefits by itself.
                   </div>
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div className="space-y-6">
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-3">
-                          Client ID
+                          Selected Client
                         </label>
                         <input
                           type="text"
-                          value={assessmentData.client_id}
-                          onChange={(e) => setAssessmentData(prev => ({ ...prev, client_id: e.target.value }))}
-                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300"
-                          placeholder="Enter client ID"
+                          value={formatSelectedClientName()}
+                          readOnly
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-sm border border-white/20 rounded-xl text-white placeholder-gray-400 transition-all duration-300"
+                          placeholder="Select a client above"
                         />
                       </div>
 
@@ -689,6 +790,19 @@ function Benefits() {
 
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-3">
+                          Condition duration (months)
+                        </label>
+                        <input
+                          type="number"
+                          value={assessmentData.condition_duration_months}
+                          onChange={(e) => setAssessmentData(prev => ({ ...prev, condition_duration_months: parseInt(e.target.value, 10) || 0 }))}
+                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300"
+                          placeholder="How long has the condition limited work?"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-3">
                           Current Monthly Income ($)
                         </label>
                         <input
@@ -698,6 +812,28 @@ function Benefits() {
                           className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300"
                           placeholder="Enter monthly income"
                         />
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <label className="flex items-center gap-3 text-sm text-gray-300">
+                          <input
+                            type="checkbox"
+                            checked={assessmentData.expected_duration_12_months}
+                            onChange={(e) => setAssessmentData(prev => ({ ...prev, expected_duration_12_months: e.target.checked }))}
+                            className="h-4 w-4 text-blue-500 focus:ring-blue-400 border-gray-400 rounded bg-white/10"
+                          />
+                          Expected to last at least 12 months
+                        </label>
+
+                        <label className="flex items-center gap-3 text-sm text-gray-300">
+                          <input
+                            type="checkbox"
+                            checked={assessmentData.currently_working}
+                            onChange={(e) => setAssessmentData(prev => ({ ...prev, currently_working: e.target.checked }))}
+                            className="h-4 w-4 text-blue-500 focus:ring-blue-400 border-gray-400 rounded bg-white/10"
+                          />
+                          Currently working
+                        </label>
                       </div>
 
                       <div>
@@ -710,6 +846,32 @@ function Benefits() {
                           onChange={(e) => setAssessmentData(prev => ({ ...prev, years_out_of_work: parseInt(e.target.value) || 0 }))}
                           className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300"
                           placeholder="Years unable to work"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-3">
+                          Last job title
+                        </label>
+                        <input
+                          type="text"
+                          value={assessmentData.last_job_title}
+                          onChange={(e) => setAssessmentData(prev => ({ ...prev, last_job_title: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300"
+                          placeholder="Most recent job or work role"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-3">
+                          Hospitalizations in the last 12 months
+                        </label>
+                        <input
+                          type="number"
+                          value={assessmentData.hospitalizations_last_12_months}
+                          onChange={(e) => setAssessmentData(prev => ({ ...prev, hospitalizations_last_12_months: parseInt(e.target.value, 10) || 0 }))}
+                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300"
+                          min="0"
                         />
                       </div>
                     </div>
@@ -743,6 +905,84 @@ function Benefits() {
                     </div>
                   </div>
 
+                  <div className="mt-8 grid grid-cols-1 xl:grid-cols-2 gap-8">
+                    <div className="bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm p-6 rounded-2xl border border-white/20">
+                      <label className="block text-sm font-medium text-gray-300 mb-4">
+                        Functional limitations (Select all that apply)
+                      </label>
+                      <div className="space-y-3">
+                        {disabilityFunctionalLimitationOptions.map((item) => (
+                          <label key={item.key} className="flex items-center group cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!!assessmentData.functional_limitations?.[item.key]}
+                              onChange={(e) => setAssessmentData(prev => ({
+                                ...prev,
+                                functional_limitations: {
+                                  ...(prev.functional_limitations || {}),
+                                  [item.key]: e.target.checked,
+                                },
+                              }))}
+                              className="mr-3 h-4 w-4 text-blue-500 focus:ring-blue-400 border-gray-400 rounded bg-white/10"
+                            />
+                            <span className="text-sm text-gray-300 group-hover:text-white transition-colors">{item.label}</span>
+                          </label>
+                        ))}
+
+                        <label className="mt-4 flex items-center gap-3 text-sm text-gray-300">
+                          <input
+                            type="checkbox"
+                            checked={assessmentData.needs_help_daily_activities}
+                            onChange={(e) => setAssessmentData(prev => ({ ...prev, needs_help_daily_activities: e.target.checked }))}
+                            className="h-4 w-4 text-blue-500 focus:ring-blue-400 border-gray-400 rounded bg-white/10"
+                          />
+                          Needs help with daily activities such as bathing, dressing, shopping, or transportation
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="space-y-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-3">
+                          Treating providers / clinics
+                        </label>
+                        <textarea
+                          rows={4}
+                          value={assessmentData.treating_sources.join('\n')}
+                          onChange={(e) => setAssessmentData(prev => ({ ...prev, treating_sources: parseMultilineInput(e.target.value) }))}
+                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300"
+                          placeholder="One provider or clinic per line"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-3">
+                          Medications
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={assessmentData.medications.join('\n')}
+                          onChange={(e) => setAssessmentData(prev => ({ ...prev, medications: parseMultilineInput(e.target.value) }))}
+                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300"
+                          placeholder="List current medications or key side effects"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-3">
+                          Recent tests / imaging / lab work
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={assessmentData.recent_tests.join('\n')}
+                          onChange={(e) => setAssessmentData(prev => ({ ...prev, recent_tests: parseMultilineInput(e.target.value) }))}
+                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-white placeholder-gray-400 transition-all duration-300"
+                          placeholder="MRI, hospital discharge, psychiatric eval, bloodwork, etc."
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="mt-8">
                     <button
                       onClick={handleDisabilityAssessment}
@@ -752,7 +992,7 @@ function Benefits() {
                       <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
                         <Target className="h-5 w-5" />
                       </div>
-                      {loading ? 'Processing Assessment...' : 'Run Disability Assessment'}
+                      {loading ? 'Processing Pre-Screen...' : 'Run Disability Pre-Screen'}
                     </button>
                   </div>
 
@@ -764,8 +1004,34 @@ function Benefits() {
                           <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
                             <Award className="h-5 w-5 text-white" />
                           </div>
-                          <h3 className="text-xl font-bold text-blue-200">Assessment Results Summary</h3>
+                          <h3 className="text-xl font-bold text-blue-200">SSI / SSDI Pre-Screen Summary</h3>
                         </div>
+
+                        {assessmentResults.disclaimer && (
+                          <div className="mb-6 rounded-2xl border border-blue-400/30 bg-blue-500/10 p-4 text-sm text-blue-100">
+                            {assessmentResults.disclaimer}
+                          </div>
+                        )}
+
+                        {assessmentResults.screening_checkpoints?.length > 0 && (
+                          <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {assessmentResults.screening_checkpoints.map((checkpoint) => (
+                              <div key={checkpoint.label} className="rounded-xl border border-white/15 bg-white/5 p-4">
+                                <div className="mb-2 flex items-center justify-between gap-3">
+                                  <h4 className="font-semibold text-white">{checkpoint.label}</h4>
+                                  <span className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                                    checkpoint.status === 'meets'
+                                      ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                                      : 'border-amber-400/30 bg-amber-500/10 text-amber-200'
+                                  }`}>
+                                    {checkpoint.status === 'meets' ? 'Looks documented' : 'Needs review'}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-300">{checkpoint.detail}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         
                         {/* SSI and SSDI Eligibility */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -955,14 +1221,14 @@ function Benefits() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-3">
-                          Client ID
+                          Selected Client
                         </label>
                         <input
                           type="text"
-                          value={eligibilityData.client_id}
-                          onChange={(e) => setEligibilityData(prev => ({ ...prev, client_id: e.target.value }))}
-                          className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white placeholder-gray-400 transition-all duration-300"
-                          placeholder="Enter client ID"
+                          value={formatSelectedClientName()}
+                          readOnly
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-sm border border-white/20 rounded-xl text-white placeholder-gray-400 transition-all duration-300"
+                          placeholder="Select a client above"
                         />
                       </div>
 
@@ -1004,16 +1270,12 @@ function Benefits() {
                       </div>
 
                       <div className="md:col-span-2">
-                        <div className="space-y-4">
-                          {[
-                            { key: 'is_disabled', label: 'Has disability' },
-                            { key: 'is_veteran', label: 'Military veteran' },
-                            { key: 'has_children', label: 'Has dependent children' }
-                          ].map((item) => (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {eligibilityFlagOptions.map((item) => (
                             <label key={item.key} className="flex items-center group cursor-pointer">
                               <input
                                 type="checkbox"
-                                checked={eligibilityData[item.key]}
+                                checked={!!eligibilityData[item.key]}
                                 onChange={(e) => setEligibilityData(prev => ({ ...prev, [item.key]: e.target.checked }))}
                                 className="mr-3 h-4 w-4 text-emerald-500 focus:ring-emerald-400 border-gray-400 rounded bg-white/10"
                               />
@@ -1042,13 +1304,18 @@ function Benefits() {
                   {eligibilityResults && (
                     <div className="bg-gradient-to-br from-green-500/10 to-emerald-500/5 backdrop-blur-xl border border-green-500/20 rounded-2xl p-8">
                       <div className="flex items-center gap-3 mb-6">
-                        <div className="p-2 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg">
+                      <div className="p-2 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg">
                           <CheckCircle className="h-5 w-5 text-white" />
                         </div>
                         <h3 className="text-xl font-bold text-green-200">Screening Results</h3>
                       </div>
+                      {eligibilityResults.screening_profile && (
+                        <div className="mb-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-green-100">
+                          Income is approximately {eligibilityResults.screening_profile.income_percentage_of_poverty}% of the federal poverty level for a household of {eligibilityResults.screening_profile.household_size}.
+                        </div>
+                      )}
                       <div className="space-y-4">
-                        {eligibilityResults.eligible_programs?.map((program, index) => (
+                        {(eligibilityResults.eligible_programs || []).map((program, index) => (
                           <div key={index} className="flex items-center justify-between p-6 bg-gradient-to-r from-white/10 to-white/5 backdrop-blur-sm rounded-xl border border-white/20">
                             <div>
                               <p className="font-bold text-white text-lg">{program.program}</p>

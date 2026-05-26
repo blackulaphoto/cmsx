@@ -184,6 +184,34 @@ def _normalized_upper(value: Optional[str]) -> str:
     return _normalize_text(value).upper()
 
 
+def _city_filter_variants(city: Optional[str]) -> List[str]:
+    normalized = _normalize_text(city)
+    if not normalized:
+        return []
+
+    variants = {normalized.lower()}
+    if "," in normalized:
+        variants.add(normalized.split(",", 1)[0].strip().lower())
+    if " county" in normalized.lower():
+        variants.add(normalized.lower().replace(" county", "").strip())
+
+    return [variant for variant in variants if variant]
+
+
+def _append_city_clause(
+    clauses: List[str],
+    params: List[Any],
+    expression: str,
+    city: Optional[str],
+) -> None:
+    city_variants = _city_filter_variants(city)
+    if not city_variants:
+        return
+
+    clauses.append("(" + " OR ".join([f"LOWER(COALESCE({expression}, '')) LIKE ?" for _ in city_variants]) + ")")
+    params.extend([f"%{variant}%" for variant in city_variants])
+
+
 GENERIC_PROVIDER_NAMES = {
     "PHYSICIAN",
     "PRACTITIONER",
@@ -418,9 +446,7 @@ def _query_medi_cal(city: str, search: str, specialty: str, limit: int) -> List[
     with _connect(VIRGIL_DB_PATH) as conn:
         clauses = ["1=1"]
         params: List[Any] = []
-        if city:
-            clauses.append("LOWER(COALESCE(city, '')) LIKE ?")
-            params.append(f"%{city.lower()}%")
+        _append_city_clause(clauses, params, "city", city)
         if specialty:
             clauses.append("LOWER(COALESCE(specialties, '')) LIKE ?")
             params.append(f"%{specialty.lower()}%")
@@ -562,9 +588,7 @@ def _query_dental_urgent(city: str, search: str, limit: int) -> List[Dict[str, A
     with _connect(VIRGIL_DB_PATH) as conn:
         clauses = ["LOWER(COALESCE(type, '')) = 'dental'"]
         params: List[Any] = []
-        if city:
-            clauses.append("LOWER(COALESCE(address, '')) LIKE ?")
-            params.append(f"%{city.lower()}%")
+        _append_city_clause(clauses, params, "address", city)
         if search:
             pattern = f"%{search.lower()}%"
             clauses.append(
@@ -607,9 +631,7 @@ def _query_treatment_centers(city: str, search: str, limit: int, private_only: b
         clauses = ["isPublished = 1", "LOWER(COALESCE(type, '')) != 'sober_living'"]
         params: List[Any] = []
 
-        if city:
-            clauses.append("LOWER(COALESCE(city, '')) LIKE ?")
-            params.append(f"%{city.lower()}%")
+        _append_city_clause(clauses, params, "city", city)
 
         if private_only:
             clauses.append("acceptsPrivateInsurance = 1")
@@ -619,10 +641,11 @@ def _query_treatment_centers(city: str, search: str, limit: int, private_only: b
                 "("
                 "LOWER(COALESCE(name, '')) LIKE ? OR "
                 "LOWER(COALESCE(description, '')) LIKE ? OR "
-                "LOWER(COALESCE(servicesOffered, '')) LIKE ?"
+                "LOWER(COALESCE(servicesOffered, '')) LIKE ? OR "
+                "LOWER(COALESCE(type, '')) LIKE ?"
                 ")"
             )
-            params.extend(["%suboxone%", "%suboxone%", "%suboxone%"])
+            params.extend(["%suboxone%", "%suboxone%", "%suboxone%", "%detox%"])
         elif search:
             pattern = f"%{search.lower()}%"
             clauses.append(
@@ -686,12 +709,19 @@ def _get_provider_results(category: str, city: str, search: str, specialty: str,
     if category == "dental-urgent":
         return _query_dental_urgent(city, search, limit)
     if category == "private-insurance":
-        return _query_treatment_centers(city, search, limit, private_only=True)
+        results = _query_treatment_centers(city, search, limit, private_only=True)
+        if results:
+            return results
+        return _query_treatment_centers("", search, limit, private_only=True)
     if category == "suboxone-mat":
         results = _query_treatment_centers(city, search, limit, mat_only=True)
         if results:
             return results
-        return _query_treatment_centers(city, "", limit)
+        fallback_search = search or "detox"
+        results = _query_treatment_centers(city, fallback_search, limit)
+        if results:
+            return results
+        return _query_treatment_centers("", fallback_search, limit)
     return _query_treatment_centers(city, search, limit)
 
 

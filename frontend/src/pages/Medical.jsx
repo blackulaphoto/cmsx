@@ -68,7 +68,7 @@ function Medical() {
   const [searchParams] = useSearchParams()
   const [selectedClient, setSelectedClient] = useState(null)
   const [activePath, setActivePath] = useState('medi-cal')
-  const [city, setCity] = useState('Los Angeles, CA')
+  const [city, setCity] = useState('Los Angeles')
   const [search, setSearch] = useState('')
   const [specialty, setSpecialty] = useState('')
   const [providers, setProviders] = useState([])
@@ -105,7 +105,7 @@ function Medical() {
   }, [searchParams])
 
   useEffect(() => {
-    loadProviders(activePath)
+    loadProviders(activePath, { notifyEmpty: false })
   }, [activePath])
 
   useEffect(() => {
@@ -118,7 +118,8 @@ function Medical() {
     }
   }, [selectedClient?.client_id])
 
-  const loadProviders = async (pathKey = activePath) => {
+  const loadProviders = async (pathKey = activePath, options = {}) => {
+    const { notifyEmpty = true } = options
     setProvidersLoading(true)
     try {
       const params = new URLSearchParams({
@@ -136,7 +137,7 @@ function Medical() {
 
       const data = await response.json()
       setProviders(data.providers || [])
-      if ((data.providers || []).length === 0) {
+      if (notifyEmpty && (data.providers || []).length === 0) {
         toast('No providers matched those filters')
       }
     } catch (error) {
@@ -379,8 +380,8 @@ function Medical() {
                 return (
                   <button
                     key={path.key}
-                    type="button"
-                    onClick={() => setActivePath(path.key)}
+                  type="button"
+                  onClick={() => setActivePath(path.key)}
                     className={`text-left p-5 rounded-2xl border transition-all duration-300 ${
                       active
                         ? `bg-gradient-to-r ${path.gradient} border-white/40 shadow-xl text-white`
@@ -446,7 +447,7 @@ function Medical() {
               <div className="flex items-end">
                 <button
                   type="button"
-                  onClick={() => loadProviders(activePath)}
+                  onClick={() => loadProviders(activePath, { notifyEmpty: true })}
                   disabled={providersLoading}
                   className="w-full px-6 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 disabled:opacity-50"
                 >

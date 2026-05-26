@@ -120,6 +120,12 @@ class EligibilityCheck(BaseModel):
     is_veteran: bool = False
     has_children: bool = False
     age: Optional[int] = None
+    is_pregnant: bool = False
+    needs_food_assistance: bool = False
+    needs_healthcare: bool = False
+    housing_unstable: bool = False
+    utility_shutoff_risk: bool = False
+    unemployed: bool = False
 
 class DisabilityAssessmentRequest(BaseModel):
     client_id: str
@@ -128,6 +134,15 @@ class DisabilityAssessmentRequest(BaseModel):
     work_history: List[Dict[str, Any]]
     current_income: float = 0
     years_out_of_work: int = 0
+    condition_duration_months: int = 0
+    expected_duration_12_months: bool = False
+    currently_working: bool = False
+    last_job_title: str = ""
+    treating_sources: List[str] = []
+    medications: List[str] = []
+    recent_tests: List[str] = []
+    hospitalizations_last_12_months: int = 0
+    needs_help_daily_activities: bool = False
     functional_limitations: Optional[Dict[str, Any]] = None
 
 class BenefitApplication(BaseModel):
@@ -233,12 +248,16 @@ async def get_benefits_applications(
         applications = []
         for row in rows:
             # Get client name from core_clients.db
-            client_name = "Unknown Client"
+            client_name = row[2] or "Client record unavailable"
             if row[2]:  # client_id
                 cursor_clients.execute("SELECT first_name, last_name FROM clients WHERE client_id = ?", (row[2],))
                 client_row = cursor_clients.fetchone()
                 if client_row:
-                    client_name = f"{client_row[0]} {client_row[1]}"
+                    first_name = (client_row[0] or "").strip()
+                    last_name = (client_row[1] or "").strip()
+                    resolved_name = f"{first_name} {last_name}".strip()
+                    if resolved_name:
+                        client_name = resolved_name
             
             application_id = row[1] if row[1] else str(row[0])
 
@@ -787,16 +806,16 @@ async def benefits_eligibility_check(eligibility_data: EligibilityCheck):
         # Determine eligibility for various programs
         eligibility_results = {
             'SNAP': {
-                'eligible': income_percentage <= 130,
+                'eligible': income_percentage <= 130 or eligibility_data.needs_food_assistance,
                 'confidence': 'high' if income_percentage <= 130 else 'low',
                 'estimated_benefit': max(0, min(835, (poverty_level * 1.3 - income) / 12)) if income_percentage <= 130 else 0,
                 'requirements': ['Income below 130% of poverty level', 'Work requirements may apply']
             },
             'Medicaid': {
-                'eligible': income_percentage <= 138,
-                'confidence': 'high' if income_percentage <= 138 else 'low',
-                'estimated_benefit': 'Full healthcare coverage' if income_percentage <= 138 else 'Not eligible',
-                'requirements': ['Income below 138% of poverty level']
+                'eligible': income_percentage <= 138 or eligibility_data.is_pregnant or eligibility_data.is_disabled or eligibility_data.needs_healthcare,
+                'confidence': 'high' if income_percentage <= 138 else ('medium' if (eligibility_data.is_pregnant or eligibility_data.is_disabled or eligibility_data.needs_healthcare) else 'low'),
+                'estimated_benefit': 'Full healthcare coverage' if (income_percentage <= 138 or eligibility_data.is_pregnant or eligibility_data.is_disabled or eligibility_data.needs_healthcare) else 'Not eligible',
+                'requirements': ['Income below 138% of poverty level', 'Pregnancy, disability, or urgent healthcare need may require a full agency review']
             },
             'SSI': {
                 'eligible': eligibility_data.is_disabled and income_percentage <= 75,
@@ -805,19 +824,91 @@ async def benefits_eligibility_check(eligibility_data: EligibilityCheck):
                 'requirements': ['Disability determination', 'Limited income and resources']
             },
             'Housing_Voucher': {
-                'eligible': income_percentage <= 50,
-                'confidence': 'medium' if income_percentage <= 50 else 'low',
-                'estimated_benefit': 'Rental assistance up to fair market rent' if income_percentage <= 50 else 'Not eligible',
-                'requirements': ['Income below 50% of area median income', 'Long waiting lists']
-            }
+                'eligible': income_percentage <= 50 or eligibility_data.housing_unstable,
+                'confidence': 'medium' if income_percentage <= 50 else ('medium' if eligibility_data.housing_unstable else 'low'),
+                'estimated_benefit': 'Rental assistance up to fair market rent' if (income_percentage <= 50 or eligibility_data.housing_unstable) else 'Not eligible',
+                'requirements': ['Income below 50% of area median income', 'Long waiting lists', 'Housing instability may help prioritize referrals but does not guarantee a voucher']
+            },
+            'TANF': {
+                'eligible': eligibility_data.has_children and income_percentage <= 50,
+                'confidence': 'medium' if eligibility_data.has_children and income_percentage <= 50 else 'low',
+                'estimated_benefit': 'Cash assistance may be available through family-based aid programs' if eligibility_data.has_children and income_percentage <= 50 else 'Not eligible',
+                'requirements': ['Dependent children in the household', 'Very limited income']
+            },
+            'WIC': {
+                'eligible': (eligibility_data.is_pregnant or eligibility_data.has_children) and income_percentage <= 185,
+                'confidence': 'medium' if (eligibility_data.is_pregnant or eligibility_data.has_children) and income_percentage <= 185 else 'low',
+                'estimated_benefit': 'Nutrition support for pregnant clients, infants, and young children' if (eligibility_data.is_pregnant or eligibility_data.has_children) and income_percentage <= 185 else 'Not eligible',
+                'requirements': ['Pregnancy or children under program age limits', 'Income within WIC limits']
+            },
+            'LIHEAP': {
+                'eligible': eligibility_data.utility_shutoff_risk and income_percentage <= 60,
+                'confidence': 'medium' if eligibility_data.utility_shutoff_risk and income_percentage <= 60 else 'low',
+                'estimated_benefit': 'Energy bill support or shutoff prevention may be available' if eligibility_data.utility_shutoff_risk and income_percentage <= 60 else 'Not eligible',
+                'requirements': ['Utility burden or shutoff risk', 'Income within energy-assistance guidelines']
+            },
         }
-        
+
+        eligible_programs = []
+        for program_name, result in eligibility_results.items():
+            if result['eligible']:
+                reason_parts = []
+                if program_name == 'SNAP':
+                    reason_parts.append('household income is in a likely screening range')
+                    if eligibility_data.needs_food_assistance:
+                        reason_parts.append('food assistance need was reported')
+                elif program_name == 'Medicaid':
+                    if income_percentage <= 138:
+                        reason_parts.append('income appears within a likely Medi-Cal range')
+                    if eligibility_data.is_pregnant:
+                        reason_parts.append('pregnancy may qualify for healthcare coverage review')
+                    if eligibility_data.is_disabled:
+                        reason_parts.append('disability was reported')
+                    if eligibility_data.needs_healthcare:
+                        reason_parts.append('urgent healthcare need was reported')
+                elif program_name == 'SSI':
+                    reason_parts.append('disability was reported and income appears limited')
+                elif program_name == 'Housing_Voucher':
+                    if income_percentage <= 50:
+                        reason_parts.append('income appears low enough for housing-assistance screening')
+                    if eligibility_data.housing_unstable:
+                        reason_parts.append('housing instability was reported')
+                elif program_name == 'TANF':
+                    reason_parts.append('dependent children and very low income were reported')
+                elif program_name == 'WIC':
+                    reason_parts.append('pregnancy or child-related eligibility factors were reported')
+                elif program_name == 'LIHEAP':
+                    reason_parts.append('utility shutoff risk and low income were reported')
+
+                eligible_programs.append({
+                    'program': program_name.replace('_', ' '),
+                    'reason': '. '.join(reason_parts).capitalize() if reason_parts else 'Likely match based on screening answers',
+                    'confidence': result['confidence'],
+                })
+
         return {
             'success': True,
             'eligibility_results': eligibility_results,
+            'eligible_programs': eligible_programs,
             'household_income': income,
             'poverty_level': poverty_level,
-            'income_percentage': income_percentage
+            'income_percentage': income_percentage,
+            'screening_profile': {
+                'household_size': household_size,
+                'annual_income': income,
+                'income_percentage_of_poverty': round(income_percentage, 1),
+                'reported_flags': {
+                    'disabled': eligibility_data.is_disabled,
+                    'veteran': eligibility_data.is_veteran,
+                    'pregnant': eligibility_data.is_pregnant,
+                    'children': eligibility_data.has_children,
+                    'food_need': eligibility_data.needs_food_assistance,
+                    'healthcare_need': eligibility_data.needs_healthcare,
+                    'housing_unstable': eligibility_data.housing_unstable,
+                    'utility_shutoff_risk': eligibility_data.utility_shutoff_risk,
+                    'unemployed': eligibility_data.unemployed,
+                },
+            },
         }
         
     except Exception as e:
@@ -836,15 +927,117 @@ async def api_disability_assessment(assessment_data: DisabilityAssessmentRequest
             'medical_conditions': assessment_data.medical_conditions,
             'work_history': assessment_data.work_history,
             'current_income': assessment_data.current_income,
-            'years_out_of_work': assessment_data.years_out_of_work
+            'years_out_of_work': assessment_data.years_out_of_work,
+            'condition_duration_months': assessment_data.condition_duration_months,
+            'expected_duration_12_months': assessment_data.expected_duration_12_months,
+            'currently_working': assessment_data.currently_working,
+            'last_job_title': assessment_data.last_job_title,
+            'treating_sources': assessment_data.treating_sources,
+            'medications': assessment_data.medications,
+            'recent_tests': assessment_data.recent_tests,
+            'hospitalizations_last_12_months': assessment_data.hospitalizations_last_12_months,
+            'needs_help_daily_activities': assessment_data.needs_help_daily_activities,
+            'functional_limitations': assessment_data.functional_limitations or {},
         }
         
         # Perform assessment
         assessment_result = assessor.assess_eligibility(client_data)
-        
+
+        functional_limitations = assessment_data.functional_limitations or {}
+        selected_limitations = [
+            key.replace('_', ' ').title()
+            for key, value in functional_limitations.items()
+            if bool(value)
+        ]
+
+        duration_requirement_met = (
+            assessment_data.expected_duration_12_months
+            or assessment_data.condition_duration_months >= 12
+        )
+        medical_evidence_present = bool(
+            assessment_data.treating_sources
+            or assessment_data.medications
+            or assessment_data.recent_tests
+            or assessment_data.hospitalizations_last_12_months
+        )
+        functional_limits_present = bool(selected_limitations or assessment_data.needs_help_daily_activities)
+        work_credit_summary = assessment_result.get('client_assessment', {}).get('work_credits', {})
+        ssi_data = assessment_result.get('ssi_eligibility', {})
+        ssdi_data = assessment_result.get('ssdi_eligibility', {})
+
+        screening_checkpoints = [
+            {
+                'label': '12-month duration requirement',
+                'status': 'meets' if duration_requirement_met else 'needs_review',
+                'detail': (
+                    'Condition is expected to last at least 12 months or has already lasted 12 months.'
+                    if duration_requirement_met
+                    else 'SSA usually requires a condition expected to last at least 12 months or result in death.'
+                ),
+            },
+            {
+                'label': 'Medical treatment evidence',
+                'status': 'meets' if medical_evidence_present else 'needs_review',
+                'detail': (
+                    'Treatment sources, medications, tests, or hospitalizations were reported.'
+                    if medical_evidence_present
+                    else 'A stronger SSI/SSDI filing usually includes treating providers, medications, tests, and record sources.'
+                ),
+            },
+            {
+                'label': 'Functional limitations',
+                'status': 'meets' if functional_limits_present else 'needs_review',
+                'detail': (
+                    f"Reported limitations: {', '.join(selected_limitations[:5])}."
+                    if selected_limitations
+                    else 'No major work or daily-activity limitations were recorded in the screen.'
+                ),
+            },
+            {
+                'label': 'Current work activity',
+                'status': 'needs_review' if assessment_data.currently_working and assessment_data.current_income > 0 else 'meets',
+                'detail': (
+                    'Current work and earnings were reported. Review whether work activity is substantial before filing.'
+                    if assessment_data.currently_working and assessment_data.current_income > 0
+                    else 'No substantial current work activity was reported in this screen.'
+                ),
+            },
+            {
+                'label': 'SSDI work credits',
+                'status': 'meets' if work_credit_summary.get('has_sufficient_credits') else 'needs_review',
+                'detail': (
+                    f"Estimated work credits: {work_credit_summary.get('estimated_credits', 0)} of {work_credit_summary.get('credits_needed', 0)} needed."
+                ),
+            },
+        ]
+
+        likely_program_matches = []
+        if ssi_data.get('eligible'):
+            likely_program_matches.append('SSI')
+        if ssdi_data.get('eligible'):
+            likely_program_matches.append('SSDI')
+
         return {
             'success': True,
             'assessment': assessment_result,
+            'screening_summary': {
+                'screen_type': 'SSI / SSDI pre-screen',
+                'likely_program_matches': likely_program_matches,
+                'duration_requirement_met': duration_requirement_met,
+                'medical_evidence_present': medical_evidence_present,
+                'functional_limitations_present': functional_limits_present,
+                'currently_working': assessment_data.currently_working,
+                'last_job_title': assessment_data.last_job_title,
+            },
+            'screening_checkpoints': screening_checkpoints,
+            'intake_follow_up': [
+                'Collect treating provider names, phone numbers, and appointment dates.',
+                'List all medications, side effects, imaging, labs, and hospitalizations.',
+                'Document how the condition limits sitting, standing, lifting, concentration, pace, and attendance.',
+                'Confirm whether the condition has lasted or is expected to last 12 months.',
+                'For SSDI, verify detailed work history and earnings before filing.',
+            ],
+            'disclaimer': 'This is a case-manager pre-screen only. Social Security makes the final disability determination after reviewing medical and work evidence.',
             'timestamp': datetime.now().isoformat()
         }
         

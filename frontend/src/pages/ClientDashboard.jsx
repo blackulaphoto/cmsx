@@ -458,7 +458,7 @@ const ClientDashboard = () => {
                   <h1 className="text-3xl font-bold bg-gradient-to-r from-white via-blue-200 to-purple-200 bg-clip-text text-transparent">
                     {client.first_name} {client.last_name}
                   </h1>
-                  <p className="text-gray-400">Client ID: {client.client_id}</p>
+                  <p className="text-gray-400">Client reference: {client.client_id}</p>
                 </div>
               </div>
               <div className="flex items-center space-x-4">

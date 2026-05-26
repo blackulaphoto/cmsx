@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="emberBg" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F97316"/>
+      <stop offset="0.5" stop-color="#EF4444"/>
+      <stop offset="1" stop-color="#EC4899"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="url(#emberBg)"/>
+  <path
+    d="M34.3 11.5c.1 4.9-1.9 8.4-5.8 12.4-3.8 3.9-5.8 7-5.8 11.3 0 6.4 4.9 11.5 11.3 11.5 6.7 0 12-5.5 12-12.5 0-4.8-2.3-8.5-6.7-12.6-1.4 3.3-3.8 5.6-7.2 7 .8-4.6 1-8.8-1.9-17.1Z"
+    fill="#fff"
+  />
+  <path
+    d="M32.5 31.7c-2.5 2.6-3.8 4.8-3.8 7.4 0 3.2 2.4 5.6 5.5 5.6 3.2 0 5.8-2.6 5.8-6 0-2.2-.9-4.1-2.9-6.4-1 1.9-2.4 3.2-4.6 3.9Z"
+    fill="#FDF2F8"
+    opacity=".85"
+  />
+</svg>
