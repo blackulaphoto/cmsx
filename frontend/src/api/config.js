@@ -145,23 +145,25 @@ export const apiCall = async (endpoint, options = {}) => {
 }
 
 export const apiFetch = async (endpoint, options = {}) => {
+  const { timeoutMs, ...fetchOptions } = options
+  const effectiveTimeoutMs = Number(timeoutMs || API_TIMEOUT_MS)
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
+  const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs)
   try {
     const primaryUrl = apiUrl(endpoint)
-    let response = await fetch(primaryUrl, { ...options, signal: controller.signal })
+    let response = await fetch(primaryUrl, { ...fetchOptions, signal: controller.signal })
 
-    if (shouldRetryDirect(response, options.method)) {
+    if (shouldRetryDirect(response, fetchOptions.method)) {
       const fallbackUrl = buildFallbackUrl(endpoint)
       if (fallbackUrl && fallbackUrl !== primaryUrl) {
-        response = await fetch(fallbackUrl, { ...options, signal: controller.signal })
+        response = await fetch(fallbackUrl, { ...fetchOptions, signal: controller.signal })
       }
     }
 
     return response
   } catch (error) {
     if (error?.name === 'AbortError') {
-      throw new Error(`Request timeout after ${API_TIMEOUT_MS}ms`)
+      throw new Error(`Request timeout after ${effectiveTimeoutMs}ms`)
     }
     throw error
   } finally {

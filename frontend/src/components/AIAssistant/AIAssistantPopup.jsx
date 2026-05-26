@@ -39,6 +39,7 @@ export default function AIAssistantPopup() {
 
     try {
       const response = await apiFetch('/api/ai/assistant', {
+        timeoutMs: 20000,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

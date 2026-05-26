@@ -73,6 +73,7 @@ function AIChat() {
 
     try {
       const response = await apiFetch('/api/ai/chat', {
+        timeoutMs: 20000,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
