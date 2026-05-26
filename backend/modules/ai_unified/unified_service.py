@@ -37,6 +37,7 @@ from backend.modules.services.virgil_db_service import get_virgil_db
 from backend.modules.reminders.engine import IntelligentReminderEngine
 from backend.search.coordinator import get_coordinator
 from backend.shared.database.workspace_store import workspace_store
+from backend.modules.resources.retrieval_engine import get_resource_engine
 
 logger = logging.getLogger(__name__)
 CRISIS_TERMS = {
@@ -1569,6 +1570,14 @@ class UnifiedAIService:
 
         location = self._extract_location_from_conversation(message, history) or "Los Angeles, CA"
         combined_text = " ".join([h.get("content", "") for h in history[-6:]] + [message]).lower()
+
+        # NEW: Use curated resource retrieval engine first
+        curated_context = await self._build_curated_resource_context(message, location)
+        if curated_context:
+            logger.info("Using curated resource retrieval engine for provider matches")
+            return curated_context
+
+        # Fallback to existing search
         internal_results = await self.search_internal_resources(combined_text, location, limit=8)
         lines = [
             "This is a case-manager resource lookup.",
@@ -1612,6 +1621,39 @@ class UnifiedAIService:
         if len(lines) <= 4:
             return None
         return "\n".join(lines)
+
+    async def _build_curated_resource_context(
+        self,
+        message: str,
+        location: str,
+    ) -> Optional[str]:
+        """
+        Use the new curated resource retrieval engine.
+        Returns formatted provider context for AI or None if no matches.
+        """
+        try:
+            # Get resource retrieval engine
+            resource_engine = get_resource_engine()
+
+            # Search curated providers
+            scored_providers = resource_engine.search(
+                query=message,
+                client_context=None,  # Could add client insurance/demographics here
+                limit=5
+            )
+
+            if not scored_providers:
+                return None
+
+            # Format for AI context
+            context = resource_engine.format_for_ai_context(scored_providers, limit=5)
+
+            logger.info(f"Curated resource retrieval returned {len(scored_providers)} providers")
+            return context
+
+        except Exception as e:
+            logger.error(f"Curated resource retrieval failed: {e}", exc_info=True)
+            return None
 
     def _classify_resource_categories(
         self,
