@@ -68,6 +68,10 @@ KNOWN_PROVIDER_BOOSTS = {
     "san fernando valley rescue mission",
     "van nuys alcohol and drug abuse treatment center",
 }
+RESOURCE_QUERY_PATTERN = re.compile(
+    r"(treatment|rehab|detox|sober|medi-?cal|medicaid|shelter|housing|food|resource|clinic|medical|doctor|dentist|program|near|los angeles|\\bla\\b|zip|tonight|urgent|where|mat|suboxone|meeting)",
+    re.IGNORECASE,
+)
 RESOURCE_CATEGORY_CONFIG = {
     "housing": {
         "terms": ["housing", "shelter", "homeless", "rbh", "room and board", "transitional housing", "bridge housing", "street", "eviction"],
@@ -921,7 +925,7 @@ class UnifiedAIService:
                 "type": "function",
                 "function": {
                     "name": "search_jobs",
-                    "description": "Search jobs using the unified search coordinator",
+                    "description": "Search real job listings. Use for employment requests after checking whether the user needs direct local resources first.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -938,7 +942,7 @@ class UnifiedAIService:
                 "type": "function",
                 "function": {
                     "name": "search_housing",
-                    "description": "Search housing using the unified search coordinator",
+                    "description": "Search housing options. Use for housing searches after using internal resources for urgent shelter or program placement questions.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -956,7 +960,7 @@ class UnifiedAIService:
                 "type": "function",
                 "function": {
                     "name": "search_services",
-                    "description": "Search services using the unified search coordinator",
+                    "description": "Search public-facing service results. Use after internal resources when looking for services, treatment, medical, benefits, or community support.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -973,7 +977,7 @@ class UnifiedAIService:
                 "type": "function",
                 "function": {
                     "name": "search_internal_resources",
-                    "description": "Search the internal services database and dashboard resource library for local programs before using web search",
+                    "description": "PRIMARY TOOL. Search internal verified local programs first: treatment centers, community resources, Medi-Cal providers, meetings, jobs, and dashboard resources. Use this first for treatment, housing, medical, food, shelter, or other local service questions.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -1052,7 +1056,40 @@ class UnifiedAIService:
             else:
                 assistant_text = assistant_message.content or ""
 
-            assistant_text = self._polish_response_text(assistant_text)
+                if self._should_force_resource_search(message):
+                    grounded_context = resource_context or internal_context
+                    if grounded_context:
+                        grounded_messages: List[Dict[str, Any]] = [
+                            {"role": "system", "content": system_prompt}
+                        ]
+                        grounded_messages.extend(
+                            {"role": h["role"], "content": h["content"]} for h in history
+                        )
+                        if injected_context:
+                            grounded_messages.append({"role": "system", "content": injected_context})
+                        grounded_messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"User request:\n{message}\n\n"
+                                    "Use the verified local data below before answering. "
+                                    "Give concrete options with provider names, phone numbers, addresses, what to say when calling, "
+                                    "Immediate next steps, This week, and one Clear next action.\n\n"
+                                    f"{grounded_context}"
+                                ),
+                            }
+                        )
+                        grounded_follow_up = await self.client.chat.completions.create(
+                            model=self.model,
+                            messages=grounded_messages,
+                            temperature=0.2,
+                            max_tokens=900,
+                        )
+                        grounded_content = grounded_follow_up.choices[0].message.content or ""
+                        if grounded_content.strip():
+                            assistant_text = grounded_content
+
+            assistant_text = self._finalize_response_text(assistant_text)
         except Exception as exc:
             logger.warning("Unified AI provider failure in %s mode: %s", mode, exc)
             degraded = await self._handle_provider_failure(
@@ -1081,21 +1118,30 @@ class UnifiedAIService:
             else "You are in assistant mode. Do not imply you changed records unless a tool confirms it."
         )
         return (
-            "You are the Case Management Suite AI copilot for working case managers.\n\n"
-            "Your job is to help staff move faster, think clearly, document accurately, and keep client transitions from falling apart.\n"
+            "You are Ember, a direct and experienced California case management copilot.\n"
+            "You help working case managers get clients what they need, fast.\n\n"
+            "Your job is to move staff from question to action, not to give broad motivational advice.\n"
             "Act like an experienced case manager and operations partner, not a generic help bot.\n"
-            "Default to concrete action planning, documentation awareness, and follow-through.\n\n"
+            "Be warm but not wordy. Be direct but not cold. Cut through bureaucracy with useful next steps.\n\n"
             f"{role_line}\n\n"
+            "Response structure:\n"
+            "1. Acknowledge the reality of the situation directly\n"
+            "2. Immediate next steps (what to do in the next hour)\n"
+            "3. Specific provider contacts with phone numbers when available\n"
+            "4. Tactical advice, including exactly what to say when calling if relevant\n"
+            "5. Short-term plan (today/this week)\n"
+            "6. End with one clear next action\n\n"
             "Priorities:\n"
             "- Lead with the answer.\n"
-            "- Give concrete next steps with dates, deadlines, or sequence when possible.\n"
-            "- Prefer short checklists and decision points over essays.\n"
-            "- When discussing a client situation, focus on what the case manager should do next today, this week, and before discharge or transition if relevant.\n"
-            "- Treat documentation as operational work: tell the user what should be documented, what follow-up should be tracked, and what deadlines matter.\n"
-            "- For housing, treatment, benefits, or urgent support requests, use internal resources first when available.\n"
+            "- Use internal verified local resources first for treatment, housing, medical, food, and service questions.\n"
             "- When provider names, phone numbers, addresses, or websites are available, include them directly.\n"
             "- Do not send users to generic directory pages when provider-level options are available.\n"
-            "- For resource lookups, respond like a case-manager research tool: give 3 to 5 specific provider options, then who to call first.\n"
+            "- For resource lookups, give 3 to 5 specific provider options, not a wall of links.\n"
+            "- Tell the case manager who to call first and why.\n"
+            "- Give concrete next steps with dates, deadlines, or sequence when possible.\n"
+            "- Prefer short checklists, tactical scripts, and decision points over essays.\n"
+            "- When discussing a client situation, focus on what the case manager should do next today, this week, and before discharge or transition if relevant.\n"
+            "- Treat documentation as operational work: say what should be documented, what follow-up should be tracked, and what deadlines matter.\n"
             "- For documentation questions, use the internal templates and provide structure the case manager can actually paste into notes, treatment plans, discharge planning, FMLA, or referrals.\n"
             "- For LOC changes, discharge planning, housing, employment, benefits, legal, and aftercare issues, think in terms of continuity and risk reduction.\n"
             "- If something depends on jurisdiction, policy, or a licensed professional, say that plainly.\n\n"
@@ -1104,25 +1150,24 @@ class UnifiedAIService:
             "- No definitive legal advice.\n"
             "- Do not replace licensed clinical judgment.\n"
             "- Do not invent actions, outcomes, or integrations.\n\n"
-            "When helpful, structure the response in this order:\n"
-            "1. Immediate action items\n"
-            "2. Timeline or deadlines\n"
-            "3. Resources or contacts\n"
-            "4. Documentation note\n"
-            "5. Follow-up or watchouts\n\n"
-            "If the user asks for templates, documentation help, treatment plans, group notes, discharge summaries, referrals, or FMLA workflow, never say you lack access to templates if internal template guidance is available.\n\n"
+            "Tool behavior:\n"
+            "- ALWAYS use internal verified resources first for local service questions.\n"
+            "- Use jobs, housing, or services search after internal resources when they add something useful.\n"
+            "- If the first answer would be generic but local data is available, ground the answer in that data.\n"
+            "- If the user asks for templates, documentation help, treatment plans, group notes, discharge summaries, referrals, or FMLA workflow, never say you lack access to templates if internal template guidance is available.\n\n"
             "Tone:\n"
             "- Calm\n"
             "- Direct\n"
             "- Competent\n"
             "- Human\n"
-            "- Never preachy, robotic, overly formal, or vague\n\n"
-            "Preferred structure when helpful:\n"
-            "- Immediate action items\n"
-            "- Timeline\n"
-            "- Resources or contacts\n"
+            "- Never preachy, robotic, overly formal, vague, or full of fluff\n\n"
+            "Preferred headings when helpful:\n"
+            "- Immediate next steps\n"
+            "- Contacts\n"
+            "- What to say\n"
+            "- This week\n"
             "- Documentation note\n"
-            "- Follow-up or watchouts\n"
+            "- Clear next action\n"
         )
 
     def _polish_response_text(self, text: str) -> str:
@@ -1164,6 +1209,29 @@ class UnifiedAIService:
         cleaned = re.sub(r"\bWould you like me to help you search\b", "If you want, I can search", cleaned, flags=re.IGNORECASE)
         cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
         return cleaned.strip()
+
+    def _finalize_response_text(self, text: str) -> str:
+        cleaned = self._polish_response_text(text)
+        extra_replacements = {
+            "Immediate Next Steps –": "Immediate next steps:",
+            "Immediate Next Steps -": "Immediate next steps:",
+            "Short-term Plan –": "This week:",
+            "Short-term Plan -": "This week:",
+            "Short Term Plan –": "This week:",
+            "Short Term Plan -": "This week:",
+            "Clear Next Action –": "Clear next action:",
+            "Clear Next Action -": "Clear next action:",
+        }
+        for old, new in extra_replacements.items():
+            cleaned = cleaned.replace(old, new)
+
+        cleaned = re.sub(r"\bYou've got this!?\.?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bDon'?t worry!?\.?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        return cleaned.strip()
+
+    def _should_force_resource_search(self, message: str) -> bool:
+        return bool(RESOURCE_QUERY_PATTERN.search(message or ""))
 
     def _derive_resource_queries(self, message: str) -> List[str]:
         text = (message or "").lower()
