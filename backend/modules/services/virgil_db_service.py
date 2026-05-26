@@ -481,6 +481,14 @@ class VirgilServiceDatabase:
             # Remove duplicates
             deduped_results = self._deduplicate_results(all_results)
 
+            # Enrich with knowledge file data
+            try:
+                from backend.modules.resources.knowledge_enrichment import get_knowledge_enrichment
+                enrichment = get_knowledge_enrichment()
+                deduped_results = enrichment.enrich_results(deduped_results)
+            except Exception as enrich_error:
+                logger.warning(f"Knowledge enrichment failed: {enrich_error}")
+
             # Score by location if coordinates available
             for result in deduped_results:
                 result['location_score'] = self._score_location(result, location_context)
