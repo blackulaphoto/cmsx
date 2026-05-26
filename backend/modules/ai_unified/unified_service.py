@@ -14,6 +14,7 @@ GPT-4o + SQLite conversation memory with direct function execution.
 """
 
 import asyncio
+import csv
 import json
 import logging
 import os
@@ -21,7 +22,7 @@ import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -72,6 +73,17 @@ RESOURCE_QUERY_PATTERN = re.compile(
     r"(treatment|rehab|detox|sober|medi-?cal|medicaid|shelter|housing|food|resource|clinic|medical|doctor|dentist|program|near|los angeles|\\bla\\b|zip|tonight|urgent|where|mat|suboxone|meeting)",
     re.IGNORECASE,
 )
+KNOWLEDGE_FILE_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".csv",
+    ".json",
+    ".xlsx",
+}
 RESOURCE_CATEGORY_CONFIG = {
     "housing": {
         "terms": ["housing", "shelter", "homeless", "rbh", "room and board", "transitional housing", "bridge housing", "street", "eviction"],
@@ -331,11 +343,14 @@ class UnifiedAIService:
 
     def __init__(self) -> None:
         project_root = Path(__file__).resolve().parents[3]
+        self.project_root = project_root
         self.db_path = project_root / "databases" / "ai_assistant.db"
         self.model = "gpt-4o"
         self.api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
         self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
         self._initialized = False
+        self._knowledge_index_cache: Optional[List[Dict[str, Any]]] = None
+        self._knowledge_snippet_cache: Dict[str, Tuple[float, str]] = {}
         self._function_map = {
             "get_dashboard_stats": self.get_dashboard_stats,
             "create_reminder": self.create_reminder,
@@ -517,7 +532,7 @@ class UnifiedAIService:
             queries = self._derive_resource_queries(query)
             seen = set()
             results: List[Dict[str, Any]] = []
-            project_root = Path(__file__).resolve().parents[3]
+            project_root = self.project_root
             try:
                 virgil_result = get_virgil_db().search_services(query, location, 1, limit)
                 for item in virgil_result.get("results", [])[:limit]:
@@ -583,12 +598,15 @@ class UnifiedAIService:
                         "source": "dashboard_resources",
                     })
 
+            knowledge_matches = self._search_local_knowledge_files(query, location, limit=6)
+
             return {
                 "success": True,
                 "query": query,
                 "location": location,
                 "services": results[:limit],
                 "resource_files": matched_resources[:5],
+                "knowledge_files": knowledge_matches[:6],
                 "source": "internal_resource_library",
                 "total_count": len(results),
             }
@@ -600,10 +618,231 @@ class UnifiedAIService:
                 "location": location,
                 "services": [],
                 "resource_files": [],
+                "knowledge_files": [],
                 "source": "internal_resource_library",
                 "error": str(exc),
                 "total_count": 0,
             }
+
+    def _knowledge_directories(self) -> List[Path]:
+        directories = [
+            self.project_root / "knowledge_files",
+            self.project_root / "knowledge files",
+        ]
+        return [path for path in directories if path.exists()]
+
+    def _extract_query_tokens(self, query: str) -> List[str]:
+        return [
+            token
+            for token in re.findall(r"[a-z0-9][a-z0-9&+\-/]{1,}", (query or "").lower())
+            if len(token) > 2
+        ]
+
+    def _load_knowledge_index(self) -> List[Dict[str, Any]]:
+        if self._knowledge_index_cache is not None:
+            return self._knowledge_index_cache
+
+        entries: List[Dict[str, Any]] = []
+        seen_paths = set()
+        for directory in self._knowledge_directories():
+            manifest_path = directory / "manifest.json"
+            if manifest_path.exists():
+                try:
+                    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                    for item in payload:
+                        rel_path = item.get("path")
+                        if not rel_path:
+                            continue
+                        full_path = directory / rel_path
+                        if not full_path.exists():
+                            continue
+                        normalized = str(full_path.resolve())
+                        if normalized in seen_paths:
+                            continue
+                        seen_paths.add(normalized)
+                        entries.append(
+                            {
+                                "path": full_path,
+                                "title": item.get("title") or full_path.stem,
+                                "tags": item.get("tags") or [],
+                                "category": item.get("category") or item.get("jurisdiction") or "",
+                                "sources": item.get("sources") or [],
+                                "origin": "manifest",
+                            }
+                        )
+                except Exception as exc:
+                    logger.warning("Failed to load knowledge manifest %s: %s", manifest_path, exc)
+
+            for file_path in directory.rglob("*"):
+                if not file_path.is_file():
+                    continue
+                if file_path.suffix.lower() not in KNOWLEDGE_FILE_EXTENSIONS:
+                    continue
+                normalized = str(file_path.resolve())
+                if normalized in seen_paths:
+                    continue
+                seen_paths.add(normalized)
+                entries.append(
+                    {
+                        "path": file_path,
+                        "title": file_path.stem.replace("_", " ").replace("-", " ").strip(),
+                        "tags": [],
+                        "category": "",
+                        "sources": [],
+                        "origin": "filesystem",
+                    }
+                )
+
+        self._knowledge_index_cache = entries
+        return entries
+
+    def _extract_knowledge_text(self, file_path: Path) -> str:
+        try:
+            stat = file_path.stat()
+            cache_key = str(file_path.resolve())
+            cached = self._knowledge_snippet_cache.get(cache_key)
+            if cached and cached[0] == stat.st_mtime:
+                return cached[1]
+
+            suffix = file_path.suffix.lower()
+            text = ""
+            if suffix in {".txt", ".md", ".markdown", ".csv"}:
+                text = file_path.read_text(encoding="utf-8", errors="ignore")
+            elif suffix == ".json":
+                payload = json.loads(file_path.read_text(encoding="utf-8", errors="ignore"))
+                text = json.dumps(payload, ensure_ascii=False)
+            elif suffix == ".xlsx":
+                try:
+                    import openpyxl  # type: ignore
+
+                    workbook = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+                    rows: List[str] = []
+                    for sheet in workbook.worksheets[:2]:
+                        rows.append(sheet.title)
+                        for row in sheet.iter_rows(max_row=20, values_only=True):
+                            values = [str(value).strip() for value in row if value not in (None, "")]
+                            if values:
+                                rows.append(" | ".join(values))
+                    text = "\n".join(rows)
+                except Exception as exc:
+                    logger.warning("Failed to extract XLSX knowledge file %s: %s", file_path, exc)
+            elif suffix in {".pdf", ".doc", ".docx"}:
+                try:
+                    from backend.modules.resume.file_processor import ResumeFileProcessor
+
+                    processor = ResumeFileProcessor()
+                    success, extracted, _ = processor.extract_text_from_file(str(file_path))
+                    if success:
+                        text = extracted
+                except Exception as exc:
+                    logger.warning("Failed to extract document knowledge file %s: %s", file_path, exc)
+
+            text = text.lstrip("\ufeff")
+            if suffix in {".md", ".markdown"}:
+                text = re.sub(r"^---\s.*?---\s*", "", text, flags=re.DOTALL)
+
+            normalized = re.sub(r"\s+", " ", text).strip()
+            if len(normalized) > 8000:
+                normalized = normalized[:8000]
+            self._knowledge_snippet_cache[cache_key] = (stat.st_mtime, normalized)
+            return normalized
+        except Exception as exc:
+            logger.warning("Failed to read knowledge file %s: %s", file_path, exc)
+            return ""
+
+    def _build_knowledge_snippet(self, text: str, tokens: List[str]) -> str:
+        if not text:
+            return ""
+        lowered = text.lower()
+        best_index = -1
+        for token in tokens:
+            idx = lowered.find(token)
+            if idx >= 0 and (best_index == -1 or idx < best_index):
+                best_index = idx
+        if best_index == -1:
+            snippet = text[:420]
+        else:
+            start = max(0, best_index - 140)
+            end = min(len(text), best_index + 280)
+            snippet = text[start:end]
+        return re.sub(r"\s+", " ", snippet).strip()
+
+    def _search_local_knowledge_files(
+        self,
+        query: str,
+        location: str = "Los Angeles, CA",
+        limit: int = 6,
+    ) -> List[Dict[str, Any]]:
+        tokens = self._extract_query_tokens(f"{query} {location}")
+        if not tokens:
+            return []
+
+        scored: List[Tuple[int, Dict[str, Any]]] = []
+        for entry in self._load_knowledge_index():
+            title = (entry.get("title") or "").lower()
+            tags = " ".join(entry.get("tags") or []).lower()
+            category = (entry.get("category") or "").lower()
+            filename = entry["path"].name.lower()
+            haystack = f"{title} {tags} {category} {filename}"
+
+            score = 0
+            matched_terms = 0
+            for token in tokens:
+                if token in haystack:
+                    score += 8
+                    matched_terms += 1
+            if matched_terms == 0:
+                continue
+
+            if any(token in title for token in tokens):
+                score += 6
+            if any(token in tags for token in tokens):
+                score += 4
+            if "los angeles" in haystack or "la county" in haystack:
+                score += 2
+            if filename.endswith(".md") or filename.endswith(".txt"):
+                score += 1
+
+            scored.append((score, entry))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+
+        enriched: List[Tuple[int, Dict[str, Any]]] = []
+        for score, entry in scored[:14]:
+            text = self._extract_knowledge_text(entry["path"])
+            content_score = 0
+            lowered = text.lower()
+            for token in tokens:
+                if token in lowered:
+                    content_score += 3
+            snippet = self._build_knowledge_snippet(text, tokens)
+            enriched.append(
+                (
+                    score + content_score,
+                    {
+                        "title": entry.get("title") or entry["path"].stem,
+                        "path": str(entry["path"].relative_to(self.project_root)),
+                        "category": entry.get("category") or "",
+                        "tags": entry.get("tags") or [],
+                        "sources": entry.get("sources") or [],
+                        "snippet": snippet,
+                        "source": "knowledge_files",
+                    },
+                )
+            )
+
+        enriched.sort(key=lambda item: item[0], reverse=True)
+        deduped: List[Dict[str, Any]] = []
+        seen = set()
+        for _, item in enriched:
+            key = (item.get("title"), item.get("snippet"))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+            if len(deduped) >= limit:
+                break
+        return deduped
 
     def _search_services_directory_db(
         self,
@@ -864,13 +1103,19 @@ class UnifiedAIService:
         messages.extend({"role": h["role"], "content": h["content"]} for h in history)
         if injected_context:
             messages.append({"role": "system", "content": injected_context})
-        resource_context = await self._maybe_build_case_manager_resource_context(message, history)
-        if resource_context:
-            messages.append({"role": "system", "content": resource_context})
+        crisis_context = await self._maybe_build_crisis_support_context(message, history)
+        resource_context = None
+        internal_context = None
+        if crisis_context:
+            messages.append({"role": "system", "content": crisis_context})
         else:
-            internal_context = await self._maybe_build_internal_resource_context(message)
-            if internal_context:
-                messages.append({"role": "system", "content": internal_context})
+            resource_context = await self._maybe_build_case_manager_resource_context(message, history)
+            if resource_context:
+                messages.append({"role": "system", "content": resource_context})
+            else:
+                internal_context = await self._maybe_build_internal_resource_context(message)
+                if internal_context:
+                    messages.append({"role": "system", "content": internal_context})
         messages.append({"role": "user", "content": message})
 
         central_tools = [
@@ -1057,7 +1302,7 @@ class UnifiedAIService:
                 assistant_text = assistant_message.content or ""
 
                 if self._should_force_resource_search(message):
-                    grounded_context = resource_context or internal_context
+                    grounded_context = crisis_context or resource_context or internal_context
                     if grounded_context:
                         grounded_messages: List[Dict[str, Any]] = [
                             {"role": "system", "content": system_prompt}
@@ -1072,12 +1317,15 @@ class UnifiedAIService:
                                 "role": "user",
                                 "content": (
                                     f"User request:\n{message}\n\n"
-                                    "Use the verified local data below before answering. "
-                                    "Give concrete options with provider names, phone numbers, addresses, what to say when calling, "
-                                    "Immediate next steps, This week, and one Clear next action.\n\n"
-                                    f"{grounded_context}"
-                                ),
-                            }
+                                "Use the verified local data below before answering. "
+                                "Give concrete options with provider names, phone numbers, addresses, what to say when calling, "
+                                "Immediate next steps, This week, and one Clear next action. "
+                                "If 3 or more verified options are listed below, do not collapse the answer to a single provider. "
+                                "Return the 3 to 5 strongest options and explain which one to call first. "
+                                "Do not claim detox, MAT, Suboxone, residential, couples treatment, or insurance acceptance unless it is explicit in the verified data below.\n\n"
+                                f"{grounded_context}"
+                            ),
+                        }
                         )
                         grounded_follow_up = await self.client.chat.completions.create(
                             model=self.model,
@@ -1136,6 +1384,7 @@ class UnifiedAIService:
             "- Use internal verified local resources first for treatment, housing, medical, food, and service questions.\n"
             "- When provider names, phone numbers, addresses, or websites are available, include them directly.\n"
             "- Do not send users to generic directory pages when provider-level options are available.\n"
+            "- Do not claim a provider offers detox, MAT, Suboxone, residential, couples treatment, or insurance acceptance unless that capability is explicit in the verified data you were given.\n"
             "- For resource lookups, give 3 to 5 specific provider options, not a wall of links.\n"
             "- Tell the case manager who to call first and why.\n"
             "- Give concrete next steps with dates, deadlines, or sequence when possible.\n"
@@ -1280,7 +1529,8 @@ class UnifiedAIService:
         resource_results = await self.search_internal_resources(message, "Los Angeles, CA", limit=6)
         services = resource_results.get("services", [])
         resource_files = resource_results.get("resource_files", [])
-        if not services and not resource_files:
+        knowledge_files = resource_results.get("knowledge_files", [])
+        if not services and not resource_files and not knowledge_files:
             return None
 
         lines = [
@@ -1299,6 +1549,13 @@ class UnifiedAIService:
             lines.append("Matching uploaded resource files:")
             for resource in resource_files[:5]:
                 lines.append(f"- {resource.get('title')} ({resource.get('type')})")
+        if knowledge_files:
+            lines.append("Matching local resource library files:")
+            for resource in knowledge_files[:5]:
+                lines.append(
+                    f"- {resource.get('title')}; file: {resource.get('path')}; "
+                    f"snippet: {resource.get('snippet') or 'no preview available'}"
+                )
         return "\n".join(lines)
 
     async def _maybe_build_case_manager_resource_context(
@@ -1321,6 +1578,7 @@ class UnifiedAIService:
         ]
 
         internal_services = internal_results.get("services", [])
+        knowledge_matches = internal_results.get("knowledge_files", [])
         if internal_services:
             lines.append("Internal directory matches:")
             for service in internal_services[:5]:
@@ -1329,6 +1587,13 @@ class UnifiedAIService:
                     f"website: {service.get('website') or 'not listed'}; "
                     f"eligibility: {service.get('eligibility_criteria') or 'not listed'}; "
                     f"availability: {service.get('current_availability') or 'unknown'}"
+                )
+        if knowledge_matches:
+            lines.append("Internal knowledge file matches:")
+            for resource in knowledge_matches[:4]:
+                lines.append(
+                    f"- {resource.get('title')}; file: {resource.get('path')}; "
+                    f"notes: {resource.get('snippet') or 'no preview available'}"
                 )
 
         for category in categories[:3]:
@@ -1432,21 +1697,44 @@ class UnifiedAIService:
 
         location = self._extract_location_from_conversation(message, history) or "Los Angeles, CA"
         combined_text = " ".join([h.get("content", "") for h in history[-6:]] + [message]).lower()
-        detox_query = "detox rehab program"
+        detox_query = "detox rehab program los angeles"
+        suboxone_query = "suboxone mat medication assisted treatment los angeles"
+        residential_query = "residential treatment inpatient rehab los angeles"
         if "bcbs" in combined_text or "blue cross" in combined_text or "insurance" in combined_text:
             detox_query += " bcbs insurance"
+            suboxone_query += " bcbs insurance"
+            residential_query += " bcbs insurance"
+        if "medi-cal" in combined_text or "medicaid" in combined_text:
+            detox_query += " medi-cal"
+            suboxone_query += " medi-cal"
+            residential_query += " medi-cal"
 
-        internal_results, detox_results, shelter_service_results, shelter_housing_results = await asyncio.gather(
+        includes_housing = any(term in combined_text for term in ["housing", "shelter", "homeless", "street", "sleeping outside", "sleeping on the street"])
+
+        async_calls = [
             self.search_internal_resources(combined_text, location, limit=6),
             self.search_services(detox_query, location, 1, 8),
-            self.search_services("emergency shelter homeless", location, 1, 8),
-            self.search_housing("emergency shelter homeless", location, 1, 8),
-        )
+            self.search_services(suboxone_query, location, 1, 8),
+            self.search_services(residential_query, location, 1, 8),
+        ]
+        if includes_housing:
+            async_calls.extend([
+                self.search_services("emergency shelter homeless", location, 1, 8),
+                self.search_housing("emergency shelter homeless", location, 1, 8),
+            ])
+
+        gathered = await asyncio.gather(*async_calls)
+        internal_results = gathered[0]
+        detox_results = gathered[1]
+        suboxone_results = gathered[2]
+        residential_results = gathered[3]
+        shelter_service_results = gathered[4] if includes_housing else {"results": []}
+        shelter_housing_results = gathered[5] if includes_housing else {"housing_listings": []}
 
         detox_candidates = self._rank_crisis_results(
-            detox_results.get("results", []),
+            detox_results.get("results", []) + suboxone_results.get("results", []) + residential_results.get("results", []),
             location,
-            {"detox", "rehab", "treatment", "recovery"},
+            {"detox", "suboxone", "mat", "treatment", "recovery", "residential", "inpatient"},
         )
         shelter_candidates = self._rank_crisis_results(
             shelter_service_results.get("results", []) + shelter_housing_results.get("housing_listings", []),
@@ -1459,11 +1747,15 @@ class UnifiedAIService:
         )
 
         internal_services = internal_results.get("services", [])
+        knowledge_matches = internal_results.get("knowledge_files", [])
         lines = [
-            "This is a crisis housing or detox request.",
+            "This is an urgent detox, MAT, or treatment placement request.",
             f"Use the following local options for {location} before giving generic guidance.",
             "Give specific provider names, direct links, and contact numbers when available.",
             "Keep the response short, practical, and action-oriented.",
+            "If multiple verified options are listed below, return the strongest 3 to 5 options instead of only one.",
+            "Prioritize detox, MAT/Suboxone access, then residential step-down or continued treatment.",
+            "Do not state that a provider offers detox, MAT, or Suboxone unless the verified notes below explicitly support it.",
         ]
         if internal_services:
             lines.append("Internal directory matches:")
@@ -1473,16 +1765,23 @@ class UnifiedAIService:
                     f"website: {service.get('website') or 'not listed'}; "
                     f"availability: {service.get('current_availability') or 'unknown'}"
                 )
+        if knowledge_matches:
+            lines.append("Internal knowledge file matches:")
+            for resource in knowledge_matches[:4]:
+                lines.append(
+                    f"- {resource.get('title')}; file: {resource.get('path')}; "
+                    f"notes: {resource.get('snippet') or 'no preview available'}"
+                )
         if detox_candidates:
-            lines.append("Detox or treatment web matches:")
-            for item in detox_candidates[:4]:
+            lines.append("Detox, MAT, and residential treatment matches:")
+            for item in detox_candidates[:6]:
                 lines.append(
                     f"- {item.get('title')}; phone: {item.get('phone') or 'not listed'}; "
                     f"website: {item.get('link') or item.get('url') or item.get('website') or 'not listed'}; "
                     f"address: {item.get('address') or item.get('location') or location}; "
                     f"notes: {item.get('insurance_notes') or item.get('hours') or item.get('description') or ''}"
                 )
-        if shelter_candidates:
+        if includes_housing and shelter_candidates:
             lines.append("Emergency housing or shelter web matches:")
             for item in shelter_candidates[:4]:
                 lines.append(
@@ -1537,11 +1836,22 @@ class UnifiedAIService:
     ) -> List[Dict[str, Any]]:
         scored: List[tuple] = []
         location_l = (location or "").lower()
+        detox_mode = "detox" in preferred_terms or "suboxone" in preferred_terms or "mat" in preferred_terms
         for item in items:
             title = (item.get("title") or "").lower()
             description = (item.get("description") or "").lower()
             url = item.get("link") or item.get("url") or ""
             hostname = (urlparse(url).hostname or "").lower().replace("www.", "")
+            combined = f"{title} {description}"
+
+            if detox_mode:
+                detox_signals = ["detox", "suboxone", "mat", "medication-assisted", "rehab", "residential", "treatment", "recovery", "inpatient"]
+                excluded_signals = ["211", "dental", "free-fare", "bus", "transit", "sacramento"]
+                if any(signal in combined for signal in excluded_signals):
+                    continue
+                if not any(signal in combined for signal in detox_signals) and not any(boost in title for boost in KNOWN_PROVIDER_BOOSTS):
+                    continue
+
             score = 0
             if hostname and hostname not in AGGREGATOR_DOMAINS:
                 score += 4
