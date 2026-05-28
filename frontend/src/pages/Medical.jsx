@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Activity,
@@ -313,7 +313,7 @@ function Medical() {
   const activePathMeta = MEDICAL_PATHS.find((path) => path.key === activePath)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-pulse"></div>
         <div className="absolute top-1/2 -left-40 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl animate-pulse delay-1000"></div>
@@ -322,7 +322,7 @@ function Medical() {
 
       <div className="relative z-10">
         <div className="bg-black/20 backdrop-blur-xl border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
             <div className="flex items-center gap-4">
               <div className="p-3 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-xl shadow-lg">
                 <Stethoscope className="h-8 w-8 text-white" />
@@ -339,7 +339,7 @@ function Medical() {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8 space-y-8">
           <div className="group bg-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all duration-300">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-3 text-white">
               <div className="p-2 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-lg">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Users,
@@ -98,10 +98,10 @@ function SupervisorDashboard() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       <div className="relative z-10">
         <div className="bg-black/20 backdrop-blur-xl border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-cyan-200 to-blue-200 bg-clip-text text-transparent">
@@ -122,7 +122,7 @@ function SupervisorDashboard() {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 mb-8">
             {summaryCards.map((card) => (
               <div key={card.label} className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import {
   Building2,
   Contact,
@@ -198,7 +198,7 @@ function Rolodex() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 px-4 py-10 text-white">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 px-4 py-10 text-white">
       <div className="mx-auto max-w-7xl space-y-8">
         <section className="rounded-[32px] border border-white/10 bg-white/5 p-8 shadow-2xl shadow-purple-900/30 backdrop-blur-xl">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">

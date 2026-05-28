@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { 
   Scale, FileText, CheckCircle, Clock, AlertCircle, Calendar, Plus, 
   Edit, Trash2, X, Save, User, MapPin, Gavel, DollarSign, 
@@ -341,7 +341,7 @@ function Expungement() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
       {/* Animated Background Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
@@ -352,7 +352,7 @@ function Expungement() {
       {/* Header */}
       <div className="relative z-10">
         <div className="bg-black/20 backdrop-blur-xl border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
             <div className="flex items-center gap-4 mb-2">
               <div className="p-3 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-xl shadow-lg">
                 <Scale className="h-8 w-8 text-white" />
@@ -367,7 +367,7 @@ function Expungement() {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
           {/* Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             {stats.map((stat, index) => (

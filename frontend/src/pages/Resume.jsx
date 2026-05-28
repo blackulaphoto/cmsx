@@ -195,7 +195,7 @@ function Resume() {
     if (!selectedClient) return
     
     try {
-      const response = await fetch(`/api/resume/profile/${selectedClient.client_id}`)
+      const response = await apiFetch(`/api/resume/profile/${selectedClient.client_id}`)
       if (response.ok) {
         const data = await response.json()
         if (data.profile) {
@@ -211,7 +211,7 @@ function Resume() {
     if (!selectedClient) return
     
     try {
-      const response = await fetch(`/api/resume/list/${selectedClient.client_id}`)
+      const response = await apiFetch(`/api/resume/list/${selectedClient.client_id}`)
       if (response.ok) {
         const data = await response.json()
         setSavedResumes(data.resumes || [])
@@ -225,7 +225,7 @@ function Resume() {
     if (!selectedClient) return
     
     try {
-      const response = await fetch(`/api/resume/applications/${selectedClient.client_id}`)
+      const response = await apiFetch(`/api/resume/applications/${selectedClient.client_id}`)
       if (response.ok) {
         const data = await response.json()
         setJobApplications(data.applications || [])
@@ -256,7 +256,7 @@ function Resume() {
         ai_rewrite: String(resumeImportMode === 'rewrite')
       })
 
-      const response = await fetch(`/api/resume/import?${query.toString()}`, {
+      const response = await apiFetch(`/api/resume/import?${query.toString()}`, {
         method: 'POST',
         body: formData
       })
@@ -292,7 +292,7 @@ function Resume() {
 
     setLoading(true)
     try {
-      const response = await fetch('/api/resume/rewrite-profile', {
+      const response = await apiFetch('/api/resume/rewrite-profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -334,7 +334,7 @@ function Resume() {
 
     if (!silent) setLoading(true)
     try {
-      const response = await fetch('/api/resume/profile', {
+      const response = await apiFetch('/api/resume/profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -378,7 +378,7 @@ function Resume() {
 
     setLoading(true)
     try {
-      const response = await fetch('/api/resume/create', {
+      const response = await apiFetch('/api/resume/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -434,7 +434,7 @@ function Resume() {
   const optimizeResume = async (resumeId) => {
     setLoading(true)
     try {
-      const response = await fetch('/api/resume/optimize', {
+      const response = await apiFetch('/api/resume/optimize', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -506,7 +506,7 @@ function Resume() {
       // Then create a resume if one doesn't exist
       const resumeTitle = `${selectedTemplate.name} Resume for ${effectiveClient.first_name} ${effectiveClient.last_name}`
       
-      const createResponse = await fetch('/api/resume/create', {
+      const createResponse = await apiFetch('/api/resume/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -691,7 +691,7 @@ function Resume() {
 
     setLoading(true)
     try {
-      const response = await fetch('/api/resume/create', {
+      const response = await apiFetch('/api/resume/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -720,7 +720,7 @@ function Resume() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Animated Background Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
@@ -731,22 +731,22 @@ function Resume() {
       {/* Header */}
       <div className="relative z-10">
         <div className="bg-black/20 backdrop-blur-xl border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
             <div className="flex items-center gap-4 mb-2">
               <div className="p-3 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl shadow-lg">
                 <FileText className="h-8 w-8 text-white" />
               </div>
               <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-blue-200 to-purple-200 bg-clip-text text-transparent">
+                <h1 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-white via-blue-200 to-purple-200 bg-clip-text text-transparent">
                   Resume Builder
                 </h1>
-                <p className="text-gray-300 text-lg">Create professional resumes with live preview</p>
+                <p className="text-gray-300 text-sm sm:text-lg">Create professional resumes with live preview</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
           {/* Enhanced Client Selection */}
           <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 mb-8 p-6 hover:bg-white/10 transition-all duration-300">
             <div className="flex items-center justify-between mb-6">

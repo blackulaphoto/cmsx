@@ -1,4 +1,4 @@
-/*
+﻿/*
  * ✅ HOUSING SEARCH SYSTEM - FULLY FUNCTIONAL - DO NOT MODIFY
  * 
  * This component is working perfectly with:
@@ -249,7 +249,7 @@ function HousingSearch() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
       {/* Animated Background Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-pulse"></div>
@@ -260,7 +260,7 @@ function HousingSearch() {
       {/* Header */}
       <div className="relative z-10">
         <div className="bg-black/20 backdrop-blur-xl border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-lg">
@@ -338,7 +338,7 @@ function HousingSearch() {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
           {/* Client Selection - FIXED with proper z-index */}
           <div className="group bg-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-purple-500/20 mb-8 relative z-20">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-3 text-white">

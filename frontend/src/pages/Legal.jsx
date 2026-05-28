@@ -54,6 +54,10 @@ function Legal() {
     urgency_level: 'Medium'
   })
 
+  const legalClientLabel = selectedClient
+    ? `${selectedClient.first_name || ''} ${selectedClient.last_name || ''}`.trim()
+    : ''
+
   useEffect(() => {
     fetchLegalData()
   }, [selectedClient?.client_id])
@@ -86,10 +90,10 @@ function Legal() {
       const clientId = selectedClient?.client_id
       const clientQuery = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
       const [casesRes, docsRes, datesRes, tasksRes] = await Promise.all([
-        fetch(`/api/legal/cases${clientQuery}`),
-        fetch(`/api/legal/documents${clientQuery}`),
-        fetch(`/api/legal/court-dates${clientQuery}`),
-        fetch(`/api/legal/expungement/tasks${clientQuery}`)
+        apiFetch(`/api/legal/cases${clientQuery}`),
+        apiFetch(`/api/legal/documents${clientQuery}`),
+        apiFetch(`/api/legal/court-dates${clientQuery}`),
+        apiFetch(`/api/legal/expungement/tasks${clientQuery}`)
       ])
 
       if (!casesRes.ok || !docsRes.ok || !datesRes.ok || !tasksRes.ok) {
@@ -162,7 +166,7 @@ function Legal() {
     }
 
     try {
-      const response = await fetch('/api/legal/expungement/tasks', {
+      const response = await apiFetch('/api/legal/expungement/tasks', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -200,7 +204,7 @@ function Legal() {
         .map((charge) => charge.trim())
         .filter(Boolean)
 
-      const response = await fetch('/api/legal/cases', {
+      const response = await apiFetch('/api/legal/cases', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -268,7 +272,7 @@ function Legal() {
     }
 
     try {
-      const response = await fetch('/api/legal/court-dates', {
+      const response = await apiFetch('/api/legal/court-dates', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -308,7 +312,7 @@ function Legal() {
     }
 
     try {
-      const response = await fetch('/api/legal/documents', {
+      const response = await apiFetch('/api/legal/documents', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -334,7 +338,7 @@ function Legal() {
       if (documentUploadFile && result?.document_id) {
         const uploadForm = new FormData()
         uploadForm.append('file', documentUploadFile)
-        const uploadResponse = await fetch(`/api/legal/documents/${encodeURIComponent(result.document_id)}/upload`, {
+        const uploadResponse = await apiFetch(`/api/legal/documents/${encodeURIComponent(result.document_id)}/upload`, {
           method: 'POST',
           body: uploadForm,
         })
@@ -358,15 +362,6 @@ function Legal() {
     } catch (error) {
       console.error('Create legal document error:', error)
       toast.error(error?.message || 'Failed to create legal document')
-    }
-  }
-
-  const scheduleAppointment = async (date, time) => {
-    try {
-      await createCourtDate(date, time)
-    } catch (error) {
-      console.error('Schedule appointment error:', error)
-      toast.error(error?.message || 'Failed to schedule legal appointment')
     }
   }
 
@@ -426,7 +421,7 @@ function Legal() {
     try {
       const formData = new FormData()
       formData.append('file', file)
-      const response = await fetch(`/api/legal/documents/${encodeURIComponent(documentId)}/upload`, {
+      const response = await apiFetch(`/api/legal/documents/${encodeURIComponent(documentId)}/upload`, {
         method: 'POST',
         body: formData,
       })
@@ -475,7 +470,7 @@ function Legal() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
       {/* Animated Background Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
@@ -486,22 +481,22 @@ function Legal() {
       {/* Header */}
       <div className="relative z-10">
         <div className="bg-black/20 backdrop-blur-xl border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
             <div className="flex items-center gap-4 mb-2">
               <div className="p-3 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-xl shadow-lg">
                 <Scale className="h-8 w-8 text-white" />
               </div>
               <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-purple-200 to-indigo-200 bg-clip-text text-transparent">
+                <h1 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-white via-purple-200 to-indigo-200 bg-clip-text text-transparent">
                   Legal Services
                 </h1>
-                <p className="text-gray-300 text-lg">Legal assistance and document preparation</p>
+                <p className="text-gray-300 text-sm sm:text-lg">Legal assistance and document preparation</p>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
           {/* Client Selection - FIXED with proper z-index */}
           <div className="group bg-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/10 hover:border-white/20 transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-purple-500/20 mb-8 relative z-20">
             <h2 className="text-xl font-semibold mb-4 flex items-center gap-2 text-white">
@@ -755,14 +750,17 @@ function Legal() {
                     )}
                   </div>
 
-                  {/* Schedule Appointment */}
+                  {/* Quick Court Date Entry */}
                   <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl p-8 border border-white/20">
                     <div className="flex items-center gap-3 mb-6">
                       <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg">
                         <Plus className="h-5 w-5 text-white" />
                       </div>
-                      <h3 className="text-xl font-bold text-white">Schedule Legal Meeting</h3>
+                      <h3 className="text-xl font-bold text-white">Quick Court Date Entry</h3>
                     </div>
+                    <p className="mb-6 text-sm text-gray-300">
+                      Add an upcoming hearing or court appearance for {legalClientLabel || 'the selected client'}.
+                    </p>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-2">Date</label>
@@ -786,12 +784,12 @@ function Legal() {
                       </div>
                       <div className="flex items-end">
                         <button
-                          onClick={() => scheduleAppointment(courtDateForm.hearing_date, courtDateForm.hearing_time)}
+                          onClick={() => createCourtDate(courtDateForm.hearing_date, courtDateForm.hearing_time)}
                           className="group w-full flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-emerald-500/25"
                           data-testid="confirm-appointment"
                         >
                           <Calendar className="h-5 w-5 group-hover:scale-110 transition-transform duration-300" />
-                          Schedule Meeting
+                          Add Court Date
                         </button>
                       </div>
                     </div>

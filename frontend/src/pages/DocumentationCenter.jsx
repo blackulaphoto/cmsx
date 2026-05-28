@@ -655,22 +655,22 @@ function DocumentationCenter() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-32 right-12 h-72 w-72 rounded-full bg-cyan-500/10 blur-3xl" />
         <div className="absolute top-1/3 -left-24 h-64 w-64 rounded-full bg-fuchsia-500/10 blur-3xl" />
         <div className="absolute bottom-0 right-1/4 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
       </div>
 
-      <div className="relative z-10 max-w-7xl mx-auto px-6 py-8 space-y-8">
-        <section className="rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-8 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
+      <div className="relative z-10 max-w-7xl mx-auto px-3 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
+        <section className="rounded-[20px] sm:rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-4 sm:p-8 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-200">
                 <Sparkles className="h-4 w-4" />
                 Documentation Center
               </div>
-              <h1 className="text-4xl font-bold text-white">Notes and Documents Command Center</h1>
+              <h1 className="text-2xl sm:text-4xl font-bold text-white">Notes and Documents Command Center</h1>
               <p className="mt-3 max-w-2xl text-lg text-slate-300">
                 One professional workspace for progress notes, treatment plans, discharge summaries, referral packets, court letters, FMLA documentation, and file-backed templates.
               </p>
@@ -687,10 +687,10 @@ function DocumentationCenter() {
 
         <section className="grid grid-cols-1 gap-8 xl:grid-cols-[1.45fr_0.95fr]">
           <div className="space-y-8">
-            <div className="rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
+            <div className="rounded-[20px] sm:rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-4 sm:p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-2xl font-bold text-white">Template Gallery</h2>
+                  <h2 className="text-xl sm:text-2xl font-bold text-white">Template Gallery</h2>
                   <p className="mt-1 text-sm text-slate-300">Choose a structured starting point, then edit and save it as a real client note or formal document.</p>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -737,31 +737,31 @@ function DocumentationCenter() {
                         : 'border-white/10 bg-slate-950/30 hover:border-white/20'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                    <div className="flex items-start justify-between gap-2 sm:gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
                             template.mode === 'note'
                               ? 'bg-blue-500/20 text-blue-200'
                               : 'bg-fuchsia-500/20 text-fuchsia-200'
                           }`}>
                             {template.mode === 'note' ? 'Client Note' : 'Document'}
                           </span>
-                          <span className="text-xs uppercase tracking-[0.2em] text-slate-400">{template.category}</span>
+                          <span className="text-xs uppercase tracking-widest text-slate-400">{template.category}</span>
                           {template.source === 'file' && (
-                            <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                            <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-200">
                               File template
                             </span>
                           )}
                         </div>
-                        <h3 className="mt-3 text-xl font-semibold text-white">{template.label}</h3>
-                        <p className="mt-2 text-sm leading-6 text-slate-300">{template.bestFor}</p>
+                        <h3 className="mt-2 text-base sm:text-xl font-semibold text-white leading-snug">{template.label}</h3>
+                        <p className="mt-1.5 text-sm leading-5 text-slate-300">{template.bestFor}</p>
                         {template.relativePath && (
-                          <p className="mt-2 truncate text-xs text-slate-500">{template.relativePath}</p>
+                          <p className="mt-1.5 truncate text-xs text-slate-500">{template.relativePath}</p>
                         )}
                       </div>
-                      <div className="rounded-xl bg-white/10 p-3 text-slate-200">
-                        {template.mode === 'note' ? <PenSquare className="h-5 w-5" /> : <ScrollText className="h-5 w-5" />}
+                      <div className="flex-shrink-0 rounded-xl bg-white/10 p-2.5 sm:p-3 text-slate-200">
+                        {template.mode === 'note' ? <PenSquare className="h-4 w-4 sm:h-5 sm:w-5" /> : <ScrollText className="h-4 w-4 sm:h-5 sm:w-5" />}
                       </div>
                     </div>
                   </button>

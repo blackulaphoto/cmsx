@@ -1,17 +1,30 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Calendar, Clock, CheckCircle, AlertCircle, TrendingUp, Users, Bell, MessageSquare, Search, Filter, Sparkles, Zap, Brain, Star, PlusCircle, ArrowRight } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
 
 function SmartDaily() {
+  const navigate = useNavigate()
   const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(true)
   const [priorityAlerts, setPriorityAlerts] = useState([])
   const [aiReminders, setAiReminders] = useState([])
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('all')
+
+  const resolveTaskClientLabel = (task) => {
+    if (task.client_name && task.client_name !== 'Unknown Client') {
+      return task.client_name
+    }
+
+    if (task.client_id) {
+      return `Client ${String(task.client_id).slice(0, 8)}`
+    }
+
+    return 'Client record unavailable'
+  }
 
   useEffect(() => {
     const fetchDailyTasks = async () => {
@@ -37,11 +50,12 @@ function SmartDaily() {
               rawTaskId,
               source: taskSource,
               completionSupported: taskSource === 'intelligent_task',
+              clientId: task.client_id || '',
               title: task.task || task.title || 'Untitled task',
               priority: String(task.urgency || task.priority || 'low').toLowerCase(),
               dueTime: task.scheduled_time || '09:00',
               status: String(task.status || 'pending').toLowerCase(),
-              client: task.client_name || 'Unknown Client',
+              client: resolveTaskClientLabel(task),
               category: task.task_type || task.category || 'task',
               dueDate: task.scheduled_for || task.due_date || '',
               notes: task.description || ''
@@ -148,6 +162,40 @@ function SmartDaily() {
     toast.success('Reminder acknowledged')
   }
 
+  const getTaskDestination = (task) => {
+    const normalizedCategory = String(task.category || '').toLowerCase()
+    const normalizedTitle = String(task.title || '').toLowerCase()
+    const clientQuery = task.clientId ? `?client=${encodeURIComponent(task.clientId)}` : ''
+
+    if (normalizedCategory.includes('legal') || normalizedTitle.includes('court') || normalizedTitle.includes('probation')) {
+      return `/legal${clientQuery}`
+    }
+
+    if (normalizedCategory.includes('housing') || normalizedTitle.includes('housing') || normalizedTitle.includes('sober living')) {
+      return `/housing${clientQuery}`
+    }
+
+    if (normalizedCategory.includes('benefit') || normalizedTitle.includes('snap') || normalizedTitle.includes('calfresh') || normalizedTitle.includes('medi-cal')) {
+      return `/benefits${clientQuery}`
+    }
+
+    if (normalizedCategory.includes('employment') || normalizedCategory.includes('job') || normalizedTitle.includes('resume') || normalizedTitle.includes('application')) {
+      return `/jobs${clientQuery}`
+    }
+
+    if (normalizedCategory.includes('fmla') || normalizedTitle.includes('fmla')) {
+      return `/fmla${clientQuery}`
+    }
+
+    return clientQuery ? `/case-management${clientQuery}` : '/case-management'
+  }
+
+  const startTask = (task) => {
+    const destination = getTaskDestination(task)
+    navigate(destination)
+    toast.success(`Opened ${task.category} workflow for ${task.client}`)
+  }
+
   const stats = [
     { icon: Clock, label: 'Today\'s Tasks', value: tasks.length.toString(), variant: 'primary' },
     { icon: CheckCircle, label: 'Completed', value: tasks.filter(t => t.status === 'completed').length.toString(), variant: 'success' },
@@ -174,7 +222,7 @@ function SmartDaily() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
       {/* Animated Background Elements */}
       <div className="fixed inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-pulse"></div>
@@ -186,14 +234,14 @@ function SmartDaily() {
       {/* Header */}
       <div className="relative z-10">
         <div className="bg-black/20 backdrop-blur-xl border-b border-white/10">
-          <div className="max-w-7xl mx-auto px-6 py-8">
+          <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
             <div className="flex items-center gap-4 mb-2">
               <div className="relative p-3 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-lg">
                 <Calendar className="h-8 w-8 text-white" />
                 <div className="absolute -top-1 -right-1 w-4 h-4 bg-green-400 rounded-full border-2 border-white animate-pulse"></div>
               </div>
               <div>
-                <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-cyan-200 to-blue-200 bg-clip-text text-transparent">
+                <h1 className="text-2xl sm:text-4xl font-bold bg-gradient-to-r from-white via-cyan-200 to-blue-200 bg-clip-text text-transparent">
                   Smart Daily Dashboard
                 </h1>
                 <div className="flex items-center gap-2">
@@ -210,7 +258,7 @@ function SmartDaily() {
           </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
           {/* Priority Alerts */}
           {priorityAlerts.length > 0 && (
             <div className="bg-gradient-to-r from-red-500/20 to-pink-500/20 backdrop-blur-xl border border-red-500/30 rounded-2xl p-8 mb-8 shadow-2xl shadow-red-500/10">
@@ -427,10 +475,7 @@ function SmartDaily() {
                         <>
                           <button 
                             className="group/btn px-6 py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-cyan-500/25"
-                            onClick={() => {
-                              // Navigate to relevant module
-                              toast.success(`Starting ${task.category} task for ${task.client}`)
-                            }}
+                            onClick={() => startTask(task)}
                           >
                             <div className="flex items-center gap-2">
                               <Zap size={16} className="group-hover/btn:scale-110 transition-transform duration-300" />
@@ -480,18 +525,18 @@ function SmartDaily() {
               <h2 className="text-2xl font-bold text-white">Quick Actions</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <button className="group p-6 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm border border-white/20 rounded-xl hover:border-white/30 transition-all duration-300 text-left hover:scale-105 hover:shadow-xl hover:shadow-blue-500/20">
+              <Link to="/case-management" className="group p-6 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm border border-white/20 rounded-xl hover:border-white/30 transition-all duration-300 text-left hover:scale-105 hover:shadow-xl hover:shadow-blue-500/20">
                 <h3 className="font-bold text-white mb-3 group-hover:text-blue-200 transition-colors text-lg">Add New Client</h3>
                 <p className="text-gray-300 group-hover:text-gray-200 transition-colors">Create client profile and start case</p>
-              </button>
-              <button className="group p-6 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm border border-white/20 rounded-xl hover:border-white/30 transition-all duration-300 text-left hover:scale-105 hover:shadow-xl hover:shadow-green-500/20">
+              </Link>
+              <Link to="/legal" className="group p-6 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm border border-white/20 rounded-xl hover:border-white/30 transition-all duration-300 text-left hover:scale-105 hover:shadow-xl hover:shadow-green-500/20">
                 <h3 className="font-bold text-white mb-3 group-hover:text-green-200 transition-colors text-lg">Schedule Appointment</h3>
                 <p className="text-gray-300 group-hover:text-gray-200 transition-colors">Book meeting with client or service provider</p>
-              </button>
-              <button className="group p-6 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm border border-white/20 rounded-xl hover:border-white/30 transition-all duration-300 text-left hover:scale-105 hover:shadow-xl hover:shadow-red-500/20">
+              </Link>
+              <Link to="/services" className="group p-6 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm border border-white/20 rounded-xl hover:border-white/30 transition-all duration-300 text-left hover:scale-105 hover:shadow-xl hover:shadow-red-500/20">
                 <h3 className="font-bold text-white mb-3 group-hover:text-red-200 transition-colors text-lg">Emergency Referral</h3>
                 <p className="text-gray-300 group-hover:text-gray-200 transition-colors">Quick access to crisis services</p>
-              </button>
+              </Link>
             </div>
           </div>
         </div>

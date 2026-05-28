@@ -46,16 +46,16 @@ const Layout = ({ children }) => {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen w-full flex flex-col bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* REDESIGNED HEADER */}
-      <header className="bg-gradient-to-r from-slate-900/95 via-purple-900/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 text-white sticky top-0 z-50 shadow-2xl shadow-purple-500/20">
+      <header className="w-full bg-gradient-to-r from-slate-900/95 via-purple-900/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 text-white sticky top-0 z-50 shadow-2xl shadow-purple-500/20">
         {/* Animated Background Elements */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute -top-4 -right-20 w-40 h-40 bg-orange-500/5 rounded-full blur-2xl animate-pulse"></div>
           <div className="absolute -top-4 -left-20 w-40 h-40 bg-pink-500/5 rounded-full blur-2xl animate-pulse delay-1000"></div>
         </div>
 
-        <div className="relative z-10 max-w-7xl mx-auto px-4">
+        <div className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
             {/* Logo */}
             <Link to="/" className="flex items-center gap-4 group cursor-pointer">
@@ -135,7 +135,7 @@ const Layout = ({ children }) => {
 
           {/* Mobile Navigation */}
           <div className="md:hidden border-t border-white/10">
-            <div className="flex overflow-x-auto py-2 gap-1">
+            <div className="flex overflow-x-auto py-2 gap-1 -mx-4 sm:-mx-6 px-4 sm:px-6 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {navigationItems.map((item) => {
                 const IconComponent = item.icon;
                 const isActive = location.pathname === item.path;
@@ -143,11 +143,11 @@ const Layout = ({ children }) => {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`group flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all duration-300 hover:bg-white/10 border border-transparent hover:border-white/20 ${
+                    className={`group flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-300 hover:bg-white/10 border border-transparent hover:border-white/20 ${
                       isActive ? 'bg-white/10 border-white/20 text-white' : 'text-gray-300'
                     }`}
                   >
-                    <div className={`p-1 bg-gradient-to-r ${item.gradient} rounded-md`}>
+                    <div className={`p-1 bg-gradient-to-r ${item.gradient} rounded-md flex-shrink-0`}>
                       <IconComponent className="h-3 w-3 text-white" />
                     </div>
                     <span>{item.label}</span>
@@ -160,7 +160,7 @@ const Layout = ({ children }) => {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1">
+      <main className="flex-1 w-full min-w-0">
         {children}
       </main>
 

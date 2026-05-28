@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { MessageSquare, Send, Bot, User, Loader2, Sparkles, Zap, Brain, Stars, Save, BookOpen, StickyNote, Bookmark } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
@@ -153,7 +153,7 @@ function AIChat() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+    <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
       {/* Background Elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-cyan-500/10 rounded-full blur-3xl animate-pulse"></div>
