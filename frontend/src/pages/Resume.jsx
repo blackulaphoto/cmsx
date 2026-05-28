@@ -748,17 +748,17 @@ function Resume() {
 
         <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
           {/* Enhanced Client Selection */}
-          <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 mb-8 p-6 hover:bg-white/10 transition-all duration-300">
-            <div className="flex items-center justify-between mb-6">
+          <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 mb-8 p-4 sm:p-6 hover:bg-white/10 transition-all duration-300">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4 sm:mb-6">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg">
                   <User className="h-5 w-5 text-white" />
                 </div>
-                <h3 className="text-xl font-semibold text-white">
+                <h3 className="text-lg sm:text-xl font-semibold text-white">
                   {guestMode ? 'Guest Resume' : 'Select Client'}
                 </h3>
               </div>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-3">
                 {/* Guest Mode Toggle */}
                 <div className="flex items-center gap-3">
                   <span className={`text-sm font-medium transition-colors ${!guestMode ? 'text-white' : 'text-gray-400'}`}>
@@ -853,7 +853,7 @@ function Resume() {
 
           {/* Navigation Tabs */}
           <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 mb-8 overflow-hidden">
-            <div className="flex border-b border-white/10 bg-black/20">
+            <div className="flex overflow-x-auto border-b border-white/10 bg-black/20 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {[
                 { id: 'builder', label: 'Resume Builder', icon: Edit, gradient: 'from-blue-500 to-purple-500' },
                 { id: 'templates', label: 'Templates', icon: Palette, gradient: 'from-purple-500 to-pink-500' },
@@ -863,7 +863,7 @@ function Resume() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`group flex items-center gap-3 px-8 py-6 font-medium transition-all duration-300 relative overflow-hidden ${
+                  className={`group flex-shrink-0 flex items-center gap-2 px-4 sm:px-8 py-4 sm:py-6 font-medium transition-all duration-300 relative overflow-hidden ${
                     activeTab === tab.id
                       ? 'text-white bg-gradient-to-r ' + tab.gradient
                       : 'text-gray-400 hover:text-white hover:bg-white/5'
@@ -872,9 +872,9 @@ function Resume() {
                   {activeTab === tab.id && (
                     <div className={`absolute inset-0 bg-gradient-to-r ${tab.gradient} opacity-100`}></div>
                   )}
-                  <div className="relative z-10 flex items-center gap-3">
-                    <tab.icon size={20} />
-                    <span className="font-semibold">{tab.label}</span>
+                  <div className="relative z-10 flex items-center gap-2">
+                    <tab.icon size={16} className="flex-shrink-0" />
+                    <span className="font-semibold text-sm sm:text-base whitespace-nowrap">{tab.label}</span>
                   </div>
                   {activeTab === tab.id && (
                     <div className="absolute bottom-0 left-0 right-0 h-1 bg-white/30"></div>
@@ -883,19 +883,19 @@ function Resume() {
               ))}
             </div>
 
-            <div className="p-8">
+            <div className="p-4 sm:p-8">
               {/* Enhanced Resume Builder Tab with Split Screen */}
               {activeTab === 'builder' && (
                 <div className="tab-content layout-stable" data-tab="builder">
                   {!getEffectiveClient() ? (
-                    <div className="text-center py-20 text-gray-400">
-                      <div className="bg-gradient-to-r from-gray-500/10 to-purple-500/10 rounded-2xl p-12 border border-white/10">
-                        <User className="h-20 w-20 mx-auto mb-6 opacity-50 text-gray-500" />
-                        <h3 className="text-2xl font-medium mb-4 text-white">
+                    <div className="text-center py-10 sm:py-20 text-gray-400">
+                      <div className="bg-gradient-to-r from-gray-500/10 to-purple-500/10 rounded-2xl p-6 sm:p-12 border border-white/10">
+                        <User className="h-14 w-14 sm:h-20 sm:w-20 mx-auto mb-4 sm:mb-6 opacity-50 text-gray-500" />
+                        <h3 className="text-xl sm:text-2xl font-medium mb-3 sm:mb-4 text-white">
                           {guestMode ? 'Enter Guest Information' : 'Select a Client to Begin'}
                         </h3>
-                        <p className="text-lg">
-                          {guestMode 
+                        <p className="text-base">
+                          {guestMode
                             ? 'Fill in the guest information above to start building a resume'
                             : 'Choose a client from the dropdown above to start building their resume'
                           }
@@ -903,19 +903,19 @@ function Resume() {
                       </div>
                     </div>
                   ) : (
-                    <div className="split-screen-layout grid grid-cols-1 xl:grid-cols-5 gap-8">
+                    <div className="split-screen-layout grid grid-cols-1 xl:grid-cols-5 gap-4 sm:gap-8">
                       {/* Left Panel - Enhanced Form (60% width) */}
-                      <div className="xl:col-span-3 space-y-8">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg">
+                      <div className="xl:col-span-3 space-y-4 sm:space-y-8">
+                        <div className="flex flex-wrap items-start sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex-shrink-0">
                               <Briefcase className="h-5 w-5 text-white" />
                             </div>
-                            <h3 className="text-2xl font-semibold text-white">
+                            <h3 className="text-lg sm:text-2xl font-semibold text-white leading-snug">
                               Employment Profile for {getEffectiveClient().first_name} {getEffectiveClient().last_name}
                             </h3>
                           </div>
-                          <div className="flex items-center gap-4">
+                          <div className="flex flex-wrap items-center gap-3">
                             <label className="flex items-center gap-2 text-sm text-gray-300">
                               <input
                                 type="checkbox"
@@ -1152,11 +1152,11 @@ function Resume() {
               {/* Enhanced Templates Tab */}
               {activeTab === 'templates' && (
                 <div className="tab-content layout-stable" data-tab="templates">
-                  <div className="flex items-center gap-3 mb-8">
-                    <div className="p-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg">
+                  <div className="flex flex-wrap items-center gap-3 mb-6">
+                    <div className="p-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex-shrink-0">
                       <Palette className="h-5 w-5 text-white" />
                     </div>
-                    <h2 className="text-2xl font-bold text-white">Choose Resume Template</h2>
+                    <h2 className="text-xl sm:text-2xl font-bold text-white">Choose Resume Template</h2>
                     <div className="px-3 py-1 bg-gradient-to-r from-pink-500 to-purple-500 rounded-full">
                       <span className="text-xs font-medium text-white">6 Professional Templates</span>
                     </div>
@@ -1177,29 +1177,29 @@ function Resume() {
               {activeTab === 'resumes' && (
                 <div className="tab-content layout-stable" data-tab="resumes">
                   {!getEffectiveClient() ? (
-                    <div className="text-center py-20 text-gray-400">
-                      <div className="bg-gradient-to-r from-gray-500/10 to-purple-500/10 rounded-2xl p-12 border border-white/10">
-                        <FileText className="h-20 w-20 mx-auto mb-6 opacity-50 text-gray-500" />
-                        <h3 className="text-2xl font-medium mb-4 text-white">
+                    <div className="text-center py-10 sm:py-20 text-gray-400">
+                      <div className="bg-gradient-to-r from-gray-500/10 to-purple-500/10 rounded-2xl p-6 sm:p-12 border border-white/10">
+                        <FileText className="h-14 w-14 sm:h-20 sm:w-20 mx-auto mb-4 opacity-50 text-gray-500" />
+                        <h3 className="text-xl sm:text-2xl font-medium mb-3 text-white">
                           {guestMode ? 'Enter guest information first' : 'Please select a client first'}
                         </h3>
                       </div>
                     </div>
                   ) : (
                     <div>
-                      <div className="flex items-center justify-between mb-8">
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg">
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="p-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg flex-shrink-0">
                             <FileText className="h-5 w-5 text-white" />
                           </div>
-                          <h3 className="text-2xl font-semibold text-white">
+                          <h3 className="text-lg sm:text-2xl font-semibold text-white leading-snug">
                             Resumes for {getEffectiveClient().first_name} {getEffectiveClient().last_name}
                             {guestMode && <span className="text-purple-400 ml-2">(Guest)</span>}
                           </h3>
                         </div>
                         <button
                           onClick={() => setActiveTab('templates')}
-                          className="bg-gradient-to-r from-blue-500 to-purple-500 text-white px-6 py-3 rounded-xl hover:from-blue-400 hover:to-purple-400 transition-all duration-300 flex items-center gap-2 font-medium hover:scale-105 hover:shadow-lg hover:shadow-blue-500/25"
+                          className="flex-shrink-0 bg-gradient-to-r from-blue-500 to-purple-500 text-white px-4 py-2.5 rounded-xl hover:from-blue-400 hover:to-purple-400 transition-all duration-300 flex items-center gap-2 font-medium text-sm"
                         >
                           <Plus className="h-4 w-4" />
                           Create New Resume
@@ -1281,19 +1281,19 @@ function Resume() {
               {activeTab === 'applications' && (
                 <div>
                   {!selectedClient ? (
-                    <div className="text-center py-20 text-gray-400">
-                      <div className="bg-gradient-to-r from-gray-500/10 to-purple-500/10 rounded-2xl p-12 border border-white/10">
-                        <Building className="h-20 w-20 mx-auto mb-6 opacity-50 text-gray-500" />
-                        <h3 className="text-2xl font-medium mb-4 text-white">Please select a client first</h3>
+                    <div className="text-center py-10 sm:py-20 text-gray-400">
+                      <div className="bg-gradient-to-r from-gray-500/10 to-purple-500/10 rounded-2xl p-6 sm:p-12 border border-white/10">
+                        <Building className="h-14 w-14 sm:h-20 sm:w-20 mx-auto mb-4 opacity-50 text-gray-500" />
+                        <h3 className="text-xl sm:text-2xl font-medium mb-3 text-white">Please select a client first</h3>
                       </div>
                     </div>
                   ) : (
                     <div>
-                      <div className="flex items-center gap-3 mb-8">
-                        <div className="p-2 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg">
+                      <div className="flex items-center gap-3 mb-5 sm:mb-8">
+                        <div className="p-2 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg flex-shrink-0">
                           <Building className="h-5 w-5 text-white" />
                         </div>
-                        <h3 className="text-2xl font-semibold text-white">
+                        <h3 className="text-lg sm:text-2xl font-semibold text-white leading-snug">
                           Job Applications for {selectedClient.first_name} {selectedClient.last_name}
                         </h3>
                       </div>
