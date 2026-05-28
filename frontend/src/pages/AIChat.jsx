@@ -183,8 +183,8 @@ function AIChat() {
         </div>
 
         <div className="max-w-7xl mx-auto px-6">
-          {/* Quick Actions */}
-          <div className="py-6 border-b border-white/10">
+          {/* Quick Actions - only show before conversation starts */}
+          {messages.length === 0 && <div className="py-6 border-b border-white/10">
             <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
               <Zap className="h-5 w-5 text-yellow-400" />
               Quick Actions
@@ -203,12 +203,12 @@ function AIChat() {
                 </button>
               ))}
             </div>
-          </div>
+          </div>}
 
           {/* Messages */}
           <div
             className="overflow-y-auto py-6 space-y-6"
-            style={{ height: 'calc(100vh - 400px)', minHeight: '400px' }}
+            style={{ height: messages.length === 0 ? 'calc(100vh - 400px)' : 'calc(100vh - 240px)', minHeight: '400px' }}
             ref={messagesContainerRef}
             onScroll={handleMessagesScroll}
           >
