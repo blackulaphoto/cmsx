@@ -362,9 +362,21 @@ const ClientDashboard = () => {
       last_name: c.last_name || '',
       phone: c.phone || '',
       email: c.email || '',
+      date_of_birth: c.date_of_birth || '',
       address: c.address || '',
-      risk_level: c.risk_level || 'low',
+      city: c.city || '',
+      state: c.state || '',
+      zip_code: c.zip_code || '',
+      emergency_contact_name: c.emergency_contact_name || '',
+      emergency_contact_phone: c.emergency_contact_phone || '',
+      emergency_contact_relationship: c.emergency_contact_relationship || '',
+      risk_level: c.risk_level || 'medium',
       case_status: c.case_status || 'active',
+      housing_status: c.housing_status || 'unknown',
+      employment_status: c.employment_status || 'unknown',
+      benefits_status: c.benefits_status || '',
+      legal_status: c.legal_status || '',
+      program_type: c.program_type || '',
     })
     setShowEditModal(true)
   }
@@ -541,7 +553,9 @@ const ClientDashboard = () => {
                 <div className="p-1 bg-purple-500/20 rounded">
                   <MapPin className="h-4 w-4 text-purple-400" />
                 </div>
-                <span className="text-gray-300">{client.address || 'No address'}</span>
+                <span className="text-gray-300">
+                  {[client.address, client.city, client.state, client.zip_code].filter(Boolean).join(', ') || 'No address'}
+                </span>
               </div>
               <div className="flex items-center space-x-3">
                 <div className="p-1 bg-orange-500/20 rounded">
@@ -549,6 +563,41 @@ const ClientDashboard = () => {
                 </div>
                 <span className="text-gray-300">Intake: {formatDate(client.intake_date)}</span>
               </div>
+            </div>
+            {/* Second row — extended info */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm mt-3 pt-3 border-t border-white/10">
+              {client.date_of_birth && (
+                <div className="flex items-center space-x-3">
+                  <div className="p-1 bg-cyan-500/20 rounded">
+                    <User className="h-4 w-4 text-cyan-400" />
+                  </div>
+                  <span className="text-gray-300">DOB: {formatDate(client.date_of_birth)}</span>
+                </div>
+              )}
+              {client.program_type && (
+                <div className="flex items-center space-x-3">
+                  <div className="p-1 bg-indigo-500/20 rounded">
+                    <Building2 className="h-4 w-4 text-indigo-400" />
+                  </div>
+                  <span className="text-gray-300">{client.program_type}</span>
+                </div>
+              )}
+              {client.emergency_contact_name && (
+                <div className="flex items-center space-x-3">
+                  <div className="p-1 bg-red-500/20 rounded">
+                    <Phone className="h-4 w-4 text-red-400" />
+                  </div>
+                  <span className="text-gray-300">Emergency: {client.emergency_contact_name} {client.emergency_contact_phone ? `· ${client.emergency_contact_phone}` : ''}</span>
+                </div>
+              )}
+              {client.referral_source && (
+                <div className="flex items-center space-x-3">
+                  <div className="p-1 bg-teal-500/20 rounded">
+                    <ExternalLink className="h-4 w-4 text-teal-400" />
+                  </div>
+                  <span className="text-gray-300">Referred: {client.referral_source}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -620,7 +669,7 @@ const ClientDashboard = () => {
                         </div>
                         <div>
                           <p className="text-sm font-medium text-green-200">Employment</p>
-                          <p className="text-sm text-white font-semibold">{clientData.employment?.status || 'Unknown'}</p>
+                          <p className="text-sm text-white font-semibold">{clientData.employment?.status || client.employment_status || 'Unknown'}</p>
                         </div>
                       </div>
                     </div>
@@ -631,7 +680,7 @@ const ClientDashboard = () => {
                         </div>
                         <div>
                           <p className="text-sm font-medium text-purple-200">Benefits</p>
-                          <p className="text-sm text-white font-semibold">{clientData.benefits?.status || 'Unknown'}</p>
+                          <p className="text-sm text-white font-semibold">{clientData.benefits?.status || client.benefits_status || 'Unknown'}</p>
                         </div>
                       </div>
                     </div>
@@ -642,7 +691,7 @@ const ClientDashboard = () => {
                         </div>
                         <div>
                           <p className="text-sm font-medium text-orange-200">Legal</p>
-                          <p className="text-sm text-white font-semibold">{clientData.legal?.status || 'No active cases'}</p>
+                          <p className="text-sm text-white font-semibold">{clientData.legal?.status || client.legal_status || 'No active cases'}</p>
                         </div>
                       </div>
                     </div>
@@ -1552,76 +1601,106 @@ const ClientDashboard = () => {
                 <button onClick={() => setShowEditModal(false)} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">✕</button>
               </div>
 
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-4 max-h-[65vh] overflow-y-auto pr-1">
+                {/* Basic Info */}
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">First Name</label>
-                    <input
-                      value={editForm.first_name}
-                      onChange={e => setEditForm(f => ({ ...f, first_name: e.target.value }))}
-                      className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
-                    />
+                    <label className="block text-xs font-medium text-gray-400 mb-1">First Name</label>
+                    <input value={editForm.first_name} onChange={e => setEditForm(f => ({ ...f, first_name: e.target.value }))} className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Last Name</label>
-                    <input
-                      value={editForm.last_name}
-                      onChange={e => setEditForm(f => ({ ...f, last_name: e.target.value }))}
-                      className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Phone</label>
-                  <input
-                    value={editForm.phone}
-                    onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
-                    className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={editForm.email}
-                    onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
-                    className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Address</label>
-                  <input
-                    value={editForm.address}
-                    onChange={e => setEditForm(f => ({ ...f, address: e.target.value }))}
-                    className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Risk Level</label>
-                    <select
-                      value={editForm.risk_level}
-                      onChange={e => setEditForm(f => ({ ...f, risk_level: e.target.value }))}
-                      className="w-full px-3 py-2.5 bg-slate-700 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                    >
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                    </select>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Last Name</label>
+                    <input value={editForm.last_name} onChange={e => setEditForm(f => ({ ...f, last_name: e.target.value }))} className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Case Status</label>
-                    <select
-                      value={editForm.case_status}
-                      onChange={e => setEditForm(f => ({ ...f, case_status: e.target.value }))}
-                      className="w-full px-3 py-2.5 bg-slate-700 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                    >
-                      <option value="active">Active</option>
-                      <option value="inactive">Inactive</option>
-                      <option value="pending">Pending</option>
-                      <option value="urgent">Urgent</option>
-                      <option value="completed">Completed</option>
-                    </select>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Phone</label>
+                    <input value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Email</label>
+                    <input type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Date of Birth</label>
+                    <input type="date" value={editForm.date_of_birth} onChange={e => setEditForm(f => ({ ...f, date_of_birth: e.target.value }))} className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Program Type</label>
+                    <input value={editForm.program_type} onChange={e => setEditForm(f => ({ ...f, program_type: e.target.value }))} placeholder="e.g. Reentry Program" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                  </div>
+                </div>
+
+                {/* Address */}
+                <div className="border-t border-white/10 pt-3">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Address</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <input value={editForm.address} onChange={e => setEditForm(f => ({ ...f, address: e.target.value }))} placeholder="Street address" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
+                    <div>
+                      <input value={editForm.city} onChange={e => setEditForm(f => ({ ...f, city: e.target.value }))} placeholder="City" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input value={editForm.state} onChange={e => setEditForm(f => ({ ...f, state: e.target.value }))} placeholder="State" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                      <input value={editForm.zip_code} onChange={e => setEditForm(f => ({ ...f, zip_code: e.target.value }))} placeholder="ZIP" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Fields */}
+                <div className="border-t border-white/10 pt-3">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Status</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Risk Level</label>
+                      <select value={editForm.risk_level} onChange={e => setEditForm(f => ({ ...f, risk_level: e.target.value }))} className="w-full px-3 py-2 bg-slate-700 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50">
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Case Status</label>
+                      <select value={editForm.case_status} onChange={e => setEditForm(f => ({ ...f, case_status: e.target.value }))} className="w-full px-3 py-2 bg-slate-700 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50">
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                        <option value="pending">Pending</option>
+                        <option value="urgent">Urgent</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Housing Status</label>
+                      <input value={editForm.housing_status} onChange={e => setEditForm(f => ({ ...f, housing_status: e.target.value }))} placeholder="e.g. homeless, housed" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Employment Status</label>
+                      <input value={editForm.employment_status} onChange={e => setEditForm(f => ({ ...f, employment_status: e.target.value }))} placeholder="e.g. unemployed, part-time" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Benefits Status</label>
+                      <input value={editForm.benefits_status} onChange={e => setEditForm(f => ({ ...f, benefits_status: e.target.value }))} placeholder="e.g. receiving, pending" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Legal Status</label>
+                      <input value={editForm.legal_status} onChange={e => setEditForm(f => ({ ...f, legal_status: e.target.value }))} placeholder="e.g. probation, pending case" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Emergency Contact */}
+                <div className="border-t border-white/10 pt-3">
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Emergency Contact</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <input value={editForm.emergency_contact_name} onChange={e => setEditForm(f => ({ ...f, emergency_contact_name: e.target.value }))} placeholder="Contact name" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
+                    <div>
+                      <input value={editForm.emergency_contact_phone} onChange={e => setEditForm(f => ({ ...f, emergency_contact_phone: e.target.value }))} placeholder="Contact phone" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
+                    <div className="col-span-2">
+                      <input value={editForm.emergency_contact_relationship} onChange={e => setEditForm(f => ({ ...f, emergency_contact_relationship: e.target.value }))} placeholder="Relationship (e.g. sister, spouse)" className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                    </div>
                   </div>
                 </div>
               </div>

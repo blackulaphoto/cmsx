@@ -410,8 +410,8 @@ class ClientCreateRequest(BaseModel):
     """Client creation schema - must match dependency map requirements"""
     first_name: str
     last_name: str
-    email: str
-    phone: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
     date_of_birth: Optional[str] = None
     case_manager_id: str
     risk_level: str = "medium"
@@ -421,6 +421,25 @@ class ClientCreateRequest(BaseModel):
     benefits_needed: Optional[List[str]] = []
     legal_issues: Optional[List[str]] = []
     background_check: Optional[str] = "pending"
+    # Extended fields from the new client form
+    address: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    zip_code: Optional[str] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    emergency_contact_relationship: Optional[str] = None
+    case_status: Optional[str] = "active"
+    program_type: Optional[str] = None
+    referral_source: Optional[str] = None
+    prior_convictions: Optional[str] = None
+    substance_abuse_history: Optional[str] = None
+    mental_health_status: Optional[str] = None
+    transportation: Optional[str] = None
+    medical_conditions: Optional[str] = None
+    special_needs: Optional[str] = None
+    benefits_status: Optional[str] = None
+    legal_status: Optional[str] = None
 
 class ClientResponse(BaseModel):
     """Client response schema - cannot change per dependency maps"""
@@ -496,16 +515,31 @@ async def create_client(client_data: ClientCreateRequest):
 
             cursor.execute("""
                 INSERT INTO clients (
-                    client_id, first_name, last_name, email, phone, 
+                    client_id, first_name, last_name, email, phone,
                     date_of_birth, case_manager_id, risk_level, intake_date, created_at,
-                    housing_status, employment_status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    housing_status, employment_status,
+                    address, city, state, zip_code,
+                    emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
+                    case_status, program_type, referral_source,
+                    prior_convictions, substance_abuse_history, mental_health_status,
+                    transportation, medical_conditions, special_needs,
+                    benefits_status, legal_status, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 client_id, client_data.first_name, client_data.last_name,
                 client_data.email, client_data.phone, client_data.date_of_birth,
                 client_data.case_manager_id, client_data.risk_level,
                 intake_date, current_time,
-                client_data.housing_status, client_data.employment_status
+                client_data.housing_status, client_data.employment_status,
+                client_data.address, client_data.city, client_data.state, client_data.zip_code,
+                client_data.emergency_contact_name, client_data.emergency_contact_phone,
+                client_data.emergency_contact_relationship,
+                client_data.case_status or "active", client_data.program_type,
+                client_data.referral_source, client_data.prior_convictions,
+                client_data.substance_abuse_history, client_data.mental_health_status,
+                client_data.transportation, client_data.medical_conditions,
+                client_data.special_needs, client_data.benefits_status,
+                client_data.legal_status, current_time
             ))
             conn.commit()
         
@@ -725,31 +759,15 @@ async def get_client_unified_view(client_id: str):
     """
     try:
         with get_database_connection("core_clients", "READ_ONLY") as conn:
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT client_id, first_name, last_name, email, phone, 
-                       case_manager_id, intake_date, risk_level, created_at,
-                       housing_status, employment_status
-                FROM clients WHERE client_id = ?
-            """, (client_id,))
-            
+            cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+
             result = cursor.fetchone()
             if not result:
                 raise HTTPException(status_code=404, detail="Client not found")
 
-        core_client = {
-            "client_id": result[0],
-            "first_name": result[1],
-            "last_name": result[2],
-            "email": result[3],
-            "phone": result[4],
-            "case_manager_id": result[5],
-            "intake_date": result[6],
-            "risk_level": result[7],
-            "created_at": result[8],
-            "housing_status": result[9],
-            "employment_status": result[10]
-        }
+        core_client = dict(result)
 
         overview_data = get_client_data_integrator().get_client_overview_data(client_id)
         benefits_summary = get_client_benefits_summary(client_id)
@@ -766,8 +784,8 @@ async def get_client_unified_view(client_id: str):
                 "employment": {
                     "status": core_client.get("employment_status", "unknown"),
                 },
-                "benefits": benefits_summary,
-                "legal": legal_summary,
+                "benefits": benefits_summary or {"status": core_client.get("benefits_status", "unknown")},
+                "legal": legal_summary or {"status": core_client.get("legal_status", "No active cases")},
                 "services": services_summary,
                 "tasks": overview_data.get("tasks", []),
                 "notes": overview_data.get("case_notes", []),
