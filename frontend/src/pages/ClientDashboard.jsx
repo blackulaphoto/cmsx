@@ -86,6 +86,11 @@ const ClientDashboard = () => {
   const [showTaskView, setShowTaskView] = useState(false)
   const [viewingTask, setViewingTask] = useState(null)
 
+  // Edit client modal
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editForm, setEditForm] = useState({})
+  const [editSaving, setEditSaving] = useState(false)
+
   useEffect(() => {
     if (clientId) {
       fetchClientData()
@@ -349,7 +354,43 @@ const ClientDashboard = () => {
     }
   }
 
-  // Helper functions for task display (using existing functions above)
+  const handleOpenEdit = () => {
+    if (!clientData?.client) return
+    const c = clientData.client
+    setEditForm({
+      first_name: c.first_name || '',
+      last_name: c.last_name || '',
+      phone: c.phone || '',
+      email: c.email || '',
+      address: c.address || '',
+      risk_level: c.risk_level || 'low',
+      case_status: c.case_status || 'active',
+    })
+    setShowEditModal(true)
+  }
+
+  const handleSaveEdit = async () => {
+    try {
+      setEditSaving(true)
+      const response = await apiFetch(`/api/clients/${clientId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm),
+      })
+      if (response.ok) {
+        toast.success('Client updated successfully!')
+        setShowEditModal(false)
+        fetchClientData()
+      } else {
+        const err = await response.json().catch(() => ({}))
+        toast.error(err.message || 'Failed to update client')
+      }
+    } catch (error) {
+      toast.error('Failed to update client')
+    } finally {
+      setEditSaving(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -468,7 +509,11 @@ const ClientDashboard = () => {
                 <span className={`px-4 py-2 rounded-xl text-sm font-medium ${getStatusColor(client.case_status)}`}>
                   {client.case_status}
                 </span>
-                <button className="group p-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-blue-500/25">
+                <button
+                  onClick={handleOpenEdit}
+                  className="group p-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-blue-500/25"
+                  title="Edit client"
+                >
                   <Edit className="h-4 w-4 group-hover:scale-110 transition-transform duration-300" />
                 </button>
               </div>
@@ -757,6 +802,32 @@ const ClientDashboard = () => {
                 <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
                   <h3 className="text-xl font-bold text-white mb-6">Quick Actions</h3>
                   <div className="space-y-3">
+                    {/* Add Note */}
+                    <button
+                      onClick={handleAddNote}
+                      className="group w-full flex items-center justify-between p-4 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-xl border border-blue-500/30 hover:border-blue-400/50 transition-all duration-300 hover:scale-105"
+                    >
+                      <span className="flex items-center">
+                        <div className="p-1 bg-blue-500/30 rounded mr-3">
+                          <FileText className="h-4 w-4 text-blue-400" />
+                        </div>
+                        <span className="text-white group-hover:text-blue-200 transition-colors font-medium">Add Note</span>
+                      </span>
+                      <Plus className="h-4 w-4 text-blue-400" />
+                    </button>
+                    {/* Add Task */}
+                    <button
+                      onClick={handleAddTask}
+                      className="group w-full flex items-center justify-between p-4 bg-gradient-to-br from-emerald-500/20 to-green-500/20 backdrop-blur-sm rounded-xl border border-emerald-500/30 hover:border-emerald-400/50 transition-all duration-300 hover:scale-105"
+                    >
+                      <span className="flex items-center">
+                        <div className="p-1 bg-emerald-500/30 rounded mr-3">
+                          <CheckCircle className="h-4 w-4 text-emerald-400" />
+                        </div>
+                        <span className="text-white group-hover:text-emerald-200 transition-colors font-medium">Add Task</span>
+                      </span>
+                      <Plus className="h-4 w-4 text-emerald-400" />
+                    </button>
                     <Link
                       to={`/housing?client=${clientId}`}
                       className="group flex items-center justify-between p-4 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm rounded-xl border border-white/20 hover:border-white/30 transition-all duration-300 hover:scale-105"
@@ -1465,6 +1536,114 @@ const ClientDashboard = () => {
           initialData={editingNote}
           isEditing={!!editingNote}
         />
+
+        {/* Edit Client Modal */}
+        {showEditModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowEditModal(false)} />
+            <div className="relative z-10 w-full max-w-lg bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/20 p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg">
+                    <Edit className="h-5 w-5 text-white" />
+                  </div>
+                  <h2 className="text-xl font-bold text-white">Edit Client</h2>
+                </div>
+                <button onClick={() => setShowEditModal(false)} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">✕</button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">First Name</label>
+                    <input
+                      value={editForm.first_name}
+                      onChange={e => setEditForm(f => ({ ...f, first_name: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Last Name</label>
+                    <input
+                      value={editForm.last_name}
+                      onChange={e => setEditForm(f => ({ ...f, last_name: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Phone</label>
+                  <input
+                    value={editForm.phone}
+                    onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={editForm.email}
+                    onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Address</label>
+                  <input
+                    value={editForm.address}
+                    onChange={e => setEditForm(f => ({ ...f, address: e.target.value }))}
+                    className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-400/50"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Risk Level</label>
+                    <select
+                      value={editForm.risk_level}
+                      onChange={e => setEditForm(f => ({ ...f, risk_level: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-slate-700 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Case Status</label>
+                    <select
+                      value={editForm.case_status}
+                      onChange={e => setEditForm(f => ({ ...f, case_status: e.target.value }))}
+                      className="w-full px-3 py-2.5 bg-slate-700 border border-white/20 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                    >
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                      <option value="pending">Pending</option>
+                      <option value="urgent">Urgent</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 px-4 py-2.5 bg-white/10 border border-white/20 text-gray-300 rounded-xl hover:bg-white/20 hover:text-white transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={editSaving}
+                  className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl font-medium transition-all disabled:opacity-50"
+                >
+                  {editSaving ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
