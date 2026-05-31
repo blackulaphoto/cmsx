@@ -5,6 +5,7 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   appType: 'spa',
+  envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   server: {
     host: '0.0.0.0',  // Bind to all interfaces
     port: 5173,

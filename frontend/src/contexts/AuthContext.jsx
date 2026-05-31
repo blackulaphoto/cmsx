@@ -13,7 +13,7 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth'
-import { auth, googleProvider } from '../lib/firebase'
+import { auth, firebaseConfigError, googleProvider } from '../lib/firebase'
 
 const AuthContext = createContext(null)
 
@@ -38,9 +38,15 @@ async function fetchBackendProfile(firebaseUser, role = 'case_manager') {
 export function AuthProvider({ children }) {
   const [firebaseUser, setFirebaseUser] = useState(null)
   const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!firebaseConfigError)
+  const [configError] = useState(firebaseConfigError)
 
   useEffect(() => {
+    if (!auth) {
+      setLoading(false)
+      return undefined
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
       setFirebaseUser(nextUser)
       if (!nextUser) {
@@ -72,7 +78,9 @@ export function AuthProvider({ children }) {
     firebaseUser,
     profile,
     loading,
+    configError,
     async login(email, password) {
+      if (!auth) throw new Error(configError || 'Firebase Auth is not configured')
       setLoading(true)
       try {
         const credential = await signInWithEmailAndPassword(auth, email, password)
@@ -84,6 +92,7 @@ export function AuthProvider({ children }) {
       }
     },
     async register({ email, password, fullName, role = 'case_manager' }) {
+      if (!auth) throw new Error(configError || 'Firebase Auth is not configured')
       setLoading(true)
       try {
         const credential = await createUserWithEmailAndPassword(auth, email, password)
@@ -98,6 +107,7 @@ export function AuthProvider({ children }) {
       }
     },
     async signInWithGoogle(role = 'case_manager') {
+      if (!auth || !googleProvider) throw new Error(configError || 'Firebase Auth is not configured')
       setLoading(true)
       try {
         const credential = await signInWithPopup(auth, googleProvider)
@@ -109,10 +119,11 @@ export function AuthProvider({ children }) {
       }
     },
     async logout() {
+      if (!auth) return
       await signOut(auth)
       setProfile(null)
     },
-  }), [firebaseUser, profile, loading])
+  }), [configError, firebaseUser, profile, loading])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
