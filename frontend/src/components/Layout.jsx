@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   Users, 
@@ -17,16 +17,17 @@ import {
   Sparkles,
   Zap,
   Heart,
-  Search,
   BarChart3,
   Stethoscope,
-  Contact
+  Contact,
+  ChevronDown
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 const Layout = ({ children }) => {
   const location = useLocation();
   const { profile, logout } = useAuth();
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const displayName = profile?.full_name || 'Signed in user'
   const displayRole = profile?.role === 'admin' ? 'Admin' : 'Case Manager'
 
@@ -48,6 +49,13 @@ const Layout = ({ children }) => {
     { path: '/smart-dashboard', label: 'Smart Daily', icon: Calendar, gradient: 'from-purple-500 to-pink-500' },
     { path: '/integration-audit', label: 'Integration Audit', icon: Zap, gradient: 'from-red-500 to-orange-500' }
   ];
+  const primaryNavigationItems = navigationItems.slice(0, 6);
+  const secondaryNavigationItems = navigationItems.slice(6);
+  const hasActiveSecondaryItem = secondaryNavigationItems.some((item) => location.pathname === item.path);
+
+  useEffect(() => {
+    setIsMoreOpen(false);
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -84,8 +92,8 @@ const Layout = ({ children }) => {
             </Link>
 
             {/* Navigation - Desktop */}
-            <nav className="hidden 2xl:flex items-center gap-1 min-w-0 flex-1 justify-center">
-              {navigationItems.slice(0, 9).map((item) => {
+            <nav className="hidden xl:flex items-center gap-1 min-w-0 flex-1 justify-center">
+              {primaryNavigationItems.map((item) => {
                 const IconComponent = item.icon;
                 const isActive = location.pathname === item.path;
                 return (
@@ -105,6 +113,42 @@ const Layout = ({ children }) => {
                   </Link>
                 );
               })}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsMoreOpen((current) => !current)}
+                  className={`group flex items-center gap-2 px-3 2xl:px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:bg-white/10 hover:backdrop-blur-md hover:shadow-lg hover:shadow-purple-500/25 border border-transparent hover:border-white/20 ${
+                    hasActiveSecondaryItem || isMoreOpen ? 'bg-white/10 border-white/20 text-white' : 'text-gray-300'
+                  }`}
+                >
+                  <span className="text-sm">More</span>
+                  <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isMoreOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {isMoreOpen && (
+                  <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-white/15 bg-slate-950/95 p-2 shadow-2xl shadow-purple-900/50 backdrop-blur-xl">
+                    <div className="grid gap-1">
+                      {secondaryNavigationItems.map((item) => {
+                        const IconComponent = item.icon;
+                        const isActive = location.pathname === item.path;
+                        return (
+                          <Link
+                            key={item.path}
+                            to={item.path}
+                            className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 hover:bg-white/10 ${
+                              isActive ? 'bg-white/10 text-white' : 'text-gray-300'
+                            }`}
+                          >
+                            <div className={`p-1 bg-gradient-to-r ${item.gradient} rounded-md flex-shrink-0`}>
+                              <IconComponent className="h-3 w-3 text-white" />
+                            </div>
+                            <span className="truncate">{item.label}</span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             </nav>
 
             {/* User Menu */}
@@ -141,7 +185,7 @@ const Layout = ({ children }) => {
           </div>
 
           {/* Mobile Navigation */}
-          <div className="2xl:hidden border-t border-white/10">
+          <div className="xl:hidden border-t border-white/10">
             <div className="flex overflow-x-auto py-2 gap-1 -mx-4 sm:-mx-6 px-4 sm:px-6 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {navigationItems.map((item) => {
                 const IconComponent = item.icon;
