@@ -27,6 +27,8 @@ import { useAuth } from '../contexts/AuthContext';
 const Layout = ({ children }) => {
   const location = useLocation();
   const { profile, logout } = useAuth();
+  const displayName = profile?.full_name || 'Signed in user'
+  const displayRole = profile?.role === 'admin' ? 'Admin' : 'Case Manager'
 
   const navigationItems = [
     { path: '/', label: 'Dashboard', icon: Home, gradient: 'from-blue-500 to-cyan-500' },
@@ -57,11 +59,11 @@ const Layout = ({ children }) => {
           <div className="absolute -top-4 -left-20 w-40 h-40 bg-pink-500/5 rounded-full blur-2xl animate-pulse delay-1000"></div>
         </div>
 
-        <div className="relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6">
-          <div className="flex items-center justify-between h-16">
+        <div className="relative z-10 w-full max-w-[96rem] mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between gap-3 lg:gap-4 min-h-16 py-3">
             {/* Logo */}
-            <Link to="/" className="flex items-center gap-4 group cursor-pointer">
-              <div className="relative">
+            <Link to="/" className="flex min-w-0 items-center gap-3 group cursor-pointer">
+              <div className="relative flex-shrink-0">
                 {/* Ember Logo with Glow Effect */}
                 <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-2 rounded-xl shadow-lg group-hover:shadow-2xl group-hover:shadow-orange-500/50 transition-all duration-500 group-hover:scale-110">
                   <Flame className="h-6 w-6 text-white" />
@@ -71,18 +73,18 @@ const Layout = ({ children }) => {
                   <Sparkles className="h-3 w-3 text-yellow-400 animate-pulse" />
                 </div>
               </div>
-              <div>
-                <h1 className="text-xl font-bold bg-gradient-to-r from-white via-orange-200 to-pink-200 bg-clip-text text-transparent group-hover:from-orange-300 group-hover:via-red-300 group-hover:to-pink-300 transition-all duration-500">
+              <div className="min-w-0">
+                <h1 className="truncate text-xl font-bold bg-gradient-to-r from-white via-orange-200 to-pink-200 bg-clip-text text-transparent group-hover:from-orange-300 group-hover:via-red-300 group-hover:to-pink-300 transition-all duration-500">
                   Ember
                 </h1>
-                <p className="text-xs text-gray-400 group-hover:text-gray-300 transition-colors duration-300 hidden sm:block">
+                <p className="hidden sm:block text-xs text-gray-400 group-hover:text-gray-300 transition-colors duration-300">
                   Case Management Suite
                 </p>
               </div>
             </Link>
 
             {/* Navigation - Desktop */}
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="hidden 2xl:flex items-center gap-1 min-w-0 flex-1 justify-center">
               {navigationItems.slice(0, 9).map((item) => {
                 const IconComponent = item.icon;
                 const isActive = location.pathname === item.path;
@@ -90,7 +92,7 @@ const Layout = ({ children }) => {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`group flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:bg-white/10 hover:backdrop-blur-md hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 border border-transparent hover:border-white/20 ${
+                    className={`group flex items-center gap-2 px-3 2xl:px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:bg-white/10 hover:backdrop-blur-md hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 border border-transparent hover:border-white/20 ${
                       isActive ? 'bg-white/10 border-white/20' : ''
                     }`}
                   >
@@ -106,9 +108,9 @@ const Layout = ({ children }) => {
             </nav>
 
             {/* User Menu */}
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center justify-end gap-2 lg:gap-3">
               {/* Notifications */}
-              <div className="group relative cursor-pointer">
+              <div className="group relative hidden sm:block cursor-pointer flex-shrink-0">
                 <div className="p-2 rounded-lg bg-white/5 backdrop-blur-sm border border-white/10 transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:scale-110 hover:shadow-lg hover:shadow-orange-500/25">
                   <Bell className="h-4 w-4 text-white group-hover:text-orange-200 transition-colors duration-300" />
                 </div>
@@ -119,27 +121,27 @@ const Layout = ({ children }) => {
               </div>
 
               {/* User Avatar */}
-              <div className="group relative cursor-pointer">
+              <div className="group relative min-w-0 max-w-[10rem] sm:max-w-[13rem] lg:max-w-[15rem] cursor-pointer">
                 <div className="flex items-center gap-2 p-2 rounded-lg bg-gradient-to-r from-purple-500/20 to-pink-500/20 backdrop-blur-sm border border-white/20 transition-all duration-300 hover:from-purple-500/30 hover:to-pink-500/30 hover:border-white/30 hover:scale-105 hover:shadow-xl hover:shadow-purple-500/25">
-                  <div className="w-6 h-6 rounded-md bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center">
+                  <div className="w-6 h-6 rounded-md bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center flex-shrink-0">
                     <User className="h-3 w-3 text-white" />
                   </div>
-                  <div className="hidden sm:block">
-                    <p className="text-xs font-medium text-white">{profile?.full_name || 'Signed in user'}</p>
-                    <p className="text-xs text-gray-400">{profile?.role === 'admin' ? 'Admin' : 'Case Manager'}</p>
+                  <div className="min-w-0 hidden sm:block">
+                    <p className="truncate text-xs font-medium text-white">{displayName}</p>
+                    <p className="truncate text-xs text-gray-400">{displayRole}</p>
                   </div>
                 </div>
                 {/* User Status Indicator */}
                 <div className="absolute -bottom-0.5 -left-0.5 w-2 h-2 bg-gradient-to-r from-green-400 to-emerald-400 rounded-full border border-slate-900 shadow-lg"></div>
               </div>
-              <button className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white" onClick={logout}>
+              <button className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white flex-shrink-0" onClick={logout}>
                 Logout
               </button>
             </div>
           </div>
 
           {/* Mobile Navigation */}
-          <div className="md:hidden border-t border-white/10">
+          <div className="2xl:hidden border-t border-white/10">
             <div className="flex overflow-x-auto py-2 gap-1 -mx-4 sm:-mx-6 px-4 sm:px-6 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {navigationItems.map((item) => {
                 const IconComponent = item.icon;
@@ -171,8 +173,8 @@ const Layout = ({ children }) => {
 
       {/* Footer */}
       <footer className="bg-gradient-to-r from-slate-900 to-purple-900 text-white border-t border-white/10">
-        <div className="max-w-7xl mx-auto px-4 py-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+        <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
             {/* About */}
             <div>
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
