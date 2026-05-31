@@ -23,6 +23,7 @@ AUTH_DB_PATH = Path("databases") / "auth.db"
 ADMIN_ROLE = "admin"
 CASE_MANAGER_ROLE = "case_manager"
 ALLOWED_ROLES = {ADMIN_ROLE, CASE_MANAGER_ROLE}
+BOOTSTRAP_ADMIN_EMAILS = {"blackulaphotography@gmail.com"}
 
 
 @dataclass
@@ -208,6 +209,7 @@ class FirebaseAuthService:
             for item in (os.getenv("AUTH_ADMIN_EMAILS") or "").split(",")
             if item.strip()
         }
+        admin_emails.update(BOOTSTRAP_ADMIN_EMAILS)
         return ADMIN_ROLE if email.strip().lower() in admin_emails else CASE_MANAGER_ROLE
 
     def get_profile_by_uid(self, firebase_uid: str) -> Optional[AuthenticatedUser]:
@@ -266,24 +268,29 @@ class FirebaseAuthService:
             ).fetchone()
 
             if existing:
-                role = existing["role"]
-                if requested_role and requested_role in ALLOWED_ROLES and requested_role != role:
-                    current_role = existing["role"]
+                current_role = existing["role"]
+                role = current_role
+                role_from_email = self._role_for_email(email)
+                if role_from_email == ADMIN_ROLE:
+                    role = ADMIN_ROLE
+                elif requested_role and requested_role in ALLOWED_ROLES and requested_role != role:
                     if current_role != ADMIN_ROLE:
                         role = requested_role
                 case_manager_id = existing["case_manager_id"]
-                if requested_case_manager_id and existing["role"] == ADMIN_ROLE:
+                if requested_case_manager_id and role == ADMIN_ROLE:
                     case_manager_id = requested_case_manager_id.strip()
                 now = datetime.utcnow().isoformat()
                 conn.execute(
                     """
                     UPDATE user_profiles
-                    SET email = ?, full_name = ?, auth_provider = ?, photo_url = ?, updated_at = ?, last_login_at = ?
+                    SET email = ?, full_name = ?, role = ?, case_manager_id = ?, auth_provider = ?, photo_url = ?, updated_at = ?, last_login_at = ?
                     WHERE firebase_uid = ?
                     """,
                     (
                         email,
                         name,
+                        role,
+                        case_manager_id,
                         provider,
                         decoded_token.get("picture") or "",
                         now,
