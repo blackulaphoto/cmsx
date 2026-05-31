@@ -236,7 +236,14 @@ class FirebaseAuthService:
         requested_role: Optional[str] = None,
         requested_case_manager_id: Optional[str] = None,
     ) -> AuthenticatedUser:
-        firebase_uid = decoded_token["uid"]
+        firebase_uid = (
+            decoded_token.get("uid")
+            or decoded_token.get("user_id")
+            or decoded_token.get("sub")
+            or ""
+        ).strip()
+        if not firebase_uid:
+            raise HTTPException(status_code=400, detail="Firebase token is missing a user identifier")
         email = (decoded_token.get("email") or "").strip().lower()
         if not email:
             raise HTTPException(status_code=400, detail="Firebase user is missing an email address")
