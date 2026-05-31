@@ -42,7 +42,8 @@ const EnhancedDashboard = () => {
   const { profile } = useAuth()
   const caseManagerId = profile?.case_manager_id || ''
   const displayName = profile?.full_name || 'Case Manager'
-  const displayRole = profile?.role === 'admin' ? 'Admin' : 'Case Manager'
+  const isSupervisorModeAvailable = profile?.role === 'admin'
+  const displayRole = isSupervisorModeAvailable ? 'Admin / Supervisor' : 'Case Manager'
   const [dashboardStats, setDashboardStats] = useState({
     total_clients: 0,
     active_clients: 0,
@@ -570,15 +571,6 @@ const EnhancedDashboard = () => {
       icon: Calendar,
       gradient: 'from-cyan-500 via-sky-600 to-blue-600',
       stats: 'AI Powered',
-      accent: 'bg-cyan-500/20 border-cyan-500/30'
-    },
-    {
-      title: 'Supervisor Reporting',
-      description: 'Review caseload pressure, overdue work, and cross-module team risk',
-      path: '/supervisor-dashboard',
-      icon: TrendingUp,
-      gradient: 'from-cyan-500 via-blue-600 to-indigo-600',
-      stats: 'Team Oversight',
       accent: 'bg-cyan-500/20 border-cyan-500/30'
     }
   ]
@@ -1155,6 +1147,29 @@ const EnhancedDashboard = () => {
               </div>
             </div>
           </div>
+
+          {isSupervisorModeAvailable && (
+            <div className="mb-12 rounded-3xl border border-cyan-400/20 bg-gradient-to-r from-cyan-500/10 via-blue-500/10 to-indigo-500/10 p-6 backdrop-blur-xl">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+                <div className="min-w-0">
+                  <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-cyan-200">
+                    <TrendingUp className="h-4 w-4" />
+                    Supervisor Mode
+                  </div>
+                  <h2 className="text-2xl font-bold text-white">Team oversight lives in the supervisor dashboard</h2>
+                  <p className="mt-2 max-w-3xl text-sm text-slate-300">
+                    Review caseload pressure, overdue work, high-risk trends, and team follow-through from the dedicated supervisor workspace instead of the standard case manager service grid.
+                  </p>
+                </div>
+                <Link
+                  to="/supervisor-dashboard"
+                  className="inline-flex items-center justify-center rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition-all duration-300 hover:bg-cyan-400"
+                >
+                  Open Supervisor Dashboard
+                </Link>
+              </div>
+            </div>
+          )}
 
           {/* Modules Grid */}
           <div>

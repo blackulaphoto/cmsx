@@ -28,8 +28,9 @@ const Layout = ({ children }) => {
   const location = useLocation();
   const { profile, logout } = useAuth();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const canAccessSupervisorMode = profile?.role === 'admin';
   const displayName = profile?.full_name || 'Signed in user'
-  const displayRole = profile?.role === 'admin' ? 'Admin' : 'Case Manager'
+  const displayRole = canAccessSupervisorMode ? 'Admin / Supervisor' : 'Case Manager'
 
   const navigationItems = [
     { path: '/', label: 'Dashboard', icon: Home, gradient: 'from-blue-500 to-cyan-500' },
@@ -49,8 +50,9 @@ const Layout = ({ children }) => {
     { path: '/smart-dashboard', label: 'Smart Daily', icon: Calendar, gradient: 'from-purple-500 to-pink-500' },
     { path: '/integration-audit', label: 'Integration Audit', icon: Zap, gradient: 'from-red-500 to-orange-500' }
   ];
-  const primaryNavigationItems = navigationItems.slice(0, 6);
-  const secondaryNavigationItems = navigationItems.slice(6);
+  const visibleNavigationItems = navigationItems.filter((item) => canAccessSupervisorMode || item.path !== '/supervisor-dashboard');
+  const primaryNavigationItems = visibleNavigationItems.slice(0, 6);
+  const secondaryNavigationItems = visibleNavigationItems.slice(6);
   const hasActiveSecondaryItem = secondaryNavigationItems.some((item) => location.pathname === item.path);
 
   useEffect(() => {
