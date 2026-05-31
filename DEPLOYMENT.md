@@ -17,6 +17,18 @@
 1. Deploy from `frontend/`.
 2. Set `VITE_API_BASE_URL` to your Railway backend URL, or leave blank to use `/api` rewrites.
 3. Ensure `frontend/vercel.json` rewrite destination points to the backend.
+4. Add these Firebase web env vars in Vercel Project Settings for the frontend:
+   - `VITE_FIREBASE_API_KEY`
+   - `VITE_FIREBASE_AUTH_DOMAIN`
+   - `VITE_FIREBASE_PROJECT_ID`
+   - `VITE_FIREBASE_STORAGE_BUCKET`
+   - `VITE_FIREBASE_MESSAGING_SENDER_ID`
+   - `VITE_FIREBASE_APP_ID`
+   - `VITE_FIREBASE_MEASUREMENT_ID`
+5. Add these backend auth env vars to the backend deployment:
+   - `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`
+   - `FIREBASE_PROJECT_ID`
+   - `AUTH_ADMIN_EMAILS`
 
 ## PostgreSQL Migration Note
 - `DATABASE_URL` is now first-class for SQLAlchemy services, including async Postgres URLs.

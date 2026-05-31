@@ -20,6 +20,8 @@ from datetime import datetime, timedelta
 from .models import LegalCase, CourtDate, LegalDocument, LegalDatabase
 from .expungement_routes import router as expungement_router
 from .expungement_service import ExpungementEligibilityEngine
+from backend.auth.authorization import assert_client_access
+from backend.auth.service import ADMIN_ROLE, require_authenticated_user, require_role
 
 # Create FastAPI router
 router = APIRouter(tags=["legal"])
@@ -225,10 +227,13 @@ async def legal_dashboard():
     return {"message": "Legal Dashboard API Ready", "endpoints": ["/cases", "/court-dates", "/documents", "/compliance-check"]}
 
 @router.get("/cases")
-async def get_legal_cases(client_id: Optional[str] = Query(None)):
+async def get_legal_cases(request: Request, client_id: Optional[str] = Query(None)):
     """Get legal cases"""
     legal_db = None
     try:
+        current_user = require_authenticated_user(request)
+        if client_id:
+            assert_client_access(current_user, client_id)
         legal_db = get_legal_db()
         legal_db.connect()
         cursor = legal_db.connection.cursor()
@@ -266,6 +271,8 @@ async def get_legal_cases(client_id: Optional[str] = Query(None)):
 
         cases = []
         for row in rows:
+            if not current_user.is_admin:
+                assert_client_access(current_user, row["client_id"])
             status = row["case_status"] or "Pending"
             compliance_status = (row["compliance_status"] or "").lower()
             priority = "High" if compliance_status == "warning" else "Medium"
@@ -301,9 +308,11 @@ async def get_legal_cases(client_id: Optional[str] = Query(None)):
             pass
 
 @router.post("/cases")
-async def create_legal_case(case_data: LegalCaseCreate):
+async def create_legal_case(case_data: LegalCaseCreate, request: Request):
     """Create new legal case"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, case_data.client_id)
         # Create legal case
         legal_case = LegalCase(
             client_id=case_data.client_id,
@@ -330,10 +339,13 @@ async def create_legal_case(case_data: LegalCaseCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/court-dates")
-async def get_court_dates(client_id: Optional[str] = Query(None), days_ahead: int = Query(30)):
+async def get_court_dates(request: Request, client_id: Optional[str] = Query(None), days_ahead: int = Query(30)):
     """Get court dates"""
     legal_db = None
     try:
+        current_user = require_authenticated_user(request)
+        if client_id:
+            assert_client_access(current_user, client_id)
         legal_db = get_legal_db()
         legal_db.connect()
         cursor = legal_db.connection.cursor()
@@ -369,6 +381,8 @@ async def get_court_dates(client_id: Optional[str] = Query(None), days_ahead: in
 
         court_dates = []
         for row in rows:
+            if not current_user.is_admin:
+                assert_client_access(current_user, row["client_id"])
             days_until = None
             if row["hearing_date"]:
                 try:
@@ -409,10 +423,12 @@ async def get_court_dates(client_id: Optional[str] = Query(None), days_ahead: in
             pass
 
 @router.post("/court-dates")
-async def create_court_date(court_date_data: CourtDateCreate):
+async def create_court_date(court_date_data: CourtDateCreate, request: Request):
     """Schedule new court date"""
     legal_db = None
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, court_date_data.client_id)
         legal_db = get_legal_db()
         legal_db.connect()
         cursor = legal_db.connection.cursor()
@@ -463,10 +479,13 @@ async def create_court_date(court_date_data: CourtDateCreate):
             pass
 
 @router.get("/documents")
-async def get_legal_documents(client_id: Optional[str] = Query(None), document_type: Optional[str] = Query(None, alias="type")):
+async def get_legal_documents(request: Request, client_id: Optional[str] = Query(None), document_type: Optional[str] = Query(None, alias="type")):
     """Get legal documents"""
     legal_db = None
     try:
+        current_user = require_authenticated_user(request)
+        if client_id:
+            assert_client_access(current_user, client_id)
         legal_db = get_legal_db()
         legal_db.connect()
         cursor = legal_db.connection.cursor()
@@ -515,7 +534,7 @@ async def get_legal_documents(client_id: Optional[str] = Query(None), document_t
             "content_type": row["content_type"] or "",
             "file_format": row["file_format"] or "",
             "has_file": bool(row["file_path"]),
-        } for row in rows]
+        } for row in rows if current_user.is_admin or assert_client_access(current_user, row["client_id"])]
 
         return {
             'success': True,
@@ -533,10 +552,12 @@ async def get_legal_documents(client_id: Optional[str] = Query(None), document_t
             pass
 
 @router.post("/documents")
-async def create_legal_document(document_data: LegalDocumentCreate):
+async def create_legal_document(document_data: LegalDocumentCreate, request: Request):
     """Create new legal document"""
     legal_db = None
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, document_data.client_id)
         legal_db = get_legal_db()
         legal_db.connect()
         cursor = legal_db.connection.cursor()
@@ -588,10 +609,11 @@ async def create_legal_document(document_data: LegalDocumentCreate):
 
 
 @router.post("/documents/{document_id}/upload")
-async def upload_legal_document_file(document_id: str, file: UploadFile = File(...)):
+async def upload_legal_document_file(document_id: str, request: Request, file: UploadFile = File(...)):
     """Attach an uploaded file to an existing legal document record"""
     legal_db = None
     try:
+        current_user = require_authenticated_user(request)
         legal_db = get_legal_db()
         legal_db.connect()
         _ensure_legal_document_schema(legal_db.connection)
@@ -604,6 +626,7 @@ async def upload_legal_document_file(document_id: str, file: UploadFile = File(.
         document_row = cursor.fetchone()
         if not document_row:
             raise HTTPException(status_code=404, detail="Legal document not found")
+        assert_client_access(current_user, document_row["client_id"])
         if not file or not file.filename:
             raise HTTPException(status_code=400, detail="A file is required")
 
@@ -666,21 +689,23 @@ async def upload_legal_document_file(document_id: str, file: UploadFile = File(.
 
 
 @router.get("/documents/{document_id}/download")
-async def download_legal_document_file(document_id: str):
+async def download_legal_document_file(document_id: str, request: Request):
     """Download the uploaded file attached to a legal document"""
     legal_db = None
     try:
+        current_user = require_authenticated_user(request)
         legal_db = get_legal_db()
         legal_db.connect()
         _ensure_legal_document_schema(legal_db.connection)
         cursor = legal_db.connection.cursor()
         cursor.execute(
-            "SELECT file_path, file_name, content_type FROM legal_documents WHERE document_id = ?",
+            "SELECT file_path, file_name, content_type, client_id FROM legal_documents WHERE document_id = ?",
             (document_id,),
         )
         document_row = cursor.fetchone()
         if not document_row:
             raise HTTPException(status_code=404, detail="Legal document not found")
+        assert_client_access(current_user, document_row["client_id"])
         if not document_row["file_path"]:
             raise HTTPException(status_code=404, detail="No uploaded file is attached to this document")
 
@@ -711,11 +736,13 @@ async def download_legal_document_file(document_id: str):
             pass
 
 @router.post("/compliance-check")
-async def api_compliance_check(compliance_data: ComplianceCheck):
+async def api_compliance_check(compliance_data: ComplianceCheck, request: Request):
     """Run compliance check for client"""
     legal_db = None
     try:
+        current_user = require_authenticated_user(request)
         client_id = compliance_data.client_id
+        assert_client_access(current_user, client_id)
 
         legal_db = get_legal_db()
         legal_db.connect()
@@ -836,10 +863,11 @@ async def api_compliance_check(compliance_data: ComplianceCheck):
             pass
 
 @router.post("/expungement-eligibility")
-async def api_expungement_eligibility(expungement_data: ExpungementCheck):
+async def api_expungement_eligibility(expungement_data: ExpungementCheck, request: Request):
     """Check expungement eligibility"""
     legal_db = None
     try:
+        current_user = require_authenticated_user(request)
         case_id = expungement_data.case_id
 
         legal_db = get_legal_db()
@@ -856,6 +884,7 @@ async def api_expungement_eligibility(expungement_data: ExpungementCheck):
         case_row = cursor.fetchone()
         if not case_row:
             raise HTTPException(status_code=404, detail="Legal case not found")
+        assert_client_access(current_user, case_row["client_id"])
 
         conviction_data = _build_conviction_data_from_case(case_row)
         complete_result = expungement_engine.check_eligibility_complete(conviction_data)
@@ -887,9 +916,11 @@ async def api_expungement_eligibility(expungement_data: ExpungementCheck):
             pass
 
 @router.post("/reminders")
-async def api_send_reminders():
+async def api_send_reminders(request: Request):
     """Send court date reminders"""
     try:
+        current_user = require_authenticated_user(request)
+        require_role(current_user, [ADMIN_ROLE])
         # Get upcoming court dates
         legal_db = get_legal_db()
         upcoming_dates = legal_db.get_upcoming_court_dates(days_ahead=7)
@@ -917,8 +948,9 @@ async def api_send_reminders():
         raise HTTPException(status_code=500, detail={'error': str(e), 'reminders_sent': []})
 
 @router.post("/warrant-check")
-async def api_warrant_check(warrant_data: WarrantCheck):
+async def api_warrant_check(warrant_data: WarrantCheck, request: Request):
     """Warrant checks are intentionally not part of this product."""
+    require_authenticated_user(request)
     raise HTTPException(
         status_code=404,
         detail="Warrant checks are not supported in this application."

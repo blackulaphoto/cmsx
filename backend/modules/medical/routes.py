@@ -14,8 +14,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
+from backend.auth.authorization import assert_client_access
+from backend.auth.service import require_authenticated_user
 
 logger = logging.getLogger(__name__)
 
@@ -403,6 +405,18 @@ def _get_client_case_manager(client_id: str) -> str:
         return "default_cm"
 
 
+def _get_case_manager_client_ids(case_manager_id: str) -> List[str]:
+    try:
+        with _connect(CORE_CLIENTS_DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT client_id FROM clients WHERE case_manager_id = ?",
+                (case_manager_id,),
+            ).fetchall()
+        return [row["client_id"] for row in rows]
+    except Exception:
+        return []
+
+
 def _get_client_name_map() -> Dict[str, str]:
     names: Dict[str, str] = {}
     try:
@@ -726,7 +740,8 @@ def _get_provider_results(category: str, city: str, search: str, specialty: str,
 
 
 @router.get("/")
-async def medical_info():
+async def medical_info(request: Request):
+    require_authenticated_user(request)
     return {
         "message": "Medical module ready",
         "paths": MEDICAL_PATHS,
@@ -734,7 +749,8 @@ async def medical_info():
 
 
 @router.get("/paths")
-async def get_medical_paths():
+async def get_medical_paths(request: Request):
+    require_authenticated_user(request)
     return {
         "success": True,
         "paths": [
@@ -745,12 +761,14 @@ async def get_medical_paths():
 
 @router.get("/providers")
 async def get_medical_providers(
+    request: Request,
     category: str = Query("medi-cal"),
     city: str = Query(""),
     search: str = Query(""),
     specialty: str = Query(""),
     limit: int = Query(25, ge=1, le=100),
 ):
+    require_authenticated_user(request)
     if category not in MEDICAL_PATHS:
         raise HTTPException(status_code=400, detail="Invalid medical category")
 
@@ -769,7 +787,10 @@ async def get_medical_providers(
 
 
 @router.get("/appointments")
-async def get_medical_appointments(client_id: Optional[str] = Query(None)):
+async def get_medical_appointments(request: Request, client_id: Optional[str] = Query(None)):
+    current_user = require_authenticated_user(request)
+    if client_id:
+        assert_client_access(current_user, client_id)
     _ensure_case_management_appointments_table()
     client_names = _get_client_name_map()
 
@@ -785,6 +806,9 @@ async def get_medical_appointments(client_id: Optional[str] = Query(None)):
             if client_id:
                 query += " AND client_id = ?"
                 params.append(client_id)
+            elif not current_user.is_admin:
+                query += " AND case_manager_id = ?"
+                params.append(current_user.case_manager_id)
             query += " ORDER BY appointment_date ASC, appointment_time ASC"
             rows = conn.execute(query, params).fetchall()
 
@@ -817,12 +841,14 @@ async def get_medical_appointments(client_id: Optional[str] = Query(None)):
 
 
 @router.post("/appointments")
-async def create_medical_appointment(payload: MedicalAppointmentCreate):
+async def create_medical_appointment(payload: MedicalAppointmentCreate, request: Request):
+    current_user = require_authenticated_user(request)
+    assert_client_access(current_user, payload.client_id)
     _ensure_case_management_appointments_table()
     _ensure_reminders_table()
 
     appointment_id = str(uuid4())
-    case_manager_id = payload.case_manager_id or _get_client_case_manager(payload.client_id)
+    case_manager_id = current_user.case_manager_id if not current_user.is_admin else (payload.case_manager_id or _get_client_case_manager(payload.client_id))
     created_at = datetime.now().isoformat()
 
     try:
@@ -888,10 +914,15 @@ async def create_medical_appointment(payload: MedicalAppointmentCreate):
 
 
 @router.patch("/appointments/{appointment_id}")
-async def update_medical_appointment(appointment_id: str, payload: MedicalAppointmentUpdate):
+async def update_medical_appointment(appointment_id: str, payload: MedicalAppointmentUpdate, request: Request):
+    current_user = require_authenticated_user(request)
     _ensure_case_management_appointments_table()
     try:
         with _connect(CASE_MGMT_DB_PATH) as conn:
+            existing = conn.execute("SELECT client_id FROM appointments WHERE id = ?", (appointment_id,)).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Appointment not found")
+            assert_client_access(current_user, existing["client_id"])
             cursor = conn.execute(
                 """
                 UPDATE appointments
@@ -901,9 +932,6 @@ async def update_medical_appointment(appointment_id: str, payload: MedicalAppoin
                 (payload.status, payload.notes, datetime.now().isoformat(), appointment_id),
             )
             conn.commit()
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="Appointment not found")
-
         return {"success": True, "message": "Appointment updated successfully"}
     except HTTPException:
         raise
@@ -913,7 +941,10 @@ async def update_medical_appointment(appointment_id: str, payload: MedicalAppoin
 
 
 @router.get("/referrals")
-async def get_medical_referrals(client_id: Optional[str] = Query(None)):
+async def get_medical_referrals(request: Request, client_id: Optional[str] = Query(None)):
+    current_user = require_authenticated_user(request)
+    if client_id:
+        assert_client_access(current_user, client_id)
     _ensure_medical_tables()
     client_names = _get_client_name_map()
     try:
@@ -932,7 +963,10 @@ async def get_medical_referrals(client_id: Optional[str] = Query(None)):
             rows = conn.execute(query, params).fetchall()
 
         referrals = []
+        allowed_client_ids = None if current_user.is_admin else set(_get_case_manager_client_ids(current_user.case_manager_id))
         for row in rows:
+            if allowed_client_ids is not None and row["client_id"] not in allowed_client_ids:
+                continue
             referrals.append({
                 "referral_id": row["referral_id"],
                 "client_id": row["client_id"],
@@ -958,7 +992,9 @@ async def get_medical_referrals(client_id: Optional[str] = Query(None)):
 
 
 @router.post("/referrals")
-async def create_medical_referral(payload: MedicalReferralCreate):
+async def create_medical_referral(payload: MedicalReferralCreate, request: Request):
+    current_user = require_authenticated_user(request)
+    assert_client_access(current_user, payload.client_id)
     _ensure_medical_tables()
     referral_id = str(uuid4())
     timestamp = datetime.now().isoformat()
@@ -997,10 +1033,15 @@ async def create_medical_referral(payload: MedicalReferralCreate):
 
 
 @router.patch("/referrals/{referral_id}")
-async def update_medical_referral(referral_id: str, payload: ReferralStatusUpdate):
+async def update_medical_referral(referral_id: str, payload: ReferralStatusUpdate, request: Request):
+    current_user = require_authenticated_user(request)
     _ensure_medical_tables()
     try:
         with _connect(MEDICAL_DB_PATH) as conn:
+            existing = conn.execute("SELECT client_id FROM medical_referrals WHERE referral_id = ?", (referral_id,)).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Referral not found")
+            assert_client_access(current_user, existing["client_id"])
             cursor = conn.execute(
                 """
                 UPDATE medical_referrals
@@ -1010,8 +1051,6 @@ async def update_medical_referral(referral_id: str, payload: ReferralStatusUpdat
                 (payload.referral_status, payload.notes, datetime.now().isoformat(), referral_id),
             )
             conn.commit()
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="Referral not found")
         return {"success": True, "message": "Referral updated successfully"}
     except HTTPException:
         raise

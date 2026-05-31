@@ -3,7 +3,7 @@ Dashboard API Routes - ClickUp-style components
 Handles Notes, Docs, Bookmarks, and Resources
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Any
@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from datetime import datetime, timedelta
 
 from backend.shared.database.workspace_store import workspace_store
+from backend.auth.service import ADMIN_ROLE, require_authenticated_user, require_role
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,10 @@ os.makedirs(UPLOADS_DIR, exist_ok=True)
 DEFAULT_CASE_MANAGER_ID = "cm_001"
 
 
+def _current_scope(request: Request) -> str:
+    return require_authenticated_user(request).case_manager_id
+
+
 def _dict_connection(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -80,10 +85,10 @@ def _load_case_manager_names() -> Dict[str, str]:
     try:
         with _dict_connection("databases/auth.db") as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT user_id, full_name FROM users WHERE is_active = 1")
+            cursor.execute("SELECT case_manager_id, full_name FROM user_profiles WHERE is_active = 1")
             for row in cursor.fetchall():
-                if row["user_id"]:
-                    name_map[row["user_id"]] = row["full_name"] or row["user_id"]
+                if row["case_manager_id"]:
+                    name_map[row["case_manager_id"]] = row["full_name"] or row["case_manager_id"]
     except Exception:
         pass
     return name_map
@@ -241,10 +246,10 @@ def _get_supervisor_overview() -> Dict[str, Any]:
 
 # Notes endpoints
 @router.get("/dashboard/notes")
-async def get_notes():
+async def get_notes(request: Request):
     """Get all notes"""
     try:
-        notes = workspace_store.list_dashboard_items("dashboard_notes", DEFAULT_CASE_MANAGER_ID)
+        notes = workspace_store.list_dashboard_items("dashboard_notes", _current_scope(request))
         for note in notes:
             note["pinned"] = bool(note.get("pinned"))
         return {"success": True, "notes": notes}
@@ -253,19 +258,23 @@ async def get_notes():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/dashboard/notes")
-async def create_note(note: Note):
+async def create_note(note: Note, request: Request):
     """Create a new note"""
     try:
-        new_note = workspace_store.create_dashboard_note(DEFAULT_CASE_MANAGER_ID, note.content, note.pinned)
+        new_note = workspace_store.create_dashboard_note(_current_scope(request), note.content, note.pinned)
         return {"success": True, "note": new_note}
     except Exception as e:
         logger.error(f"Error creating note: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/dashboard/notes/{note_id}")
-async def update_note(note_id: str, note: Note):
+async def update_note(note_id: str, note: Note, request: Request):
     """Update a note"""
     try:
+        current_user = require_authenticated_user(request)
+        notes = workspace_store.list_dashboard_items("dashboard_notes", current_user.case_manager_id)
+        if not any(item["id"] == note_id for item in notes) and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Access denied")
         updated = workspace_store.update_dashboard_note(note_id, note.content, note.pinned)
         if not updated:
             raise HTTPException(status_code=404, detail="Note not found")
@@ -277,9 +286,13 @@ async def update_note(note_id: str, note: Note):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/dashboard/notes/{note_id}")
-async def delete_note(note_id: str):
+async def delete_note(note_id: str, request: Request):
     """Delete a note"""
     try:
+        current_user = require_authenticated_user(request)
+        notes = workspace_store.list_dashboard_items("dashboard_notes", current_user.case_manager_id)
+        if not any(item["id"] == note_id for item in notes) and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Access denied")
         workspace_store.delete_dashboard_item("dashboard_notes", note_id)
         return {"success": True, "message": "Note deleted"}
     except Exception as e:
@@ -288,29 +301,33 @@ async def delete_note(note_id: str):
 
 # Docs endpoints
 @router.get("/dashboard/docs")
-async def get_docs():
+async def get_docs(request: Request):
     """Get all documents"""
     try:
-        docs = workspace_store.list_dashboard_items("dashboard_docs", DEFAULT_CASE_MANAGER_ID)
+        docs = workspace_store.list_dashboard_items("dashboard_docs", _current_scope(request))
         return {"success": True, "docs": docs}
     except Exception as e:
         logger.error(f"Error getting docs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/dashboard/docs")
-async def create_doc(doc: Doc):
+async def create_doc(doc: Doc, request: Request):
     """Create a new document"""
     try:
-        new_doc = workspace_store.create_dashboard_doc(DEFAULT_CASE_MANAGER_ID, doc.title, doc.content, doc.url)
+        new_doc = workspace_store.create_dashboard_doc(_current_scope(request), doc.title, doc.content, doc.url)
         return {"success": True, "doc": new_doc}
     except Exception as e:
         logger.error(f"Error creating doc: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/dashboard/docs/{doc_id}")
-async def update_doc(doc_id: str, doc: Doc):
+async def update_doc(doc_id: str, doc: Doc, request: Request):
     """Update a document"""
     try:
+        current_user = require_authenticated_user(request)
+        docs = workspace_store.list_dashboard_items("dashboard_docs", current_user.case_manager_id)
+        if not any(item["id"] == doc_id for item in docs) and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Access denied")
         updated = workspace_store.update_dashboard_doc(doc_id, doc.title, doc.content, doc.url)
         if not updated:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -322,9 +339,13 @@ async def update_doc(doc_id: str, doc: Doc):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/dashboard/docs/{doc_id}")
-async def delete_doc(doc_id: str):
+async def delete_doc(doc_id: str, request: Request):
     """Delete a document"""
     try:
+        current_user = require_authenticated_user(request)
+        docs = workspace_store.list_dashboard_items("dashboard_docs", current_user.case_manager_id)
+        if not any(item["id"] == doc_id for item in docs) and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Access denied")
         workspace_store.delete_dashboard_item("dashboard_docs", doc_id)
         return {"success": True, "message": "Document deleted"}
     except Exception as e:
@@ -333,17 +354,17 @@ async def delete_doc(doc_id: str):
 
 # Bookmarks endpoints
 @router.get("/dashboard/bookmarks")
-async def get_bookmarks():
+async def get_bookmarks(request: Request):
     """Get all bookmarks"""
     try:
-        bookmarks = workspace_store.list_dashboard_items("dashboard_bookmarks", DEFAULT_CASE_MANAGER_ID)
+        bookmarks = workspace_store.list_dashboard_items("dashboard_bookmarks", _current_scope(request))
         return {"success": True, "bookmarks": bookmarks}
     except Exception as e:
         logger.error(f"Error getting bookmarks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/dashboard/bookmarks")
-async def create_bookmark(bookmark: Bookmark):
+async def create_bookmark(bookmark: Bookmark, request: Request):
     """Create a new bookmark"""
     try:
         try:
@@ -352,7 +373,7 @@ async def create_bookmark(bookmark: Bookmark):
         except Exception:
             favicon_url = None
         new_bookmark = workspace_store.create_dashboard_bookmark(
-            DEFAULT_CASE_MANAGER_ID,
+            _current_scope(request),
             bookmark.title,
             bookmark.url,
             bookmark.description,
@@ -364,9 +385,13 @@ async def create_bookmark(bookmark: Bookmark):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/dashboard/bookmarks/{bookmark_id}")
-async def delete_bookmark(bookmark_id: str):
+async def delete_bookmark(bookmark_id: str, request: Request):
     """Delete a bookmark"""
     try:
+        current_user = require_authenticated_user(request)
+        bookmarks = workspace_store.list_dashboard_items("dashboard_bookmarks", current_user.case_manager_id)
+        if not any(item["id"] == bookmark_id for item in bookmarks) and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Access denied")
         workspace_store.delete_dashboard_item("dashboard_bookmarks", bookmark_id)
         return {"success": True, "message": "Bookmark deleted"}
     except Exception as e:
@@ -375,17 +400,17 @@ async def delete_bookmark(bookmark_id: str):
 
 # Resources endpoints
 @router.get("/dashboard/resources")
-async def get_resources():
+async def get_resources(request: Request):
     """Get all resources"""
     try:
-        resources = workspace_store.list_dashboard_items("dashboard_resources", DEFAULT_CASE_MANAGER_ID)
+        resources = workspace_store.list_dashboard_items("dashboard_resources", _current_scope(request))
         return {"success": True, "resources": resources}
     except Exception as e:
         logger.error(f"Error getting resources: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/dashboard/resources")
-async def upload_resource(file: UploadFile = File(...)):
+async def upload_resource(request: Request, file: UploadFile = File(...)):
     """Upload a new resource file"""
     try:
         # Generate unique filename
@@ -400,7 +425,7 @@ async def upload_resource(file: UploadFile = File(...)):
             buffer.write(content)
         
         new_resource = workspace_store.create_dashboard_resource(
-            DEFAULT_CASE_MANAGER_ID,
+            _current_scope(request),
             resource_id=file_id,
             name=file.filename,
             size=len(content),
@@ -413,12 +438,15 @@ async def upload_resource(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/dashboard/resources/{resource_id}/download")
-async def download_resource(resource_id: str):
+async def download_resource(resource_id: str, request: Request):
     """Download a resource file"""
     try:
+        current_user = require_authenticated_user(request)
         resource = workspace_store.get_dashboard_resource(resource_id)
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
+        if resource.get("case_manager_id") != current_user.case_manager_id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Access denied")
         
         file_path = os.path.join(UPLOADS_DIR, resource["file_path"])
         if not os.path.exists(file_path):
@@ -436,11 +464,14 @@ async def download_resource(resource_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/dashboard/resources/{resource_id}")
-async def delete_resource(resource_id: str):
+async def delete_resource(resource_id: str, request: Request):
     """Delete a resource"""
     try:
+        current_user = require_authenticated_user(request)
         resource = workspace_store.get_dashboard_resource(resource_id)
         if resource:
+            if resource.get("case_manager_id") != current_user.case_manager_id and not current_user.is_admin:
+                raise HTTPException(status_code=403, detail="Access denied")
             file_path = os.path.join(UPLOADS_DIR, resource["file_path"])
             if os.path.exists(file_path):
                 os.remove(file_path)
@@ -453,13 +484,14 @@ async def delete_resource(resource_id: str):
 
 # Dashboard stats endpoint
 @router.get("/dashboard/content-stats")
-async def get_dashboard_stats():
+async def get_dashboard_stats(request: Request):
     """Get dashboard component statistics"""
     try:
-        notes = workspace_store.list_dashboard_items("dashboard_notes", DEFAULT_CASE_MANAGER_ID)
-        docs = workspace_store.list_dashboard_items("dashboard_docs", DEFAULT_CASE_MANAGER_ID)
-        bookmarks = workspace_store.list_dashboard_items("dashboard_bookmarks", DEFAULT_CASE_MANAGER_ID)
-        resources = workspace_store.list_dashboard_items("dashboard_resources", DEFAULT_CASE_MANAGER_ID)
+        scope = _current_scope(request)
+        notes = workspace_store.list_dashboard_items("dashboard_notes", scope)
+        docs = workspace_store.list_dashboard_items("dashboard_docs", scope)
+        bookmarks = workspace_store.list_dashboard_items("dashboard_bookmarks", scope)
+        resources = workspace_store.list_dashboard_items("dashboard_resources", scope)
         
         stats = {
             "notes_count": len(notes),
@@ -477,9 +509,11 @@ async def get_dashboard_stats():
 
 
 @router.get("/dashboard/supervisor/overview")
-async def get_supervisor_overview(supervisor_id: str = Query("supervisor")):
+async def get_supervisor_overview(request: Request, supervisor_id: str = Query("supervisor")):
     """Get cross-module supervisor reporting overview"""
     try:
+        current_user = require_authenticated_user(request)
+        require_role(current_user, [ADMIN_ROLE])
         overview = _get_supervisor_overview()
         overview["supervisor_id"] = supervisor_id
         return {"success": True, "overview": overview}

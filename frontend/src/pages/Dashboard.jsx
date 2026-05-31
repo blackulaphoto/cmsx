@@ -18,8 +18,10 @@ import NotesList from '../components/NotesList'
 import NoteForm from '../components/NoteForm'
 import useNotes from '../hooks/useNotes'
 import { apiFetch } from '../api/config'
+import { useAuth } from '../contexts/AuthContext'
 
 const Dashboard = () => {
+  const { profile } = useAuth()
   const [dashboardStats, setDashboardStats] = useState({
     total_clients: 0,
     active_clients: 0,
@@ -42,11 +44,12 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchDashboardStats()
-  }, [])
+  }, [profile?.case_manager_id])
 
   const fetchDashboardStats = async () => {
     try {
-      const caseManagerId = 'cm_001' // This would come from auth context
+      const caseManagerId = profile?.case_manager_id
+      if (!caseManagerId) return
       const response = await apiFetch(`/api/dashboard/${caseManagerId}`)
       
       if (response.ok) {

@@ -5,11 +5,13 @@ from uuid import uuid4
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .store import FMLAStore
+from backend.auth.authorization import assert_client_access, effective_case_manager_id
+from backend.auth.service import require_authenticated_user
 
 
 router = APIRouter(tags=["fmla"])
@@ -95,41 +97,56 @@ class FMLAReminderPayload(BaseModel):
 
 @router.get("/fmla")
 async def list_fmla_cases(
+    request: Request,
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     employer: Optional[str] = Query(None),
     deadline: Optional[str] = Query(None),
     case_manager: Optional[str] = Query(None),
 ):
+    current_user = require_authenticated_user(request)
     cases = store.list_cases(
         {
             "search": search,
             "status": status,
             "employer": employer,
             "deadline": deadline,
-            "case_manager": case_manager,
+            "case_manager": effective_case_manager_id(current_user, case_manager),
         }
     )
     return {"success": True, "cases": cases, "total_count": len(cases)}
 
 
 @router.get("/fmla/summary")
-async def get_fmla_summary(case_manager_id: Optional[str] = Query(None)):
-    summary = store.get_summary(case_manager_id)
+async def get_fmla_summary(request: Request, case_manager_id: Optional[str] = Query(None)):
+    current_user = require_authenticated_user(request)
+    summary = store.get_summary(effective_case_manager_id(current_user, case_manager_id))
     return {"success": True, **summary}
 
 
 @router.post("/fmla")
-async def create_fmla_case(payload: FMLACasePayload):
-    record = store.create_case(payload.model_dump())
+async def create_fmla_case(payload: FMLACasePayload, request: Request):
+    current_user = require_authenticated_user(request)
+    if payload.client_id:
+        assert_client_access(current_user, payload.client_id)
+    data = payload.model_dump()
+    data["assigned_case_manager"] = current_user.case_manager_id if not current_user.is_admin else (
+        payload.assigned_case_manager or current_user.case_manager_id
+    )
+    record = store.create_case(data)
     return {"success": True, "case": record}
 
 
 @router.get("/fmla/{case_id}")
-async def get_fmla_case(case_id: str):
+async def get_fmla_case(case_id: str, request: Request):
+    current_user = require_authenticated_user(request)
     record = store.get_case(case_id)
     if not record:
         raise HTTPException(status_code=404, detail="FMLA case not found")
+    if record.get("client_id"):
+        assert_client_access(current_user, record["client_id"])
+    elif not current_user.is_admin and record.get("assigned_case_manager") != current_user.case_manager_id:
+        raise HTTPException(status_code=403, detail="Access denied to this FMLA case")
     documents = store.list_documents(case_id)
     correspondence = store.list_correspondence(case_id)
     reminders = store.list_case_reminders(case_id)
@@ -143,17 +160,33 @@ async def get_fmla_case(case_id: str):
 
 
 @router.put("/fmla/{case_id}")
-async def update_fmla_case(case_id: str, payload: FMLACasePayload):
-    record = store.update_case(case_id, payload.model_dump())
+async def update_fmla_case(case_id: str, payload: FMLACasePayload, request: Request):
+    current_user = require_authenticated_user(request)
+    existing = store.get_case(case_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="FMLA case not found")
+    if existing.get("client_id"):
+        assert_client_access(current_user, existing["client_id"])
+    elif not current_user.is_admin and existing.get("assigned_case_manager") != current_user.case_manager_id:
+        raise HTTPException(status_code=403, detail="Access denied to this FMLA case")
+    data = payload.model_dump()
+    data["assigned_case_manager"] = current_user.case_manager_id if not current_user.is_admin else (
+        payload.assigned_case_manager or existing.get("assigned_case_manager") or current_user.case_manager_id
+    )
+    record = store.update_case(case_id, data)
     if not record:
         raise HTTPException(status_code=404, detail="FMLA case not found")
     return {"success": True, "case": record}
 
 
 @router.post("/fmla/{case_id}/documents")
-async def add_fmla_document(case_id: str, payload: FMLADocumentPayload):
-    if not store.get_case(case_id):
+async def add_fmla_document(case_id: str, payload: FMLADocumentPayload, request: Request):
+    current_user = require_authenticated_user(request)
+    case_record = store.get_case(case_id)
+    if not case_record:
         raise HTTPException(status_code=404, detail="FMLA case not found")
+    if case_record.get("client_id"):
+        assert_client_access(current_user, case_record["client_id"])
     record = store.create_document(case_id, payload.model_dump())
     return {"success": True, "document": record}
 
@@ -161,6 +194,7 @@ async def add_fmla_document(case_id: str, payload: FMLADocumentPayload):
 @router.post("/fmla/{case_id}/documents/upload")
 async def upload_fmla_document(
     case_id: str,
+    request: Request,
     files: List[UploadFile] = File(...),
     batch_name: str = Form(""),
     document_type: str = Form("other"),
@@ -174,8 +208,12 @@ async def upload_fmla_document(
     confirmation_number: str = Form(""),
     notes: str = Form(""),
 ):
-    if not store.get_case(case_id):
+    current_user = require_authenticated_user(request)
+    case_record = store.get_case(case_id)
+    if not case_record:
         raise HTTPException(status_code=404, detail="FMLA case not found")
+    if case_record.get("client_id"):
+        assert_client_access(current_user, case_record["client_id"])
     valid_files = [file for file in files if file and file.filename]
     if not valid_files:
         raise HTTPException(status_code=400, detail="At least one file is required")
@@ -238,15 +276,27 @@ async def upload_fmla_document(
 
 
 @router.get("/fmla/{case_id}/documents")
-async def get_fmla_documents(case_id: str):
+async def get_fmla_documents(case_id: str, request: Request):
+    current_user = require_authenticated_user(request)
+    case_record = store.get_case(case_id)
+    if not case_record:
+        raise HTTPException(status_code=404, detail="FMLA case not found")
+    if case_record.get("client_id"):
+        assert_client_access(current_user, case_record["client_id"])
     return {"success": True, "documents": store.list_documents(case_id)}
 
 
 @router.get("/fmla/documents/{document_id}/download")
-async def download_fmla_document(document_id: str):
+async def download_fmla_document(document_id: str, request: Request):
+    current_user = require_authenticated_user(request)
     document = store.get_document(document_id)
     if not document:
         raise HTTPException(status_code=404, detail="FMLA document not found")
+    case_record = store.get_case(document["case_id"])
+    if not case_record:
+        raise HTTPException(status_code=404, detail="FMLA case not found")
+    if case_record.get("client_id"):
+        assert_client_access(current_user, case_record["client_id"])
     if not document.get("file_path"):
         raise HTTPException(status_code=404, detail="No uploaded file is attached to this document")
 
@@ -268,27 +318,53 @@ async def download_fmla_document(document_id: str):
 
 
 @router.post("/fmla/{case_id}/correspondence")
-async def add_fmla_correspondence(case_id: str, payload: FMLACorrespondencePayload):
-    if not store.get_case(case_id):
+async def add_fmla_correspondence(case_id: str, payload: FMLACorrespondencePayload, request: Request):
+    current_user = require_authenticated_user(request)
+    case_record = store.get_case(case_id)
+    if not case_record:
         raise HTTPException(status_code=404, detail="FMLA case not found")
-    record = store.create_correspondence(case_id, payload.model_dump())
+    if case_record.get("client_id"):
+        assert_client_access(current_user, case_record["client_id"])
+    data = payload.model_dump()
+    data["staff_member"] = current_user.full_name
+    record = store.create_correspondence(case_id, data)
     return {"success": True, "correspondence": record}
 
 
 @router.get("/fmla/{case_id}/correspondence")
-async def get_fmla_correspondence(case_id: str):
+async def get_fmla_correspondence(case_id: str, request: Request):
+    current_user = require_authenticated_user(request)
+    case_record = store.get_case(case_id)
+    if not case_record:
+        raise HTTPException(status_code=404, detail="FMLA case not found")
+    if case_record.get("client_id"):
+        assert_client_access(current_user, case_record["client_id"])
     return {"success": True, "correspondence": store.list_correspondence(case_id)}
 
 
 @router.post("/fmla/{case_id}/reminders")
-async def create_fmla_reminder(case_id: str, payload: FMLAReminderPayload):
+async def create_fmla_reminder(case_id: str, payload: FMLAReminderPayload, request: Request):
     try:
-        reminder = store.create_reminder(case_id, payload.model_dump())
+        current_user = require_authenticated_user(request)
+        case_record = store.get_case(case_id)
+        if not case_record:
+            raise HTTPException(status_code=404, detail="FMLA case not found")
+        if case_record.get("client_id"):
+            assert_client_access(current_user, case_record["client_id"])
+        data = payload.model_dump()
+        data["case_manager_id"] = current_user.case_manager_id
+        reminder = store.create_reminder(case_id, data)
         return {"success": True, "reminder": reminder}
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/fmla/{case_id}/reminders")
-async def get_fmla_reminders(case_id: str):
+async def get_fmla_reminders(case_id: str, request: Request):
+    current_user = require_authenticated_user(request)
+    case_record = store.get_case(case_id)
+    if not case_record:
+        raise HTTPException(status_code=404, detail="FMLA case not found")
+    if case_record.get("client_id"):
+        assert_client_access(current_user, case_record["client_id"])
     return {"success": True, "reminders": store.list_case_reminders(case_id)}

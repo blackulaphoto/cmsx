@@ -70,6 +70,9 @@ logger = logging.getLogger(__name__)
 if is_production_runtime and not cors_origins:
     logger.warning("CORS_ORIGINS is empty in production; browser clients will be blocked.")
 
+from backend.auth.router import router as auth_router
+from backend.auth.service import auth_service
+
 # Lifespan event handler
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -119,6 +122,27 @@ app.add_middleware(
     ],
     max_age=3600,  # Preflight response cache duration
 )
+
+AUTH_EXEMPT_PATHS = {
+    "/",
+    "/api/health",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+}
+
+
+@app.middleware("http")
+async def firebase_auth_middleware(request, call_next):
+    path = request.url.path
+    if request.method == "OPTIONS" or path in AUTH_EXEMPT_PATHS:
+        return await call_next(request)
+
+    if path.startswith("/api"):
+        decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
+        request.state.auth_user = auth_service.upsert_profile_from_token(decoded)
+
+    return await call_next(request)
 
 # Static files and templates removed - using React frontend served separately
 
@@ -282,6 +306,14 @@ try:
 except Exception as e:
     loaded_modules["system_health"] = f"error: {e}"
     logger.warning(f"System Health API not loaded: {e}")
+
+try:
+    app.include_router(auth_router)
+    loaded_modules["auth"] = "loaded"
+    logger.info("Firebase auth routes loaded successfully")
+except Exception as e:
+    loaded_modules["auth"] = f"error: {e}"
+    logger.warning(f"Firebase auth routes not loaded: {e}")
 
 # Include the client management endpoints
 try:

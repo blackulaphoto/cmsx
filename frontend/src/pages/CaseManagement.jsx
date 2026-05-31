@@ -8,9 +8,11 @@ import LocationSelector from '../components/LocationSelector'
 import toast from 'react-hot-toast'
 import { apiFetch, clientsAPI } from '../api/config'
 import { getStateOptions } from '../utils/locationIntelligence'
+import { useAuth } from '../contexts/AuthContext'
 
 function CaseManagement() {
   const navigate = useNavigate()
+  const { profile } = useAuth()
   const [clients, setClients] = useState([])
   const [stateOptions, setStateOptions] = useState([{ code: 'CA', name: 'California' }])
   const [loading, setLoading] = useState(true)
@@ -50,11 +52,16 @@ function CaseManagement() {
     goals: '',
     barriers: '',
     notes: '',
-    case_manager_id: 'cm_001'
+    case_manager_id: profile?.case_manager_id || ''
   })
   
   const [formErrors, setFormErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!profile?.case_manager_id) return
+    setClientForm((current) => ({ ...current, case_manager_id: profile.case_manager_id }))
+  }, [profile?.case_manager_id])
 
   const applyTreatmentPlanSuggestions = (suggestions) => {
     setClientForm(prev => ({
@@ -299,7 +306,7 @@ function CaseManagement() {
       risk_level: client.risk_level || 'Medium',
       case_status: client.case_status || 'Active',
       notes: client.notes || '',
-      case_manager_id: client.case_manager_id || 'cm_001'
+      case_manager_id: client.case_manager_id || profile?.case_manager_id || ''
     })
   }
 
@@ -334,7 +341,7 @@ function CaseManagement() {
       goals: '',
       barriers: '',
       notes: '',
-      case_manager_id: 'cm_001'
+      case_manager_id: profile?.case_manager_id || ''
     })
     setFormErrors({})
     setIsSubmitting(false)

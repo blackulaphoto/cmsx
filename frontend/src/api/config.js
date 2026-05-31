@@ -3,6 +3,8 @@
  * Updated for new 9-database architecture
  */
 
+import { auth } from '../lib/firebase'
+
 // Base API URL - on Vercel browser runtime prefer same-origin /api rewrite
 const configuredApiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
 const configuredRailwayPublicUrl = (import.meta.env.VITE_RAILWAY_PUBLIC_URL || 'https://cmsx-production-088d.up.railway.app')
@@ -105,9 +107,11 @@ export const API_ENDPOINTS = {
 
 // Helper function to make API calls
 export const apiCall = async (endpoint, options = {}) => {
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null
   const defaultOptions = {
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers
     }
   }
@@ -147,16 +151,21 @@ export const apiCall = async (endpoint, options = {}) => {
 export const apiFetch = async (endpoint, options = {}) => {
   const { timeoutMs, ...fetchOptions } = options
   const effectiveTimeoutMs = Number(timeoutMs || API_TIMEOUT_MS)
+  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs)
   try {
     const primaryUrl = apiUrl(endpoint)
-    let response = await fetch(primaryUrl, { ...fetchOptions, signal: controller.signal })
+    const headers = {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(fetchOptions.headers || {}),
+    }
+    let response = await fetch(primaryUrl, { ...fetchOptions, headers, signal: controller.signal })
 
     if (shouldRetryDirect(response, fetchOptions.method)) {
       const fallbackUrl = buildFallbackUrl(endpoint)
       if (fallbackUrl && fallbackUrl !== primaryUrl) {
-        response = await fetch(fallbackUrl, { ...fetchOptions, signal: controller.signal })
+        response = await fetch(fallbackUrl, { ...fetchOptions, headers, signal: controller.signal })
       }
     }
 

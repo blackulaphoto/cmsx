@@ -24,6 +24,7 @@ import toast from 'react-hot-toast'
 import ClientSelector from '../components/ClientSelector'
 import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
 import { apiFetch } from '../api/config'
+import { useAuth } from '../contexts/AuthContext'
 import {
   filterFmlaCases,
   getDeadlineState,
@@ -31,13 +32,11 @@ import {
   getMissingChecklist
 } from '../utils/fmla'
 
-const DEFAULT_CASE_MANAGER_ID = 'cm_001'
-
 const emptyCaseForm = () => ({
   client_id: '',
   client_name: '',
   date_of_birth: '',
-  assigned_case_manager: DEFAULT_CASE_MANAGER_ID,
+  assigned_case_manager: '',
   treatment_status: '',
   employer_name: '',
   hr_contact_name: '',
@@ -96,14 +95,14 @@ const emptyCorrespondenceForm = () => ({
   outcome: '',
   next_step_needed: '',
   follow_up_date: '',
-  staff_member: DEFAULT_CASE_MANAGER_ID
+  staff_member: ''
 })
 
 const emptyReminderForm = () => ({
   reminder_text: '',
   due_date: '',
   priority: 'Medium',
-  case_manager_id: DEFAULT_CASE_MANAGER_ID,
+  case_manager_id: '',
   reason: ''
 })
 
@@ -146,6 +145,8 @@ const Select = (props) => (
 )
 
 function FMLA() {
+  const { profile } = useAuth()
+  const defaultCaseManagerId = profile?.case_manager_id || ''
   const [searchParams, setSearchParams] = useSearchParams()
   const [summary, setSummary] = useState({
     total_active_cases: 0,
@@ -166,7 +167,7 @@ function FMLA() {
     status: searchParams.get('status') || '',
     employer: searchParams.get('employer') || '',
     deadline: searchParams.get('deadline') || '',
-    case_manager: searchParams.get('case_manager') || DEFAULT_CASE_MANAGER_ID
+    case_manager: searchParams.get('case_manager') || defaultCaseManagerId
   })
   const [caseForm, setCaseForm] = useState(emptyCaseForm())
   const [documentForm, setDocumentForm] = useState(emptyDocumentForm())
@@ -184,6 +185,14 @@ function FMLA() {
   useEffect(() => {
     loadSummary()
   }, [])
+
+  useEffect(() => {
+    if (!defaultCaseManagerId) return
+    setFilters((current) => ({ ...current, case_manager: current.case_manager || defaultCaseManagerId }))
+    setCaseForm((current) => ({ ...current, assigned_case_manager: current.assigned_case_manager || defaultCaseManagerId }))
+    setCorrespondenceForm((current) => ({ ...current, staff_member: current.staff_member || profile?.full_name || defaultCaseManagerId }))
+    setReminderForm((current) => ({ ...current, case_manager_id: current.case_manager_id || defaultCaseManagerId }))
+  }, [defaultCaseManagerId, profile?.full_name])
 
   useEffect(() => {
     loadCases()
@@ -208,7 +217,7 @@ function FMLA() {
 
   const loadSummary = async () => {
     try {
-      const response = await apiFetch(`/api/fmla/summary?case_manager_id=${encodeURIComponent(DEFAULT_CASE_MANAGER_ID)}`)
+      const response = await apiFetch(`/api/fmla/summary?case_manager_id=${encodeURIComponent(defaultCaseManagerId)}`)
       if (!response.ok) throw new Error('Failed to load FMLA summary')
       const data = await response.json()
       if (data.success) {

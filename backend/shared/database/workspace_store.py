@@ -235,6 +235,11 @@ class WorkspaceStore:
             row = conn.execute("SELECT * FROM client_notes WHERE note_id = ?", (note_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
+    def get_client_note(self, note_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM client_notes WHERE note_id = ?", (note_id,)).fetchone()
+        return self._row_to_dict(row) if row else None
+
     def delete_client_note(self, note_id: str) -> bool:
         with self._connect() as conn:
             cursor = conn.execute("DELETE FROM client_notes WHERE note_id = ?", (note_id,))
@@ -331,6 +336,11 @@ class WorkspaceStore:
                 ),
             )
             conn.commit()
+            row = conn.execute("SELECT * FROM client_tasks WHERE task_id = ?", (task_id,)).fetchone()
+        return self._row_to_dict(row) if row else None
+
+    def get_client_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
             row = conn.execute("SELECT * FROM client_tasks WHERE task_id = ?", (task_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 

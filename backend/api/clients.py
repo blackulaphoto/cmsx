@@ -4,7 +4,7 @@ Client Management API - Core client creation and management endpoints
 Fixes the missing client creation pipeline causing HTTP 405 errors
 """
 
-from fastapi import APIRouter, HTTPException, status, Query
+from fastapi import APIRouter, HTTPException, status, Query, Request
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from backend.shared.database.railway_postgres import upsert_client_to_postgres
 from backend.api.client_data_integration import get_client_data_integrator
+from backend.auth.authorization import assert_client_access, effective_case_manager_id
+from backend.auth.service import require_authenticated_user
 
 try:
     from backend.modules.reminders.intelligent_processor import IntelligentTaskProcessor
@@ -494,17 +496,19 @@ class ClientUpdateRequest(BaseModel):
     background: Optional[Dict[str, Any]] = None
 
 @router.post("/api/clients")
-async def create_client(client_data: ClientCreateRequest):
+async def create_client(client_data: ClientCreateRequest, request: Request):
     """
     Create client in core_clients.db and propagate to all 9 databases
     CRITICAL: This is the master client creation endpoint
     Returns: { success: True, client: {...}, integration_results: {...} }
     """
     try:
+        current_user = require_authenticated_user(request)
         # Generate unique client ID
         client_id = str(uuid.uuid4())
         current_time = datetime.now().isoformat()
-        
+        assigned_case_manager_id = effective_case_manager_id(current_user, client_data.case_manager_id)
+
         # Prepare client data for core database
         intake_date = client_data.intake_date or current_time.split('T')[0]
         
@@ -528,7 +532,7 @@ async def create_client(client_data: ClientCreateRequest):
             """, (
                 client_id, client_data.first_name, client_data.last_name,
                 client_data.email, client_data.phone, client_data.date_of_birth,
-                client_data.case_manager_id, client_data.risk_level,
+                assigned_case_manager_id, client_data.risk_level,
                 intake_date, current_time,
                 client_data.housing_status, client_data.employment_status,
                 client_data.address, client_data.city, client_data.state, client_data.zip_code,
@@ -548,7 +552,7 @@ async def create_client(client_data: ClientCreateRequest):
             "first_name": client_data.first_name,
             "last_name": client_data.last_name,
             "email": client_data.email,
-            "case_manager_id": client_data.case_manager_id,
+            "case_manager_id": assigned_case_manager_id,
             "intake_date": intake_date,
             "risk_level": client_data.risk_level
         })
@@ -561,7 +565,7 @@ async def create_client(client_data: ClientCreateRequest):
                 "last_name": client_data.last_name,
                 "email": client_data.email,
                 "phone": client_data.phone,
-                "case_manager_id": client_data.case_manager_id,
+                "case_manager_id": assigned_case_manager_id,
                 "risk_level": client_data.risk_level,
                 "intake_date": intake_date,
                 "created_at": current_time,
@@ -579,7 +583,7 @@ async def create_client(client_data: ClientCreateRequest):
                 "last_name": client_data.last_name,
                 "email": client_data.email,
                 "phone": client_data.phone,
-                "case_manager_id": client_data.case_manager_id,
+                "case_manager_id": assigned_case_manager_id,
                 "intake_date": intake_date,
                 "risk_level": client_data.risk_level,
                 "created_at": current_time
@@ -595,9 +599,11 @@ async def create_client(client_data: ClientCreateRequest):
         )
 
 @router.get("/api/clients/{client_id}")
-async def get_client(client_id: str):
+async def get_client(client_id: str, request: Request):
     """Retrieve client by ID - was returning 404"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         with get_database_connection("core_clients", "READ_ONLY") as conn:
             ensure_core_clients_schema(conn)
             conn.row_factory = sqlite3.Row
@@ -616,17 +622,19 @@ async def get_client(client_id: str):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.get("/api/clients")
-async def list_clients(case_manager_id: Optional[str] = None, limit: int = Query(50, ge=1, le=1000)):
+async def list_clients(request: Request, case_manager_id: Optional[str] = None, limit: int = Query(50, ge=1, le=1000)):
     """List clients with optional filtering
     Returns: { success: True, clients: [...], count: N }
     """
     try:
+        current_user = require_authenticated_user(request)
+        scoped_case_manager_id = effective_case_manager_id(current_user, case_manager_id)
         with get_database_connection("core_clients", "READ_ONLY") as conn:
             ensure_core_clients_schema(conn)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            if case_manager_id:
+            if scoped_case_manager_id:
                 cursor.execute(
                     """
                     SELECT *
@@ -635,7 +643,7 @@ async def list_clients(case_manager_id: Optional[str] = None, limit: int = Query
                     ORDER BY intake_date DESC, created_at DESC
                     LIMIT ?
                     """,
-                    (case_manager_id, limit),
+                    (scoped_case_manager_id, limit),
                 )
             else:
                 cursor.execute(
@@ -662,9 +670,11 @@ async def list_clients(case_manager_id: Optional[str] = None, limit: int = Query
 
 
 @router.put("/api/clients/{client_id}")
-async def update_client(client_id: str, client_data: ClientUpdateRequest):
+async def update_client(client_id: str, client_data: ClientUpdateRequest, request: Request):
     """Update a shared client record used across all module selectors."""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         updates = client_data.dict(exclude_unset=True)
         if not updates:
             raise HTTPException(status_code=400, detail="No updates provided")
@@ -695,6 +705,11 @@ async def update_client(client_id: str, client_data: ClientUpdateRequest):
                 normalized_updates["needs"] = _serialize_json_field(normalized_updates["needs"], [])
             if "background" in normalized_updates:
                 normalized_updates["background"] = _serialize_json_field(normalized_updates["background"], {})
+            if "case_manager_id" in normalized_updates:
+                normalized_updates["case_manager_id"] = effective_case_manager_id(
+                    current_user,
+                    normalized_updates["case_manager_id"],
+                )
 
             normalized_updates["updated_at"] = datetime.now().isoformat()
             set_clause = ", ".join(f"{column} = ?" for column in normalized_updates.keys())
@@ -718,9 +733,11 @@ async def update_client(client_id: str, client_data: ClientUpdateRequest):
 
 
 @router.delete("/api/clients/{client_id}")
-async def delete_client(client_id: str):
+async def delete_client(client_id: str, request: Request):
     """Delete a shared client record and remove it from module sync tables."""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         deleted = False
         with get_database_connection("core_clients", "ADMIN") as conn:
             ensure_core_clients_schema(conn)
@@ -753,11 +770,13 @@ async def delete_client(client_id: str):
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @router.get("/api/clients/{client_id}/unified-view")
-async def get_client_unified_view(client_id: str):
+async def get_client_unified_view(client_id: str, request: Request):
     """Get unified client view with all module data
     Returns: { success: True, client_data: { client: {...}, housing: {}, ... } }
     """
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         with get_database_connection("core_clients", "READ_ONLY") as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -813,11 +832,13 @@ async def get_client_unified_view(client_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/clients/{client_id}/intelligent-tasks")
-async def get_intelligent_tasks(client_id: str):
+async def get_intelligent_tasks(client_id: str, request: Request):
     """Get AI-generated intelligent tasks for client
     Returns: { success: True, tasks: [], recommendations: [] }
     """
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         if IntelligentTaskProcessor is None:
             return {
                 "success": False,
@@ -852,11 +873,13 @@ async def get_intelligent_tasks(client_id: str):
         }
 
 @router.get("/api/clients/{client_id}/search-recommendations")
-async def get_search_recommendations(client_id: str):
+async def get_search_recommendations(client_id: str, request: Request):
     """Get service search recommendations for client
     Returns: { success: True, recommendations: [] }
     """
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         with get_database_connection("core_clients", "READ_ONLY") as conn:
             cursor = conn.cursor()
             cursor.execute("""

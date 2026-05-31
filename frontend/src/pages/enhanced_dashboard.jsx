@@ -36,9 +36,11 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
+import { useAuth } from '../contexts/AuthContext'
 
 const EnhancedDashboard = () => {
-  const caseManagerId = 'cm_001'
+  const { profile } = useAuth()
+  const caseManagerId = profile?.case_manager_id || ''
   const [dashboardStats, setDashboardStats] = useState({
     total_clients: 0,
     active_clients: 0,
@@ -90,10 +92,11 @@ const EnhancedDashboard = () => {
   }
 
   useEffect(() => {
+    if (!caseManagerId) return
     fetchDashboardStats()
     fetchFmlaSummary()
     loadClickUpData()
-  }, [])
+  }, [caseManagerId])
 
   const fetchDashboardStats = async () => {
     try {

@@ -5,11 +5,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from backend.shared.database.workspace_store import workspace_store
+from backend.auth.authorization import assert_client_access
+from backend.auth.service import require_authenticated_user
 from .service import documentation_ai_service
 
 logger = logging.getLogger(__name__)
@@ -228,8 +230,11 @@ def _load_reference_files(directory: Path, source: str) -> List[Dict[str, Any]]:
 
 
 @router.post("/note-draft")
-async def generate_note_draft(payload: NoteDraftRequest):
+async def generate_note_draft(payload: NoteDraftRequest, request: Request):
     try:
+        current_user = require_authenticated_user(request)
+        if payload.client_id:
+            assert_client_access(current_user, payload.client_id)
         result = await documentation_ai_service.generate_note_draft(payload.model_dump())
         return {"success": True, **result}
     except Exception as exc:
@@ -238,8 +243,9 @@ async def generate_note_draft(payload: NoteDraftRequest):
 
 
 @router.post("/compliance-review")
-async def compliance_review(payload: ComplianceReviewRequest):
+async def compliance_review(payload: ComplianceReviewRequest, request: Request):
     try:
+        require_authenticated_user(request)
         result = documentation_ai_service.compliance_review(payload.model_dump())
         return {"success": True, **result}
     except Exception as exc:
@@ -248,8 +254,11 @@ async def compliance_review(payload: ComplianceReviewRequest):
 
 
 @router.post("/treatment-plan-suggestions")
-async def treatment_plan_suggestions(payload: TreatmentPlanSuggestionRequest):
+async def treatment_plan_suggestions(payload: TreatmentPlanSuggestionRequest, request: Request):
     try:
+        current_user = require_authenticated_user(request)
+        if payload.client_id:
+            assert_client_access(current_user, payload.client_id)
         result = documentation_ai_service.generate_treatment_plan_suggestions(payload.model_dump())
         return {"success": True, **result}
     except Exception as exc:
@@ -258,8 +267,11 @@ async def treatment_plan_suggestions(payload: TreatmentPlanSuggestionRequest):
 
 
 @router.post("/group-note")
-async def generate_group_note(payload: GroupNoteRequest):
+async def generate_group_note(payload: GroupNoteRequest, request: Request):
     try:
+        current_user = require_authenticated_user(request)
+        if payload.client_id:
+            assert_client_access(current_user, payload.client_id)
         result = await documentation_ai_service.generate_group_note(payload.model_dump())
         return {"success": True, **result}
     except Exception as exc:
@@ -268,8 +280,10 @@ async def generate_group_note(payload: GroupNoteRequest):
 
 
 @router.post("/follow-up-task")
-async def create_follow_up_task(payload: FollowUpTaskRequest):
+async def create_follow_up_task(payload: FollowUpTaskRequest, request: Request):
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, payload.client_id)
         task = documentation_ai_service.create_follow_up_task(payload.client_id, payload.model_dump())
         return {"success": True, "task": task}
     except Exception as exc:
@@ -278,8 +292,9 @@ async def create_follow_up_task(payload: FollowUpTaskRequest):
 
 
 @router.get("/templates")
-async def list_documentation_templates():
+async def list_documentation_templates(request: Request):
     try:
+        require_authenticated_user(request)
         templates = _load_document_templates()
         references = _load_reference_files(REFERENCE_LIBRARY_DIR, "reference")
         instructions = _load_reference_files(AI_INSTRUCTIONS_DIR, "instruction")
@@ -295,9 +310,10 @@ async def list_documentation_templates():
 
 
 @router.get("/brand-resources")
-async def list_brand_resources():
+async def list_brand_resources(request: Request):
     try:
-        resources = workspace_store.list_brand_resources(DEFAULT_CASE_MANAGER_ID)
+        current_user = require_authenticated_user(request)
+        resources = workspace_store.list_brand_resources(current_user.case_manager_id)
         return {"success": True, "resources": resources}
     except Exception as exc:
         logger.error("Failed to list brand resources: %s", exc)
@@ -306,10 +322,12 @@ async def list_brand_resources():
 
 @router.post("/brand-resources/upload")
 async def upload_brand_resource(
+    request: Request,
     file: UploadFile = File(...),
     category: str = Form("general"),
     description: str = Form(""),
 ):
+    current_user = require_authenticated_user(request)
     safe_name = _safe_filename(file.filename)
     extension = Path(safe_name).suffix
     stored_name = f"{uuid4().hex}{extension}"
@@ -329,7 +347,7 @@ async def upload_brand_resource(
         )
 
         resource = workspace_store.create_brand_resource(
-            case_manager_id=DEFAULT_CASE_MANAGER_ID,
+            case_manager_id=current_user.case_manager_id,
             resource_id=uuid4().hex,
             name=safe_name,
             category=category or "general",
@@ -353,10 +371,13 @@ async def upload_brand_resource(
 
 
 @router.get("/brand-resources/{resource_id}/download")
-async def download_brand_resource(resource_id: str):
+async def download_brand_resource(resource_id: str, request: Request):
+    current_user = require_authenticated_user(request)
     resource = workspace_store.get_brand_resource(resource_id)
     if not resource:
         raise HTTPException(status_code=404, detail="Brand resource not found")
+    if resource.get("case_manager_id") != current_user.case_manager_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     file_path = (BRAND_UPLOADS_DIR / resource["file_path"]).resolve()
     uploads_root = BRAND_UPLOADS_DIR.resolve()
@@ -376,10 +397,13 @@ async def download_brand_resource(resource_id: str):
 
 
 @router.delete("/brand-resources/{resource_id}")
-async def delete_brand_resource(resource_id: str):
+async def delete_brand_resource(resource_id: str, request: Request):
+    current_user = require_authenticated_user(request)
     resource = workspace_store.get_brand_resource(resource_id)
     if not resource:
         raise HTTPException(status_code=404, detail="Brand resource not found")
+    if resource.get("case_manager_id") != current_user.case_manager_id and not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Access denied")
 
     file_path = BRAND_UPLOADS_DIR / resource["file_path"]
     try:

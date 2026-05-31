@@ -3,7 +3,7 @@ Case Management Routes - FastAPI Router
 Handles client CRUD operations, case notes, and referrals
 """
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Dict, List, Any, Optional
@@ -13,6 +13,8 @@ from datetime import datetime
 from .models import Client, Referral
 from .database import CaseManagementDatabase
 from backend.shared.database.workspace_store import workspace_store
+from backend.auth.authorization import assert_client_access, effective_case_manager_id
+from backend.auth.service import require_authenticated_user
 
 logger = logging.getLogger(__name__)
 
@@ -128,9 +130,10 @@ async def case_management_info():
 
 
 @router.post("/clients", response_model=ClientResponse)
-async def create_client(client_request: ClientCreateRequest):
+async def create_client(client_request: ClientCreateRequest, request: Request):
     """Create a new client - SOLE CLIENT CREATOR for the entire system"""
     try:
+        current_user = require_authenticated_user(request)
         logger.info(f"Creating new client: {client_request.first_name} {client_request.last_name}")
         
         from backend.shared.database.core_client_service import CoreClientService
@@ -140,6 +143,7 @@ async def create_client(client_request: ClientCreateRequest):
         
         # Prepare client data for core database
         client_data = client_request.dict()
+        client_data["case_manager_id"] = effective_case_manager_id(current_user, client_request.case_manager_id)
         client_data['intake_date'] = datetime.now().strftime('%Y-%m-%d')
         client_data['created_at'] = datetime.now().isoformat()
         client_data['updated_at'] = datetime.now().isoformat()
@@ -170,6 +174,7 @@ async def create_client(client_request: ClientCreateRequest):
 
 @router.get("/clients", response_model=ClientListResponse)
 async def get_clients(
+    request: Request,
     case_manager_id: Optional[str] = Query(None, description="Case manager ID"),
     risk_level: Optional[str] = Query(None, description="Filter by risk level"),
     search: Optional[str] = Query(None, description="Search by name"),
@@ -178,6 +183,7 @@ async def get_clients(
 ):
     """Get clients from core database with optional filtering"""
     try:
+        current_user = require_authenticated_user(request)
         from backend.shared.database.core_client_service import CoreClientService
         
         core_service = CoreClientService()
@@ -190,8 +196,9 @@ async def get_clients(
             filters['search'] = search
         
         # Get clients from core database
-        if case_manager_id:
-            clients_data = core_service.get_clients_by_case_manager(case_manager_id)
+        scoped_case_manager_id = effective_case_manager_id(current_user, case_manager_id)
+        if scoped_case_manager_id:
+            clients_data = core_service.get_clients_by_case_manager(scoped_case_manager_id)
         elif search:
             clients_data = core_service.search_clients(search, limit=per_page)
         else:
@@ -225,9 +232,11 @@ async def get_clients(
 
 
 @router.get("/clients/{client_id}")
-async def get_client(client_id: str):
+async def get_client(client_id: str, request: Request):
     """Get a specific client by ID from core database"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         from backend.shared.database.core_client_service import CoreClientService
         
         core_service = CoreClientService()
@@ -250,9 +259,11 @@ async def get_client(client_id: str):
 
 
 @router.put("/clients/{client_id}")
-async def update_client(client_id: str, client_request: ClientCreateRequest):
+async def update_client(client_id: str, client_request: ClientCreateRequest, request: Request):
     """Update an existing client in core database"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         from backend.shared.database.core_client_service import CoreClientService
         
         core_service = CoreClientService()
@@ -264,6 +275,7 @@ async def update_client(client_id: str, client_request: ClientCreateRequest):
         
         # Prepare update data
         update_data = client_request.dict()
+        update_data["case_manager_id"] = effective_case_manager_id(current_user, client_request.case_manager_id)
         # Preserve original intake date and creation date
         update_data['intake_date'] = existing_client_data.get('intake_date')
         update_data['created_at'] = existing_client_data.get('created_at')
@@ -293,9 +305,11 @@ async def update_client(client_id: str, client_request: ClientCreateRequest):
 
 
 @router.delete("/clients/{client_id}")
-async def delete_client(client_id: str):
+async def delete_client(client_id: str, request: Request):
     """Delete (soft delete) a client from core database"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         from backend.shared.database.core_client_service import CoreClientService
         
         core_service = CoreClientService()
@@ -328,9 +342,11 @@ async def delete_client(client_id: str):
 # =============================================================================
 
 @router.post("/clients/{client_id}/notes")
-async def create_case_note(client_id: str, note_request: CaseNoteRequest):
+async def create_case_note(client_id: str, note_request: CaseNoteRequest, request: Request):
     """Create a new case note for a client"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         logger.info(f"Creating case note for client: {client_id}")
         
         # Verify client exists
@@ -341,6 +357,7 @@ async def create_case_note(client_id: str, note_request: CaseNoteRequest):
         # Create case note object
         note_data = note_request.dict()
         note_data['client_id'] = client_id
+        note_data['case_manager_id'] = current_user.case_manager_id
         note_data['created_at'] = datetime.now().isoformat()
         
         case_note = CaseNote(**note_data)
@@ -366,9 +383,11 @@ async def create_case_note(client_id: str, note_request: CaseNoteRequest):
 
 
 @router.get("/clients/{client_id}/notes")
-async def get_client_notes(client_id: str):
+async def get_client_notes(client_id: str, request: Request):
     """Get all case notes for a client"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         logger.info(f"Getting case notes for client: {client_id}")
         
         # Verify client exists
@@ -398,9 +417,11 @@ async def get_client_notes(client_id: str):
 # =============================================================================
 
 @router.get("/dashboard/{case_manager_id}")
-async def get_dashboard_stats(case_manager_id: str):
+async def get_dashboard_stats(case_manager_id: str, request: Request):
     """Get dashboard statistics for a case manager"""
     try:
+        current_user = require_authenticated_user(request)
+        case_manager_id = effective_case_manager_id(current_user, case_manager_id) or current_user.case_manager_id
         # Validate case_manager_id parameter
         if not case_manager_id:
             raise HTTPException(status_code=400, detail="case_manager_id is required")
@@ -511,14 +532,16 @@ class NoteCreateRequest(BaseModel):
     created_by: str = Field(..., description="User who created the note")
 
 @router.post("/notes/add/{client_id}")
-async def add_client_note(client_id: str, note_data: NoteCreateRequest):
+async def add_client_note(client_id: str, note_data: NoteCreateRequest, request: Request):
     """Add a new note for a client."""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         note = workspace_store.create_client_note(
             client_id=client_id,
             note_type=note_data.note_type,
             content=note_data.content,
-            created_by=note_data.created_by,
+            created_by=current_user.full_name,
             title=note_data.title,
         )
         logger.info("Added note %s for client %s", note["note_id"], client_id)
@@ -535,9 +558,11 @@ async def add_client_note(client_id: str, note_data: NoteCreateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/notes/list/{client_id}")
-async def get_client_notes(client_id: str):
+async def get_client_notes(client_id: str, request: Request):
     """Get all notes for a client"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         return JSONResponse({
             "success": True,
             "notes": workspace_store.list_client_notes(client_id)
@@ -548,9 +573,14 @@ async def get_client_notes(client_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/notes/{note_id}")
-async def delete_note(note_id: str):
+async def delete_note(note_id: str, request: Request):
     """Delete a specific note."""
     try:
+        current_user = require_authenticated_user(request)
+        note = workspace_store.get_client_note(note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        assert_client_access(current_user, note["client_id"])
         if not workspace_store.delete_client_note(note_id):
             raise HTTPException(status_code=404, detail="Note not found")
         logger.info("Deleted note %s", note_id)
@@ -565,14 +595,19 @@ async def delete_note(note_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/notes/update/{note_id}")
-async def update_note(note_id: str, note_data: NoteCreateRequest):
+async def update_note(note_id: str, note_data: NoteCreateRequest, request: Request):
     """Update a specific note."""
     try:
+        current_user = require_authenticated_user(request)
+        existing_note = workspace_store.get_client_note(note_id)
+        if not existing_note:
+            raise HTTPException(status_code=404, detail="Note not found")
+        assert_client_access(current_user, existing_note["client_id"])
         note = workspace_store.update_client_note(
             note_id=note_id,
             note_type=note_data.note_type,
             content=note_data.content,
-            created_by=note_data.created_by,
+            created_by=current_user.full_name,
             title=note_data.title,
         )
         if not note:
@@ -589,9 +624,12 @@ async def update_note(note_id: str, note_data: NoteCreateRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/tasks/add/{client_id}")
-async def add_task(client_id: str, task_data: dict):
+async def add_task(client_id: str, task_data: dict, request: Request):
     """Add a new task for a client"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
+        task_data = {**task_data, "assigned_to": current_user.full_name}
         new_task = workspace_store.create_client_task(client_id, task_data)
         logger.info("Task added for client %s: %s", client_id, new_task["task_id"])
         
@@ -607,9 +645,11 @@ async def add_task(client_id: str, task_data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/tasks/list/{client_id}")
-async def get_client_tasks(client_id: str):
+async def get_client_tasks(client_id: str, request: Request):
     """Get all tasks for a client"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         tasks = workspace_store.list_client_tasks(client_id)
         logger.info("Retrieved %s tasks for client %s", len(tasks), client_id)
         
@@ -624,9 +664,14 @@ async def get_client_tasks(client_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/tasks/update/{task_id}")
-async def update_task(task_id: str, task_data: dict):
+async def update_task(task_id: str, task_data: dict, request: Request):
     """Update an existing task"""
     try:
+        current_user = require_authenticated_user(request)
+        existing_task = workspace_store.get_client_task(task_id)
+        if not existing_task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        assert_client_access(current_user, existing_task["client_id"])
         task = workspace_store.update_client_task(task_id, task_data)
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
@@ -642,9 +687,14 @@ async def update_task(task_id: str, task_data: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/tasks/{task_id}")
-async def delete_task(task_id: str):
+async def delete_task(task_id: str, request: Request):
     """Delete a task"""
     try:
+        current_user = require_authenticated_user(request)
+        existing_task = workspace_store.get_client_task(task_id)
+        if not existing_task:
+            raise HTTPException(status_code=404, detail="Task not found")
+        assert_client_access(current_user, existing_task["client_id"])
         if not workspace_store.delete_client_task(task_id):
             raise HTTPException(status_code=404, detail="Task not found")
         logger.info("Task deleted: %s", task_id)

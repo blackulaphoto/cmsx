@@ -8,12 +8,14 @@ This is a clean, minimal replacement for the corrupted unified_client_api.py
 Focuses ONLY on the essential functionality to get task persistence working
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import json
 
 from backend.api.clients import get_database_connection
+from backend.auth.authorization import assert_client_access, effective_case_manager_id
+from backend.auth.service import require_authenticated_user
 
 try:
     from backend.modules.reminders.intelligent_processor import IntelligentTaskProcessor
@@ -28,12 +30,14 @@ router = APIRouter()
 # ============================================================================
 
 @router.get("/api/unified-clients/{client_id}/unified-view")
-async def get_unified_client_view(client_id: str):
+async def get_unified_client_view(client_id: str, request: Request):
     """
     Get unified client view across all modules
     SIMPLIFIED: Basic implementation to prevent crashes
     """
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         with get_database_connection("core_clients", "READ_ONLY") as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -87,6 +91,7 @@ async def get_unified_client_view(client_id: str):
 @router.get("/api/unified-clients/{client_id}/intelligent-tasks")
 async def get_client_intelligent_tasks(
     client_id: str,
+    request: Request,
     force_regenerate: bool = Query(False, description="Force regenerate tasks"),
     include_all_processes: bool = Query(True, description="Include all process types")
 ):
@@ -95,6 +100,8 @@ async def get_client_intelligent_tasks(
     FIXED: Implements database-first pattern as specified in patch
     """
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         if not IntelligentTaskProcessor:
             # Fallback if processor not available
             return {
@@ -162,11 +169,13 @@ async def get_client_intelligent_tasks(
 # ============================================================================
 
 @router.get("/api/dashboard/case-manager/{case_manager_id}")
-async def get_case_manager_dashboard(case_manager_id: str):
+async def get_case_manager_dashboard(case_manager_id: str, request: Request):
     """
     Get comprehensive dashboard for a case manager, including tasks from database
     """
     try:
+        current_user = require_authenticated_user(request)
+        case_manager_id = effective_case_manager_id(current_user, case_manager_id) or current_user.case_manager_id
         # Get clients assigned to this case manager
         clients = get_case_manager_clients(case_manager_id)
         
@@ -207,12 +216,14 @@ async def get_case_manager_dashboard(case_manager_id: str):
 # ============================================================================
 
 @router.get("/api/unified-clients/{client_id}/search-recommendations")
-async def get_client_search_recommendations(client_id: str):
+async def get_client_search_recommendations(client_id: str, request: Request):
     """
     Get AI-generated search recommendations for client
     SIMPLIFIED: Basic implementation
     """
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         # Basic recommendations based on common needs
         recommendations = [
             {

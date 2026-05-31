@@ -1,4 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import ProtectedRoute from './components/ProtectedRoute'
+import Login from './pages/Login'
 
 // Import layout component
 import Layout from './components/Layout'
@@ -36,14 +38,18 @@ import IntegrationAudit from './pages/IntegrationAudit'
 
 function App() {
   return (
-    <Layout>
-      <Routes>
-        {/* Enhanced Dashboard - now the main dashboard with ClickUp-style components */}
-        <Route path="/" element={
-          <ErrorBoundary>
-            <EnhancedDashboard />
-          </ErrorBoundary>
-        } />
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/*" element={
+        <ProtectedRoute>
+          <Layout>
+            <Routes>
+              {/* Enhanced Dashboard - now the main dashboard with ClickUp-style components */}
+              <Route path="/" element={
+                <ErrorBoundary>
+                  <EnhancedDashboard />
+                </ErrorBoundary>
+              } />
         
         {/* Enhanced Dashboard - backward compatibility route */}
         <Route path="/enhanced-dashboard" element={
@@ -74,7 +80,11 @@ function App() {
         <Route path="/ai-chat" element={<AIChat />} />
         <Route path="/services" element={<Services />} />
         <Route path="/smart-dashboard" element={<SmartDaily />} />
-        <Route path="/supervisor-dashboard" element={<SupervisorDashboard />} />
+              <Route path="/supervisor-dashboard" element={
+                <ProtectedRoute roles={['admin']}>
+                  <SupervisorDashboard />
+                </ProtectedRoute>
+              } />
         <Route path="/jobs" element={<Jobs />} />
         {/* System administration and monitoring */}
         <Route path="/system-integrity" element={<SystemIntegrity />} />
@@ -82,10 +92,13 @@ function App() {
         <Route path="/integration-audit" element={<IntegrationAudit />} />
         
         {/* Redirect any unmatched routes to dashboard */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-      <AIAssistantPopup />
-    </Layout>
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+            <AIAssistantPopup />
+          </Layout>
+        </ProtectedRoute>
+      } />
+    </Routes>
   )
 }
 

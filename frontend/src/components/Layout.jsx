@@ -22,9 +22,11 @@ import {
   Stethoscope,
   Contact
 } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 const Layout = ({ children }) => {
   const location = useLocation();
+  const { profile, logout } = useAuth();
 
   const navigationItems = [
     { path: '/', label: 'Dashboard', icon: Home, gradient: 'from-blue-500 to-cyan-500' },
@@ -123,13 +125,16 @@ const Layout = ({ children }) => {
                     <User className="h-3 w-3 text-white" />
                   </div>
                   <div className="hidden sm:block">
-                    <p className="text-xs font-medium text-white">John Doe</p>
-                    <p className="text-xs text-gray-400">Case Manager</p>
+                    <p className="text-xs font-medium text-white">{profile?.full_name || 'Signed in user'}</p>
+                    <p className="text-xs text-gray-400">{profile?.role === 'admin' ? 'Admin' : 'Case Manager'}</p>
                   </div>
                 </div>
                 {/* User Status Indicator */}
                 <div className="absolute -bottom-0.5 -left-0.5 w-2 h-2 bg-gradient-to-r from-green-400 to-emerald-400 rounded-full border border-slate-900 shadow-lg"></div>
               </div>
+              <button className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white" onClick={logout}>
+                Logout
+              </button>
             </div>
           </div>
 

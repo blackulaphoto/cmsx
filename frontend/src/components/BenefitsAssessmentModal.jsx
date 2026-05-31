@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { apiFetch } from '../api/config'
 import { 
   X, 
   ChevronRight, 
@@ -56,7 +57,7 @@ const BenefitsAssessmentModal = ({
     try {
       // Use query parameter route to avoid URL encoding issues with programs containing special characters
       console.log('Loading questions for program:', program)
-      const response = await fetch(`/api/benefits/program-questions?program=${encodeURIComponent(program)}`)
+      const response = await apiFetch(`/api/benefits/program-questions?program=${encodeURIComponent(program)}`)
       const data = await response.json()
       
       if (data.success) {
@@ -108,7 +109,7 @@ const BenefitsAssessmentModal = ({
     setError(null)
     
     try {
-      const response = await fetch('/api/benefits/assess-program-eligibility', {
+      const response = await apiFetch('/api/benefits/assess-program-eligibility', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
