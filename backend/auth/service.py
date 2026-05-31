@@ -13,6 +13,8 @@ import firebase_admin
 from firebase_admin import auth as firebase_auth
 from firebase_admin import credentials
 from fastapi import HTTPException, Request, status
+from google.auth.transport import requests as google_auth_requests
+from google.oauth2 import id_token as google_id_token
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +115,40 @@ class FirebaseAuthService:
         self._firebase_app = firebase_admin.initialize_app(cred, options or None)
         return self._firebase_app
 
+    def _get_project_id(self) -> str:
+        project_id = (
+            os.getenv("VITE_FIREBASE_PROJECT_ID")
+            or os.getenv("NEXT_PUBLIC_FIREBASE_PROJECT_ID")
+            or os.getenv("FIREBASE_PROJECT_ID")
+            or ""
+        ).strip()
+        if not project_id:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Firebase project ID is not configured on the backend",
+            )
+        return project_id
+
+    def _verify_token_with_public_certs(self, token: str) -> Dict[str, Any]:
+        try:
+            request_adapter = google_auth_requests.Request()
+            decoded = google_id_token.verify_firebase_token(
+                token,
+                request_adapter,
+                audience=self._get_project_id(),
+            )
+            if not decoded:
+                raise ValueError("Decoded Firebase token was empty")
+            return decoded
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning("Public-cert Firebase token verification failed: %s", exc)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Firebase token",
+            ) from exc
+
     def verify_bearer_token(self, authorization_header: Optional[str]) -> Dict[str, Any]:
         if not authorization_header or not authorization_header.startswith("Bearer "):
             raise HTTPException(
@@ -128,8 +164,12 @@ class FirebaseAuthService:
             )
 
         try:
-            self._get_firebase_app()
-            return firebase_auth.verify_id_token(token)
+            try:
+                self._get_firebase_app()
+                return firebase_auth.verify_id_token(token)
+            except RuntimeError as exc:
+                logger.info("Firebase Admin credentials unavailable, falling back to public-cert verification: %s", exc)
+                return self._verify_token_with_public_certs(token)
         except HTTPException:
             raise
         except Exception as exc:
