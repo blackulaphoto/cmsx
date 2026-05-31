@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import sqlite3
+import base64
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -122,20 +123,39 @@ class FirebaseAuthService:
             or os.getenv("FIREBASE_PROJECT_ID")
             or ""
         ).strip()
-        if not project_id:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Firebase project ID is not configured on the backend",
-            )
         return project_id
+
+    def _get_project_id_from_token(self, token: str) -> str:
+        try:
+            parts = token.split(".")
+            if len(parts) != 3:
+                raise ValueError("Malformed JWT")
+            payload = parts[1]
+            payload += "=" * (-len(payload) % 4)
+            decoded_payload = json.loads(base64.urlsafe_b64decode(payload.encode()).decode())
+            audience = (decoded_payload.get("aud") or "").strip()
+            if audience:
+                return audience
+            issuer = (decoded_payload.get("iss") or "").strip().rstrip("/")
+            if issuer:
+                return issuer.rsplit("/", 1)[-1]
+        except Exception as exc:
+            logger.warning("Could not infer Firebase project ID from token: %s", exc)
+        return ""
 
     def _verify_token_with_public_certs(self, token: str) -> Dict[str, Any]:
         try:
             request_adapter = google_auth_requests.Request()
+            project_id = self._get_project_id() or self._get_project_id_from_token(token)
+            if not project_id:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Firebase project ID is not configured on the backend",
+                )
             decoded = google_id_token.verify_firebase_token(
                 token,
                 request_adapter,
-                audience=self._get_project_id(),
+                audience=project_id,
             )
             if not decoded:
                 raise ValueError("Decoded Firebase token was empty")
