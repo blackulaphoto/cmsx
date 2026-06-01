@@ -161,6 +161,31 @@ def _get_client_name_map() -> Dict[str, str]:
     return name_map
 
 
+def _get_accessible_client_ids(current_user) -> Optional[List[str]]:
+    if current_user.is_admin:
+        return None
+
+    conn: Optional[sqlite3.Connection] = None
+    try:
+        conn = sqlite3.connect("databases/core_clients.db")
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT client_id FROM clients WHERE case_manager_id = ?",
+            (current_user.case_manager_id,),
+        )
+        return [row["client_id"] for row in cursor.fetchall() if row["client_id"]]
+    except Exception as e:
+        logger.warning(f"Unable to load accessible legal client scope: {e}")
+        return []
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def _ensure_legal_document_schema(connection: sqlite3.Connection) -> None:
     cursor = connection.cursor()
     cursor.execute("PRAGMA table_info(legal_documents)")
@@ -238,6 +263,7 @@ async def get_legal_cases(request: Request, client_id: Optional[str] = Query(Non
         legal_db.connect()
         cursor = legal_db.connection.cursor()
         name_map = _get_client_name_map()
+        accessible_client_ids = _get_accessible_client_ids(current_user)
 
         query = """
             SELECT
@@ -257,9 +283,22 @@ async def get_legal_cases(request: Request, client_id: Optional[str] = Query(Non
                 AND (cd.status IS NULL OR cd.status = 'Scheduled')
         """
         params: List[Any] = []
+        where_clauses: List[str] = []
         if client_id:
-            query += " WHERE lc.client_id = ?"
+            where_clauses.append("lc.client_id = ?")
             params.append(client_id)
+        if accessible_client_ids is not None:
+            if not accessible_client_ids:
+                return {
+                    'success': True,
+                    'cases': [],
+                    'total_count': 0
+                }
+            placeholders = ", ".join(["?"] * len(accessible_client_ids))
+            where_clauses.append(f"lc.client_id IN ({placeholders})")
+            params.extend(accessible_client_ids)
+        if where_clauses:
+            query += " WHERE " + " AND ".join(where_clauses)
         query += """
             GROUP BY
                 lc.case_id, lc.client_id, lc.case_type, lc.case_status,
@@ -271,8 +310,6 @@ async def get_legal_cases(request: Request, client_id: Optional[str] = Query(Non
 
         cases = []
         for row in rows:
-            if not current_user.is_admin:
-                assert_client_access(current_user, row["client_id"])
             status = row["case_status"] or "Pending"
             compliance_status = (row["compliance_status"] or "").lower()
             priority = "High" if compliance_status == "warning" else "Medium"
@@ -350,6 +387,7 @@ async def get_court_dates(request: Request, client_id: Optional[str] = Query(Non
         legal_db.connect()
         cursor = legal_db.connection.cursor()
         name_map = _get_client_name_map()
+        accessible_client_ids = _get_accessible_client_ids(current_user)
         future_date = (datetime.now() + timedelta(days=days_ahead)).date().isoformat()
         today = datetime.now().date().isoformat()
 
@@ -375,14 +413,22 @@ async def get_court_dates(request: Request, client_id: Optional[str] = Query(Non
         if client_id:
             query += " AND cd.client_id = ?"
             params.append(client_id)
+        if accessible_client_ids is not None:
+            if not accessible_client_ids:
+                return {
+                    'success': True,
+                    'court_dates': [],
+                    'total_count': 0
+                }
+            placeholders = ", ".join(["?"] * len(accessible_client_ids))
+            query += f" AND cd.client_id IN ({placeholders})"
+            params.extend(accessible_client_ids)
         query += " ORDER BY cd.hearing_date ASC, cd.hearing_time ASC"
         cursor.execute(query, params)
         rows = cursor.fetchall()
 
         court_dates = []
         for row in rows:
-            if not current_user.is_admin:
-                assert_client_access(current_user, row["client_id"])
             days_until = None
             if row["hearing_date"]:
                 try:
@@ -491,6 +537,7 @@ async def get_legal_documents(request: Request, client_id: Optional[str] = Query
         cursor = legal_db.connection.cursor()
         _ensure_legal_document_schema(legal_db.connection)
         name_map = _get_client_name_map()
+        accessible_client_ids = _get_accessible_client_ids(current_user)
 
         query = """
             SELECT
@@ -507,6 +554,16 @@ async def get_legal_documents(request: Request, client_id: Optional[str] = Query
         if document_type:
             query += " AND document_type = ?"
             params.append(document_type)
+        if accessible_client_ids is not None:
+            if not accessible_client_ids:
+                return {
+                    'success': True,
+                    'documents': [],
+                    'total_count': 0
+                }
+            placeholders = ", ".join(["?"] * len(accessible_client_ids))
+            query += f" AND client_id IN ({placeholders})"
+            params.extend(accessible_client_ids)
         query += " ORDER BY created_at DESC"
         cursor.execute(query, params)
         rows = cursor.fetchall()
@@ -534,7 +591,7 @@ async def get_legal_documents(request: Request, client_id: Optional[str] = Query
             "content_type": row["content_type"] or "",
             "file_format": row["file_format"] or "",
             "has_file": bool(row["file_path"]),
-        } for row in rows if current_user.is_admin or assert_client_access(current_user, row["client_id"])]
+        } for row in rows]
 
         return {
             'success': True,

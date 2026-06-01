@@ -15,7 +15,7 @@
 import { useState, useEffect } from 'react'
 import { Home, Search, MapPin, DollarSign, Bed, Bath, Users, Star, User, Globe, Target, Sparkles, Zap, TrendingUp, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import ClientSelector from '../components/ClientSelector'
 import LocationSelector from '../components/LocationSelector'
 import HousingSitesIframe from '../components/HousingSitesIframe'
@@ -31,6 +31,7 @@ const CRAIGSLIST_REGIONS = [
 ]
 
 function HousingSearch() {
+  const [urlSearchParams] = useSearchParams()
   const [selectedClient, setSelectedClient] = useState(null)
   const [searchResults, setSearchResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -50,6 +51,23 @@ function HousingSearch() {
     acceptsMediCal: false,
     programKeywords: ''
   })
+
+  useEffect(() => {
+    const clientId = urlSearchParams.get('client')
+    if (clientId && !selectedClient) {
+      apiFetch(`/api/clients/${encodeURIComponent(clientId)}?module=case_management`)
+        .then((response) => {
+          if (!response.ok) throw new Error('Client not found')
+          return response.json()
+        })
+        .then((data) => {
+          if (data?.client) setSelectedClient(data.client)
+        })
+        .catch((error) => {
+          console.error('Failed to load housing client from URL:', error)
+        })
+    }
+  }, [urlSearchParams, selectedClient])
 
   const resolveCraigslistBase = (locationValue) => {
     const normalized = (locationValue || '').toLowerCase()

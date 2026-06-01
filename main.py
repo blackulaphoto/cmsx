@@ -139,8 +139,11 @@ async def firebase_auth_middleware(request, call_next):
         return await call_next(request)
 
     if path.startswith("/api"):
-        decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
-        request.state.auth_user = auth_service.upsert_profile_from_token(decoded)
+        try:
+            decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
+            request.state.auth_user = auth_service.upsert_profile_from_token(decoded)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
     return await call_next(request)
 

@@ -125,6 +125,60 @@ class Client:
     address: str = ""
     case_status: str = ""
 
+
+@dataclass
+class User:
+    """Compatibility user model retained for legacy resume utilities."""
+    full_name: str = ""
+    email: str = ""
+    phone: str = ""
+    address: str = ""
+    city: str = ""
+    state: str = ""
+    zip_code: str = ""
+
+
+@dataclass
+class ResumeData:
+    """Compatibility resume payload used by legacy generator and ATS tooling."""
+    full_name: str = ""
+    email: str = ""
+    phone: str = ""
+    address: str = ""
+    city: str = ""
+    state: str = ""
+    zip_code: str = ""
+    professional_summary: str = ""
+    work_experience: List[Dict[str, Any]] = None
+    education: List[Dict[str, Any]] = None
+    technical_skills: List[str] = None
+    soft_skills: List[str] = None
+    certifications: List[Dict[str, Any]] = None
+    languages: List[str] = None
+    volunteer_experience: List[Dict[str, Any]] = None
+    achievements: List[str] = None
+    background_explanation: str = ""
+    rehabilitation_efforts: str = ""
+    community_service: str = ""
+
+    def __post_init__(self):
+        if self.work_experience is None:
+            self.work_experience = []
+        if self.education is None:
+            self.education = []
+        if self.technical_skills is None:
+            self.technical_skills = []
+        if self.soft_skills is None:
+            self.soft_skills = []
+        if self.certifications is None:
+            self.certifications = []
+        if self.languages is None:
+            self.languages = []
+        if self.volunteer_experience is None:
+            self.volunteer_experience = []
+        if self.achievements is None:
+            self.achievements = []
+
 class DatabaseManager:
     """Database manager for employment.db operations"""
     
@@ -550,6 +604,10 @@ class EmploymentDatabase:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit"""
         self.close()
+
+
+class ResumeDatabase(EmploymentDatabase):
+    """Legacy alias kept for modules that still import ResumeDatabase."""
 
 # Example usage and testing
 if __name__ == "__main__":

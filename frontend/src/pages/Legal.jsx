@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Scale, FileText, CheckCircle, Clock, AlertCircle, Calendar, Plus, Edit, Trash2, X, Save, User, Sparkles, Zap, TrendingUp, Briefcase, Shield, Gavel, Upload, Download } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
@@ -6,6 +7,7 @@ import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
 
 function Legal() {
+  const [searchParams] = useSearchParams()
   const [selectedClient, setSelectedClient] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [cases, setCases] = useState([])
@@ -57,6 +59,23 @@ function Legal() {
   const legalClientLabel = selectedClient
     ? `${selectedClient.first_name || ''} ${selectedClient.last_name || ''}`.trim()
     : ''
+
+  useEffect(() => {
+    const clientId = searchParams.get('client')
+    if (clientId && !selectedClient) {
+      apiFetch(`/api/clients/${encodeURIComponent(clientId)}?module=case_management`)
+        .then((response) => {
+          if (!response.ok) throw new Error('Client not found')
+          return response.json()
+        })
+        .then((data) => {
+          if (data?.client) setSelectedClient(data.client)
+        })
+        .catch((error) => {
+          console.error('Failed to load legal client from URL:', error)
+        })
+    }
+  }, [searchParams, selectedClient])
 
   useEffect(() => {
     fetchLegalData()
