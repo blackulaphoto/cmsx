@@ -776,6 +776,103 @@ class DocumentationAIService:
             "participation_level": context.get("participation_level", ""),
         }
 
+    async def generate_note_from_transcript(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        client_id = payload.get("client_id")
+        transcript = (payload.get("transcript") or "").strip()
+        note_type = payload.get("note_type", "cm_note")
+        if not transcript:
+            raise ValueError("Transcript is required")
+
+        comprehensive_data = self._get_comprehensive_client_data(client_id) if client_id else {}
+        core_data = comprehensive_data.get("core", {})
+        case_mgmt_data = comprehensive_data.get("case_management", {})
+
+        first_name = core_data.get("first_name") or case_mgmt_data.get("first_name") or ""
+        last_name = core_data.get("last_name") or case_mgmt_data.get("last_name") or ""
+        client_name = f"{first_name} {last_name}".strip() or "CT"
+        current_date = datetime.now().strftime("%B %d, %Y")
+
+        fallback_note = "\n".join(
+            [
+                "GOAL:",
+                "Document the client contact and summarize the issues discussed based only on the dictated transcript.",
+                "",
+                "INTERVENTION:",
+                "Case manager reviewed the client's stated needs, concerns, and requested follow-up items from the dictated transcript.",
+                "",
+                "RESPONSE:",
+                f"CT reported the following during the contact: {transcript}",
+                "",
+                "PLAN:",
+                "Case manager will review the transcript, confirm accuracy with CT as needed, and complete follow-up based only on documented facts.",
+                "",
+                f"Date: {current_date}",
+            ]
+        )
+
+        if not self.client:
+            return {
+                "draft": fallback_note,
+                "source": "template_fallback",
+                "transcript": transcript,
+                "note_type": note_type,
+            }
+
+        prompt = [
+            "You are generating a professional SUD case management note from a dictated transcript.",
+            "Use only the facts explicitly provided in the transcript and client profile context below.",
+            "Do not invent services, appointments, diagnoses, referrals, legal details, medications, or outcomes.",
+            "Refer to the client as CT unless the provided template clearly requires something else.",
+            "If a detail is missing, omit it rather than guessing.",
+            "",
+            f"Note type: {note_type}",
+            f"Date: {current_date}",
+            f"Client reference: {client_name}",
+            "",
+            "Client profile context:",
+            f"- Housing status: {case_mgmt_data.get('housing_status', 'Unknown')}",
+            f"- Employment status: {case_mgmt_data.get('employment_status', 'Unknown')}",
+            f"- Legal status: {case_mgmt_data.get('legal_status', 'Unknown')}",
+            "",
+            "Transcript:",
+            transcript,
+            "",
+            "Output requirements:",
+            "- Produce a professional case management note with clear headings.",
+            "- Include only facts grounded in the transcript.",
+            "- Keep the note clinically neutral and documentation-ready.",
+            "- Do not include any disclaimer or commentary outside the note.",
+        ]
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                temperature=0.2,
+                max_tokens=900,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You draft accurate case management documentation from dictated transcripts without adding unstated facts.",
+                    },
+                    {"role": "user", "content": "\n".join(prompt)},
+                ],
+            )
+            draft = (response.choices[0].message.content or "").strip() or fallback_note
+            return {
+                "draft": draft,
+                "source": "openai",
+                "transcript": transcript,
+                "note_type": note_type,
+            }
+        except Exception as exc:
+            logger.warning("Transcript note generation failed, using fallback: %s", exc)
+            return {
+                "draft": fallback_note,
+                "source": "template_fallback",
+                "transcript": transcript,
+                "note_type": note_type,
+            }
+
     async def generate_note_draft(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         recent_notes = self._get_recent_note_context(payload.get("client_id"))
         selected_template_body = (payload.get("current_text") or "").strip()

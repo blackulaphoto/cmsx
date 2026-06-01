@@ -24,6 +24,7 @@ import toast from 'react-hot-toast'
 
 import ClientSelector from '../components/ClientSelector'
 import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
+import VoiceNoteRecorder from '../components/VoiceNoteRecorder'
 import { apiFetch } from '../api/config'
 
 const TEMPLATE_CATEGORIES = ['all', 'clinical', 'planning', 'letters', 'fmla']
@@ -401,6 +402,74 @@ function DocumentationCenter() {
       title: '',
       body: '',
     })
+  }
+
+  const buildClientLabel = () =>
+    selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : ''
+
+  const insertTranscriptIntoBrief = (transcript) => {
+    setRoughNotes(transcript)
+  }
+
+  const applyGeneratedTranscriptNote = (draft, transcript) => {
+    const clientLabel = buildClientLabel()
+    setMode('note')
+    setComposer((prev) => ({
+      ...prev,
+      title: prev.title && prev.title.trim() ? prev.title : `Dictated CM Note${clientLabel ? ` - ${clientLabel}` : ''}`,
+      noteType: 'Progress',
+      body: draft,
+    }))
+    if (!roughNotes.trim()) {
+      setRoughNotes(transcript)
+    }
+  }
+
+  const generateDraftFromTranscriptForTemplate = async (transcript) => {
+    if (!selectedTemplate) {
+      throw new Error('Select a template first')
+    }
+
+    if (mode === 'note' && !selectedClient?.client_id) {
+      throw new Error('Select a client before generating a client note')
+    }
+
+    const response = await apiFetch('/api/ai-documentation/note-draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        module: 'documentation_center_voice',
+        note_kind: selectedTemplate.noteKind,
+        client_id: selectedClient?.client_id || undefined,
+        client_name: selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : undefined,
+        user_prompt: transcript,
+        current_text: selectedTemplate.body,
+        context: {
+          template_label: selectedTemplate.label,
+          template_category: selectedTemplate.category,
+          observations: `Template: ${selectedTemplate.label}. Mode: ${mode}. Source: dictated transcript.`,
+          next_steps: '',
+          direct_quotes: [],
+        },
+      }),
+    })
+
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.detail || 'Failed to generate draft from transcript')
+    }
+
+    const clientLabel = buildClientLabel()
+    setComposer((prev) => ({
+      ...prev,
+      title:
+        prev.title && prev.title.trim()
+          ? prev.title
+          : `${selectedTemplate.label}${clientLabel ? ` - ${clientLabel}` : ''}`,
+      noteType: selectedTemplate.noteType,
+      body: data.draft || '',
+    }))
+    setRoughNotes(transcript)
   }
 
   const applyTemplate = (template) => {
@@ -906,6 +975,15 @@ function DocumentationCenter() {
                       <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">The popup AI chat is not required for this workflow</span>
                     </div>
                   </div>
+
+                  <VoiceNoteRecorder
+                    clientId={selectedClient?.client_id || ''}
+                    noteType="cm_note"
+                    insertLabel="Use Transcript in Brief"
+                    onInsertTranscript={insertTranscriptIntoBrief}
+                    onGenerateNote={applyGeneratedTranscriptNote}
+                    onGenerateRequested={generateDraftFromTranscriptForTemplate}
+                  />
 
                   <div className="grid gap-4 md:grid-cols-[1.4fr_0.9fr]">
                     <div>

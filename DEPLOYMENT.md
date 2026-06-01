@@ -29,6 +29,12 @@
    - `FIREBASE_ADMIN_SERVICE_ACCOUNT_JSON`
    - `FIREBASE_PROJECT_ID`
    - `AUTH_ADMIN_EMAILS`
+   - `DEEPGRAM_API_KEY`
+
+## Voice Transcription
+- Set `DEEPGRAM_API_KEY` only in the backend server environment. Do not add it to Vercel frontend env vars.
+- The frontend uploads recorded audio to `POST /api/transcribe`; the backend sends the audio to Deepgram and does not persist raw audio in v1.
+- `DEEPGRAM_API_KEY` must never appear in browser bundles, browser storage, or API responses.
 
 ## PostgreSQL Migration Note
 - `DATABASE_URL` is now first-class for SQLAlchemy services, including async Postgres URLs.

@@ -1584,6 +1584,8 @@ const ClientDashboard = () => {
           onSubmit={handleNoteSubmit}
           initialData={editingNote}
           isEditing={!!editingNote}
+          clientId={clientId}
+          clientName={client ? `${client.first_name} ${client.last_name}` : ''}
         />
 
         {/* Edit Client Modal */}

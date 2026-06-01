@@ -234,6 +234,14 @@ except Exception as e:
     loaded_modules["ai_documentation"] = f"error: {e}"
     logger.warning(f"AI Documentation module not loaded: {e}")
 try:
+    from backend.modules.transcription.routes import router as transcription_router
+    app.include_router(transcription_router)
+    loaded_modules["transcription"] = "loaded"
+    logger.info("Transcription module loaded successfully")
+except Exception as e:
+    loaded_modules["transcription"] = f"error: {e}"
+    logger.warning(f"Transcription module not loaded: {e}")
+try:
     from backend.modules.services.routes import router as services_router
     app.include_router(services_router, prefix="/api/services", tags=["services"])
     loaded_modules["services"] = "loaded"

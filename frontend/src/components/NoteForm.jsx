@@ -4,6 +4,7 @@ import toast from 'react-hot-toast'
 
 import { apiFetch } from '../api/config'
 import DocumentationAssistPanel from './DocumentationAssistPanel'
+import VoiceNoteRecorder from './VoiceNoteRecorder'
 
 const EMPTY_GROUP_FIELDS = {
   group_topic: '',
@@ -185,6 +186,21 @@ const NoteForm = ({
         ? 'progress_note'
         : 'initial_note'
 
+  const applyTranscriptToNote = (transcript) => {
+    setFormData((prev) => ({
+      ...prev,
+      content: transcript,
+    }))
+  }
+
+  const applyGeneratedTranscriptNote = (draft, transcript) => {
+    setFormData((prev) => ({
+      ...prev,
+      note_type: prev.note_type === 'Group' ? 'Progress' : prev.note_type,
+      content: draft || transcript,
+    }))
+  }
+
   if (!isOpen) return null
 
   return (
@@ -355,6 +371,15 @@ const NoteForm = ({
             />
             <p className="mt-1 text-xs text-gray-500">{formData.content.length} characters</p>
           </div>
+
+          <VoiceNoteRecorder
+            clientId={clientId}
+            noteType="cm_note"
+            insertLabel="Use Transcript in Note"
+            onInsertTranscript={applyTranscriptToNote}
+            onGenerateNote={applyGeneratedTranscriptNote}
+            theme="light"
+          />
 
           <DocumentationAssistPanel
             module="case_management"
