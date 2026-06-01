@@ -254,9 +254,10 @@ const EMPTY_COMPOSER = {
 
 function DocumentationCenter() {
   const [mode, setMode] = useState('note')
+  const [inputMode, setInputMode] = useState('type')
   const [selectedClient, setSelectedClient] = useState(null)
   const [templateFilter, setTemplateFilter] = useState('all')
-  const [selectedTemplateId, setSelectedTemplateId] = useState('progress-note')
+  const [selectedTemplateId, setSelectedTemplateId] = useState(null)
   const [fileTemplates, setFileTemplates] = useState([])
   const [loadingTemplates, setLoadingTemplates] = useState(false)
   const [composer, setComposer] = useState(EMPTY_COMPOSER)
@@ -301,8 +302,7 @@ function DocumentationCenter() {
   )
 
   const selectedTemplate =
-    availableTemplates.find((template) => template.id === selectedTemplateId) ||
-    availableTemplates[0]
+    availableTemplates.find((template) => template.id === selectedTemplateId) || null
 
   const recentItems = mode === 'note' ? notes : docs
 
@@ -311,12 +311,6 @@ function DocumentationCenter() {
     loadDocs()
     loadBrandResources()
   }, [])
-
-  useEffect(() => {
-    if (!selectedTemplate && availableTemplates.length > 0) {
-      setSelectedTemplateId(availableTemplates[0].id)
-    }
-  }, [availableTemplates, selectedTemplate])
 
   useEffect(() => {
     if (selectedClient?.client_id) {
@@ -396,6 +390,7 @@ function DocumentationCenter() {
   const resetComposer = () => {
     setEditingItem(null)
     setRoughNotes('')
+    setInputMode('type')
     setComposer({
       ...EMPTY_COMPOSER,
       noteType: selectedTemplate?.noteType || 'Progress',
@@ -409,6 +404,7 @@ function DocumentationCenter() {
 
   const insertTranscriptIntoBrief = (transcript) => {
     setRoughNotes(transcript)
+    setInputMode('type')
   }
 
   const applyGeneratedTranscriptNote = (draft, transcript) => {
@@ -434,48 +430,84 @@ function DocumentationCenter() {
       throw new Error('Select a client before generating a client note')
     }
 
-    const response = await apiFetch('/api/ai-documentation/note-draft', {
+    const clientLabel = buildClientLabel()
+    const applyDraftToComposer = (draft) => {
+      setComposer((prev) => ({
+        ...prev,
+        title:
+          prev.title && prev.title.trim()
+            ? prev.title
+            : `${selectedTemplate.label}${clientLabel ? ` - ${clientLabel}` : ''}`,
+        noteType: selectedTemplate.noteType,
+        body: draft || transcript,
+      }))
+      setRoughNotes(transcript)
+    }
+
+    try {
+      const response = await apiFetch('/api/ai-documentation/note-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          module: 'documentation_center_voice',
+          note_kind: selectedTemplate.noteKind,
+          client_id: selectedClient?.client_id || undefined,
+          client_name: selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : undefined,
+          user_prompt: transcript,
+          current_text: selectedTemplate.body,
+          context: {
+            template_label: selectedTemplate.label,
+            template_category: selectedTemplate.category,
+            observations: `Template: ${selectedTemplate.label}. Mode: ${mode}. Source: dictated transcript.`,
+            next_steps: '',
+            direct_quotes: [],
+          },
+        }),
+      })
+
+      const data = await response.json().catch(() => ({}))
+      if (response.ok && data.draft) {
+        applyDraftToComposer(data.draft)
+        return
+      }
+
+      if (!selectedClient?.client_id) {
+        applyDraftToComposer(transcript)
+        toast.error(data.detail || 'Template draft failed. Loaded transcript for manual review.')
+        return
+      }
+    } catch (error) {
+      if (!selectedClient?.client_id) {
+        applyDraftToComposer(transcript)
+        toast.error('Template draft failed. Loaded transcript for manual review.')
+        return
+      }
+    }
+
+    const fallbackResponse = await apiFetch('/api/notes/generate-from-transcript', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        module: 'documentation_center_voice',
-        note_kind: selectedTemplate.noteKind,
-        client_id: selectedClient?.client_id || undefined,
-        client_name: selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : undefined,
-        user_prompt: transcript,
-        current_text: selectedTemplate.body,
-        context: {
-          template_label: selectedTemplate.label,
-          template_category: selectedTemplate.category,
-          observations: `Template: ${selectedTemplate.label}. Mode: ${mode}. Source: dictated transcript.`,
-          next_steps: '',
-          direct_quotes: [],
-        },
+        clientId: selectedClient.client_id,
+        noteType: 'cm_note',
+        transcript,
       }),
     })
 
-    const data = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      throw new Error(data.detail || 'Failed to generate draft from transcript')
+    const fallbackData = await fallbackResponse.json().catch(() => ({}))
+    if (!fallbackResponse.ok) {
+      applyDraftToComposer(transcript)
+      throw new Error(fallbackData.detail || 'Failed to generate draft from transcript')
     }
 
-    const clientLabel = buildClientLabel()
-    setComposer((prev) => ({
-      ...prev,
-      title:
-        prev.title && prev.title.trim()
-          ? prev.title
-          : `${selectedTemplate.label}${clientLabel ? ` - ${clientLabel}` : ''}`,
-      noteType: selectedTemplate.noteType,
-      body: data.draft || '',
-    }))
-    setRoughNotes(transcript)
+    applyDraftToComposer(fallbackData.draft || transcript)
   }
 
   const applyTemplate = (template) => {
     const clientLabel = selectedClient ? ` - ${selectedClient.first_name} ${selectedClient.last_name}` : ''
     setSelectedTemplateId(template.id)
     setMode(template.mode)
+    setInputMode('type')
     setEditingItem(null)
     setRoughNotes('')
     setComposer((prev) => ({
@@ -485,6 +517,19 @@ function DocumentationCenter() {
       body: '',
       url: prev.url || '',
     }))
+  }
+
+  const clearSelectedTemplate = () => {
+    setSelectedTemplateId(null)
+    setMode('note')
+    setInputMode('type')
+    setEditingItem(null)
+    setRoughNotes('')
+    setComposer({
+      ...EMPTY_COMPOSER,
+      title: '',
+      body: '',
+    })
   }
 
   const generateDraftFromBrief = async () => {
@@ -718,10 +763,13 @@ function DocumentationCenter() {
   }
 
   const documentationContext = {
-    observations: `Template: ${selectedTemplate.label}. Mode: ${mode}.`,
+    observations: `Template: ${selectedTemplate?.label || 'No template selected'}. Mode: ${mode}.`,
     next_steps: '',
     direct_quotes: [],
   }
+
+  const hasDraft = composer.body.trim().length > 0
+  const shouldShowDraftSummary = Boolean(selectedTemplate || selectedClient)
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -731,15 +779,15 @@ function DocumentationCenter() {
         <div className="absolute bottom-0 right-1/4 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
       </div>
 
-      <div className="relative z-10 max-w-7xl mx-auto px-3 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8">
-        <section className="rounded-[20px] sm:rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-4 sm:p-8 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
+      <div className="relative z-10 mx-auto max-w-7xl space-y-6 px-3 py-6 sm:space-y-8 sm:px-6 sm:py-8">
+        <section className="rounded-[20px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-4 shadow-2xl shadow-purple-500/10 backdrop-blur-xl sm:rounded-[28px] sm:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm font-medium text-cyan-200">
                 <Sparkles className="h-4 w-4" />
                 Documentation Center
               </div>
-              <h1 className="text-2xl sm:text-4xl font-bold text-white">Notes and Documents Command Center</h1>
+              <h1 className="text-2xl font-bold text-white sm:text-4xl">Notes and Documents Command Center</h1>
               <p className="mt-3 max-w-2xl text-lg text-slate-300">
                 One professional workspace for progress notes, treatment plans, discharge summaries, referral packets, court letters, FMLA documentation, and file-backed templates.
               </p>
@@ -754,561 +802,380 @@ function DocumentationCenter() {
           </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-8 xl:grid-cols-[1.45fr_0.95fr]">
-          <div className="space-y-8">
-            <div className="rounded-[20px] sm:rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-4 sm:p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <h2 className="text-xl sm:text-2xl font-bold text-white">Template Gallery</h2>
-                  <p className="mt-1 text-sm text-slate-300">Choose a structured starting point, then edit and save it as a real client note or formal document.</p>
-                </div>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    <input
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Search templates"
-                      className="w-full rounded-xl border border-white/10 bg-slate-950/40 py-3 pl-10 pr-4 text-sm text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none sm:w-60"
-                    />
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {TEMPLATE_CATEGORIES.map((category) => (
-                      <button
-                        key={category}
-                        onClick={() => setTemplateFilter(category)}
-                        className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-                          templateFilter === category
-                            ? 'bg-white text-slate-900'
-                            : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
-                        }`}
-                      >
-                        {category === 'all' ? 'All' : category.charAt(0).toUpperCase() + category.slice(1)}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+        {!selectedTemplate ? (
+          <section className="rounded-[20px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-4 shadow-2xl shadow-purple-500/10 backdrop-blur-xl sm:rounded-[28px] sm:p-6">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white sm:text-2xl">Template Gallery</h2>
+                <p className="mt-1 text-sm text-slate-300">Choose a structured starting point, then edit and save it as a real client note or formal document.</p>
               </div>
-
-              <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-                {loadingTemplates && (
-                  <div className="md:col-span-2 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
-                    Loading file-based templates from the templates folder...
-                  </div>
-                )}
-                {filteredTemplates.map((template) => (
-                  <button
-                    key={template.id}
-                    onClick={() => applyTemplate(template)}
-                    className={`group rounded-2xl border p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${
-                      selectedTemplateId === template.id
-                        ? 'border-cyan-400/60 bg-gradient-to-br from-cyan-500/20 to-blue-500/10 shadow-cyan-500/20'
-                        : 'border-white/10 bg-slate-950/30 hover:border-white/20'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2 sm:gap-4">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                          <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            template.mode === 'note'
-                              ? 'bg-blue-500/20 text-blue-200'
-                              : 'bg-fuchsia-500/20 text-fuchsia-200'
-                          }`}>
-                            {template.mode === 'note' ? 'Client Note' : 'Document'}
-                          </span>
-                          <span className="text-xs uppercase tracking-widest text-slate-400">{template.category}</span>
-                          {template.source === 'file' && (
-                            <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-200">
-                              File template
-                            </span>
-                          )}
-                        </div>
-                        <h3 className="mt-2 text-base sm:text-xl font-semibold text-white leading-snug">{template.label}</h3>
-                        <p className="mt-1.5 text-sm leading-5 text-slate-300">{template.bestFor}</p>
-                        {template.relativePath && (
-                          <p className="mt-1.5 truncate text-xs text-slate-500">{template.relativePath}</p>
-                        )}
-                      </div>
-                      <div className="flex-shrink-0 rounded-xl bg-white/10 p-2.5 sm:p-3 text-slate-200">
-                        {template.mode === 'note' ? <PenSquare className="h-4 w-4 sm:h-5 sm:w-5" /> : <ScrollText className="h-4 w-4 sm:h-5 sm:w-5" />}
-                      </div>
-                    </div>
-                  </button>
-                ))}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search templates"
+                    className="w-full rounded-xl border border-white/10 bg-slate-950/40 py-3 pl-10 pr-4 text-sm text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none sm:w-60"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {TEMPLATE_CATEGORIES.map((category) => (
+                    <button
+                      key={category}
+                      onClick={() => setTemplateFilter(category)}
+                      className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                        templateFilter === category
+                          ? 'bg-white text-slate-900'
+                          : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                      }`}
+                    >
+                      {category === 'all' ? 'All' : category.charAt(0).toUpperCase() + category.slice(1)}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">Writer</h2>
-                  <p className="mt-1 text-sm text-slate-300">Draft, refine, and save without leaving the suite.</p>
+            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+              {loadingTemplates && (
+                <div className="md:col-span-2 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3 text-sm text-cyan-100">
+                  Loading file-based templates from the templates folder...
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    onClick={() => setMode('note')}
-                    className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-                      mode === 'note'
-                        ? 'bg-blue-500 text-white'
-                        : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
-                    }`}
-                  >
-                    Client Notes
-                  </button>
-                  <button
-                    onClick={() => setMode('document')}
-                    className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
-                      mode === 'document'
-                        ? 'bg-fuchsia-500 text-white'
-                        : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
-                    }`}
-                  >
-                    Documents
-                  </button>
-                  <button
-                    onClick={resetComposer}
-                    className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10"
-                  >
-                    <Plus className="h-4 w-4" />
-                    New Draft
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <div className="space-y-5">
-                  <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-                    <div className="rounded-[24px] border border-cyan-400/20 bg-cyan-500/10 p-5">
-                      <div className="flex items-start gap-3">
-                        <div className="rounded-2xl bg-cyan-500/20 p-3 text-cyan-200">
-                          <Wand2 className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-semibold text-white">Start here</h3>
-                          <p className="mt-1 text-sm text-slate-300">
-                            This page should work like a writing assistant, not a separate chat app. Type your rough notes once in the case manager brief, then generate the draft below.
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid gap-3 text-sm text-slate-200 md:grid-cols-3">
-                        <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
-                          <p className="font-semibold text-white">1. Pick template</p>
-                          <p className="mt-1 text-slate-400">Choose a file-backed template or built-in template above.</p>
-                        </div>
-                        <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
-                          <p className="font-semibold text-white">2. Type rough notes</p>
-                          <p className="mt-1 text-slate-400">Use bullets, fragments, quotes, or a quick request in plain language.</p>
-                        </div>
-                        <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
-                          <p className="font-semibold text-white">3. Edit final draft</p>
-                          <p className="mt-1 text-slate-400">The generated note appears in the final draft editor and stays fully editable before saving.</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-[24px] border border-white/10 bg-slate-950/35 p-5">
-                      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-400">Selected template</p>
-                      <h3 className="mt-3 text-xl font-semibold text-white">{selectedTemplate.label}</h3>
-                      <p className="mt-2 text-sm leading-6 text-slate-300">{selectedTemplate.bestFor}</p>
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white">
-                          {selectedTemplate.mode === 'note' ? 'Client note' : 'Document'}
+              )}
+              {filteredTemplates.map((template) => (
+                <button
+                  key={template.id}
+                  onClick={() => applyTemplate(template)}
+                  className="group rounded-2xl border border-white/10 bg-slate-950/30 p-5 text-left transition-all duration-300 hover:-translate-y-1 hover:border-white/20 hover:shadow-xl"
+                >
+                  <div className="flex items-start justify-between gap-2 sm:gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                          template.mode === 'note' ? 'bg-blue-500/20 text-blue-200' : 'bg-fuchsia-500/20 text-fuchsia-200'
+                        }`}>
+                          {template.mode === 'note' ? 'Client Note' : 'Document'}
                         </span>
-                        <span className="rounded-full bg-cyan-500/15 px-3 py-1 text-xs font-semibold text-cyan-200">
-                          {selectedTemplate.noteType}
-                        </span>
-                        <span className="rounded-full bg-fuchsia-500/15 px-3 py-1 text-xs font-semibold text-fuchsia-200">
-                          {selectedTemplate.category}
-                        </span>
-                        {selectedTemplate.source === 'file' && (
-                          <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-3 py-1 text-xs font-semibold text-cyan-100">
-                            Templates folder
+                        <span className="text-xs uppercase tracking-widest text-slate-400">{template.category}</span>
+                        {template.source === 'file' && (
+                          <span className="rounded-full border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-200">
+                            File template
                           </span>
                         )}
                       </div>
-                      {selectedTemplate.relativePath && (
-                        <p className="mt-3 truncate text-xs text-slate-500">{selectedTemplate.relativePath}</p>
-                      )}
+                      <h3 className="mt-2 text-base font-semibold leading-snug text-white sm:text-xl">{template.label}</h3>
+                      <p className="mt-1.5 text-sm leading-5 text-slate-300">{template.bestFor}</p>
+                      {template.relativePath && <p className="mt-1.5 truncate text-xs text-slate-500">{template.relativePath}</p>}
+                    </div>
+                    <div className="flex-shrink-0 rounded-xl bg-white/10 p-2.5 text-slate-200 sm:p-3">
+                      {template.mode === 'note' ? <PenSquare className="h-4 w-4 sm:h-5 sm:w-5" /> : <ScrollText className="h-4 w-4 sm:h-5 sm:w-5" />}
                     </div>
                   </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        ) : (
+          <SelectedTemplateBadge template={selectedTemplate} onClear={clearSelectedTemplate} />
+        )}
 
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-300">Linked Client</label>
-                    <ClientSelector
-                      selectedClientId={selectedClient?.client_id || null}
-                      onClientSelect={setSelectedClient}
-                      placeholder={mode === 'note' ? 'Select a client for this note' : 'Optional client context'}
-                      className="max-w-xl"
-                    />
-                  </div>
-
-                  <div className="rounded-[24px] border border-cyan-400/20 bg-slate-950/35 p-5">
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Case manager brief</h3>
-                        <p className="mt-1 text-sm text-slate-400">
-                          This is the main input. If you want AI to turn freehand notes into a treatment plan or note, type them here.
-                        </p>
-                      </div>
-                      <button
-                        onClick={generateDraftFromBrief}
-                        disabled={generatingDraft}
-                        className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-blue-400 disabled:opacity-60"
-                      >
-                        {generatingDraft ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                        Generate Draft
-                      </button>
-                    </div>
-
-                    <textarea
-                      value={roughNotes}
-                      onChange={(e) => setRoughNotes(e.target.value)}
-                      rows={8}
-                      placeholder={`Example: Write a ${selectedTemplate.label.toLowerCase()} for CT Johnson. 34, needs dental work, on probation, needs to stay in contact with PO, wants to relocate to LA, work in treatment, strengths are hardworking, barrier is relationship triggers, quote: "I need to take control of my life."`}
-                      className="mt-4 w-full rounded-[24px] border border-white/10 bg-slate-950/50 px-5 py-4 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                    />
-
-                    <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-400">
-                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Use bullets or fragments</span>
-                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Include direct quotes if you have them</span>
-                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">The popup AI chat is not required for this workflow</span>
-                    </div>
-                  </div>
-
-                  <VoiceNoteRecorder
-                    clientId={selectedClient?.client_id || ''}
-                    noteType="cm_note"
-                    insertLabel="Use Transcript in Brief"
-                    onInsertTranscript={insertTranscriptIntoBrief}
-                    onGenerateNote={applyGeneratedTranscriptNote}
-                    onGenerateRequested={generateDraftFromTranscriptForTemplate}
-                  />
-
-                  <div className="grid gap-4 md:grid-cols-[1.4fr_0.9fr]">
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-300">Title</label>
-                      <input
-                        value={composer.title}
-                        onChange={(e) => setComposer((prev) => ({ ...prev, title: e.target.value }))}
-                        placeholder="Enter a strong document title"
-                        className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-300">Type</label>
-                      <select
-                        value={composer.noteType}
-                        onChange={(e) => setComposer((prev) => ({ ...prev, noteType: e.target.value }))}
-                        className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none"
-                      >
-                        {['Progress', 'Assessment', 'General', 'Group', 'Treatment Plan', 'Court', 'Housing', 'Employment', 'Benefits', 'Legal', 'Discharge', 'Referral', 'FMLA'].map((item) => (
-                          <option key={item} value={item} className="bg-slate-900">
-                            {item}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {mode === 'document' && (
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-300">Reference URL</label>
-                      <input
-                        value={composer.url}
-                        onChange={(e) => setComposer((prev) => ({ ...prev, url: e.target.value }))}
-                        placeholder="Optional supporting link or source"
-                        className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                      />
-                    </div>
-                  )}
-
-                  <div>
-                    <div className="mb-2 flex items-center justify-between gap-3">
-                      <label className="block text-sm font-medium text-slate-300">Final draft</label>
-                      <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-400">
-                        <ArrowRight className="h-3.5 w-3.5" />
-                        Generate from the case manager brief, then edit here
-                      </div>
-                    </div>
-                    <textarea
-                      value={composer.body}
-                      onChange={(e) => setComposer((prev) => ({ ...prev, body: e.target.value }))}
-                      rows={18}
-                      placeholder="Your generated or hand-written final draft appears here."
-                      className="w-full rounded-[24px] border border-white/10 bg-slate-950/50 px-5 py-4 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      onClick={saveCurrentItem}
-                      disabled={saving}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-blue-400 disabled:opacity-60"
-                    >
-                      {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                      {editingItem ? 'Update' : 'Save'} {mode === 'note' ? 'Note' : 'Document'}
-                    </button>
-                    {editingItem && (
-                      <button
-                        onClick={resetComposer}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-slate-200 transition hover:bg-white/10"
-                      >
-                        <Plus className="h-4 w-4" />
-                        New Draft
-                      </button>
-                    )}
-                    <div className="text-sm text-slate-400">
-                      {mode === 'note'
-                        ? 'Client-linked notes save into the case note record.'
-                        : 'Documents save into the suite document library.'}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-5">
-                  <div className="rounded-[24px] border border-white/10 bg-slate-950/35 p-5">
-                    <h3 className="text-lg font-semibold text-white">Review and follow-up tools</h3>
-                    <p className="mt-1 text-sm text-slate-400">
-                      Use these after you already have a draft. They are for refinement, compliance checks, and follow-up task creation.
-                    </p>
-                  </div>
-
-                  <DocumentationAssistPanel
-                    module="documentation_center"
-                    noteKind={selectedTemplate.noteKind}
-                    clientId={selectedClient?.client_id || ''}
-                    clientName={selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : ''}
-                    currentText={composer.body}
-                    context={documentationContext}
-                    onApplyDraft={(draft) => setComposer((prev) => ({ ...prev, body: draft }))}
-                  />
-
-                  <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-5">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">Current Draft Context</h3>
-                        <p className="text-sm text-slate-400">The active template and save target for this draft.</p>
-                      </div>
-                      <div className="rounded-xl bg-white/10 p-3">
-                        <Clock className="h-5 w-5 text-slate-200" />
-                      </div>
-                    </div>
-                    <dl className="mt-4 space-y-3 text-sm">
-                      <InfoRow label="Template" value={selectedTemplate.label} />
-                      <InfoRow label="Template source" value={selectedTemplate.source === 'file' ? 'Templates folder' : 'Built-in fallback'} />
-                      <InfoRow label="Save target" value={mode === 'note' ? 'Client note record' : 'Document library'} />
-                      <InfoRow label="Client" value={selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : 'Not linked'} />
-                      <InfoRow label="Editor mode" value={editingItem ? 'Editing existing item' : 'New draft'} />
-                    </dl>
-                  </div>
-                </div>
-              </div>
+        <section className="rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-white">Writer</h2>
+              <p className="mt-1 text-sm text-slate-300">Draft, refine, and save without leaving the suite.</p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setMode('note')}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                  mode === 'note' ? 'bg-blue-500 text-white' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                }`}
+              >
+                Client Notes
+              </button>
+              <button
+                onClick={() => setMode('document')}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition ${
+                  mode === 'document' ? 'bg-fuchsia-500 text-white' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                }`}
+              >
+                Documents
+              </button>
+              <button
+                onClick={resetComposer}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+              >
+                <Plus className="h-4 w-4" />
+                New Draft
+              </button>
             </div>
           </div>
 
-          <aside className="space-y-8">
-            <div className="rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
-              <div className="flex items-center justify-between gap-3">
+          <div className="mt-6 space-y-6">
+            <div className="rounded-[24px] border border-cyan-400/20 bg-cyan-500/10 p-5">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-cyan-500/20 p-3 text-cyan-200">
+                  <Wand2 className="h-5 w-5" />
+                </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-white">Company Guidance Library</h2>
+                  <h3 className="text-lg font-semibold text-white">Start here</h3>
                   <p className="mt-1 text-sm text-slate-300">
-                    Upload templates, SOPs, style guides, sample notes, and branded documents so the AI drafts in your organization&apos;s voice.
+                    Pick a template, choose how you want to work, then generate and edit the final draft in one place.
                   </p>
                 </div>
-                <div className="rounded-xl bg-cyan-500/15 p-3 text-cyan-200">
-                  <Upload className="h-5 w-5" />
-                </div>
               </div>
+            </div>
 
-              <div className="mt-6 space-y-4 rounded-2xl border border-white/10 bg-slate-950/35 p-5">
-                <div className="grid gap-4">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-300">Category</label>
-                    <select
-                      value={brandUpload.category}
-                      onChange={(e) => setBrandUpload((prev) => ({ ...prev, category: e.target.value }))}
-                      className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none"
-                    >
-                      {BRAND_RESOURCE_CATEGORIES.map((category) => (
-                        <option key={category} value={category} className="bg-slate-900">
-                          {category}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => setInputMode('type')}
+                className={`rounded-full px-5 py-2.5 text-sm font-medium transition ${
+                  inputMode === 'type' ? 'bg-white text-slate-900' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                }`}
+              >
+                Type
+              </button>
+              <button
+                onClick={() => setInputMode('dictate')}
+                className={`rounded-full px-5 py-2.5 text-sm font-medium transition ${
+                  inputMode === 'dictate' ? 'bg-white text-slate-900' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                }`}
+              >
+                Dictate
+              </button>
+            </div>
 
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-300">Description</label>
-                    <textarea
-                      value={brandUpload.description}
-                      onChange={(e) => setBrandUpload((prev) => ({ ...prev, description: e.target.value }))}
-                      rows={3}
-                      placeholder="Example: preferred weekly CM note wording, signature format, no-shows policy, discharge style."
-                      className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
-                    />
-                  </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-300">Linked Client</label>
+              <ClientSelector
+                selectedClientId={selectedClient?.client_id || null}
+                onClientSelect={setSelectedClient}
+                placeholder={mode === 'note' ? 'Select a client for this note' : 'Optional client context'}
+                className="max-w-xl"
+              />
+            </div>
 
+            {inputMode === 'type' ? (
+              <div className="rounded-[24px] border border-cyan-400/20 bg-slate-950/35 p-5">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-300">Upload file</label>
-                    <input
-                      type="file"
-                      accept=".pdf,.doc,.docx,.txt,.md,.html,.htm,.png,.jpg,.jpeg,.webp"
-                      onChange={(e) => setBrandUpload((prev) => ({ ...prev, file: e.target.files?.[0] || null }))}
-                      className="block w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-sm text-slate-200 file:mr-4 file:rounded-xl file:border-0 file:bg-cyan-500 file:px-4 file:py-2 file:font-semibold file:text-slate-950"
-                    />
-                    <p className="mt-2 text-xs text-slate-400">
-                      PDF, DOC, DOCX, TXT, MD, and HTML are used for AI guidance. Images upload successfully for reference, but they are stored as reference-only and are not parsed into drafting guidance yet.
+                    <h3 className="text-lg font-semibold text-white">Case manager brief</h3>
+                    <p className="mt-1 text-sm text-slate-400">
+                      This is the main input. If you want AI to turn freehand notes into a treatment plan or note, type them here.
                     </p>
                   </div>
+                  <button
+                    onClick={generateDraftFromBrief}
+                    disabled={generatingDraft || !selectedTemplate}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-blue-400 disabled:opacity-60"
+                  >
+                    {generatingDraft ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    Generate Draft
+                  </button>
                 </div>
 
-                <button
-                  onClick={uploadBrandResource}
-                  disabled={uploadingBrandResource}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-blue-400 disabled:opacity-60"
-                >
-                  {uploadingBrandResource ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                  Upload company guidance
-                </button>
+                <textarea
+                  value={roughNotes}
+                  onChange={(e) => setRoughNotes(e.target.value)}
+                  rows={8}
+                  placeholder={selectedTemplate ? `Example: Write a ${selectedTemplate.label.toLowerCase()} for CT Johnson. 34, needs dental work, on probation, needs to stay in contact with PO, wants to relocate to LA, work in treatment, strengths are hardworking, barrier is relationship triggers, quote: "I need to take control of my life."` : 'Select a template, then type your rough notes here.'}
+                  className="mt-4 w-full rounded-[24px] border border-white/10 bg-slate-950/50 px-5 py-4 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+                />
+
+                <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-400">
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Use bullets or fragments</span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Include direct quotes if you have them</span>
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">The popup AI chat is not required for this workflow</span>
+                </div>
               </div>
+            ) : (
+              <VoiceNoteRecorder
+                clientId={selectedClient?.client_id || ''}
+                noteType="cm_note"
+                insertLabel="Use Transcript in Brief"
+                onInsertTranscript={insertTranscriptIntoBrief}
+                onGenerateNote={applyGeneratedTranscriptNote}
+                onGenerateRequested={generateDraftFromTranscriptForTemplate}
+              />
+            )}
 
-              <div className="mt-6 space-y-3">
-                {loadingBrandResources ? (
-                  <div className="py-6 text-center text-slate-400">Loading company guidance...</div>
-                ) : brandResources.length === 0 ? (
-                  <EmptyState
-                    icon={FolderOpen}
-                    title="No company guidance uploaded yet"
-                    body="Upload templates, sample notes, policies, and brand docs so AI drafts match your clinical style."
-                  />
-                ) : (
-                  brandResources.map((resource) => (
-                    <div key={resource.id} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-white">{resource.name}</p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-slate-200">{resource.category}</span>
-                            <span className={`rounded-full px-2.5 py-1 text-[11px] ${
-                              resource.extraction_status === 'ready'
-                                ? 'bg-emerald-500/15 text-emerald-200'
-                                : resource.extraction_status === 'reference_only'
-                                  ? 'bg-amber-500/15 text-amber-200'
-                                  : 'bg-slate-500/15 text-slate-300'
-                            }`}>
-                              {resource.extraction_status === 'ready'
-                                ? 'Used by AI'
-                                : resource.extraction_status === 'reference_only'
-                                  ? 'Reference only'
-                                  : resource.extraction_status}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
+            <div className="border-t border-white/10 pt-6" />
 
-                      <p className="mt-3 text-sm text-slate-300">{resource.description || 'No description provided.'}</p>
-                      <p className="mt-2 text-xs text-slate-400">{formatSavedDate(resource.uploaded_at)} • {resource.type}</p>
-
-                      <div className="mt-4 flex items-center gap-2">
-                        <button
-                          onClick={() => window.open(`/api/ai-documentation/brand-resources/${resource.id}/download`, '_blank', 'noopener,noreferrer')}
-                          className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          Download
-                        </button>
-                        <button
-                          onClick={() => deleteBrandResource(resource.id)}
-                          className="inline-flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-red-200 transition hover:bg-red-500/20"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
+            <div className="grid gap-4 md:grid-cols-[1.4fr_0.9fr]">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">Title</label>
+                <input
+                  value={composer.title}
+                  onChange={(e) => setComposer((prev) => ({ ...prev, title: e.target.value }))}
+                  placeholder="Enter a strong document title"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">Type</label>
+                <select
+                  value={composer.noteType}
+                  onChange={(e) => setComposer((prev) => ({ ...prev, noteType: e.target.value }))}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white focus:border-cyan-400 focus:outline-none"
+                >
+                  {['Progress', 'Assessment', 'General', 'Group', 'Treatment Plan', 'Court', 'Housing', 'Employment', 'Benefits', 'Legal', 'Discharge', 'Referral', 'FMLA'].map((item) => (
+                    <option key={item} value={item} className="bg-slate-900">
+                      {item}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">
-                    {mode === 'note' ? 'Saved Notes' : 'Saved Documents'}
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-300">
-                    {mode === 'note'
-                      ? selectedClient
-                        ? `Showing client-linked notes for ${selectedClient.first_name} ${selectedClient.last_name}.`
-                        : 'Select a client to review and edit saved notes.'
-                      : 'Recent documents from the suite library.'}
-                  </p>
-                </div>
-                <button
-                  onClick={() => (mode === 'note' && selectedClient?.client_id ? loadNotes(selectedClient.client_id) : loadDocs())}
-                  className="rounded-xl border border-white/10 bg-white/5 p-3 text-slate-200 transition hover:bg-white/10"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </button>
+            {mode === 'document' && (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-300">Reference URL</label>
+                <input
+                  value={composer.url}
+                  onChange={(e) => setComposer((prev) => ({ ...prev, url: e.target.value }))}
+                  placeholder="Optional supporting link or source"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-3 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+                />
               </div>
+            )}
 
-              <div className="mt-6 space-y-3">
-                {mode === 'note' && !selectedClient ? (
-                  <EmptyState
-                    icon={User}
-                    title="Select a client first"
-                    body="Client notes stay tied to one case record. Choose a client to open the note library."
-                  />
-                ) : (loadingNotes || loadingDocs) ? (
-                  <div className="py-10 text-center text-slate-400">Loading saved items...</div>
-                ) : recentItems.length === 0 ? (
-                  <EmptyState
-                    icon={mode === 'note' ? FileText : FolderOpen}
-                    title={mode === 'note' ? 'No notes saved yet' : 'No documents saved yet'}
-                    body="Use the template gallery and writer to create the first item."
-                  />
-                ) : (
-                  recentItems.map((item) => (
-                    <div key={item.note_id || item.id} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-white">
-                            {item.title || item.note_type || 'Untitled'}
-                          </p>
-                          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
-                            {mode === 'note' ? item.note_type || 'note' : 'document'}
-                          </p>
-                        </div>
-                        <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-slate-300">
-                          {mode === 'note' ? 'Note' : 'Doc'}
-                        </span>
-                      </div>
-                      <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-300">{item.content || 'No content'}</p>
-                      <div className="mt-4 flex items-center justify-between gap-3 text-xs text-slate-400">
-                        <span>{formatSavedDate(item.updated_at || item.created_at)}</span>
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => loadItemIntoEditor(item, mode === 'note' ? 'note' : 'doc')}
-                            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => deleteItem(item, mode === 'note' ? 'note' : 'doc')}
-                            className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-red-200 transition hover:bg-red-500/20"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <label className="block text-sm font-medium text-slate-300">Final draft</label>
+                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-400">
+                  <ArrowRight className="h-3.5 w-3.5" />
+                  Generate from the active input mode, then edit here
+                </div>
               </div>
+              <textarea
+                value={composer.body}
+                onChange={(e) => setComposer((prev) => ({ ...prev, body: e.target.value }))}
+                rows={18}
+                placeholder="Your generated or hand-written final draft appears here."
+                className="w-full rounded-[24px] border border-white/10 bg-slate-950/50 px-5 py-4 text-white placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none"
+              />
             </div>
-          </aside>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                onClick={saveCurrentItem}
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-blue-400 disabled:opacity-60"
+              >
+                {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {editingItem ? 'Update' : 'Save'} {mode === 'note' ? 'Note' : 'Document'}
+              </button>
+              {editingItem && (
+                <button
+                  onClick={resetComposer}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+                >
+                  <Plus className="h-4 w-4" />
+                  New Draft
+                </button>
+              )}
+            </div>
+
+            {shouldShowDraftSummary && (
+              <p className="text-xs text-slate-400">
+                {selectedTemplate ? `Template: ${selectedTemplate.label}` : ''}
+                {selectedTemplate ? ` ? Saving to: ${mode === 'note' ? 'Client note record' : 'Document library'}` : ''}
+                {selectedClient ? ` ? Client: ${selectedClient.first_name} ${selectedClient.last_name}` : ''}
+              </p>
+            )}
+
+            {hasDraft && (
+              <div className="space-y-5 border-t border-white/10 pt-6">
+                <p className="text-sm font-medium text-slate-400">Draft review tools</p>
+                <DocumentationAssistPanel
+                  module="documentation_center"
+                  noteKind={selectedTemplate?.noteKind || 'progress_note'}
+                  clientId={selectedClient?.client_id || ''}
+                  clientName={selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : ''}
+                  currentText={composer.body}
+                  context={documentationContext}
+                  onApplyDraft={(draft) => setComposer((prev) => ({ ...prev, body: draft }))}
+                />
+              </div>
+            )}
+          </div>
+        </section>
+
+        <div className="px-2">
+          <a href="/settings/guidance" className="text-sm text-slate-400 transition hover:text-slate-200">
+            ? Manage AI style guides and company guidance ?
+          </a>
+        </div>
+
+        <section className="rounded-[28px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-6 shadow-2xl shadow-purple-500/10 backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-bold text-white">{mode === 'note' ? 'Saved Notes' : 'Saved Documents'}</h2>
+              <p className="mt-1 text-sm text-slate-300">
+                {mode === 'note'
+                  ? selectedClient
+                    ? `Showing client-linked notes for ${selectedClient.first_name} ${selectedClient.last_name}.`
+                    : 'Select a client to review and edit saved notes.'
+                  : 'Recent documents from the suite library.'}
+              </p>
+            </div>
+            <button
+              onClick={() => (mode === 'note' && selectedClient?.client_id ? loadNotes(selectedClient.client_id) : loadDocs())}
+              className="rounded-xl border border-white/10 bg-white/5 p-3 text-slate-200 transition hover:bg-white/10"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            {mode === 'note' && !selectedClient ? (
+              <EmptyState
+                icon={User}
+                title="Select a client first"
+                body="Client notes stay tied to one case record. Choose a client to open the note library."
+              />
+            ) : loadingNotes || loadingDocs ? (
+              <div className="py-10 text-center text-slate-400">Loading saved items...</div>
+            ) : recentItems.length === 0 ? (
+              <EmptyState
+                icon={mode === 'note' ? FileText : FolderOpen}
+                title={mode === 'note' ? 'No notes saved yet' : 'No documents saved yet'}
+                body="Use the template gallery and writer to create the first item."
+              />
+            ) : (
+              recentItems.map((item) => (
+                <div key={item.note_id || item.id} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-white">{item.title || item.note_type || 'Untitled'}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{mode === 'note' ? item.note_type || 'note' : 'document'}</p>
+                    </div>
+                    <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-slate-300">{mode === 'note' ? 'Note' : 'Doc'}</span>
+                  </div>
+                  <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-300">{item.content || 'No content'}</p>
+                  <div className="mt-4 flex items-center justify-between gap-3 text-xs text-slate-400">
+                    <span>{formatSavedDate(item.updated_at || item.created_at)}</span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => loadItemIntoEditor(item, mode === 'note' ? 'note' : 'doc')}
+                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => deleteItem(item, mode === 'note' ? 'note' : 'doc')}
+                        className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-red-200 transition hover:bg-red-500/20"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </section>
       </div>
     </div>
@@ -1329,11 +1196,23 @@ const StatCard = ({ icon: Icon, label, value, accent }) => (
   </div>
 )
 
-const InfoRow = ({ label, value }) => (
-  <div className="flex items-start justify-between gap-4 border-b border-white/5 pb-3 last:border-0 last:pb-0">
-    <dt className="text-slate-400">{label}</dt>
-    <dd className="max-w-[65%] text-right text-slate-200">{value}</dd>
-  </div>
+const SelectedTemplateBadge = ({ template, onClear }) => (
+  <section className="rounded-[20px] border border-white/15 bg-gradient-to-br from-white/10 to-white/5 p-4 shadow-2xl shadow-purple-500/10 backdrop-blur-xl sm:rounded-[28px] sm:p-5">
+    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-sm text-slate-200">
+        <span className="rounded-full bg-white/10 px-3 py-1 font-semibold text-white">{template.label}</span>
+        <span className="rounded-full bg-white/10 px-3 py-1">{template.mode === 'note' ? 'Client Note' : 'Document'}</span>
+        <span className="rounded-full bg-white/10 px-3 py-1">{template.noteType}</span>
+        <span className="rounded-full bg-white/10 px-3 py-1 capitalize">{template.category}</span>
+      </div>
+      <button
+        onClick={onClear}
+        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+      >
+        Change template ×
+      </button>
+    </div>
+  </section>
 )
 
 const EmptyState = ({ icon: Icon, title, body }) => (
