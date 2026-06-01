@@ -13,20 +13,12 @@ function Legal() {
   const [cases, setCases] = useState([])
   const [documents, setDocuments] = useState([])
   const [appointments, setAppointments] = useState([])
-  const [tasks, setTasks] = useState([])
   const [loading, setLoading] = useState(false)
-  const [showTaskModal, setShowTaskModal] = useState(false)
   const [showCaseModal, setShowCaseModal] = useState(false)
   const [showCourtDateModal, setShowCourtDateModal] = useState(false)
   const [showDocumentModal, setShowDocumentModal] = useState(false)
   const [documentUploadFile, setDocumentUploadFile] = useState(null)
   const [documentUploadFiles, setDocumentUploadFiles] = useState({})
-  const [taskForm, setTaskForm] = useState({
-    description: '',
-    priority: 'Medium',
-    deadline: '',
-    client_id: ''
-  })
   const [caseForm, setCaseForm] = useState({
     case_number: '',
     court_name: '',
@@ -82,13 +74,6 @@ function Legal() {
   }, [selectedClient?.client_id])
 
   useEffect(() => {
-    setTaskForm(prev => ({
-      ...prev,
-      client_id: selectedClient?.client_id || ''
-    }))
-  }, [selectedClient?.client_id])
-
-  useEffect(() => {
     if (!selectedClient?.client_id) {
       return
     }
@@ -108,34 +93,30 @@ function Legal() {
     try {
       const clientId = selectedClient?.client_id
       const clientQuery = clientId ? `?client_id=${encodeURIComponent(clientId)}` : ''
-      const [casesRes, docsRes, datesRes, tasksRes] = await Promise.all([
+      const [casesRes, docsRes, datesRes] = await Promise.all([
         apiFetch(`/api/legal/cases${clientQuery}`),
         apiFetch(`/api/legal/documents${clientQuery}`),
-        apiFetch(`/api/legal/court-dates${clientQuery}`),
-        apiFetch(`/api/legal/expungement/tasks${clientQuery}`)
+        apiFetch(`/api/legal/court-dates${clientQuery}`)
       ])
 
-      if (!casesRes.ok || !docsRes.ok || !datesRes.ok || !tasksRes.ok) {
+      if (!casesRes.ok || !docsRes.ok || !datesRes.ok) {
         throw new Error('Failed to load legal module data')
       }
 
-      const [casesData, docsData, datesData, tasksData] = await Promise.all([
+      const [casesData, docsData, datesData] = await Promise.all([
         casesRes.json(),
         docsRes.json(),
-        datesRes.json(),
-        tasksRes.json()
+        datesRes.json()
       ])
 
       setCases(casesData?.cases || [])
       setDocuments(docsData?.documents || [])
       setAppointments(datesData?.court_dates || [])
-      setTasks(tasksData?.tasks || [])
     } catch (error) {
       console.error('Error fetching legal data:', error)
       setCases([])
       setDocuments([])
       setAppointments([])
-      setTasks([])
       toast.error(error?.message || 'Failed to load legal data')
     } finally {
       setLoading(false)
@@ -171,39 +152,6 @@ function Legal() {
     } catch (error) {
       console.error('Create reminder error:', error)
       toast.error(error?.message || 'Failed to create reminder')
-    }
-  }
-
-  const addLegalTask = async () => {
-    if (!taskForm.description) {
-      toast.error('Please enter task description')
-      return
-    }
-    if (!selectedClient?.client_id) {
-      toast.error('Please select a client first')
-      return
-    }
-
-    try {
-      const response = await apiFetch('/api/legal/expungement/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(taskForm)
-      })
-
-      if (response.ok) {
-        toast.success('Legal task added successfully!')
-        setShowTaskModal(false)
-        resetTaskForm()
-        fetchLegalData()
-      } else {
-        throw new Error('Failed to add task')
-      }
-    } catch (error) {
-      console.error('Add task error:', error)
-      toast.error(error?.message || 'Failed to add legal task')
     }
   }
 
@@ -384,15 +332,6 @@ function Legal() {
     }
   }
 
-  const resetTaskForm = () => {
-    setTaskForm({
-      description: '',
-      priority: 'Medium',
-      deadline: '',
-      client_id: selectedClient?.client_id || ''
-    })
-  }
-
   const resetCaseForm = () => {
     setCaseForm({
       case_number: '',
@@ -551,8 +490,7 @@ function Legal() {
               {[
                 { id: 'overview', label: 'Case Overview', icon: Scale, gradient: 'from-purple-500 to-indigo-500' },
                 { id: 'calendar', label: 'Court Calendar', icon: Calendar, gradient: 'from-blue-500 to-cyan-500' },
-                { id: 'documents', label: 'Documents', icon: FileText, gradient: 'from-emerald-500 to-green-500' },
-                { id: 'tasks', label: 'Tasks', icon: CheckCircle, gradient: 'from-orange-500 to-amber-500' }
+                { id: 'documents', label: 'Documents', icon: FileText, gradient: 'from-emerald-500 to-green-500' }
               ].map((tab) => (
                 <button
                   key={tab.id}
@@ -623,15 +561,6 @@ function Legal() {
                             <p className="text-xl text-purple-400 font-semibold mb-3 group-hover:text-purple-300 transition-colors">
                               Client: {legalCase.client_name}
                             </p>
-                            {legalCase.case_type === 'Expungement' && (
-                              <a 
-                                href="/expungement" 
-                                className="inline-flex items-center gap-2 text-emerald-400 hover:text-emerald-300 text-sm font-medium transition-colors"
-                              >
-                                <Sparkles className="h-4 w-4" />
-                                Open in Expungement Module
-                              </a>
-                            )}
                           </div>
                         </div>
                         
@@ -935,55 +864,6 @@ function Legal() {
                 </div>
               )}
 
-              {/* Tasks Tab */}
-              {activeTab === 'tasks' && (
-                <div>
-                  <div className="flex items-center justify-between mb-8">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg">
-                        <CheckCircle className="h-6 w-6 text-white" />
-                      </div>
-                      <h2 className="text-2xl font-bold text-white">Legal Tasks</h2>
-                    </div>
-                    <button
-                      onClick={() => setShowTaskModal(true)}
-                      className="group flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-orange-500/25"
-                      data-testid="add-legal-task"
-                    >
-                      <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
-                        <Plus className="h-5 w-5" />
-                      </div>
-                      Add Task
-                    </button>
-                  </div>
-
-                    <div className="space-y-6">
-                    {tasks.length > 0 ? tasks.map((task) => (
-                      <div key={task.task_id} className="group bg-gradient-to-br from-red-500/10 to-pink-500/5 backdrop-blur-xl border border-red-500/20 rounded-2xl p-6 hover:border-red-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-xl hover:shadow-red-500/20">
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-xl font-bold text-white group-hover:text-red-200 transition-colors">
-                            {task.task_title || 'Legal Task'}
-                          </h3>
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium border ${getPriorityColor(task.priority)}`}>
-                            {(task.priority || 'medium').toString().replace(/^./, c => c.toUpperCase())} Priority
-                          </span>
-                        </div>
-                        <p className="text-red-200 mb-4 leading-relaxed">{task.task_description || 'No description provided'}</p>
-                        <div className="flex items-center gap-2 text-sm">
-                          <Clock className="h-4 w-4 text-red-400" />
-                          <span className="text-red-300">
-                            Deadline: {task.due_date || 'Not scheduled'}
-                          </span>
-                        </div>
-                      </div>
-                    )) : (
-                      <div className="bg-white/5 backdrop-blur-sm border border-white/10 rounded-2xl p-6">
-                        <p className="text-gray-300">No legal tasks recorded for this client.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -1262,85 +1142,6 @@ function Legal() {
         </div>
       )}
 
-      {/* Add Task Modal */}
-      {showTaskModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl max-w-md w-full">
-            <div className="p-8">
-              <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-gradient-to-r from-orange-500 to-amber-500 rounded-lg">
-                    <Plus className="h-5 w-5 text-white" />
-                  </div>
-                  <h2 className="text-xl font-bold text-white">Add Legal Task</h2>
-                </div>
-                <button
-                  onClick={() => setShowTaskModal(false)}
-                  className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-3">Task Description</label>
-                  <textarea
-                    value={taskForm.description}
-                    onChange={(e) => setTaskForm(prev => ({ ...prev, description: e.target.value }))}
-                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-white placeholder-gray-400 transition-all duration-300"
-                    rows="3"
-                    placeholder="Describe the legal task..."
-                    data-testid="task-description"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-3">Priority</label>
-                  <select
-                    value={taskForm.priority}
-                    onChange={(e) => setTaskForm(prev => ({ ...prev, priority: e.target.value }))}
-                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-white transition-all duration-300"
-                    data-testid="task-priority"
-                  >
-                    <option value="Low" className="bg-gray-800 text-white">Low</option>
-                    <option value="Medium" className="bg-gray-800 text-white">Medium</option>
-                    <option value="High" className="bg-gray-800 text-white">High</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-3">Deadline</label>
-                  <input
-                    type="date"
-                    value={taskForm.deadline}
-                    onChange={(e) => setTaskForm(prev => ({ ...prev, deadline: e.target.value }))}
-                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-orange-500 focus:border-orange-500 text-white transition-all duration-300"
-                    data-testid="task-deadline"
-                  />
-                </div>
-              </div>
-
-              <div className="flex gap-4 mt-8">
-                <button
-                  onClick={addLegalTask}
-                  className="group flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-orange-500/25"
-                  data-testid="save-task"
-                >
-                  <Save className="h-5 w-5 group-hover:scale-110 transition-transform duration-300" />
-                  Save Task
-                </button>
-                <button
-                  onClick={() => setShowTaskModal(false)}
-                  className="px-6 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white hover:border-white/30 transition-all duration-300"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

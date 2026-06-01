@@ -129,7 +129,7 @@ const Dashboard = () => {
     },
     {
       title: 'Legal Services',
-      description: 'Expungement, court dates, and legal document assistance',
+      description: 'Court dates, compliance tracking, and legal document assistance',
       path: '/legal',
       icon: Scale,
       gradient: 'from-orange-500 via-amber-600 to-yellow-600',
