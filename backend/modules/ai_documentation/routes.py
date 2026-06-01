@@ -237,9 +237,35 @@ async def generate_note_draft(payload: NoteDraftRequest, request: Request):
             assert_client_access(current_user, payload.client_id)
         result = await documentation_ai_service.generate_note_draft(payload.model_dump())
         return {"success": True, **result}
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.error("Failed to generate documentation draft: %s", exc)
-        raise HTTPException(status_code=500, detail="Failed to generate documentation draft") from exc
+        logger.error("Failed to generate documentation draft: %s", exc, exc_info=True)
+        try:
+            fallback_draft = documentation_ai_service._build_fallback_draft(  # noqa: SLF001 - scoped route fallback
+                payload.model_dump(),
+                documentation_ai_service._get_recent_note_context(payload.client_id),  # noqa: SLF001
+            )
+            review = documentation_ai_service.compliance_review({
+                "draft": fallback_draft,
+                "note_kind": payload.note_kind,
+                "context": payload.context,
+            })
+            return {
+                "success": True,
+                "draft": fallback_draft,
+                "source": "route_fallback",
+                "template_excerpt": (payload.current_text or "").strip(),
+                "compliance_preview": review,
+                "suggested_tasks": documentation_ai_service._build_suggested_tasks(  # noqa: SLF001
+                    payload.model_dump(),
+                    fallback_draft,
+                    review,
+                ),
+            }
+        except Exception as fallback_exc:
+            logger.error("Documentation draft fallback also failed: %s", fallback_exc, exc_info=True)
+            raise HTTPException(status_code=500, detail="Failed to generate documentation draft") from exc
 
 
 @router.post("/compliance-review")

@@ -19,6 +19,8 @@ from datetime import datetime, timedelta
 from .models import BenefitsApplication, BenefitsDatabase
 from .disability_assessment import DisabilityAssessment, QUALIFYING_CONDITIONS
 from .eligibility_engine import get_eligibility_engine, EligibilityStatus
+from backend.auth.authorization import assert_client_access
+from backend.auth.service import require_authenticated_user
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +112,47 @@ def ensure_benefits_documents_schema():
     """)
     conn.commit()
     conn.close()
+
+
+def _get_case_manager_client_ids(case_manager_id: str) -> List[str]:
+    import sqlite3
+
+    conn = sqlite3.connect("databases/core_clients.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT client_id FROM clients WHERE case_manager_id = ?", (case_manager_id,))
+    client_ids = [row[0] for row in cursor.fetchall() if row and row[0]]
+    conn.close()
+    return client_ids
+
+
+def _get_application_client_id(application_id: str) -> Optional[str]:
+    import sqlite3
+
+    ensure_benefits_applications_schema()
+    conn = sqlite3.connect("databases/unified_platform.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT client_id FROM benefits_applications WHERE application_id = ?",
+        (application_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def _get_benefits_document_client_id(document_id: str) -> Optional[str]:
+    import sqlite3
+
+    ensure_benefits_documents_schema()
+    conn = sqlite3.connect("databases/unified_platform.db")
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT client_id FROM benefits_documents WHERE document_id = ?",
+        (document_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row else None
 
 # Pydantic models
 class EligibilityCheck(BaseModel):
@@ -207,11 +250,16 @@ async def benefits_api_info():
 
 @router.get("/applications")
 async def get_benefits_applications(
+    request: Request,
     client_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None)
 ):
     """Get benefits applications"""
     try:
+        current_user = require_authenticated_user(request)
+        if client_id:
+            assert_client_access(current_user, client_id)
+
         # Get applications from database
         import sqlite3
 
@@ -237,6 +285,19 @@ async def get_benefits_applications(
         if client_id:
             query += " AND client_id = ?"
             params.append(client_id)
+        elif not current_user.is_admin:
+            accessible_client_ids = _get_case_manager_client_ids(current_user.case_manager_id)
+            if not accessible_client_ids:
+                conn_unified.close()
+                conn_clients.close()
+                return {
+                    'success': True,
+                    'applications': [],
+                    'total_count': 0
+                }
+            placeholders = ", ".join(["?"] * len(accessible_client_ids))
+            query += f" AND client_id IN ({placeholders})"
+            params.extend(accessible_client_ids)
         
         if status:
             query += " AND status = ?"
@@ -290,9 +351,11 @@ async def get_benefits_applications(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/clients/{client_id}/assessment")
-async def get_latest_benefits_assessment(client_id: str):
+async def get_latest_benefits_assessment(client_id: str, request: Request):
     """Get the most recent benefits assessment for a client"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         import sqlite3
 
         conn = sqlite3.connect('databases/unified_platform.db')
@@ -353,9 +416,11 @@ async def get_latest_benefits_assessment(client_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/applications")
-async def create_benefits_application(application_data: BenefitApplication):
+async def create_benefits_application(application_data: BenefitApplication, request: Request):
     """Create a new benefits application"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, application_data.client_id)
         # Create application ID
         application_id = f"ben_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
@@ -487,9 +552,14 @@ async def get_benefit_types():
 
 
 @router.get("/applications/{application_id}/documents")
-async def get_application_documents(application_id: str):
+async def get_application_documents(application_id: str, request: Request):
     """List uploaded supporting documents for a benefits application"""
     try:
+        current_user = require_authenticated_user(request)
+        client_id = _get_application_client_id(application_id)
+        if not client_id:
+            raise HTTPException(status_code=404, detail="Benefits application not found")
+        assert_client_access(current_user, client_id)
         import sqlite3
 
         ensure_benefits_documents_schema()
@@ -533,6 +603,7 @@ async def get_application_documents(application_id: str):
 @router.post("/applications/{application_id}/documents/upload")
 async def upload_application_document(
     application_id: str,
+    request: Request,
     file: UploadFile = File(...),
     document_type: str = Form("Supporting Document"),
     document_status: str = Form("Received"),
@@ -540,6 +611,11 @@ async def upload_application_document(
 ):
     """Upload a supporting document for a benefits application"""
     try:
+        current_user = require_authenticated_user(request)
+        client_id = _get_application_client_id(application_id)
+        if not client_id:
+            raise HTTPException(status_code=404, detail="Benefits application not found")
+        assert_client_access(current_user, client_id)
         import sqlite3
 
         if not file or not file.filename:
@@ -631,9 +707,14 @@ async def upload_application_document(
 
 
 @router.get("/documents/{document_id}/download")
-async def download_benefits_document(document_id: str):
+async def download_benefits_document(document_id: str, request: Request):
     """Download a benefits application document"""
     try:
+        current_user = require_authenticated_user(request)
+        client_id = _get_benefits_document_client_id(document_id)
+        if not client_id:
+            raise HTTPException(status_code=404, detail="Benefits document not found")
+        assert_client_access(current_user, client_id)
         import sqlite3
 
         ensure_benefits_documents_schema()
@@ -785,9 +866,11 @@ async def get_benefit_guidance(benefit_type: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/eligibility-check")
-async def benefits_eligibility_check(eligibility_data: EligibilityCheck):
+async def benefits_eligibility_check(eligibility_data: EligibilityCheck, request: Request):
     """Check eligibility for various benefits programs"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, eligibility_data.client_id)
         # Federal Poverty Level for 2024 (simplified)
         poverty_levels = {1: 15060, 2: 20440, 3: 25820, 4: 31200, 5: 36580, 6: 41960, 7: 47320, 8: 52700}
         
@@ -916,9 +999,11 @@ async def benefits_eligibility_check(eligibility_data: EligibilityCheck):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/assess-disability")
-async def api_disability_assessment(assessment_data: DisabilityAssessmentRequest):
+async def api_disability_assessment(assessment_data: DisabilityAssessmentRequest, request: Request):
     """Comprehensive disability assessment for SSI/SSDI eligibility"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, assessment_data.client_id)
         assessor = get_disability_assessor()
         
         # Extract client information for assessment
@@ -1076,9 +1161,11 @@ async def api_qualifying_conditions():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/start-application")
-async def api_start_disability_application(application_data: StartApplication):
+async def api_start_disability_application(application_data: StartApplication, request: Request):
     """Start a new benefits application and create tracking record"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, application_data.client_id)
         client_id = application_data.client_id
         benefit_type = application_data.benefit_type
         assessment_data = application_data.assessment_data or {}
@@ -1231,14 +1318,16 @@ async def get_program_questions(program: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/assess-program-eligibility")
-async def assess_program_eligibility(request: ProgramEligibilityRequest):
+async def assess_program_eligibility(request_data: ProgramEligibilityRequest, request: Request):
     """Assess eligibility for a specific benefit program"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, request_data.client_id)
         engine = get_eligibility_engine()
         result = engine.assess_program_eligibility(
-            program=request.program,
-            client_id=request.client_id,
-            responses=request.responses
+            program=request_data.program,
+            client_id=request_data.client_id,
+            responses=request_data.responses
         )
         
         # Save assessment result to database
@@ -1317,13 +1406,15 @@ async def assess_program_eligibility(request: ProgramEligibilityRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/bulk-eligibility-assessment")
-async def bulk_eligibility_assessment(request: BulkEligibilityRequest):
+async def bulk_eligibility_assessment(request_data: BulkEligibilityRequest, request: Request):
     """Assess eligibility for multiple benefit programs simultaneously"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, request_data.client_id)
         engine = get_eligibility_engine()
         results = engine.bulk_eligibility_assessment(
-            client_id=request.client_id,
-            responses=request.responses
+            client_id=request_data.client_id,
+            responses=request_data.responses
         )
         
         # Convert results to serializable format
@@ -1399,7 +1490,7 @@ async def bulk_eligibility_assessment(request: BulkEligibilityRequest):
         
         return {
             'success': True,
-            'client_id': request.client_id,
+            'client_id': request_data.client_id,
             'assessment_results': assessment_results,
             'programs_assessed': len(assessment_results),
             'timestamp': datetime.now().isoformat()
@@ -1410,9 +1501,11 @@ async def bulk_eligibility_assessment(request: BulkEligibilityRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/assessment-history/{client_id}")
-async def get_assessment_history(client_id: str):
+async def get_assessment_history(client_id: str, request: Request):
     """Get assessment history for a specific client"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
         import sqlite3
         conn = sqlite3.connect('databases/unified_platform.db')
         cursor = conn.cursor()
@@ -1556,30 +1649,32 @@ async def get_engine_status():
 # ============= ADDITIONAL ENDPOINTS FOR INTEGRATION TESTS =============
 
 @router.post("/assess-eligibility")
-async def assess_eligibility_simple(request: EligibilityCheck):
+async def assess_eligibility_simple(request_data: EligibilityCheck, request: Request):
     """
     Simple benefits eligibility assessment - fixes 404 error in integration tests
     """
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, request_data.client_id)
         # Basic eligibility logic (expand based on your 785-line eligibility engine)
         eligibility_results = {}
         
         # SNAP eligibility
-        snap_eligible = request.monthly_income <= (request.household_size * 1500)
+        snap_eligible = request_data.monthly_income <= (request_data.household_size * 1500)
         eligibility_results["SNAP"] = {
             "eligible": snap_eligible,
             "reason": "Income within guidelines" if snap_eligible else "Income too high"
         }
         
         # Medicaid eligibility  
-        medicaid_eligible = request.monthly_income <= (request.household_size * 2000)
+        medicaid_eligible = request_data.monthly_income <= (request_data.household_size * 2000)
         eligibility_results["Medicaid"] = {
             "eligible": medicaid_eligible,
             "reason": "Income within guidelines" if medicaid_eligible else "Income too high"
         }
         
         # SSI/SSDI (disability-based)
-        if hasattr(request, 'is_disabled') and getattr(request, 'is_disabled', False):
+        if request_data.is_disabled:
             eligibility_results["SSI"] = {
                 "eligible": True,
                 "reason": "Disability status qualifies"
@@ -1587,7 +1682,7 @@ async def assess_eligibility_simple(request: EligibilityCheck):
         
         return {
             "success": True,
-            "client_id": request.client_id,
+            "client_id": request_data.client_id,
             "eligibility_results": eligibility_results,
             "assessment_date": datetime.now().isoformat()
         }

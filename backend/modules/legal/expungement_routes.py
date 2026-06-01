@@ -18,6 +18,8 @@ from .expungement_service import (
     ExpungementDocumentGenerator, ExpungementQuizResponse
 )
 from .expungement_models import ExpungementCase, ExpungementTask, ExpungementProcessStage
+from backend.auth.authorization import assert_client_access
+from backend.auth.service import ADMIN_ROLE, require_authenticated_user, require_role
 
 # Create FastAPI router
 router = APIRouter(prefix="/expungement", tags=["expungement"])
@@ -47,7 +49,6 @@ class ExpungementCaseCreate(BaseModel):
     service_tier: str = "diy"
 
 class ExpungementTaskUpdate(BaseModel):
-    task_id: str
     status: str
     notes: Optional[str] = None
 
@@ -67,6 +68,19 @@ class DocumentGenerationRequest(BaseModel):
 
 class EligibilityCheckRequest(BaseModel):
     conviction_data: Dict[str, Any]
+
+
+def _get_expungement_case_by_id(expungement_id: str):
+    cases = workflow_manager.db.get_expungement_cases()
+    return next((case for case in cases if case.expungement_id == expungement_id), None)
+
+
+def _get_expungement_task_client_id(task_id: str) -> Optional[str]:
+    with sqlite3.connect(workflow_manager.db.db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT client_id FROM expungement_tasks WHERE task_id = ?", (task_id,))
+        row = cursor.fetchone()
+    return row[0] if row else None
 
 def _build_assessment_from_complete_result(result: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize full eligibility result to UI assessment shape"""
@@ -133,8 +147,9 @@ def _map_quiz_to_conviction_data(quiz_data: Dict[str, Any]) -> Dict[str, Any]:
     return conviction_data
 
 @router.get("/")
-async def expungement_dashboard():
+async def expungement_dashboard(request: Request):
     """Expungement dashboard overview"""
+    require_authenticated_user(request)
     return {
         "message": "Expungement Services API Ready",
         "endpoints": [
@@ -147,12 +162,14 @@ async def expungement_dashboard():
     }
 
 @router.post("/eligibility-quiz")
-async def run_eligibility_quiz(request: EligibilityQuizRequest):
+async def run_eligibility_quiz(payload: EligibilityQuizRequest, request: Request):
     """Run guided eligibility assessment quiz"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, payload.client_id)
         # Convert request to quiz responses
         quiz_responses = []
-        for response_data in request.responses:
+        for response_data in payload.responses:
             quiz_responses.append(ExpungementQuizResponse(
                 question_id=response_data.get('question_id', ''),
                 answer=response_data.get('answer'),
@@ -160,7 +177,7 @@ async def run_eligibility_quiz(request: EligibilityQuizRequest):
             ))
         
         # Run eligibility assessment
-        assessment = eligibility_engine.run_eligibility_quiz(request.client_id, quiz_responses)
+        assessment = eligibility_engine.run_eligibility_quiz(payload.client_id, quiz_responses)
         assessment_dict = {
             'eligible': assessment.eligible,
             'eligibility_date': assessment.eligibility_date,
@@ -190,10 +207,11 @@ async def run_eligibility_quiz(request: EligibilityQuizRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/check-eligibility")
-async def check_expungement_eligibility(request: EligibilityCheckRequest):
+async def check_expungement_eligibility(payload: EligibilityCheckRequest, request: Request):
     """Run full eligibility assessment using conviction data"""
     try:
-        conviction_data = request.conviction_data or {}
+        require_authenticated_user(request)
+        conviction_data = payload.conviction_data or {}
         complete_result = eligibility_engine.check_eligibility_complete(conviction_data)
         assessment = _build_assessment_from_complete_result(complete_result)
         return {
@@ -287,9 +305,11 @@ async def get_quiz_questions(jurisdiction: str = Query("CA")):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/cases")
-async def create_expungement_case(case_data: ExpungementCaseCreate):
+async def create_expungement_case(case_data: ExpungementCaseCreate, request: Request):
     """Create new expungement case"""
     try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, case_data.client_id)
         # Create case data dictionary
         case_dict = {
             'case_number': case_data.case_number,
@@ -323,12 +343,22 @@ async def create_expungement_case(case_data: ExpungementCaseCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/cases")
-async def get_expungement_cases(client_id: Optional[str] = Query(None)):
+async def get_expungement_cases(request: Request, client_id: Optional[str] = Query(None)):
     """Get expungement cases"""
     try:
+        current_user = require_authenticated_user(request)
+        if client_id:
+            assert_client_access(current_user, client_id)
         db_cases = workflow_manager.db.get_expungement_cases(client_id=client_id)
         cases = []
         for case in db_cases:
+            try:
+                assert_client_access(current_user, case.client_id)
+            except HTTPException:
+                if current_user.is_admin:
+                    pass
+                else:
+                    continue
             case_dict = case.to_dict()
             offense_description = case_dict.get('offense_description')
             if not offense_description:
@@ -357,9 +387,14 @@ async def get_expungement_cases(client_id: Optional[str] = Query(None)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/cases/{expungement_id}")
-async def get_expungement_case(expungement_id: str):
+async def get_expungement_case(expungement_id: str, request: Request):
     """Get specific expungement case with full details"""
     try:
+        current_user = require_authenticated_user(request)
+        case = _get_expungement_case_by_id(expungement_id)
+        if not case:
+            raise HTTPException(status_code=404, detail="Expungement case not found")
+        assert_client_access(current_user, case.client_id)
         # Get case progress
         progress = workflow_manager.get_case_progress(expungement_id)
         
@@ -379,17 +414,32 @@ async def get_expungement_case(expungement_id: str):
 
 @router.get("/tasks")
 async def get_expungement_tasks(
+    request: Request,
     expungement_id: Optional[str] = Query(None),
     client_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None)
 ):
     """Get expungement tasks"""
     try:
+        current_user = require_authenticated_user(request)
+        if client_id:
+            assert_client_access(current_user, client_id)
+        if expungement_id:
+            case = _get_expungement_case_by_id(expungement_id)
+            if case:
+                assert_client_access(current_user, case.client_id)
         db_tasks = workflow_manager.db.get_expungement_tasks(
             expungement_id=expungement_id,
             client_id=client_id
         )
-        filtered_tasks = [task.to_dict() for task in db_tasks]
+        filtered_tasks = []
+        for task in db_tasks:
+            try:
+                assert_client_access(current_user, task.client_id)
+                filtered_tasks.append(task.to_dict())
+            except HTTPException:
+                if current_user.is_admin:
+                    filtered_tasks.append(task.to_dict())
 
         if status:
             filtered_tasks = [t for t in filtered_tasks if t.get('status') == status]
@@ -406,15 +456,17 @@ async def get_expungement_tasks(
 
 
 @router.post("/tasks")
-async def create_expungement_task(task_request: ExpungementTaskCreate):
+async def create_expungement_task(task_request: ExpungementTaskCreate, request: Request):
     """Create a legal/expungement task for a client."""
     try:
+        current_user = require_authenticated_user(request)
         description = (task_request.description or "").strip()
         client_id = (task_request.client_id or "").strip()
         if not description:
             raise HTTPException(status_code=400, detail="Task description is required")
         if not client_id:
             raise HTTPException(status_code=400, detail="Client ID is required")
+        assert_client_access(current_user, client_id)
 
         expungement_id = task_request.expungement_id
         if not expungement_id:
@@ -456,9 +508,14 @@ async def create_expungement_task(task_request: ExpungementTaskCreate):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/tasks/{task_id}")
-async def update_expungement_task(task_id: str, update_data: ExpungementTaskUpdate):
+async def update_expungement_task(task_id: str, update_data: ExpungementTaskUpdate, request: Request):
     """Update expungement task status"""
     try:
+        current_user = require_authenticated_user(request)
+        client_id = _get_expungement_task_client_id(task_id)
+        if not client_id:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+        assert_client_access(current_user, client_id)
         db_path = workflow_manager.db.db_path
         with sqlite3.connect(db_path) as conn:
             cursor = conn.cursor()
@@ -489,28 +546,30 @@ async def update_expungement_task(task_id: str, update_data: ExpungementTaskUpda
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/documents/generate")
-async def generate_expungement_document(request: DocumentGenerationRequest):
+async def generate_expungement_document(payload: DocumentGenerationRequest, request: Request):
     """Generate expungement document from template"""
     try:
+        current_user = require_authenticated_user(request)
         # Get expungement case
         cases = workflow_manager.db.get_expungement_cases()
-        case = next((c for c in cases if c.expungement_id == request.expungement_id), None)
+        case = next((c for c in cases if c.expungement_id == payload.expungement_id), None)
         
         if not case:
-            raise HTTPException(status_code=404, detail=f"Expungement case {request.expungement_id} not found")
+            raise HTTPException(status_code=404, detail=f"Expungement case {payload.expungement_id} not found")
+        assert_client_access(current_user, case.client_id)
         
         # Generate document
-        if request.document_type == 'petition':
-            document_content = document_generator.generate_petition(case, request.template_data)
-        elif request.document_type == 'character_reference':
-            client_name = request.template_data.get('client_name', 'Client')
+        if payload.document_type == 'petition':
+            document_content = document_generator.generate_petition(case, payload.template_data)
+        elif payload.document_type == 'character_reference':
+            client_name = payload.template_data.get('client_name', 'Client')
             document_content = document_generator.generate_character_reference_template(client_name)
         else:
-            document_content = f"Document template for {request.document_type} not available"
+            document_content = f"Document template for {payload.document_type} not available"
         
         return {
             'success': True,
-            'document_type': request.document_type,
+            'document_type': payload.document_type,
             'document_content': document_content,
             'generated_at': datetime.now().isoformat()
         }
@@ -625,9 +684,14 @@ async def get_workflow_stages():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/workflow/advance/{expungement_id}")
-async def advance_workflow_stage(expungement_id: str, new_stage: str = Body(..., embed=True)):
+async def advance_workflow_stage(expungement_id: str, request: Request, new_stage: str = Body(..., embed=True)):
     """Advance expungement case to next workflow stage"""
     try:
+        current_user = require_authenticated_user(request)
+        case = _get_expungement_case_by_id(expungement_id)
+        if not case:
+            raise HTTPException(status_code=404, detail=f"Expungement case {expungement_id} not found")
+        assert_client_access(current_user, case.client_id)
         # Update case stage
         success = workflow_manager.update_case_stage(expungement_id, new_stage)
         
@@ -647,9 +711,11 @@ async def advance_workflow_stage(expungement_id: str, new_stage: str = Body(...,
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/analytics/dashboard")
-async def get_expungement_analytics():
+async def get_expungement_analytics(request: Request):
     """Get expungement analytics dashboard data"""
     try:
+        current_user = require_authenticated_user(request)
+        require_role(current_user, [ADMIN_ROLE])
         db_path = workflow_manager.db.db_path
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
