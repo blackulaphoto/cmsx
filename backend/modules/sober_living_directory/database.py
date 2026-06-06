@@ -66,6 +66,7 @@ LISTING_CHANGE_LOG_FIELDS = DUPLICATE_DIFF_FIELDS + [
     "status",
 ]
 PROTECTED_DUPLICATE_STATUSES = {"do_not_refer", "use_caution", "archived"}
+RAW_APPROVAL_REQUIRED_FIELDS = ["name", "city", "state"]
 
 
 class SoberLivingDirectoryDatabase:
@@ -163,7 +164,8 @@ class SoberLivingDirectoryDatabase:
                 content_hash TEXT,
                 discovered_at TEXT NOT NULL,
                 matched_listing_id TEXT,
-                review_status TEXT NOT NULL DEFAULT 'new'
+                review_status TEXT NOT NULL DEFAULT 'new',
+                review_notes TEXT
             )
             """,
             """
@@ -278,6 +280,12 @@ class SoberLivingDirectoryDatabase:
                 conn,
                 table_name="sober_living_raw_listings",
                 column_name="run_id",
+                column_sql="TEXT",
+            )
+            self._ensure_column(
+                conn,
+                table_name="sober_living_raw_listings",
+                column_name="review_notes",
                 column_sql="TEXT",
             )
             conn.commit()
@@ -531,8 +539,8 @@ class SoberLivingDirectoryDatabase:
         timestamp = utcnow_iso()
         data = payload.model_dump()
         data["listing_id"] = listing_id
-        data["first_seen_at"] = timestamp
-        data["last_seen_at"] = timestamp
+        data["first_seen_at"] = data.get("first_seen_at") or timestamp
+        data["last_seen_at"] = data.get("last_seen_at") or timestamp
         data["created_at"] = timestamp
         data["updated_at"] = timestamp
         data["trust_score"] = self.calculate_trust_score(data)
@@ -545,9 +553,9 @@ class SoberLivingDirectoryDatabase:
                 certification_body, certification_expiration_date, monthly_rent_min, monthly_rent_max,
                 deposit_required, accepts_insurance, accepts_mat, accepts_probation_parole, pets_allowed,
                 bed_availability_status, last_availability_check_date, last_verified_date, verification_method,
-                trust_score, risk_flags_json, notes, internal_referral_notes, source_urls_json,
+                trust_score, risk_flags_json, notes, internal_referral_notes, primary_source_id, source_urls_json,
                 first_seen_at, last_seen_at, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 listing_id,
@@ -583,6 +591,7 @@ class SoberLivingDirectoryDatabase:
                 self._serialize_json_list(data.get("risk_flags_json")),
                 data.get("notes"),
                 data.get("internal_referral_notes"),
+                data.get("primary_source_id"),
                 self._serialize_json_list(data.get("source_urls_json")),
                 timestamp,
                 timestamp,
@@ -623,7 +632,7 @@ class SoberLivingDirectoryDatabase:
                 certification_status = ?, certification_body = ?, certification_expiration_date = ?, monthly_rent_min = ?,
                 monthly_rent_max = ?, deposit_required = ?, accepts_insurance = ?, accepts_mat = ?, accepts_probation_parole = ?,
                 pets_allowed = ?, bed_availability_status = ?, last_availability_check_date = ?, last_verified_date = ?,
-                verification_method = ?, trust_score = ?, risk_flags_json = ?, notes = ?, internal_referral_notes = ?,
+                verification_method = ?, trust_score = ?, risk_flags_json = ?, notes = ?, internal_referral_notes = ?, primary_source_id = ?,
                 source_urls_json = ?, last_seen_at = ?, status = ?, updated_at = ?
             WHERE listing_id = ?
             """,
@@ -660,6 +669,7 @@ class SoberLivingDirectoryDatabase:
                 self._serialize_json_list(merged.get("risk_flags_json")),
                 merged.get("notes"),
                 merged.get("internal_referral_notes"),
+                merged.get("primary_source_id"),
                 self._serialize_json_list(merged.get("source_urls_json")),
                 merged.get("last_seen_at") or utcnow_iso(),
                 merged.get("status"),
@@ -1104,6 +1114,9 @@ class SoberLivingDirectoryDatabase:
         *,
         review_statuses: Optional[List[str]] = None,
         run_id: Optional[str] = None,
+        source_id: Optional[str] = None,
+        city: Optional[str] = None,
+        state: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         conn = self.connect()
         where_clauses: List[str] = []
@@ -1115,18 +1128,211 @@ class SoberLivingDirectoryDatabase:
         if run_id:
             where_clauses.append("rl.run_id = ?")
             params.append(run_id)
+        if source_id:
+            where_clauses.append("rl.source_id = ?")
+            params.append(source_id)
+        if city:
+            where_clauses.append("LOWER(COALESCE(json_extract(rl.extracted_json, '$.city'), '')) = ?")
+            params.append(city.strip().lower())
+        if state:
+            where_clauses.append("LOWER(COALESCE(json_extract(rl.extracted_json, '$.state'), '')) = ?")
+            params.append(state.strip().lower())
         where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
         rows = conn.execute(
             f"""
-            SELECT rl.*, s.source_name, s.source_type
+            SELECT rl.*, s.source_name, s.source_type, COUNT(dc.candidate_id) AS duplicate_candidate_count
             FROM sober_living_raw_listings rl
             LEFT JOIN sober_living_directory_sources s ON s.source_id = rl.source_id
+            LEFT JOIN sober_living_duplicate_candidates dc ON dc.raw_id = rl.raw_id AND dc.status = 'open'
             {where_sql}
+            GROUP BY rl.raw_id
             ORDER BY rl.discovered_at DESC
             """,
             params,
         ).fetchall()
-        return [self._row_to_raw_listing(row) for row in rows]
+        records = []
+        for row in rows:
+            item = self._row_to_raw_listing(row)
+            normalized_preview = self._normalize_raw_record_to_listing_fields(item)
+            item["normalized_preview"] = normalized_preview
+            item["missing_required_fields"] = self._missing_raw_approval_fields(normalized_preview)
+            item["duplicate_candidate_count"] = item.get("duplicate_candidate_count", 0)
+            records.append(item)
+        return records
+
+    def get_raw_record(self, raw_id: str) -> Optional[Dict[str, Any]]:
+        conn = self.connect()
+        row = conn.execute(
+            """
+            SELECT rl.*, s.source_name, s.source_type, s.base_url, s.trust_level, s.requires_manual_review,
+                   r.status AS run_status, r.started_at AS run_started_at, r.finished_at AS run_finished_at,
+                   j.job_name, j.job_type,
+                   COUNT(dc.candidate_id) AS duplicate_candidate_count
+            FROM sober_living_raw_listings rl
+            LEFT JOIN sober_living_directory_sources s ON s.source_id = rl.source_id
+            LEFT JOIN sober_living_discovery_runs r ON r.run_id = rl.run_id
+            LEFT JOIN sober_living_discovery_jobs j ON j.job_id = r.job_id
+            LEFT JOIN sober_living_duplicate_candidates dc ON dc.raw_id = rl.raw_id AND dc.status = 'open'
+            WHERE rl.raw_id = ?
+            GROUP BY rl.raw_id
+            """,
+            (raw_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        raw_record = self._row_to_raw_listing(row)
+        source_info = self.get_source(raw_record["source_id"]) if raw_record.get("source_id") else None
+        run_info = self.get_discovery_run(raw_record["run_id"]) if raw_record.get("run_id") else None
+        duplicate_candidates = self.get_duplicate_candidates_for_raw(raw_id)
+        normalized_preview = self._normalize_raw_record_to_listing_fields(raw_record)
+        missing_required_fields = self._missing_raw_approval_fields(normalized_preview)
+        return {
+            "raw_record": raw_record,
+            "source": source_info,
+            "discovery_run": run_info,
+            "original_raw_fields": {
+                "raw_name": raw_record.get("raw_name"),
+                "raw_address": raw_record.get("raw_address"),
+                "raw_phone": raw_record.get("raw_phone"),
+                "raw_email": raw_record.get("raw_email"),
+                "raw_website": raw_record.get("raw_website"),
+                "raw_text": raw_record.get("raw_text"),
+            },
+            "extracted_json": raw_record.get("extracted_json", {}),
+            "normalized_preview_fields": normalized_preview,
+            "duplicate_candidates": duplicate_candidates,
+            "review_status": raw_record.get("review_status"),
+            "missing_required_fields": missing_required_fields,
+            "errors": missing_required_fields,
+        }
+
+    def get_duplicate_candidates_for_raw(self, raw_id: str, *, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        conn = self.connect()
+        params: List[Any] = [raw_id]
+        where_status = ""
+        if status:
+            where_status = "AND dc.status = ?"
+            params.append(status)
+        rows = conn.execute(
+            f"""
+            SELECT dc.*, l.name AS existing_listing_name, l.status AS existing_listing_status
+            FROM sober_living_duplicate_candidates dc
+            LEFT JOIN sober_living_directory_listings l ON l.listing_id = dc.existing_listing_id
+            WHERE dc.raw_id = ?
+            {where_status}
+            ORDER BY dc.created_at DESC
+            """,
+            params,
+        ).fetchall()
+        return [self._row_to_duplicate_candidate(row) for row in rows]
+
+    def approve_raw_record(
+        self,
+        raw_id: str,
+        *,
+        direct_approve: bool = False,
+        force: bool = False,
+        review_notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        raw_detail = self.get_raw_record(raw_id)
+        if not raw_detail:
+            raise ValueError("Raw record not found")
+
+        raw_record = raw_detail["raw_record"]
+        if raw_record["review_status"] in {"merged", "rejected", "approved"}:
+            raise ValueError(f"Raw record cannot be approved from status {raw_record['review_status']}")
+
+        open_duplicates = [candidate for candidate in raw_detail["duplicate_candidates"] if candidate.get("status") == "open"]
+        if open_duplicates and not force:
+            raise ValueError("Raw record has an open duplicate candidate. Resolve duplicate review first or force approval explicitly.")
+
+        normalized = raw_detail["normalized_preview_fields"]
+        missing_required_fields = raw_detail["missing_required_fields"]
+        if missing_required_fields:
+            raise ValueError(f"Raw record is missing required fields: {', '.join(missing_required_fields)}")
+
+        payload_data = {
+            **normalized,
+            "primary_source_id": raw_record.get("source_id"),
+            "status": "approved" if direct_approve else "pending_review",
+        }
+        listing = self.create_listing_from_import_data(payload_data)
+
+        conn = self.connect()
+        updated_notes = self._merge_notes(raw_record.get("review_notes"), review_notes)
+        conn.execute(
+            """
+            UPDATE sober_living_raw_listings
+            SET review_status = ?, matched_listing_id = ?, review_notes = ?
+            WHERE raw_id = ?
+            """,
+            ("approved", listing["listing_id"], updated_notes, raw_id),
+        )
+        if open_duplicates and force:
+            conn.execute(
+                """
+                UPDATE sober_living_duplicate_candidates
+                SET status = 'kept_separate', resolution_notes = ?, updated_at = ?, resolved_at = ?
+                WHERE raw_id = ? AND status = 'open'
+                """,
+                ("Force-approved into separate listing", utcnow_iso(), utcnow_iso(), raw_id),
+            )
+        self._insert_change_log(
+            listing_id=listing["listing_id"],
+            raw_id=raw_id,
+            change_type="raw_record_approved",
+            old_value=raw_record.get("review_status"),
+            new_value=listing["listing_id"],
+            source_id=raw_record.get("source_id"),
+        )
+        conn.commit()
+        detail = self.get_raw_record(raw_id)
+        return {"listing": self.get_listing(listing["listing_id"]), "raw_record": detail["raw_record"]}
+
+    def reject_raw_record(self, raw_id: str, *, review_notes: Optional[str] = None) -> Dict[str, Any]:
+        return self._update_raw_record_review_status(raw_id, status="rejected", review_notes=review_notes, change_type="raw_record_rejected")
+
+    def mark_raw_record_error(self, raw_id: str, *, review_notes: Optional[str] = None) -> Dict[str, Any]:
+        return self._update_raw_record_review_status(raw_id, status="error", review_notes=review_notes, change_type="raw_record_marked_error")
+
+    def _update_raw_record_review_status(
+        self,
+        raw_id: str,
+        *,
+        status: str,
+        review_notes: Optional[str],
+        change_type: str,
+    ) -> Dict[str, Any]:
+        if status not in ALLOWED_RAW_REVIEW_STATUSES:
+            raise ValueError("Invalid raw record review status")
+        raw_detail = self.get_raw_record(raw_id)
+        if not raw_detail:
+            raise ValueError("Raw record not found")
+        raw_record = raw_detail["raw_record"]
+        if raw_record["review_status"] in {"merged", "approved"} and status != raw_record["review_status"]:
+            raise ValueError(f"Raw record cannot move from {raw_record['review_status']} to {status}")
+
+        conn = self.connect()
+        updated_notes = self._merge_notes(raw_record.get("review_notes"), review_notes)
+        conn.execute(
+            """
+            UPDATE sober_living_raw_listings
+            SET review_status = ?, review_notes = ?
+            WHERE raw_id = ?
+            """,
+            (status, updated_notes, raw_id),
+        )
+        self._insert_change_log(
+            listing_id=raw_record.get("matched_listing_id"),
+            raw_id=raw_id,
+            change_type=change_type,
+            old_value=raw_record.get("review_status"),
+            new_value=status,
+            source_id=raw_record.get("source_id"),
+        )
+        conn.commit()
+        return self.get_raw_record(raw_id)
 
     def run_manual_discovery_job_test(self, job_id: str) -> Dict[str, Any]:
         job = self.get_discovery_job(job_id)
@@ -1243,6 +1449,51 @@ class SoberLivingDirectoryDatabase:
             raise
 
         return self.get_discovery_run(run_id)
+
+    def _normalize_raw_record_to_listing_fields(self, raw_record: Dict[str, Any]) -> Dict[str, Any]:
+        extracted = raw_record.get("extracted_json") or {}
+        source_url = raw_record.get("source_url")
+        source_urls = extracted.get("source_urls_json") or ([source_url] if source_url else [])
+        return {
+            "name": extracted.get("name") or raw_record.get("raw_name"),
+            "operator_name": extracted.get("operator_name"),
+            "website": extracted.get("website") or raw_record.get("raw_website"),
+            "phone": extracted.get("phone") or raw_record.get("raw_phone"),
+            "email": extracted.get("email") or raw_record.get("raw_email"),
+            "address": extracted.get("address") or raw_record.get("raw_address"),
+            "city": extracted.get("city"),
+            "state": extracted.get("state").upper() if self._has_value(extracted.get("state")) else None,
+            "zip_code": extracted.get("zip_code"),
+            "latitude": extracted.get("latitude"),
+            "longitude": extracted.get("longitude"),
+            "neighborhood": extracted.get("neighborhood"),
+            "population_served": extracted.get("population_served"),
+            "house_type": extracted.get("house_type"),
+            "certification_status": extracted.get("certification_status"),
+            "certification_body": extracted.get("certification_body"),
+            "certification_expiration_date": extracted.get("certification_expiration_date"),
+            "monthly_rent_min": extracted.get("monthly_rent_min"),
+            "monthly_rent_max": extracted.get("monthly_rent_max"),
+            "deposit_required": extracted.get("deposit_required"),
+            "accepts_insurance": extracted.get("accepts_insurance"),
+            "accepts_mat": extracted.get("accepts_mat"),
+            "accepts_probation_parole": extracted.get("accepts_probation_parole"),
+            "pets_allowed": extracted.get("pets_allowed"),
+            "bed_availability_status": extracted.get("bed_availability_status"),
+            "verification_method": extracted.get("verification_method") or "raw_review",
+            "notes": extracted.get("notes"),
+            "risk_flags_json": extracted.get("risk_flags_json") or [],
+            "source_urls_json": source_urls,
+            "first_seen_at": raw_record.get("discovered_at"),
+            "last_seen_at": raw_record.get("discovered_at"),
+        }
+
+    def _missing_raw_approval_fields(self, normalized_preview: Dict[str, Any]) -> List[str]:
+        missing = []
+        for field in RAW_APPROVAL_REQUIRED_FIELDS:
+            if not self._has_value(normalized_preview.get(field)):
+                missing.append(field)
+        return missing
 
     def list_tasks(self, listing_id: Optional[str] = None) -> List[Dict[str, Any]]:
         conn = self.connect()
@@ -1503,6 +1754,7 @@ class SoberLivingDirectoryDatabase:
         extracted_json: Dict[str, Any],
         matched_listing_id: Optional[str] = None,
         review_status: str = "new",
+        review_notes: Optional[str] = None,
     ) -> str:
         if review_status not in ALLOWED_RAW_REVIEW_STATUSES:
             raise ValueError("Invalid raw listing review status")
@@ -1514,8 +1766,8 @@ class SoberLivingDirectoryDatabase:
             INSERT INTO sober_living_raw_listings (
                 raw_id, source_id, run_id, source_url, raw_name, raw_address, raw_phone, raw_email,
                 raw_website, raw_text, extracted_json, content_hash, discovered_at,
-                matched_listing_id, review_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                matched_listing_id, review_status, review_notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 raw_id,
@@ -1533,6 +1785,7 @@ class SoberLivingDirectoryDatabase:
                 utcnow_iso(),
                 matched_listing_id,
                 review_status,
+                review_notes,
             ),
         )
         conn.commit()

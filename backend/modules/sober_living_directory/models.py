@@ -76,10 +76,13 @@ class SoberLivingDirectoryListingBase(BaseModel):
     last_availability_check_date: Optional[str] = None
     last_verified_date: Optional[str] = None
     verification_method: Optional[str] = None
+    primary_source_id: Optional[str] = None
     risk_flags_json: List[str] = Field(default_factory=list)
     notes: Optional[str] = None
     internal_referral_notes: Optional[str] = None
     source_urls_json: List[str] = Field(default_factory=list)
+    first_seen_at: Optional[str] = None
+    last_seen_at: Optional[str] = None
     status: str = "pending_review"
 
     @field_validator("status")
@@ -136,10 +139,13 @@ class SoberLivingDirectoryListingUpdate(BaseModel):
     last_availability_check_date: Optional[str] = None
     last_verified_date: Optional[str] = None
     verification_method: Optional[str] = None
+    primary_source_id: Optional[str] = None
     risk_flags_json: Optional[List[str]] = None
     notes: Optional[str] = None
     internal_referral_notes: Optional[str] = None
     source_urls_json: Optional[List[str]] = None
+    first_seen_at: Optional[str] = None
+    last_seen_at: Optional[str] = None
     status: Optional[str] = None
 
     @field_validator("status")
@@ -216,6 +222,20 @@ class VerificationTaskUpdate(BaseModel):
 class DuplicateResolutionRequest(BaseModel):
     resolution_notes: Optional[str] = None
     selected_imported_fields: List[str] = Field(default_factory=list)
+
+
+class RawRecordApproveRequest(BaseModel):
+    direct_approve: bool = False
+    force: bool = False
+    review_notes: Optional[str] = None
+
+
+class RawRecordRejectRequest(BaseModel):
+    review_notes: Optional[str] = None
+
+
+class RawRecordMarkErrorRequest(BaseModel):
+    review_notes: Optional[str] = None
 
 
 class SoberLivingDirectorySourceBase(BaseModel):

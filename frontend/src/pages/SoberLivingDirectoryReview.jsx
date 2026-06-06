@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   Archive,
@@ -6,8 +7,10 @@ import {
   ChevronDown,
   ChevronUp,
   GitMerge,
+  Info,
   ShieldAlert,
   SplitSquareVertical,
+  XCircle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import TrustScoreBadge from '../components/TrustScoreBadge'
@@ -39,6 +42,11 @@ function SoberLivingDirectoryReview() {
   const [items, setItems] = useState([])
   const [duplicateCandidates, setDuplicateCandidates] = useState([])
   const [rawRecords, setRawRecords] = useState([])
+  const [rawRecordDetails, setRawRecordDetails] = useState({})
+  const [rawReviewNotes, setRawReviewNotes] = useState({})
+  const [expandedRawRecordId, setExpandedRawRecordId] = useState('')
+  const [loadingRawRecordId, setLoadingRawRecordId] = useState('')
+  const [approvedRawTargets, setApprovedRawTargets] = useState({})
   const [candidateDetails, setCandidateDetails] = useState({})
   const [selectedImportedFields, setSelectedImportedFields] = useState({})
   const [expandedCandidateId, setExpandedCandidateId] = useState('')
@@ -149,6 +157,53 @@ function SoberLivingDirectoryReview() {
       await loadQueue()
     } catch (err) {
       toast.error(err.message || 'Failed to verify listing')
+    }
+  }
+
+  const loadRawRecordDetail = async (rawId) => {
+    if (rawRecordDetails[rawId]) {
+      setExpandedRawRecordId((current) => (current === rawId ? '' : rawId))
+      return
+    }
+
+    setLoadingRawRecordId(rawId)
+    try {
+      const detail = await soberLivingDirectoryApi.getRawRecord(rawId)
+      setRawRecordDetails((current) => ({ ...current, [rawId]: detail }))
+      setExpandedRawRecordId(rawId)
+    } catch (err) {
+      toast.error(err.message || 'Failed to load raw record detail')
+    } finally {
+      setLoadingRawRecordId('')
+    }
+  }
+
+  const approveRawRecord = async (rawId, force = false) => {
+    try {
+      const payload = {
+        review_notes: rawReviewNotes[rawId] || '',
+        force,
+      }
+      const result = await soberLivingDirectoryApi.approveRawRecord(rawId, payload)
+      if (result.listing?.listing_id) {
+        setApprovedRawTargets((current) => ({ ...current, [rawId]: result.listing }))
+      }
+      toast.success('Raw record promoted into the directory review flow')
+      setExpandedRawRecordId('')
+      await loadQueue()
+    } catch (err) {
+      toast.error(err.message || 'Failed to approve raw record')
+    }
+  }
+
+  const rejectRawRecord = async (rawId) => {
+    try {
+      await soberLivingDirectoryApi.rejectRawRecord(rawId, { review_notes: rawReviewNotes[rawId] || '' })
+      toast.success('Raw record rejected')
+      setExpandedRawRecordId('')
+      await loadQueue()
+    } catch (err) {
+      toast.error(err.message || 'Failed to reject raw record')
     }
   }
 
@@ -417,32 +472,187 @@ function SoberLivingDirectoryReview() {
             </div>
           ) : (
             <div className="mt-5 space-y-4">
-              {rawRecords.map((record) => (
-                <article key={record.raw_id} className="rounded-[2rem] border border-white/10 bg-slate-950/35 p-5">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-3">
-                        <h3 className="text-lg font-semibold text-white">{record.raw_name || record.extracted_json?.name || 'Unnamed raw record'}</h3>
-                        <span className="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/15 px-3 py-1 text-xs text-fuchsia-100">
-                          {formatLabel(record.review_status)}
-                        </span>
+              {rawRecords.map((record) => {
+                const detail = rawRecordDetails[record.raw_id]
+                const isExpanded = expandedRawRecordId === record.raw_id
+                const hasOpenDuplicate = (record.duplicate_candidate_count || 0) > 0
+                const approvedTarget = approvedRawTargets[record.raw_id]
+                return (
+                  <article key={record.raw_id} className="rounded-[2rem] border border-white/10 bg-slate-950/35 p-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <h3 className="text-lg font-semibold text-white">{record.raw_name || record.extracted_json?.name || 'Unnamed raw record'}</h3>
+                          <span className="rounded-full border border-fuchsia-400/30 bg-fuchsia-500/15 px-3 py-1 text-xs text-fuchsia-100">
+                            {formatLabel(record.review_status)}
+                          </span>
+                          {hasOpenDuplicate ? (
+                            <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-1 text-xs text-amber-100">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              {record.duplicate_candidate_count} duplicate candidate{record.duplicate_candidate_count === 1 ? '' : 's'}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="text-sm text-slate-300">
+                          {record.raw_address || record.extracted_json?.address || 'Missing address'} | {(record.extracted_json?.city || 'Unknown city')}, {(record.extracted_json?.state || 'Unknown state')}
+                        </p>
+                        <p className="text-sm text-slate-400">
+                          Phone: {record.raw_phone || record.extracted_json?.phone || 'Missing'} | Website: {record.raw_website || record.extracted_json?.website || 'Missing'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Source: {record.source_name || 'Unknown source'} | Run: {record.run_id || 'Manual/import'} | Discovered: {record.discovered_at || 'Unknown'}
+                        </p>
+                        {record.missing_required_fields?.length ? (
+                          <p className="text-xs text-red-200">
+                            Missing required fields: {record.missing_required_fields.join(', ')}
+                          </p>
+                        ) : null}
+                        {approvedTarget ? (
+                          <Link className="text-sm text-cyan-200 underline underline-offset-4" to={`/sober-living-directory/${approvedTarget.listing_id}`}>
+                            Open new listing {approvedTarget.name || approvedTarget.listing_id}
+                          </Link>
+                        ) : null}
                       </div>
-                      <p className="text-sm text-slate-300">
-                        {(record.extracted_json?.city || 'Unknown city')}, {(record.extracted_json?.state || 'Unknown state')}
-                      </p>
-                      <p className="text-sm text-slate-400">
-                        Phone: {record.raw_phone || record.extracted_json?.phone || 'Missing'} | Website: {record.raw_website || record.extracted_json?.website || 'Missing'}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        Source: {record.source_name || 'Unknown source'} | Discovered: {record.discovered_at || 'Unknown'}
-                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          onClick={() => loadRawRecordDetail(record.raw_id)}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-3 text-sm font-medium text-white hover:bg-white/10"
+                        >
+                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          View Details
+                        </button>
+                        <button
+                          onClick={() => approveRawRecord(record.raw_id)}
+                          disabled={hasOpenDuplicate || Boolean(record.missing_required_fields?.length)}
+                          className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <CheckCircle2 className="h-4 w-4" />
+                          Approve Into Directory
+                        </button>
+                        <button
+                          onClick={() => rejectRawRecord(record.raw_id)}
+                          className="inline-flex items-center gap-2 rounded-2xl border border-red-400/30 bg-red-500/15 px-4 py-3 text-sm font-medium text-red-100 hover:bg-red-500/25"
+                        >
+                          <XCircle className="h-4 w-4" />
+                          Reject
+                        </button>
+                        {hasOpenDuplicate ? (
+                          <button
+                            onClick={() => {
+                              const candidate = duplicateCandidates.find((item) => item.raw_id === record.raw_id)
+                              if (candidate) {
+                                loadCandidateDetail(candidate.candidate_id)
+                                setExpandedRawRecordId('')
+                              }
+                            }}
+                            className="inline-flex items-center gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/15 px-4 py-3 text-sm font-medium text-amber-100 hover:bg-amber-500/25"
+                          >
+                            <GitMerge className="h-4 w-4" />
+                            Resolve Duplicate
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-                      Raw ID: {record.raw_id}
-                    </div>
-                  </div>
-                </article>
-              ))}
+
+                    {loadingRawRecordId === record.raw_id ? (
+                      <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                        Loading raw record detail...
+                      </div>
+                    ) : null}
+
+                    {isExpanded && detail ? (
+                      <div className="mt-4 rounded-[1.5rem] border border-white/10 bg-slate-950/40 p-4">
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Original Raw Fields</p>
+                            <div className="mt-3 space-y-2 text-sm text-slate-200">
+                              <p>Name: {detail.original_raw_fields?.raw_name || 'Missing'}</p>
+                              <p>Address: {detail.original_raw_fields?.raw_address || 'Missing'}</p>
+                              <p>Phone: {detail.original_raw_fields?.raw_phone || 'Missing'}</p>
+                              <p>Email: {detail.original_raw_fields?.raw_email || 'Missing'}</p>
+                              <p>Website: {detail.original_raw_fields?.raw_website || 'Missing'}</p>
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/5 p-4">
+                            <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">Normalized Preview</p>
+                            <div className="mt-3 space-y-2 text-sm text-slate-100">
+                              <p>Name: {detail.normalized_preview_fields?.name || 'Missing'}</p>
+                              <p>City/State: {detail.normalized_preview_fields?.city || 'Missing'}, {detail.normalized_preview_fields?.state || 'Missing'}</p>
+                              <p>Phone: {detail.normalized_preview_fields?.phone || 'Missing'}</p>
+                              <p>Website: {detail.normalized_preview_fields?.website || 'Missing'}</p>
+                              <p>Population: {detail.normalized_preview_fields?.population_served || 'Missing'}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Source and Run</p>
+                            <div className="mt-3 space-y-2 text-sm text-slate-200">
+                              <p>Source: {detail.source?.source_name || 'Unknown source'}</p>
+                              <p>Source Type: {detail.source?.source_type || 'Unknown'}</p>
+                              <p>Run ID: {detail.discovery_run?.run_id || detail.raw_record?.run_id || 'None'}</p>
+                              <p>Run Status: {detail.discovery_run?.status || 'N/A'}</p>
+                            </div>
+                          </div>
+                          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Review Notes</p>
+                            <textarea
+                              rows={4}
+                              value={rawReviewNotes[record.raw_id] ?? detail.raw_record?.review_notes ?? ''}
+                              onChange={(event) => setRawReviewNotes((current) => ({ ...current, [record.raw_id]: event.target.value }))}
+                              className="mt-3 w-full rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-400/50"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          {detail.missing_required_fields?.length ? (
+                            <span className="inline-flex items-center gap-2 rounded-full border border-red-400/30 bg-red-500/15 px-3 py-2 text-xs text-red-100">
+                              <Info className="h-3.5 w-3.5" />
+                              Missing required fields: {detail.missing_required_fields.join(', ')}
+                            </span>
+                          ) : null}
+                          {detail.duplicate_candidates?.length ? (
+                            <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-2 text-xs text-amber-100">
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                              Duplicate candidate must be resolved before normal approval
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="mt-4 flex flex-wrap gap-3">
+                          <button
+                            onClick={() => approveRawRecord(record.raw_id)}
+                            disabled={Boolean(detail.duplicate_candidates?.length) || Boolean(detail.missing_required_fields?.length)}
+                            className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="h-4 w-4" />
+                            Approve Into Pending Review
+                          </button>
+                          {detail.duplicate_candidates?.length ? (
+                            <button
+                              onClick={() => approveRawRecord(record.raw_id, true)}
+                              disabled={Boolean(detail.missing_required_fields?.length)}
+                              className="inline-flex items-center gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/15 px-4 py-3 text-sm font-medium text-amber-100 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <AlertTriangle className="h-4 w-4" />
+                              Force Approve
+                            </button>
+                          ) : null}
+                          <button
+                            onClick={() => rejectRawRecord(record.raw_id)}
+                            className="inline-flex items-center gap-2 rounded-2xl border border-red-400/30 bg-red-500/15 px-4 py-3 text-sm font-medium text-red-100 hover:bg-red-500/25"
+                          >
+                            <XCircle className="h-4 w-4" />
+                            Reject Raw Record
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </article>
+                )
+              })}
             </div>
           )}
         </section>

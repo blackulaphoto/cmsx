@@ -15,6 +15,9 @@ from .models import (
     DiscoveryJobUpdate,
     DuplicateResolutionRequest,
     ListingVerifyRequest,
+    RawRecordApproveRequest,
+    RawRecordMarkErrorRequest,
+    RawRecordRejectRequest,
     SoberLivingDirectorySourceCreate,
     SoberLivingDirectorySourceUpdate,
     SoberLivingDirectoryListingCreate,
@@ -154,6 +157,83 @@ async def get_review_queue():
         }
     except Exception as exc:
         logger.error("Failed to get sober living directory review queue: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/raw-records")
+async def get_raw_records(
+    review_status: Optional[str] = Query(None),
+    source_id: Optional[str] = Query(None),
+    run_id: Optional[str] = Query(None),
+    city: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+):
+    try:
+        raw_records = get_directory_db().list_raw_records(
+            review_statuses=[review_status] if review_status else None,
+            source_id=source_id,
+            run_id=run_id,
+            city=city,
+            state=state,
+        )
+        return {"success": True, "raw_records": raw_records, "total_count": len(raw_records)}
+    except Exception as exc:
+        logger.error("Failed to list raw records: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/raw-records/{raw_id}")
+async def get_raw_record(raw_id: str):
+    try:
+        detail = get_directory_db().get_raw_record(raw_id)
+        if not detail:
+            raise HTTPException(status_code=404, detail="Raw record not found")
+        return {"success": True, **detail}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to get raw record detail: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/raw-records/{raw_id}/approve")
+async def approve_raw_record(raw_id: str, payload: RawRecordApproveRequest):
+    try:
+        result = get_directory_db().approve_raw_record(
+            raw_id,
+            direct_approve=payload.direct_approve,
+            force=payload.force,
+            review_notes=payload.review_notes,
+        )
+        return {"success": True, **result}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Failed to approve raw record: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/raw-records/{raw_id}/reject")
+async def reject_raw_record(raw_id: str, payload: RawRecordRejectRequest):
+    try:
+        detail = get_directory_db().reject_raw_record(raw_id, review_notes=payload.review_notes)
+        return {"success": True, "raw_record": detail["raw_record"]}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Failed to reject raw record: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/raw-records/{raw_id}/mark-error")
+async def mark_raw_record_error(raw_id: str, payload: RawRecordMarkErrorRequest):
+    try:
+        detail = get_directory_db().mark_raw_record_error(raw_id, review_notes=payload.review_notes)
+        return {"success": True, "raw_record": detail["raw_record"]}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Failed to mark raw record error: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
 
 

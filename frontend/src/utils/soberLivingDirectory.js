@@ -43,6 +43,30 @@ export const soberLivingDirectoryApi = {
   getReviewQueue: () =>
     apiCall('/api/sober-living-directory/review'),
 
+  listRawRecords: (filters = {}) =>
+    apiCall(`/api/sober-living-directory/raw-records${buildQuery(filters)}`),
+
+  getRawRecord: (rawId) =>
+    apiCall(`/api/sober-living-directory/raw-records/${encodeURIComponent(rawId)}`),
+
+  approveRawRecord: (rawId, payload = {}) =>
+    apiCall(`/api/sober-living-directory/raw-records/${encodeURIComponent(rawId)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  rejectRawRecord: (rawId, payload = {}) =>
+    apiCall(`/api/sober-living-directory/raw-records/${encodeURIComponent(rawId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  markRawRecordError: (rawId, payload = {}) =>
+    apiCall(`/api/sober-living-directory/raw-records/${encodeURIComponent(rawId)}/mark-error`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   listSources: () =>
     apiCall('/api/sober-living-directory/sources'),
 

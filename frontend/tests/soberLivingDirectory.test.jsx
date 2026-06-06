@@ -24,6 +24,9 @@ const api = vi.hoisted(() => ({
   archiveListing: vi.fn(),
   createTask: vi.fn(),
   updateTask: vi.fn(),
+  getRawRecord: vi.fn(),
+  approveRawRecord: vi.fn(),
+  rejectRawRecord: vi.fn(),
   getDuplicateCandidate: vi.fn(),
   mergeDuplicateCandidate: vi.fn(),
   keepDuplicateCandidateSeparate: vi.fn(),
@@ -40,7 +43,7 @@ vi.mock('../src/utils/soberLivingDirectory', async () => {
 
 describe('Sober living directory pages', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   afterEach(() => {
@@ -201,7 +204,7 @@ describe('Sober living directory pages', () => {
     })
   })
 
-  it('renders duplicate diff details and merges selected imported fields from the review page', async () => {
+  it('renders raw record review details and approves a raw record from the review page', async () => {
     api.getReviewQueue
       .mockResolvedValueOnce({
         listings: [],
@@ -209,17 +212,33 @@ describe('Sober living directory pages', () => {
           {
             raw_id: 'raw_1',
             raw_name: 'Raw Discovery Home',
+            raw_address: '101 Main St',
             raw_phone: '555-222-3333',
             raw_website: 'https://raw.example.com',
             review_status: 'new',
             discovered_at: '2030-01-01T00:00:00',
             source_name: 'Manual Test Source',
-            extracted_json: { city: 'Los Angeles', state: 'CA' },
+            duplicate_candidate_count: 0,
+            missing_required_fields: [],
+            extracted_json: { city: 'Los Angeles', state: 'CA', address: '101 Main St' },
+          },
+          {
+            raw_id: 'raw_2',
+            raw_name: 'Blocked Duplicate Raw',
+            raw_phone: '555-888-9999',
+            raw_website: 'https://duplicate.example.com',
+            review_status: 'possible_duplicate',
+            discovered_at: '2030-01-02T00:00:00',
+            source_name: 'Manual Test Source',
+            duplicate_candidate_count: 1,
+            missing_required_fields: [],
+            extracted_json: { city: 'Long Beach', state: 'CA' },
           },
         ],
         duplicate_candidates: [
           {
             candidate_id: 'dup_1',
+            raw_id: 'raw_2',
             proposed_name: 'Oak Recovery Residence',
             existing_name: 'Oak Recovery House',
             confidence_score: 80,
@@ -245,43 +264,42 @@ describe('Sober living directory pages', () => {
         raw_records: [],
         duplicate_candidates: [],
       })
-    api.getDuplicateCandidate.mockResolvedValue({
-      candidate: { candidate_id: 'dup_1' },
-      existing_listing: { listing_id: 'sld_1', status: 'approved' },
-      raw_record: { raw_id: 'raw_1' },
-      normalized_imported_fields: {
-        phone: '555-111-2222',
-        notes: 'Imported note',
-        source_urls_json: ['oak.example.com'],
+    api.getRawRecord.mockResolvedValue({
+      raw_record: {
+        raw_id: 'raw_1',
+        review_notes: '',
+        run_id: 'run_1',
       },
-      match_reasons: ['phone_match', 'city_match'],
-      confidence_score: 80,
-      field_diff: [
-        {
-          field: 'phone',
-          existing_value: '555-111-2222',
-          imported_value: '555-111-2222',
-          status: 'same',
-          recommended_action: 'no_change',
-        },
-        {
-          field: 'notes',
-          existing_value: 'Existing note',
-          imported_value: 'Imported note',
-          status: 'conflict',
-          recommended_action: 'manual_review',
-        },
-        {
-          field: 'source_urls_json',
-          existing_value: ['oak-house.example.com'],
-          imported_value: ['oak.example.com'],
-          status: 'conflict',
-          recommended_action: 'manual_review',
-        },
-      ],
+      source: {
+        source_name: 'Manual Test Source',
+        source_type: 'manual',
+      },
+      discovery_run: {
+        run_id: 'run_1',
+        status: 'completed',
+      },
+      original_raw_fields: {
+        raw_name: 'Raw Discovery Home',
+        raw_address: '101 Main St',
+        raw_phone: '555-222-3333',
+        raw_email: null,
+        raw_website: 'https://raw.example.com',
+      },
+      normalized_preview_fields: {
+        name: 'Raw Discovery Home',
+        city: 'Los Angeles',
+        state: 'CA',
+        phone: '555-222-3333',
+        website: 'https://raw.example.com',
+        population_served: null,
+      },
+      duplicate_candidates: [],
+      missing_required_fields: [],
     })
-    api.mergeDuplicateCandidate.mockResolvedValue({ success: true })
-
+    api.approveRawRecord.mockResolvedValue({
+      listing: { listing_id: 'sld_raw_1', name: 'Raw Discovery Home' },
+      raw_record: { raw_id: 'raw_1', review_status: 'approved' },
+    })
     render(
       <MemoryRouter>
         <SoberLivingDirectoryReview />
@@ -291,25 +309,20 @@ describe('Sober living directory pages', () => {
     expect(await screen.findByText('Possible Duplicate Candidates')).toBeTruthy()
     expect(await screen.findByText('Raw Discovery Records')).toBeTruthy()
     expect(screen.getByText('Raw Discovery Home')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /Review Diff/i }))
+    expect(screen.getByText(/1 duplicate candidate/i)).toBeTruthy()
+    const rawRecordCard = screen.getByText('Raw Discovery Home').closest('article')
+    fireEvent.click(within(rawRecordCard).getByRole('button', { name: /View Details/i }))
 
     await waitFor(() => {
-      expect(api.getDuplicateCandidate).toHaveBeenCalledWith('dup_1')
+      expect(api.getRawRecord).toHaveBeenCalledWith('raw_1')
     })
 
-    expect(await screen.findByText('Field-by-field comparison')).toBeTruthy()
-    expect(screen.getAllByText(/Recommended: manual review/i).length).toBeGreaterThan(0)
-    fireEvent.click(screen.getByLabelText(/Apply imported value for notes/i))
-    fireEvent.click(screen.getByRole('button', { name: /Merge Selected Fields/i }))
-
+    expect(await screen.findByText('Normalized Preview')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Approve Into Pending Review/i }))
     await waitFor(() => {
-      expect(api.mergeDuplicateCandidate).toHaveBeenCalledWith('dup_1', expect.objectContaining({
-        selected_imported_fields: ['notes'],
+      expect(api.approveRawRecord).toHaveBeenCalledWith('raw_1', expect.objectContaining({
+        force: false,
       }))
-    })
-
-    await waitFor(() => {
-      expect(screen.getByText(/No duplicate candidates are waiting for review/i)).toBeTruthy()
     })
   })
 
@@ -320,6 +333,7 @@ describe('Sober living directory pages', () => {
       duplicate_candidates: [
         {
           candidate_id: 'dup_1',
+          raw_id: 'raw_2',
           proposed_name: 'Oak Recovery Residence',
           existing_name: 'Oak Recovery House',
           confidence_score: 80,
@@ -354,6 +368,47 @@ describe('Sober living directory pages', () => {
 
     await waitFor(() => {
       expect(api.mergeDuplicateCandidate).toHaveBeenCalledWith('dup_1', expect.any(Object))
+    })
+  })
+
+  it('rejects a raw record from the review page', async () => {
+    api.getReviewQueue
+      .mockResolvedValueOnce({
+        listings: [],
+        raw_records: [
+          {
+            raw_id: 'raw_9',
+            raw_name: 'Rejectable Raw',
+            raw_phone: '555-123-9999',
+            raw_website: 'https://reject.example.com',
+            review_status: 'new',
+            discovered_at: '2030-01-01T00:00:00',
+            source_name: 'Manual Test Source',
+            duplicate_candidate_count: 0,
+            missing_required_fields: [],
+            extracted_json: { city: 'Los Angeles', state: 'CA' },
+          },
+        ],
+        duplicate_candidates: [],
+      })
+      .mockResolvedValueOnce({
+        listings: [],
+        raw_records: [],
+        duplicate_candidates: [],
+      })
+    api.rejectRawRecord.mockResolvedValue({ raw_record: { raw_id: 'raw_9', review_status: 'rejected' } })
+
+    render(
+      <MemoryRouter>
+        <SoberLivingDirectoryReview />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Rejectable Raw')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Reject/i }))
+
+    await waitFor(() => {
+      expect(api.rejectRawRecord).toHaveBeenCalledWith('raw_9', expect.any(Object))
     })
   })
 })
