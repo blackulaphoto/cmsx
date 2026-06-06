@@ -3,9 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   Calendar, Clock, CheckCircle, AlertCircle, TrendingUp, Bell,
   Search, Filter, Sparkles, Zap, Brain, Star, PlusCircle, ArrowRight,
-  AlertTriangle, ChevronDown, ChevronRight, ListChecks, X
+  AlertTriangle, ChevronDown, ChevronRight, ListChecks, X, Tag, FileText, User
 } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
+import ClientSelector from '../components/ClientSelector'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
 
@@ -166,124 +167,247 @@ function BucketSection({ bucketKey, tasks, onComplete, onStart, defaultOpen = tr
   )
 }
 
-function CreateTaskModal({ onClose, onCreated, clients }) {
+const TASK_TYPES = [
+  { value: 'general',        label: 'General Task',      icon: '📋' },
+  { value: 'case_note',      label: 'Case Note',         icon: '📝' },
+  { value: 'progress_report',label: 'Progress Report',   icon: '📊' },
+  { value: 'follow_up',      label: 'Follow-up',         icon: '📞' },
+  { value: 'assessment',     label: 'Assessment',        icon: '🔍' },
+  { value: 'housing',        label: 'Housing',           icon: '🏠' },
+  { value: 'employment',     label: 'Employment / Jobs', icon: '💼' },
+  { value: 'benefits',       label: 'Benefits / SNAP',   icon: '💰' },
+  { value: 'legal',          label: 'Legal',             icon: '⚖️' },
+  { value: 'fmla',           label: 'FMLA',              icon: '🏥' },
+  { value: 'court',          label: 'Court Date',        icon: '🏛️' },
+  { value: 'medical',        label: 'Medical',           icon: '💊' },
+  { value: 'disability',     label: 'Disability Claim',  icon: '♿' },
+  { value: 'appointment',    label: 'Appointment',       icon: '📅' },
+  { value: 'documentation',  label: 'Documentation',     icon: '📄' },
+  { value: 'education',      label: 'Education',         icon: '🎓' },
+  { value: 'transportation', label: 'Transportation',    icon: '🚌' },
+  { value: 'crisis',         label: 'Crisis / Emergency',icon: '🚨' },
+]
+
+const QUICK_TEMPLATES = [
+  { key: 'follow_up',    label: 'Follow-up call',       type: 'follow_up',       priority: 'Medium', text: 'Follow-up call with client' },
+  { key: 'case_note',    label: 'Case note',            type: 'case_note',       priority: 'Medium', text: 'Document case note' },
+  { key: 'housing',      label: 'Housing app',          type: 'housing',         priority: 'High',   text: 'Follow up on housing application' },
+  { key: 'court',        label: 'Court prep',           type: 'court',           priority: 'High',   text: 'Prepare client for court date' },
+  { key: 'benefits',     label: 'Benefits app',         type: 'benefits',        priority: 'High',   text: 'Complete benefits application' },
+  { key: 'progress',     label: 'Progress report',      type: 'progress_report', priority: 'Medium', text: 'Write progress report' },
+  { key: 'disability',   label: 'Disability claim',     type: 'disability',      priority: 'High',   text: 'Follow up on disability claim documents' },
+  { key: 'fmla',         label: 'FMLA paperwork',       type: 'fmla',            priority: 'High',   text: 'Complete FMLA paperwork' },
+]
+
+function CreateTaskModal({ onClose, onCreated }) {
   const today = new Date().toISOString().split('T')[0]
   const [form, setForm] = useState({
-    client_id: clients[0]?.client_id || '',
-    reminder_text: '',
-    due_date: today,
+    client: null,
+    title: '',
+    description: '',
+    task_type: 'general',
     priority: 'Medium',
+    due_date: today,
   })
   const [saving, setSaving] = useState(false)
-  const firstInput = useRef(null)
+  const [errors, setErrors] = useState({})
+  const titleRef = useRef(null)
 
-  useEffect(() => { firstInput.current?.focus() }, [])
+  useEffect(() => { titleRef.current?.focus() }, [])
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+  const set = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }))
+    setErrors(e => ({ ...e, [k]: undefined }))
+  }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (!form.reminder_text.trim()) { toast.error('Task title is required'); return }
-    if (!form.client_id) { toast.error('Select a client'); return }
+  const applyTemplate = (tpl) => {
+    setForm(f => ({ ...f, title: tpl.text, task_type: tpl.type, priority: tpl.priority }))
+    titleRef.current?.focus()
+  }
+
+  const validate = () => {
+    const e = {}
+    if (!form.title.trim()) e.title = 'Task title is required'
+    if (!form.client) e.client = 'Select a client'
+    if (!form.due_date) e.due_date = 'Due date is required'
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  const handleSubmit = async (ev) => {
+    ev.preventDefault()
+    if (!validate()) return
     setSaving(true)
     try {
       const res = await apiFetch('/api/reminders/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          client_id: form.client_id,
-          reminder_text: form.reminder_text.trim(),
+          client_id: form.client.client_id,
+          reminder_text: form.title.trim(),
           due_date: form.due_date,
           priority: form.priority,
           case_manager_id: CASE_MANAGER_ID,
+          reminder_type: form.task_type,
+          description: form.description.trim(),
         }),
       })
       if (!res.ok) throw new Error('Server error')
-      toast.success('Task created!')
+      toast.success('Task created')
       onCreated()
       onClose()
     } catch {
-      toast.error('Failed to create task')
+      toast.error('Failed to create task — check connection')
     } finally {
       setSaving(false)
     }
   }
 
+  const inputCls = (err) =>
+    `w-full px-4 py-3 bg-white/8 border rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all ${err ? 'border-red-500/60' : 'border-white/15'}`
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-md bg-gradient-to-br from-slate-800 to-slate-900 border border-white/20 rounded-2xl shadow-2xl"
+        className="w-full sm:max-w-2xl bg-gradient-to-br from-slate-800 via-slate-800 to-slate-900 border border-white/20 rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[95vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-white/10">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/10">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg">
-              <PlusCircle size={18} className="text-white" />
+            <div className="p-2.5 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl">
+              <PlusCircle size={20} className="text-white" />
             </div>
-            <h2 className="text-lg font-bold text-white">New Task</h2>
+            <div>
+              <h2 className="text-xl font-bold text-white">New Task</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Add a reminder or action item for a client</p>
+            </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white">
-            <X size={18} />
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-gray-400 hover:text-white">
+            <X size={20} />
           </button>
         </div>
 
+        {/* Quick templates */}
+        <div className="px-6 py-4 border-b border-white/10">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Quick templates</p>
+          <div className="flex flex-wrap gap-2">
+            {QUICK_TEMPLATES.map(tpl => (
+              <button
+                key={tpl.key}
+                type="button"
+                onClick={() => applyTemplate(tpl)}
+                className="px-3 py-1.5 bg-white/8 hover:bg-white/15 border border-white/15 hover:border-cyan-500/40 rounded-lg text-xs text-gray-300 hover:text-white transition-all"
+              >
+                {tpl.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
+
+          {/* Client — universal selector */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Task title <span className="text-red-400">*</span></label>
+            <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+              <User size={14} /> Client <span className="text-red-400">*</span>
+            </label>
+            <ClientSelector
+              selectedClientId={form.client?.client_id || null}
+              onClientSelect={c => set('client', c)}
+              showCreateNew={false}
+              showViewDashboard={false}
+              placeholder="Search and select client…"
+            />
+            {errors.client && <p className="mt-1 text-xs text-red-400">{errors.client}</p>}
+          </div>
+
+          {/* Title */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+              <FileText size={14} /> Task title <span className="text-red-400">*</span>
+            </label>
             <input
-              ref={firstInput}
+              ref={titleRef}
               type="text"
-              value={form.reminder_text}
-              onChange={e => set('reminder_text', e.target.value)}
+              value={form.title}
+              onChange={e => set('title', e.target.value)}
               placeholder="e.g. Follow up on housing application"
-              className="w-full px-4 py-3 bg-white/8 border border-white/15 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all"
+              className={inputCls(errors.title)}
               maxLength={200}
+            />
+            {errors.title && <p className="mt-1 text-xs text-red-400">{errors.title}</p>}
+          </div>
+
+          {/* Context / notes */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-2">
+              Context / notes <span className="text-gray-500 font-normal">(optional)</span>
+            </label>
+            <textarea
+              value={form.description}
+              onChange={e => set('description', e.target.value)}
+              placeholder="Add any relevant details, action items, or background context…"
+              rows={3}
+              className={inputCls(false) + ' resize-none'}
+              maxLength={1000}
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-1.5">Client <span className="text-red-400">*</span></label>
-            <select
-              value={form.client_id}
-              onChange={e => set('client_id', e.target.value)}
-              className="w-full px-4 py-3 bg-white/8 border border-white/15 rounded-xl text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all"
-            >
-              {clients.length === 0 && <option value="">No clients found</option>}
-              {clients.map(c => (
-                <option key={c.client_id} value={c.client_id} className="bg-slate-800">
-                  {c.first_name} {c.last_name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+          {/* Task type + Priority */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Due date</label>
-              <input
-                type="date"
-                value={form.due_date}
-                onChange={e => set('due_date', e.target.value)}
-                className="w-full px-4 py-3 bg-white/8 border border-white/15 rounded-xl text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all"
-              />
+              <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+                <Tag size={14} /> Category
+              </label>
+              <select
+                value={form.task_type}
+                onChange={e => set('task_type', e.target.value)}
+                className={inputCls(false)}
+              >
+                {TASK_TYPES.map(t => (
+                  <option key={t.value} value={t.value} className="bg-slate-800">
+                    {t.icon}  {t.label}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-1.5">Priority</label>
+              <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+                <AlertTriangle size={14} /> Priority
+              </label>
               <select
                 value={form.priority}
                 onChange={e => set('priority', e.target.value)}
-                className="w-full px-4 py-3 bg-white/8 border border-white/15 rounded-xl text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all"
+                className={inputCls(false)}
               >
-                <option value="Critical" className="bg-slate-800">Critical</option>
-                <option value="High" className="bg-slate-800">High</option>
-                <option value="Medium" className="bg-slate-800">Medium</option>
-                <option value="Low" className="bg-slate-800">Low</option>
+                <option value="Critical" className="bg-slate-800">🚨 Critical</option>
+                <option value="High"     className="bg-slate-800">🔴 High</option>
+                <option value="Medium"   className="bg-slate-800">🟡 Medium</option>
+                <option value="Low"      className="bg-slate-800">🟢 Low</option>
               </select>
             </div>
           </div>
 
+          {/* Due date */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+              <Calendar size={14} /> Due date <span className="text-red-400">*</span>
+            </label>
+            <input
+              type="date"
+              value={form.due_date}
+              onChange={e => set('due_date', e.target.value)}
+              className={inputCls(errors.due_date)}
+            />
+            {errors.due_date && <p className="mt-1 text-xs text-red-400">{errors.due_date}</p>}
+          </div>
+
+          {/* Actions */}
           <div className="flex gap-3 pt-2">
             <button
               type="button"
@@ -295,9 +419,13 @@ function CreateTaskModal({ onClose, onCreated, clients }) {
             <button
               type="submit"
               disabled={saving}
-              className="flex-1 px-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white rounded-xl font-semibold transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+              className="flex-1 px-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white rounded-xl font-semibold transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
             >
-              {saving ? 'Saving…' : 'Create Task'}
+              {saving ? (
+                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
+              ) : (
+                <><PlusCircle size={16} /> Create Task</>
+              )}
             </button>
           </div>
         </form>
@@ -342,7 +470,6 @@ function SmartDaily() {
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('all')
   const [showCreateModal, setShowCreateModal] = useState(false)
-  const [clients, setClients] = useState([])
 
   const fetchData = async () => {
     try {
@@ -375,14 +502,7 @@ function SmartDaily() {
     }
   }
 
-  useEffect(() => {
-    fetchData()
-    // Load clients for the create-task modal
-    apiFetch(`/api/dashboard/case-manager/${CASE_MANAGER_ID}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.clients) setClients(data.clients) })
-      .catch(() => {})
-  }, [])
+  useEffect(() => { fetchData() }, [])
 
   const getTaskDestination = (task) => {
     const cat = String(task.task_type || '').toLowerCase()
@@ -650,7 +770,6 @@ function SmartDaily() {
 
       {showCreateModal && (
         <CreateTaskModal
-          clients={clients}
           onClose={() => setShowCreateModal(false)}
           onCreated={() => { setLoading(true); fetchData() }}
         />
