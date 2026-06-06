@@ -1,54 +1,40 @@
-import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle,
-  BellRing,
-  Building2,
-  CalendarClock,
-  ClipboardList,
-  Download,
   FileSpreadsheet,
-  FileText,
-  MessageSquare,
   Plus,
-  RefreshCw,
-  Save,
-  Search,
+  CalendarClock,
   ShieldCheck,
+  AlertTriangle,
+  ClipboardList,
+  Building2,
+  Phone,
+  Mail,
+  FileText,
   Upload,
-  Users
+  Download,
+  Send,
+  MessageSquare,
+  Save,
+  RefreshCw,
+  BellRing,
+  Search
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-
 import ClientSelector from '../components/ClientSelector'
 import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
 import { apiFetch } from '../api/config'
 import { useAuth } from '../contexts/AuthContext'
 import {
   filterFmlaCases,
-  formatFmlaLabel,
-  getCaseDisplayName,
-  getDeadlineBuckets,
   getDeadlineState,
   getFmlaStatusBadgeClass,
-  getMissingChecklist,
-  getSubjectBadge
+  getMissingChecklist
 } from '../utils/fmla'
 
-const STATUS_OPTIONS = ['draft', 'pending documents', 'submitted', 'approved', 'denied', 'expired', 'closed']
-const APPROVAL_OPTIONS = ['pending', 'approved', 'denied', 'needs more information', 'expired', 'closed']
-const LEAVE_TYPES = ['continuous', 'intermittent', 'reduced schedule']
-const REQUEST_TYPES = ['new request', 'extension', 'recertification', 'return-to-work', 'intermittent leave']
-const TAB_OPTIONS = ['overview', 'documents', 'reminders', 'correspondence', 'intermittent usage', 'exports']
-
 const emptyCaseForm = () => ({
-  case_subject_type: 'client',
   client_id: '',
   client_name: '',
-  staff_identifier: '',
-  staff_name: '',
-  staff_department: '',
-  staff_job_title: '',
   date_of_birth: '',
   assigned_case_manager: '',
   treatment_status: '',
@@ -67,13 +53,8 @@ const emptyCaseForm = () => ({
   provider_address: '',
   roi_status: 'unknown',
   fmla_request_type: 'new request',
-  leave_type: 'continuous',
   leave_start_date: '',
-  leave_end_date: '',
   expected_return_date: '',
-  employer_response_deadline: '',
-  certification_expiration_date: '',
-  return_to_work_date: '',
   paperwork_deadline: '',
   paperwork_received_date: '',
   paperwork_completed_date: '',
@@ -81,9 +62,8 @@ const emptyCaseForm = () => ({
   paperwork_sent_method: 'fax',
   confirmation_received: false,
   approval_status: 'pending',
-  status: 'draft',
-  notes: '',
-  internal_comments: ''
+  status: 'Draft',
+  notes: ''
 })
 
 const emptyDocumentForm = () => ({
@@ -126,22 +106,12 @@ const emptyReminderForm = () => ({
   reason: ''
 })
 
-const emptyLeaveUsageForm = () => ({
-  usage_date: new Date().toISOString().slice(0, 10),
-  duration_minutes: 60,
-  reason_category: 'flare-up',
-  notes: ''
-})
-
-const emptyExportForm = () => ({
-  export_type: 'employer packet',
-  custom_instructions: '',
-  draft_title: '',
-  draft_content: '',
-  review_notes: '',
-  warning_text: '',
-  export_id: ''
-})
+const formatFileSize = (size = 0) => {
+  if (!size) return '0 B'
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
+}
 
 const Field = ({ label, children, hint }) => (
   <label className="space-y-2 block">
@@ -174,16 +144,8 @@ const Select = (props) => (
   />
 )
 
-const formatFileSize = (size = 0) => {
-  if (!size) return '0 B'
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
-}
-
 function FMLA() {
   const { profile } = useAuth()
-  const canManageStaff = profile?.role === 'admin'
   const defaultCaseManagerId = profile?.case_manager_id || ''
   const [searchParams, setSearchParams] = useSearchParams()
   const [summary, setSummary] = useState({
@@ -200,37 +162,25 @@ function FMLA() {
   const [documents, setDocuments] = useState([])
   const [correspondence, setCorrespondence] = useState([])
   const [reminders, setReminders] = useState([])
-  const [leaveUsage, setLeaveUsage] = useState([])
-  const [leaveUsageSummary, setLeaveUsageSummary] = useState({ total_minutes: 0, total_hours: 0, entry_count: 0 })
-  const [exportsList, setExportsList] = useState([])
-  const [auditLog, setAuditLog] = useState([])
-  const [activeTab, setActiveTab] = useState('overview')
   const [filters, setFilters] = useState({
     search: searchParams.get('search') || '',
     status: searchParams.get('status') || '',
     employer: searchParams.get('employer') || '',
     deadline: searchParams.get('deadline') || '',
-    case_manager: searchParams.get('case_manager') || defaultCaseManagerId,
-    case_subject_type: searchParams.get('case_subject_type') || ''
+    case_manager: searchParams.get('case_manager') || defaultCaseManagerId
   })
   const [caseForm, setCaseForm] = useState(emptyCaseForm())
   const [documentForm, setDocumentForm] = useState(emptyDocumentForm())
   const [correspondenceForm, setCorrespondenceForm] = useState(emptyCorrespondenceForm())
   const [reminderForm, setReminderForm] = useState(emptyReminderForm())
-  const [leaveUsageForm, setLeaveUsageForm] = useState(emptyLeaveUsageForm())
-  const [exportForm, setExportForm] = useState(emptyExportForm())
   const [selectedUploads, setSelectedUploads] = useState([])
   const [documentInputKey, setDocumentInputKey] = useState(0)
   const [creatingNewCase, setCreatingNewCase] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [exporting, setExporting] = useState(false)
 
   const visibleCases = useMemo(() => filterFmlaCases(cases, filters), [cases, filters])
-  const missingChecklist = useMemo(() => getMissingChecklist(selectedCase || caseForm, documents), [selectedCase, caseForm, documents])
-  const deadlineBuckets = useMemo(() => getDeadlineBuckets(selectedCase || caseForm, reminders), [selectedCase, caseForm, reminders])
-  const deadlineState = getDeadlineState(selectedCase?.paperwork_deadline || caseForm.paperwork_deadline)
-  const currentDisplayName = getCaseDisplayName(selectedCase || caseForm)
+  const missingChecklist = useMemo(() => getMissingChecklist(selectedCase, documents), [selectedCase, documents])
 
   useEffect(() => {
     loadSummary()
@@ -262,10 +212,6 @@ function FMLA() {
       setDocuments([])
       setCorrespondence([])
       setReminders([])
-      setLeaveUsage([])
-      setLeaveUsageSummary({ total_minutes: 0, total_hours: 0, entry_count: 0 })
-      setExportsList([])
-      setAuditLog([])
     }
   }, [selectedCaseId])
 
@@ -318,55 +264,22 @@ function FMLA() {
       if (!response.ok) throw new Error('Failed to load FMLA case detail')
       const data = await response.json()
       setSelectedCase(data.case || null)
-      setCaseForm({ ...emptyCaseForm(), ...(data.case || {}) })
+      setCaseForm(data.case || emptyCaseForm())
       setDocuments(data.documents || [])
       setCorrespondence(data.correspondence || [])
       setReminders(data.reminders || [])
-      setLeaveUsage(data.leave_usage || [])
-      setLeaveUsageSummary(data.leave_usage_summary || { total_minutes: 0, total_hours: 0, entry_count: 0 })
-      setExportsList(data.exports || [])
-      setAuditLog(data.audit_log || [])
-      if ((data.exports || [])[0]) {
-        setExportForm({
-          export_type: data.exports[0].export_type || 'employer packet',
-          custom_instructions: '',
-          draft_title: data.exports[0].draft_title || '',
-          draft_content: data.exports[0].draft_content || '',
-          review_notes: data.exports[0].review_notes || '',
-          warning_text: data.exports[0].warning_text || '',
-          export_id: data.exports[0].export_id || ''
-        })
-      } else {
-        setExportForm(emptyExportForm())
-      }
     } catch (error) {
       console.error(error)
       toast.error(error.message || 'Failed to load FMLA case detail')
     }
   }
 
-  const updateCaseForm = (field, value) => {
-    setCaseForm((prev) => {
-      const next = { ...prev, [field]: value }
-      if (field === 'case_subject_type' && value === 'client') {
-        next.staff_identifier = ''
-        next.staff_name = ''
-        next.staff_department = ''
-        next.staff_job_title = ''
-        next.roi_status = prev.roi_status === 'not needed' ? 'unknown' : prev.roi_status
-      }
-      if (field === 'case_subject_type' && value === 'staff') {
-        next.client_id = ''
-        next.date_of_birth = ''
-        next.treatment_status = ''
-        next.roi_status = 'not needed'
-      }
-      return next
-    })
+  const handleCaseFieldChange = (field, value) => {
+    setCaseForm((prev) => ({ ...prev, [field]: value }))
   }
 
   const handleClientSelected = (client) => {
-    if (!creatingNewCase || caseForm.case_subject_type !== 'client') return
+    if (!creatingNewCase) return
     setCaseForm((prev) => ({
       ...prev,
       client_id: client.client_id || '',
@@ -377,49 +290,19 @@ function FMLA() {
     }))
   }
 
-  const startNewCase = (subjectType = 'client') => {
-    setCreatingNewCase(true)
-    setSelectedCaseId(null)
-    setCaseForm({
-      ...emptyCaseForm(),
-      case_subject_type: subjectType,
-      assigned_case_manager: defaultCaseManagerId
-    })
-    setActiveTab('overview')
-    setDocuments([])
-    setCorrespondence([])
-    setReminders([])
-    setLeaveUsage([])
-    setExportsList([])
-    setAuditLog([])
-    setExportForm(emptyExportForm())
-  }
-
   const saveCase = async () => {
-    const subjectType = (caseForm.case_subject_type || 'client').toLowerCase()
-    if (subjectType === 'client' && !caseForm.client_name.trim()) {
+    if (!caseForm.client_name.trim()) {
       toast.error('Client name is required')
       return
     }
-    if (subjectType === 'staff' && !(caseForm.staff_name || caseForm.staff_identifier).trim()) {
-      toast.error('Staff name or staff identifier is required')
-      return
-    }
-
     setSaving(true)
     try {
-      const payload = {
-        ...caseForm,
-        client_name: subjectType === 'staff'
-          ? (caseForm.staff_name || caseForm.staff_identifier || caseForm.client_name)
-          : caseForm.client_name
-      }
       const method = creatingNewCase ? 'POST' : 'PUT'
       const endpoint = creatingNewCase ? '/api/fmla' : `/api/fmla/${selectedCaseId}`
       const response = await apiFetch(endpoint, {
         method,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(caseForm)
       })
       if (!response.ok) throw new Error('Failed to save FMLA case')
       const data = await response.json()
@@ -445,9 +328,14 @@ function FMLA() {
       let response
       if (selectedUploads.length > 0) {
         const formData = new FormData()
-        selectedUploads.forEach((file) => formData.append('files', file))
+        selectedUploads.forEach((file) => {
+          formData.append('files', file)
+        })
         Object.entries(documentForm).forEach(([key, value]) => {
-          if (!['file_name', 'file_path', 'file_size', 'content_type'].includes(key)) formData.append(key, value ?? '')
+          if (['file_name', 'file_path', 'file_size', 'content_type'].includes(key)) {
+            return
+          }
+          formData.append(key, value ?? '')
         })
         response = await apiFetch(`/api/fmla/${selectedCaseId}/documents/upload`, {
           method: 'POST',
@@ -461,16 +349,25 @@ function FMLA() {
         })
       }
       if (!response.ok) throw new Error('Failed to add document')
-      await loadCaseDetail(selectedCaseId)
+      const data = await response.json()
+      if (selectedUploads.length > 0) {
+        setDocuments((prev) => [...(data.documents || []), ...prev])
+      } else {
+        setDocuments((prev) => [data.document, ...prev])
+      }
       setDocumentForm(emptyDocumentForm())
       setSelectedUploads([])
       setDocumentInputKey((prev) => prev + 1)
       loadSummary()
-      toast.success(selectedUploads.length > 0 ? 'Files uploaded' : 'Document entry added')
+      toast.success(selectedUploads.length > 0 ? `${data.document_count || selectedUploads.length} file(s) uploaded` : 'Document entry added')
     } catch (error) {
       console.error(error)
       toast.error(error.message || 'Failed to add document')
     }
+  }
+
+  const downloadDocument = (documentId) => {
+    window.open(`/api/fmla/documents/${documentId}/download`, '_blank', 'noopener,noreferrer')
   }
 
   const addCorrespondence = async () => {
@@ -485,8 +382,10 @@ function FMLA() {
         body: JSON.stringify(correspondenceForm)
       })
       if (!response.ok) throw new Error('Failed to add correspondence')
-      await loadCaseDetail(selectedCaseId)
+      const data = await response.json()
+      setCorrespondence((prev) => [data.correspondence, ...prev])
       setCorrespondenceForm(emptyCorrespondenceForm())
+      loadSummary()
       toast.success('Correspondence logged')
     } catch (error) {
       console.error(error)
@@ -506,117 +405,25 @@ function FMLA() {
         body: JSON.stringify(reminderForm)
       })
       if (!response.ok) throw new Error('Failed to create reminder')
-      await loadCaseDetail(selectedCaseId)
+      const data = await response.json()
+      setReminders((prev) => [data.reminder, ...prev])
       setReminderForm(emptyReminderForm())
-      loadSummary()
-      toast.success('Reminder created')
+      toast.success('Reminder created in main reminders module')
     } catch (error) {
       console.error(error)
       toast.error(error.message || 'Failed to create reminder')
     }
   }
 
-  const addLeaveUsage = async () => {
-    if (!selectedCaseId) {
-      toast.error('Select a case first')
-      return
-    }
-    try {
-      const response = await apiFetch(`/api/fmla/${selectedCaseId}/leave-usage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...leaveUsageForm,
-          duration_minutes: Number(leaveUsageForm.duration_minutes)
-        })
-      })
-      if (!response.ok) throw new Error('Failed to add intermittent leave usage')
-      await loadCaseDetail(selectedCaseId)
-      setLeaveUsageForm(emptyLeaveUsageForm())
-      toast.success('Intermittent leave usage saved')
-    } catch (error) {
-      console.error(error)
-      toast.error(error.message || 'Failed to add intermittent leave usage')
-    }
-  }
-
-  const generateDraft = async () => {
-    if (!selectedCaseId) {
-      toast.error('Select a case first')
-      return
-    }
-    try {
-      const response = await apiFetch(`/api/fmla/${selectedCaseId}/exports/draft`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(exportForm)
-      })
-      if (!response.ok) throw new Error('Failed to generate employer packet draft')
-      const data = await response.json()
-      setExportForm({
-        export_type: data.export.export_type || 'employer packet',
-        custom_instructions: '',
-        draft_title: data.export.draft_title || '',
-        draft_content: data.export.draft_content || '',
-        review_notes: data.export.review_notes || '',
-        warning_text: data.export.warning_text || '',
-        export_id: data.export.export_id || ''
-      })
-      await loadCaseDetail(selectedCaseId)
-      toast.success('Draft packet generated for review')
-    } catch (error) {
-      console.error(error)
-      toast.error(error.message || 'Failed to generate draft')
-    }
-  }
-
-  const finalizePdfExport = async () => {
-    if (!selectedCaseId) {
-      toast.error('Select a case first')
-      return
-    }
-    if (!exportForm.export_id) {
-      toast.error('Generate a draft before exporting to PDF')
-      return
-    }
-    setExporting(true)
-    try {
-      const response = await apiFetch(`/api/fmla/${selectedCaseId}/exports/${exportForm.export_id}/pdf`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(exportForm)
-      })
-      if (!response.ok) throw new Error('Failed to export PDF')
-      const data = await response.json()
-      setExportForm((prev) => ({
-        ...prev,
-        export_id: data.export.export_id || prev.export_id
-      }))
-      await loadCaseDetail(selectedCaseId)
-      toast.success('PDF export created')
-    } catch (error) {
-      console.error(error)
-      toast.error(error.message || 'Failed to export PDF')
-    } finally {
-      setExporting(false)
-    }
-  }
-
-  const downloadDocument = (documentId) => {
-    window.open(`/api/fmla/documents/${documentId}/download`, '_blank', 'noopener,noreferrer')
-  }
-
-  const downloadExport = (exportId) => {
-    window.open(`/api/fmla/exports/${exportId}/download`, '_blank', 'noopener,noreferrer')
-  }
+  const deadlineState = getDeadlineState(selectedCase?.paperwork_deadline)
 
   const summaryCards = [
     { key: 'status', label: 'Active FMLA Cases', value: summary.total_active_cases, filter: { status: '' }, icon: ClipboardList },
     { key: 'deadline', label: 'Due In 7 Days', value: summary.deadlines_next_7_days, filter: { deadline: 'next_7_days' }, icon: CalendarClock },
     { key: 'missing', label: 'Missing Paperwork', value: summary.missing_paperwork, filter: { status: '' }, icon: AlertTriangle },
-    { key: 'followup', label: 'Needs Follow-Up', value: summary.needing_follow_up, filter: { status: 'pending documents' }, icon: BellRing },
-    { key: 'approved', label: 'Approved', value: summary.approved_cases, filter: { status: 'approved' }, icon: ShieldCheck },
-    { key: 'denied', label: 'Denied', value: summary.denied_cases, filter: { status: 'denied' }, icon: AlertTriangle }
+    { key: 'followup', label: 'Needs Follow-Up', value: summary.needing_follow_up, filter: { status: 'Confirmation pending' }, icon: BellRing },
+    { key: 'approved', label: 'Approved', value: summary.approved_cases, filter: { status: 'Approved' }, icon: ShieldCheck },
+    { key: 'denied', label: 'Denied', value: summary.denied_cases, filter: { status: 'Denied' }, icon: AlertTriangle }
   ]
 
   return (
@@ -631,26 +438,21 @@ function FMLA() {
               </div>
               <h1 className="mt-4 text-4xl font-bold">FMLA Case File Command Center</h1>
               <p className="mt-2 max-w-3xl text-sm text-slate-300">
-                Separate client and staff leave workflows, track deadlines and intermittent usage, and export review-only employer packets.
+                Track paperwork, correspondence, deadlines, and follow-ups in one place so nothing falls through the cracks.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
               <button
-                onClick={() => startNewCase('client')}
+                onClick={() => {
+                  setCreatingNewCase(true)
+                  setSelectedCaseId(null)
+                  setCaseForm(emptyCaseForm())
+                }}
                 className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
               >
                 <Plus className="h-4 w-4" />
-                New Client FMLA Case
+                New FMLA Case
               </button>
-              {canManageStaff ? (
-                <button
-                  onClick={() => startNewCase('staff')}
-                  className="inline-flex items-center gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20"
-                >
-                  <Users className="h-4 w-4" />
-                  New Staff FMLA Case
-                </button>
-              ) : null}
               <button
                 onClick={() => {
                   loadSummary()
@@ -687,17 +489,19 @@ function FMLA() {
           })}
         </section>
 
-        <section className="grid grid-cols-1 gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 xl:grid-cols-6">
+        <section className="grid grid-cols-1 gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 xl:grid-cols-5">
           <Field label="Search">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input value={filters.search} onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))} placeholder="Client, staff, employer" className="pl-9" />
+              <Input value={filters.search} onChange={(e) => setFilters((prev) => ({ ...prev, search: e.target.value }))} placeholder="Client or employer" className="pl-9" />
             </div>
           </Field>
           <Field label="Status">
             <Select value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}>
               <option value="">All statuses</option>
-              {STATUS_OPTIONS.map((status) => <option key={status} value={status}>{formatFmlaLabel(status)}</option>)}
+              {['Draft','Waiting on client','Waiting on employer','Waiting on provider','Paperwork received','Paperwork sent','Confirmation pending','Approved','Denied','Extension needed','Closed'].map((status) => (
+                <option key={status} value={status}>{status}</option>
+              ))}
             </Select>
           </Field>
           <Field label="Employer">
@@ -713,57 +517,52 @@ function FMLA() {
           <Field label="Case Manager">
             <Input value={filters.case_manager} onChange={(e) => setFilters((prev) => ({ ...prev, case_manager: e.target.value }))} />
           </Field>
-          <Field label="Workflow">
-            <Select value={filters.case_subject_type} onChange={(e) => setFilters((prev) => ({ ...prev, case_subject_type: e.target.value }))}>
-              <option value="">All cases</option>
-              <option value="client">Client FMLA</option>
-              {canManageStaff ? <option value="staff">Staff FMLA</option> : null}
-            </Select>
-          </Field>
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <aside className="rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold">FMLA Cases</h2>
-                <p className="text-xs text-slate-400">{visibleCases.length} visible</p>
-              </div>
-              {loading ? <span className="text-xs text-slate-400">Loading…</span> : null}
+          <aside className="rounded-3xl border border-white/10 bg-white/5 p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-lg font-semibold">FMLA Cases</h2>
+              <span className="text-xs text-slate-400">{visibleCases.length} shown</span>
             </div>
-            <div className="mt-4 space-y-3">
-              {visibleCases.length === 0 ? (
+            <div className="space-y-3 max-h-[900px] overflow-y-auto pr-1">
+              {loading ? (
+                <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-sm text-slate-300">Loading cases…</div>
+              ) : visibleCases.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-sm text-slate-300">No FMLA cases match the current filters.</div>
               ) : visibleCases.map((item) => {
-                const active = selectedCaseId === item.case_id
-                const state = getDeadlineState(item.paperwork_deadline || item.return_to_work_date || item.employer_response_deadline)
+                const state = getDeadlineState(item.paperwork_deadline)
                 return (
                   <button
                     key={item.case_id}
-                    onClick={() => {
-                      setSelectedCaseId(item.case_id)
-                      setActiveTab('overview')
-                    }}
-                    className={`w-full rounded-2xl border p-4 text-left transition ${active ? 'border-cyan-400/40 bg-cyan-500/10' : 'border-white/10 bg-slate-950/30 hover:bg-slate-900/40'}`}
+                    onClick={() => setSelectedCaseId(item.case_id)}
+                    className={`w-full rounded-2xl border p-4 text-left transition ${
+                      selectedCaseId === item.case_id
+                        ? 'border-cyan-400/60 bg-cyan-400/10'
+                        : 'border-white/10 bg-slate-950/30 hover:border-white/20 hover:bg-white/5'
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-semibold">{getCaseDisplayName(item)}</p>
-                        <p className="mt-1 text-xs text-slate-400">{item.employer_name || 'Employer not set'}</p>
+                        <h3 className="font-semibold">{item.client_name}</h3>
+                        <p className="text-sm text-slate-400">{item.employer_name || 'Employer not added'}</p>
                       </div>
                       <span className={`rounded-full border px-2 py-1 text-[11px] ${getFmlaStatusBadgeClass(item.status)}`}>
-                        {formatFmlaLabel(item.status)}
+                        {item.status}
                       </span>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-                      <span className={`rounded-full border px-2 py-1 ${getSubjectBadge(item)}`}>
-                        {(item.case_subject_type || 'client').toLowerCase() === 'staff' ? 'Staff FMLA' : 'Client FMLA'}
-                      </span>
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-slate-200">
-                        {formatFmlaLabel(item.leave_type || 'continuous')}
-                      </span>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-300">
+                      <div>Type: <span className="text-white">{item.fmla_request_type}</span></div>
+                      <div>Manager: <span className="text-white">{item.assigned_case_manager}</span></div>
                     </div>
-                    <div className="mt-3 text-xs text-slate-400">{state.label}</div>
+                    <div className={`mt-3 rounded-xl px-3 py-2 text-xs ${
+                      state.tone === 'danger' ? 'bg-rose-500/10 text-rose-200' :
+                      state.tone === 'warning' ? 'bg-amber-500/10 text-amber-200' :
+                      state.tone === 'ok' ? 'bg-emerald-500/10 text-emerald-200' :
+                      'bg-slate-500/10 text-slate-300'
+                    }`}>
+                      {state.label}
+                    </div>
                   </button>
                 )
               })}
@@ -774,25 +573,20 @@ function FMLA() {
             <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
               <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-2xl font-semibold">{creatingNewCase ? 'New FMLA Case' : currentDisplayName}</h2>
+                  <h2 className="text-2xl font-semibold">{creatingNewCase ? 'New FMLA Case' : (selectedCase?.client_name || 'Select an FMLA case')}</h2>
                   <p className="text-sm text-slate-400">
-                    {(caseForm.case_subject_type || 'client') === 'staff'
-                      ? 'Staff FMLA is isolated from client records and should only contain HR-safe leave data.'
-                      : 'Client FMLA tracks employer contacts, provider paperwork, deadlines, and follow-up activity in one case file.'}
+                    Organize employer contacts, provider paperwork, deadlines, correspondence, and follow-up reminders in one case file.
                   </p>
                 </div>
-                {(selectedCase || creatingNewCase) ? (
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className={`rounded-full border px-3 py-1 text-xs ${getSubjectBadge(caseForm)}`}>
-                      {(caseForm.case_subject_type || 'client') === 'staff' ? 'Staff FMLA' : 'Client FMLA'}
-                    </span>
-                    <span className={`rounded-full border px-3 py-1 text-xs ${getFmlaStatusBadgeClass(caseForm.status)}`}>{formatFmlaLabel(caseForm.status)}</span>
+                {!creatingNewCase && selectedCase ? (
+                  <div className="flex items-center gap-3">
+                    <span className={`rounded-full border px-3 py-1 text-xs ${getFmlaStatusBadgeClass(selectedCase.status)}`}>{selectedCase.status}</span>
                     <span className="rounded-full bg-slate-950/40 px-3 py-1 text-xs text-slate-300">{deadlineState.label}</span>
                   </div>
                 ) : null}
               </div>
 
-              {creatingNewCase && caseForm.case_subject_type === 'client' ? (
+              {creatingNewCase ? (
                 <div className="mb-6">
                   <ClientSelector onClientSelect={handleClientSelected} placeholder="Link to an existing client" className="max-w-md" />
                 </div>
@@ -803,537 +597,352 @@ function FMLA() {
                   Select an FMLA case from the list or create a new one.
                 </div>
               ) : (
-                <div className="space-y-6">
-                  <div className="flex flex-wrap gap-2">
-                    {TAB_OPTIONS.map((tab) => (
-                      <button
-                        key={tab}
-                        onClick={() => setActiveTab(tab)}
-                        className={`rounded-full px-4 py-2 text-sm transition ${activeTab === tab ? 'bg-cyan-500 text-slate-950 font-semibold' : 'bg-slate-950/40 text-slate-300 hover:bg-slate-950/70'}`}
-                      >
-                        {formatFmlaLabel(tab)}
-                      </button>
-                    ))}
+                <div className="space-y-8">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <Field label="Client name"><Input value={caseForm.client_name} onChange={(e) => handleCaseFieldChange('client_name', e.target.value)} /></Field>
+                    <Field label="Linked client">
+                      <Input
+                        value={caseForm.client_name || ''}
+                        readOnly
+                        placeholder="Link a client from the selector above"
+                      />
+                    </Field>
+                    <Field label="Date of birth"><Input type="date" value={caseForm.date_of_birth || ''} onChange={(e) => handleCaseFieldChange('date_of_birth', e.target.value)} /></Field>
+                    <Field label="Assigned case manager"><Input value={caseForm.assigned_case_manager} onChange={(e) => handleCaseFieldChange('assigned_case_manager', e.target.value)} /></Field>
+                    <Field label="Treatment/program status" hint="Optional"><Input value={caseForm.treatment_status || ''} onChange={(e) => handleCaseFieldChange('treatment_status', e.target.value)} /></Field>
+                    <Field label="FMLA request type">
+                      <Select value={caseForm.fmla_request_type} onChange={(e) => handleCaseFieldChange('fmla_request_type', e.target.value)}>
+                        {['new request','extension','recertification','return-to-work','intermittent leave'].map((item) => <option key={item} value={item}>{item}</option>)}
+                      </Select>
+                    </Field>
+                    <Field label="Status">
+                      <Select value={caseForm.status} onChange={(e) => handleCaseFieldChange('status', e.target.value)}>
+                        {['Draft','Waiting on client','Waiting on employer','Waiting on provider','Paperwork received','Paperwork sent','Confirmation pending','Approved','Denied','Extension needed','Closed'].map((item) => <option key={item} value={item}>{item}</option>)}
+                      </Select>
+                    </Field>
+                    <Field label="Approval status">
+                      <Select value={caseForm.approval_status} onChange={(e) => handleCaseFieldChange('approval_status', e.target.value)}>
+                        {['pending','approved','denied','needs more information','expired','closed'].map((item) => <option key={item} value={item}>{item}</option>)}
+                      </Select>
+                    </Field>
                   </div>
 
-                  {activeTab === 'overview' ? (
-                    <div className="space-y-8">
-                      <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-4">
-                        <p className="text-sm text-amber-100">
-                          Generated drafts and exports are review-only. Do not auto-submit anything to employers or HR. Staff must verify minimum necessary disclosure before finalizing.
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        <Field label="Workflow type">
-                          <Select value={caseForm.case_subject_type} onChange={(e) => updateCaseForm('case_subject_type', e.target.value)} disabled={!canManageStaff}>
-                            <option value="client">Client FMLA</option>
-                            <option value="staff">Staff FMLA</option>
+                  <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5 space-y-4">
+                      <h3 className="flex items-center gap-2 text-lg font-semibold"><Building2 className="h-5 w-5 text-cyan-300" /> Employer Information</h3>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <Field label="Employer name"><Input value={caseForm.employer_name || ''} onChange={(e) => handleCaseFieldChange('employer_name', e.target.value)} /></Field>
+                        <Field label="HR contact name"><Input value={caseForm.hr_contact_name || ''} onChange={(e) => handleCaseFieldChange('hr_contact_name', e.target.value)} /></Field>
+                        <Field label="HR phone"><Input value={caseForm.hr_phone || ''} onChange={(e) => handleCaseFieldChange('hr_phone', e.target.value)} /></Field>
+                        <Field label="HR email"><Input value={caseForm.hr_email || ''} onChange={(e) => handleCaseFieldChange('hr_email', e.target.value)} /></Field>
+                        <Field label="Employer fax"><Input value={caseForm.employer_fax || ''} onChange={(e) => handleCaseFieldChange('employer_fax', e.target.value)} /></Field>
+                        <Field label="Preferred communication method">
+                          <Select value={caseForm.preferred_communication_method || ''} onChange={(e) => handleCaseFieldChange('preferred_communication_method', e.target.value)}>
+                            {['phone','email','fax','mail','portal'].map((item) => <option key={item} value={item}>{item}</option>)}
                           </Select>
-                        </Field>
-                        {caseForm.case_subject_type === 'client' ? (
-                          <>
-                            <Field label="Client name"><Input value={caseForm.client_name} onChange={(e) => updateCaseForm('client_name', e.target.value)} /></Field>
-                            <Field label="Linked client ID"><Input value={caseForm.client_id || ''} readOnly placeholder="Use the selector above" /></Field>
-                            <Field label="Date of birth"><Input type="date" value={caseForm.date_of_birth || ''} onChange={(e) => updateCaseForm('date_of_birth', e.target.value)} /></Field>
-                          </>
-                        ) : (
-                          <>
-                            <Field label="Staff name"><Input value={caseForm.staff_name || ''} onChange={(e) => updateCaseForm('staff_name', e.target.value)} /></Field>
-                            <Field label="Staff identifier"><Input value={caseForm.staff_identifier || ''} onChange={(e) => updateCaseForm('staff_identifier', e.target.value)} placeholder="Employee or HR-safe ID" /></Field>
-                            <Field label="Department"><Input value={caseForm.staff_department || ''} onChange={(e) => updateCaseForm('staff_department', e.target.value)} /></Field>
-                          </>
-                        )}
-                        {caseForm.case_subject_type === 'staff' ? (
-                          <Field label="Job title"><Input value={caseForm.staff_job_title || ''} onChange={(e) => updateCaseForm('staff_job_title', e.target.value)} /></Field>
-                        ) : (
-                          <Field label="Treatment/program status"><Input value={caseForm.treatment_status || ''} onChange={(e) => updateCaseForm('treatment_status', e.target.value)} /></Field>
-                        )}
-                        <Field label="Assigned case manager"><Input value={caseForm.assigned_case_manager || ''} onChange={(e) => updateCaseForm('assigned_case_manager', e.target.value)} /></Field>
-                        <Field label="FMLA request type">
-                          <Select value={caseForm.fmla_request_type} onChange={(e) => updateCaseForm('fmla_request_type', e.target.value)}>
-                            {REQUEST_TYPES.map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                          </Select>
-                        </Field>
-                        <Field label="Leave type">
-                          <Select value={caseForm.leave_type} onChange={(e) => updateCaseForm('leave_type', e.target.value)}>
-                            {LEAVE_TYPES.map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                          </Select>
-                        </Field>
-                        <Field label="Status">
-                          <Select value={caseForm.status} onChange={(e) => updateCaseForm('status', e.target.value)}>
-                            {STATUS_OPTIONS.map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                          </Select>
-                        </Field>
-                        <Field label="Approval status">
-                          <Select value={caseForm.approval_status} onChange={(e) => updateCaseForm('approval_status', e.target.value)}>
-                            {APPROVAL_OPTIONS.map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                          </Select>
-                        </Field>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                        <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5 space-y-4">
-                          <h3 className="flex items-center gap-2 text-lg font-semibold"><Building2 className="h-5 w-5 text-cyan-300" /> Employer Information</h3>
-                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            <Field label="Employer name"><Input value={caseForm.employer_name || ''} onChange={(e) => updateCaseForm('employer_name', e.target.value)} /></Field>
-                            <Field label="HR contact name"><Input value={caseForm.hr_contact_name || ''} onChange={(e) => updateCaseForm('hr_contact_name', e.target.value)} /></Field>
-                            <Field label="HR phone"><Input value={caseForm.hr_phone || ''} onChange={(e) => updateCaseForm('hr_phone', e.target.value)} /></Field>
-                            <Field label="HR email"><Input value={caseForm.hr_email || ''} onChange={(e) => updateCaseForm('hr_email', e.target.value)} /></Field>
-                            <Field label="Employer fax"><Input value={caseForm.employer_fax || ''} onChange={(e) => updateCaseForm('employer_fax', e.target.value)} /></Field>
-                            <Field label="Preferred communication method">
-                              <Select value={caseForm.preferred_communication_method || ''} onChange={(e) => updateCaseForm('preferred_communication_method', e.target.value)}>
-                                {['phone', 'email', 'fax', 'mail', 'portal'].map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                              </Select>
-                            </Field>
-                            <div className="md:col-span-2">
-                              <Field label="Employer address"><Textarea rows={2} value={caseForm.employer_address || ''} onChange={(e) => updateCaseForm('employer_address', e.target.value)} /></Field>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5 space-y-4">
-                          <h3 className="flex items-center gap-2 text-lg font-semibold"><ShieldCheck className="h-5 w-5 text-cyan-300" /> Provider and Compliance</h3>
-                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            <Field label="Provider / doctor name"><Input value={caseForm.provider_name || ''} onChange={(e) => updateCaseForm('provider_name', e.target.value)} disabled={caseForm.case_subject_type === 'staff'} /></Field>
-                            <Field label="Clinic / facility name"><Input value={caseForm.clinic_name || ''} onChange={(e) => updateCaseForm('clinic_name', e.target.value)} disabled={caseForm.case_subject_type === 'staff'} /></Field>
-                            <Field label="Provider phone"><Input value={caseForm.provider_phone || ''} onChange={(e) => updateCaseForm('provider_phone', e.target.value)} disabled={caseForm.case_subject_type === 'staff'} /></Field>
-                            <Field label="Provider fax"><Input value={caseForm.provider_fax || ''} onChange={(e) => updateCaseForm('provider_fax', e.target.value)} disabled={caseForm.case_subject_type === 'staff'} /></Field>
-                            <Field label="Provider email"><Input value={caseForm.provider_email || ''} onChange={(e) => updateCaseForm('provider_email', e.target.value)} disabled={caseForm.case_subject_type === 'staff'} /></Field>
-                            <Field label="ROI status">
-                              <Select value={caseForm.roi_status || ''} onChange={(e) => updateCaseForm('roi_status', e.target.value)} disabled={caseForm.case_subject_type === 'staff'}>
-                                {['unknown', 'not needed', 'needed', 'requested', 'received', 'expired'].map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                              </Select>
-                            </Field>
-                            <div className="md:col-span-2">
-                              <Field label="Provider address"><Textarea rows={2} value={caseForm.provider_address || ''} onChange={(e) => updateCaseForm('provider_address', e.target.value)} disabled={caseForm.case_subject_type === 'staff'} /></Field>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5 space-y-4">
-                        <h3 className="flex items-center gap-2 text-lg font-semibold"><CalendarClock className="h-5 w-5 text-cyan-300" /> FMLA Details and Deadlines</h3>
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                          <Field label="Leave start date"><Input type="date" value={caseForm.leave_start_date || ''} onChange={(e) => updateCaseForm('leave_start_date', e.target.value)} /></Field>
-                          <Field label="Leave end date"><Input type="date" value={caseForm.leave_end_date || ''} onChange={(e) => updateCaseForm('leave_end_date', e.target.value)} /></Field>
-                          <Field label="Expected return date"><Input type="date" value={caseForm.expected_return_date || ''} onChange={(e) => updateCaseForm('expected_return_date', e.target.value)} /></Field>
-                          <Field label="Return-to-work date"><Input type="date" value={caseForm.return_to_work_date || ''} onChange={(e) => updateCaseForm('return_to_work_date', e.target.value)} /></Field>
-                          <Field label="Paperwork due"><Input type="date" value={caseForm.paperwork_deadline || ''} onChange={(e) => updateCaseForm('paperwork_deadline', e.target.value)} /></Field>
-                          <Field label="Employer response deadline"><Input type="date" value={caseForm.employer_response_deadline || ''} onChange={(e) => updateCaseForm('employer_response_deadline', e.target.value)} /></Field>
-                          <Field label="Certification expiration"><Input type="date" value={caseForm.certification_expiration_date || ''} onChange={(e) => updateCaseForm('certification_expiration_date', e.target.value)} /></Field>
-                          <Field label="Confirmation received">
-                            <Select value={caseForm.confirmation_received ? 'yes' : 'no'} onChange={(e) => updateCaseForm('confirmation_received', e.target.value === 'yes')}>
-                              <option value="no">No</option>
-                              <option value="yes">Yes</option>
-                            </Select>
-                          </Field>
-                          <Field label="Paperwork received"><Input type="date" value={caseForm.paperwork_received_date || ''} onChange={(e) => updateCaseForm('paperwork_received_date', e.target.value)} /></Field>
-                          <Field label="Paperwork completed"><Input type="date" value={caseForm.paperwork_completed_date || ''} onChange={(e) => updateCaseForm('paperwork_completed_date', e.target.value)} /></Field>
-                          <Field label="Paperwork sent"><Input type="date" value={caseForm.paperwork_sent_date || ''} onChange={(e) => updateCaseForm('paperwork_sent_date', e.target.value)} /></Field>
-                          <Field label="Method sent">
-                            <Select value={caseForm.paperwork_sent_method || ''} onChange={(e) => updateCaseForm('paperwork_sent_method', e.target.value)}>
-                              {['fax', 'email', 'mail', 'portal', 'hand-delivered'].map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                            </Select>
-                          </Field>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-                        <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                          <h3 className="mb-4 text-lg font-semibold">Case Summary</h3>
-                          <div className="space-y-3 text-sm">
-                            <div className="flex justify-between gap-4"><span className="text-slate-400">Primary deadline</span><span>{deadlineState.label}</span></div>
-                            <div className="flex justify-between gap-4"><span className="text-slate-400">Employer</span><span className="text-right">{caseForm.employer_name || 'Not added'}</span></div>
-                            <div className="flex justify-between gap-4"><span className="text-slate-400">Leave type</span><span className="text-right">{formatFmlaLabel(caseForm.leave_type)}</span></div>
-                            <div className="flex justify-between gap-4"><span className="text-slate-400">Request type</span><span className="text-right">{formatFmlaLabel(caseForm.fmla_request_type)}</span></div>
-                          </div>
-                          <div className="mt-6 rounded-2xl bg-slate-950/30 p-4">
-                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Missing items</p>
-                            <ul className="mt-3 space-y-2 text-sm">
-                              {missingChecklist.length === 0 ? <li className="text-emerald-300">No missing items flagged.</li> : missingChecklist.map((item) => <li key={item} className="text-amber-200">• {item}</li>)}
-                            </ul>
-                          </div>
-                        </div>
-
-                        <div className="rounded-3xl border border-white/10 bg-white/5 p-6 xl:col-span-2">
-                          <h3 className="text-lg font-semibold">Notes and internal comments</h3>
-                          <div className="mt-4 space-y-4">
-                            <Field label="Case notes">
-                              <Textarea rows={4} value={caseForm.notes || ''} onChange={(e) => updateCaseForm('notes', e.target.value)} placeholder="Summary that can support the leave workflow." />
-                            </Field>
-                            <DocumentationAssistPanel
-                              module="fmla"
-                              noteKind="fmla_case_note"
-                              clientId={caseForm.client_id || ''}
-                              clientName={caseForm.client_name || caseForm.staff_name || ''}
-                              currentText={caseForm.notes || ''}
-                              context={{
-                                goals: caseForm.fmla_request_type,
-                                observations: `Status: ${caseForm.status}; Leave type: ${caseForm.leave_type}; Employer: ${caseForm.employer_name}`,
-                                next_steps: `Paperwork due ${caseForm.paperwork_deadline || 'not set'}, return to work ${caseForm.return_to_work_date || 'not set'}`,
-                                paperwork_deadline: caseForm.paperwork_deadline
-                              }}
-                              onApplyDraft={(draft) => updateCaseForm('notes', draft)}
-                            />
-                            <Field label="Internal case manager comments" hint="Not for employer-facing exports">
-                              <Textarea rows={4} value={caseForm.internal_comments || ''} onChange={(e) => updateCaseForm('internal_comments', e.target.value)} placeholder="Internal coordination notes, blockers, and review comments." />
-                            </Field>
-                          </div>
-                        </div>
-                      </div>
-
-                      {auditLog.length > 0 ? (
-                        <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5">
-                          <h3 className="text-lg font-semibold">Recent audit activity</h3>
-                          <div className="mt-4 space-y-3">
-                            {auditLog.slice(0, 5).map((entry) => (
-                              <div key={entry.audit_id} className="rounded-xl border border-white/10 bg-white/5 p-3 text-sm">
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="font-medium">{formatFmlaLabel(entry.action)}</span>
-                                  <span className="text-xs text-slate-400">{new Date(entry.created_at).toLocaleString()}</span>
-                                </div>
-                                <p className="mt-1 text-xs text-slate-400">{entry.actor_name || entry.actor_case_manager_id}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="flex flex-wrap gap-3">
-                        <button onClick={saveCase} disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-60">
-                          <Save className="h-4 w-4" />
-                          {saving ? 'Saving…' : creatingNewCase ? 'Create FMLA Case' : 'Save FMLA Case'}
-                        </button>
-                        {creatingNewCase ? (
-                          <button onClick={() => { setCreatingNewCase(false); setCaseForm(emptyCaseForm()) }} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold transition hover:bg-white/10">
-                            Cancel
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {activeTab === 'documents' ? (
-                    <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold">Attachments and document log</h3>
-                        <span className="text-xs text-slate-400">Files persist to backend storage with uploader metadata</span>
-                      </div>
-                      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <Field label="Document type">
-                          <Select value={documentForm.document_type} onChange={(e) => setDocumentForm((prev) => ({ ...prev, document_type: e.target.value }))}>
-                            {['employer packet', 'medical certification', 'ROI', 'provider letter', 'extension form', 'denial letter', 'approval letter', 'return-to-work form', 'other'].map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                          </Select>
-                        </Field>
-                        <Field label="Status">
-                          <Select value={documentForm.document_status} onChange={(e) => setDocumentForm((prev) => ({ ...prev, document_status: e.target.value }))}>
-                            {['needed', 'requested', 'received', 'completed', 'sent', 'confirmed'].map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                          </Select>
-                        </Field>
-                        <Field label="Packet name"><Input value={documentForm.batch_name} onChange={(e) => setDocumentForm((prev) => ({ ...prev, batch_name: e.target.value }))} placeholder="Initial employer packet" /></Field>
-                        <Field label="Date requested"><Input type="date" value={documentForm.date_requested} onChange={(e) => setDocumentForm((prev) => ({ ...prev, date_requested: e.target.value }))} /></Field>
-                        <Field label="Date received"><Input type="date" value={documentForm.date_received} onChange={(e) => setDocumentForm((prev) => ({ ...prev, date_received: e.target.value }))} /></Field>
-                        <Field label="Date completed"><Input type="date" value={documentForm.date_completed} onChange={(e) => setDocumentForm((prev) => ({ ...prev, date_completed: e.target.value }))} /></Field>
-                        <Field label="Date sent"><Input type="date" value={documentForm.date_sent} onChange={(e) => setDocumentForm((prev) => ({ ...prev, date_sent: e.target.value }))} /></Field>
-                        <Field label="Sent to"><Input value={documentForm.sent_to} onChange={(e) => setDocumentForm((prev) => ({ ...prev, sent_to: e.target.value }))} /></Field>
-                        <Field label="Sent by"><Input value={documentForm.sent_by} onChange={(e) => setDocumentForm((prev) => ({ ...prev, sent_by: e.target.value }))} /></Field>
-                        <Field label="Confirmation number"><Input value={documentForm.confirmation_number} onChange={(e) => setDocumentForm((prev) => ({ ...prev, confirmation_number: e.target.value }))} /></Field>
-                        <Field label="Upload document(s)">
-                          <input
-                            key={documentInputKey}
-                            type="file"
-                            multiple
-                            onChange={(e) => {
-                              const files = Array.from(e.target.files || [])
-                              setSelectedUploads(files)
-                              setDocumentForm((prev) => ({
-                                ...prev,
-                                file_name: files.map((file) => file.name).join(', '),
-                                file_size: files.reduce((total, file) => total + (file.size || 0), 0),
-                                content_type: files.length === 1 ? (files[0].type || '') : 'multiple'
-                              }))
-                            }}
-                            className="w-full rounded-xl border border-dashed border-white/15 bg-slate-950/50 px-3 py-2 text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-950 hover:file:bg-cyan-400"
-                          />
                         </Field>
                         <div className="md:col-span-2">
-                          <Field label="Notes"><Textarea rows={3} value={documentForm.notes} onChange={(e) => setDocumentForm((prev) => ({ ...prev, notes: e.target.value }))} /></Field>
+                          <Field label="Employer address"><Textarea rows={2} value={caseForm.employer_address || ''} onChange={(e) => handleCaseFieldChange('employer_address', e.target.value)} /></Field>
                         </div>
                       </div>
-                      <button onClick={addDocument} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400">
-                        {selectedUploads.length > 0 ? <Upload className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
-                        {selectedUploads.length > 0 ? `Upload ${selectedUploads.length} File(s)` : 'Add Document Entry'}
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5 space-y-4">
+                      <h3 className="flex items-center gap-2 text-lg font-semibold"><Phone className="h-5 w-5 text-cyan-300" /> Medical / Provider Contact</h3>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <Field label="Provider / doctor name"><Input value={caseForm.provider_name || ''} onChange={(e) => handleCaseFieldChange('provider_name', e.target.value)} /></Field>
+                        <Field label="Clinic / facility name"><Input value={caseForm.clinic_name || ''} onChange={(e) => handleCaseFieldChange('clinic_name', e.target.value)} /></Field>
+                        <Field label="Phone"><Input value={caseForm.provider_phone || ''} onChange={(e) => handleCaseFieldChange('provider_phone', e.target.value)} /></Field>
+                        <Field label="Fax"><Input value={caseForm.provider_fax || ''} onChange={(e) => handleCaseFieldChange('provider_fax', e.target.value)} /></Field>
+                        <Field label="Email"><Input value={caseForm.provider_email || ''} onChange={(e) => handleCaseFieldChange('provider_email', e.target.value)} /></Field>
+                        <Field label="ROI status">
+                          <Select value={caseForm.roi_status || ''} onChange={(e) => handleCaseFieldChange('roi_status', e.target.value)}>
+                            {['unknown','not needed','needed','requested','received','expired'].map((item) => <option key={item} value={item}>{item}</option>)}
+                          </Select>
+                        </Field>
+                        <div className="md:col-span-2">
+                          <Field label="Provider address"><Textarea rows={2} value={caseForm.provider_address || ''} onChange={(e) => handleCaseFieldChange('provider_address', e.target.value)} /></Field>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5 space-y-4">
+                    <h3 className="flex items-center gap-2 text-lg font-semibold"><CalendarClock className="h-5 w-5 text-cyan-300" /> FMLA Details and Deadlines</h3>
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <Field label="Leave start date"><Input type="date" value={caseForm.leave_start_date || ''} onChange={(e) => handleCaseFieldChange('leave_start_date', e.target.value)} /></Field>
+                      <Field label="Expected return date"><Input type="date" value={caseForm.expected_return_date || ''} onChange={(e) => handleCaseFieldChange('expected_return_date', e.target.value)} /></Field>
+                      <Field label="Deadline to submit paperwork"><Input type="date" value={caseForm.paperwork_deadline || ''} onChange={(e) => handleCaseFieldChange('paperwork_deadline', e.target.value)} /></Field>
+                      <Field label="Confirmation received">
+                        <Select value={caseForm.confirmation_received ? 'yes' : 'no'} onChange={(e) => handleCaseFieldChange('confirmation_received', e.target.value === 'yes')}>
+                          <option value="no">No</option>
+                          <option value="yes">Yes</option>
+                        </Select>
+                      </Field>
+                      <Field label="Date paperwork received"><Input type="date" value={caseForm.paperwork_received_date || ''} onChange={(e) => handleCaseFieldChange('paperwork_received_date', e.target.value)} /></Field>
+                      <Field label="Date paperwork completed"><Input type="date" value={caseForm.paperwork_completed_date || ''} onChange={(e) => handleCaseFieldChange('paperwork_completed_date', e.target.value)} /></Field>
+                      <Field label="Date paperwork sent"><Input type="date" value={caseForm.paperwork_sent_date || ''} onChange={(e) => handleCaseFieldChange('paperwork_sent_date', e.target.value)} /></Field>
+                      <Field label="Method sent">
+                        <Select value={caseForm.paperwork_sent_method || ''} onChange={(e) => handleCaseFieldChange('paperwork_sent_method', e.target.value)}>
+                          {['fax','email','mail','portal','hand-delivered'].map((item) => <option key={item} value={item}>{item}</option>)}
+                        </Select>
+                      </Field>
+                    </div>
+                    <Field label="Notes">
+                      <Textarea rows={4} value={caseForm.notes || ''} onChange={(e) => handleCaseFieldChange('notes', e.target.value)} placeholder="Add case notes, blockers, missing items, or follow-up details." />
+                    </Field>
+                    <div className="mt-4">
+                      <DocumentationAssistPanel
+                        module="fmla"
+                        noteKind="fmla_case_note"
+                        clientId={caseForm.client_id || ''}
+                        clientName={caseForm.client_name || ''}
+                        currentText={caseForm.notes || ''}
+                        context={{
+                          goals: caseForm.fmla_request_type,
+                          observations: `Status: ${caseForm.status}; Approval: ${caseForm.approval_status}; Employer: ${caseForm.employer_name}; Provider: ${caseForm.provider_name || caseForm.clinic_name}`,
+                          next_steps: `Paperwork deadline ${caseForm.paperwork_deadline || 'not set'}, expected return ${caseForm.expected_return_date || 'not set'}`,
+                          paperwork_deadline: caseForm.paperwork_deadline
+                        }}
+                        onApplyDraft={(draft) => handleCaseFieldChange('notes', draft)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <button onClick={saveCase} disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-60">
+                      <Save className="h-4 w-4" />
+                      {saving ? 'Saving…' : creatingNewCase ? 'Create FMLA Case' : 'Save FMLA Case'}
+                    </button>
+                    {creatingNewCase ? (
+                      <button onClick={() => { setCreatingNewCase(false); setCaseForm(emptyCaseForm()) }} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold transition hover:bg-white/10">
+                        Cancel
                       </button>
-                      <div className="mt-6 space-y-3">
-                        {documents.length === 0 ? (
-                          <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">No document entries yet.</div>
-                        ) : documents.map((doc) => (
-                          <div key={doc.document_id} className="rounded-2xl border border-white/10 bg-slate-950/30 p-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <p className="font-medium">{doc.batch_name || doc.document_type}</p>
-                                <p className="mt-1 text-xs text-slate-400">
-                                  {doc.file_name || 'Checklist-only entry'} {doc.file_size ? `• ${formatFileSize(doc.file_size)}` : ''}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <span className="rounded-full bg-cyan-500/20 px-2 py-1 text-xs text-cyan-200 capitalize">{doc.document_status}</span>
-                                {doc.file_path ? (
-                                  <button onClick={() => downloadDocument(doc.document_id)} className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/10">
-                                    <Download className="h-3.5 w-3.5" />
-                                    Download
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                            <p className="mt-2 text-xs text-slate-400">
-                              Uploaded {doc.created_at ? new Date(doc.created_at).toLocaleString() : '—'} • Uploader {doc.uploader_name || '—'}
-                            </p>
-                            {doc.notes ? <p className="mt-2 text-sm text-slate-300">{doc.notes}</p> : null}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {activeTab === 'reminders' ? (
-                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                      <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                        <h3 className="text-lg font-semibold">Create reminder</h3>
-                        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                          <Field label="Reminder text"><Input value={reminderForm.reminder_text} onChange={(e) => setReminderForm((prev) => ({ ...prev, reminder_text: e.target.value }))} placeholder="Follow up with HR" /></Field>
-                          <Field label="Reason"><Input value={reminderForm.reason} onChange={(e) => setReminderForm((prev) => ({ ...prev, reason: e.target.value }))} placeholder="Paperwork due date" /></Field>
-                          <Field label="Due date"><Input type="date" value={reminderForm.due_date} onChange={(e) => setReminderForm((prev) => ({ ...prev, due_date: e.target.value }))} /></Field>
-                          <Field label="Priority">
-                            <Select value={reminderForm.priority} onChange={(e) => setReminderForm((prev) => ({ ...prev, priority: e.target.value }))}>
-                              {['Low', 'Medium', 'High', 'Critical'].map((item) => <option key={item} value={item}>{item}</option>)}
-                            </Select>
-                          </Field>
-                        </div>
-                        <button onClick={addReminder} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-400">
-                          <BellRing className="h-4 w-4" />
-                          Create FMLA Reminder
-                        </button>
-                        <div className="mt-6 space-y-3">
-                          {reminders.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">No reminders linked to this FMLA case yet.</div> : reminders.map((reminder) => (
-                            <div key={reminder.reminder_id} className="rounded-2xl border border-white/10 bg-slate-950/30 p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                <p className="font-medium">{reminder.message}</p>
-                                <span className="rounded-full bg-violet-500/20 px-2 py-1 text-xs text-violet-200">{reminder.priority}</span>
-                              </div>
-                              <p className="mt-2 text-xs text-slate-400">Due {reminder.due_date || 'No due date'} • {reminder.status}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                        <h3 className="text-lg font-semibold">Upcoming and overdue deadlines</h3>
-                        <div className="mt-4 space-y-3">
-                          {deadlineBuckets.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">No deadlines have been added yet.</div> : deadlineBuckets.map((item) => (
-                            <div key={item.key} className="rounded-2xl border border-white/10 bg-slate-950/30 p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                <p className="font-medium">{item.label}</p>
-                                <span className="text-xs text-slate-300">{item.value}</span>
-                              </div>
-                              <p className={`mt-2 text-xs ${item.state.tone === 'danger' ? 'text-rose-200' : item.state.tone === 'warning' ? 'text-amber-200' : 'text-slate-400'}`}>{item.state.label}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {activeTab === 'correspondence' ? (
-                    <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold">Correspondence timeline</h3>
-                        <span className="text-xs text-slate-400">Date/time, contact method, summary, and next action all persist</span>
-                      </div>
-                      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <Field label="Date/time"><Input type="datetime-local" value={correspondenceForm.correspondence_at} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, correspondence_at: e.target.value }))} /></Field>
-                        <Field label="Method">
-                          <Select value={correspondenceForm.contact_type} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, contact_type: e.target.value }))}>
-                            {['phone', 'voicemail', 'email', 'fax', 'mail', 'portal', 'in-person', 'upload'].map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                          </Select>
-                        </Field>
-                        <Field label="Contact person"><Input value={correspondenceForm.person_contacted} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, person_contacted: e.target.value }))} /></Field>
-                        <Field label="Organization"><Input value={correspondenceForm.organization} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, organization: e.target.value }))} /></Field>
-                        <Field label="Contact information"><Input value={correspondenceForm.contact_information} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, contact_information: e.target.value }))} /></Field>
-                        <Field label="Follow-up date"><Input type="date" value={correspondenceForm.follow_up_date} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, follow_up_date: e.target.value }))} /></Field>
-                        <div className="md:col-span-2">
-                          <Field label="Summary"><Textarea rows={3} value={correspondenceForm.summary} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, summary: e.target.value }))} /></Field>
-                        </div>
-                        <div className="md:col-span-2">
-                          <DocumentationAssistPanel
-                            module="fmla"
-                            noteKind="fmla_correspondence"
-                            clientId={caseForm.client_id || ''}
-                            clientName={caseForm.client_name || caseForm.staff_name || ''}
-                            currentText={correspondenceForm.summary}
-                            context={{
-                              observations: `Method: ${correspondenceForm.contact_type}; Person: ${correspondenceForm.person_contacted}; Organization: ${correspondenceForm.organization}`,
-                              next_steps: correspondenceForm.next_step_needed,
-                              paperwork_deadline: caseForm.paperwork_deadline
-                            }}
-                            onApplyDraft={(draft) => setCorrespondenceForm((prev) => ({ ...prev, summary: draft }))}
-                          />
-                        </div>
-                        <Field label="Outcome"><Input value={correspondenceForm.outcome} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, outcome: e.target.value }))} /></Field>
-                        <Field label="Next action"><Input value={correspondenceForm.next_step_needed} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, next_step_needed: e.target.value }))} /></Field>
-                      </div>
-                      <button onClick={addCorrespondence} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-orange-400">
-                        <MessageSquare className="h-4 w-4" />
-                        Add Correspondence Entry
-                      </button>
-                      <div className="mt-6 space-y-3">
-                        {correspondence.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">No correspondence logged yet.</div> : correspondence.map((entry) => (
-                          <div key={entry.correspondence_id} className="rounded-2xl border border-white/10 bg-slate-950/30 p-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <p className="font-medium capitalize">{entry.contact_type} with {entry.person_contacted || entry.organization || 'contact'}</p>
-                              <span className="text-xs text-slate-400">{new Date(entry.correspondence_at).toLocaleString()}</span>
-                            </div>
-                            <p className="mt-2 text-sm text-slate-300">{entry.summary}</p>
-                            <p className="mt-2 text-xs text-slate-400">Outcome: {entry.outcome || '—'} • Next action: {entry.next_step_needed || '—'}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {activeTab === 'intermittent usage' ? (
-                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                      <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                        <h3 className="text-lg font-semibold">Intermittent leave usage</h3>
-                        <p className="mt-2 text-sm text-slate-400">
-                          Track episodes, duration, category, and notes. This persists even if the case later changes status.
-                        </p>
-                        {caseForm.leave_type !== 'intermittent' ? (
-                          <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                            This case is currently marked as {formatFmlaLabel(caseForm.leave_type)}. You can still record usage history, but intermittent tracking is most relevant when the leave type is intermittent.
-                          </div>
-                        ) : null}
-                        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-                          <Field label="Date"><Input type="date" value={leaveUsageForm.usage_date} onChange={(e) => setLeaveUsageForm((prev) => ({ ...prev, usage_date: e.target.value }))} /></Field>
-                          <Field label="Duration (minutes)"><Input type="number" min="1" value={leaveUsageForm.duration_minutes} onChange={(e) => setLeaveUsageForm((prev) => ({ ...prev, duration_minutes: e.target.value }))} /></Field>
-                          <Field label="Reason category">
-                            <Select value={leaveUsageForm.reason_category} onChange={(e) => setLeaveUsageForm((prev) => ({ ...prev, reason_category: e.target.value }))}>
-                              {['flare-up', 'medical appointment', 'treatment', 'recovery', 'other'].map((item) => <option key={item} value={item}>{formatFmlaLabel(item)}</option>)}
-                            </Select>
-                          </Field>
-                          <div className="md:col-span-2">
-                            <Field label="Notes"><Textarea rows={3} value={leaveUsageForm.notes} onChange={(e) => setLeaveUsageForm((prev) => ({ ...prev, notes: e.target.value }))} /></Field>
-                          </div>
-                        </div>
-                        <button onClick={addLeaveUsage} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400">
-                          <Plus className="h-4 w-4" />
-                          Add Usage Entry
-                        </button>
-                      </div>
-
-                      <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                        <h3 className="text-lg font-semibold">Usage summary</h3>
-                        <div className="mt-4 grid grid-cols-3 gap-4">
-                          <div className="rounded-2xl bg-slate-950/30 p-4 text-center">
-                            <p className="text-2xl font-bold">{leaveUsageSummary.entry_count || 0}</p>
-                            <p className="mt-1 text-xs text-slate-400">Entries</p>
-                          </div>
-                          <div className="rounded-2xl bg-slate-950/30 p-4 text-center">
-                            <p className="text-2xl font-bold">{leaveUsageSummary.total_hours || 0}</p>
-                            <p className="mt-1 text-xs text-slate-400">Hours used</p>
-                          </div>
-                          <div className="rounded-2xl bg-slate-950/30 p-4 text-center">
-                            <p className="text-2xl font-bold">{leaveUsageSummary.total_minutes || 0}</p>
-                            <p className="mt-1 text-xs text-slate-400">Minutes</p>
-                          </div>
-                        </div>
-                        <div className="mt-6 space-y-3">
-                          {leaveUsage.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">No intermittent leave entries yet.</div> : leaveUsage.map((entry) => (
-                            <div key={entry.usage_id} className="rounded-2xl border border-white/10 bg-slate-950/30 p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                <p className="font-medium">{entry.usage_date}</p>
-                                <span className="rounded-full bg-cyan-500/20 px-2 py-1 text-xs text-cyan-200">{entry.duration_minutes} min</span>
-                              </div>
-                              <p className="mt-2 text-xs text-slate-400">{formatFmlaLabel(entry.reason_category)}</p>
-                              {entry.notes ? <p className="mt-2 text-sm text-slate-300">{entry.notes}</p> : null}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-
-                  {activeTab === 'exports' ? (
-                    <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-                      <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                        <h3 className="text-lg font-semibold">Employer-safe packet drafting</h3>
-                        <div className="mt-4 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                          {exportForm.warning_text || 'Generated draft only. Qualified staff must review, edit, and approve the document before it is shared. Avoid unnecessary SUD or mental health disclosure and keep to minimum necessary information.'}
-                        </div>
-                        <div className="mt-4 space-y-4">
-                          <Field label="Export type"><Input value={exportForm.export_type} onChange={(e) => setExportForm((prev) => ({ ...prev, export_type: e.target.value }))} /></Field>
-                          <Field label="Reviewer instructions" hint="Used only to shape the draft">
-                            <Textarea rows={3} value={exportForm.custom_instructions} onChange={(e) => setExportForm((prev) => ({ ...prev, custom_instructions: e.target.value, review_notes: e.target.value }))} placeholder="Clarify restricted disclosures, timing, or employer-facing tone." />
-                          </Field>
-                          <button onClick={generateDraft} className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400">
-                            <FileText className="h-4 w-4" />
-                            Generate Draft Packet
-                          </button>
-                          <Field label="Draft title"><Input value={exportForm.draft_title} onChange={(e) => setExportForm((prev) => ({ ...prev, draft_title: e.target.value }))} /></Field>
-                          <Field label="Draft content">
-                            <Textarea rows={14} value={exportForm.draft_content} onChange={(e) => setExportForm((prev) => ({ ...prev, draft_content: e.target.value }))} />
-                          </Field>
-                          <Field label="Review notes"><Textarea rows={3} value={exportForm.review_notes} onChange={(e) => setExportForm((prev) => ({ ...prev, review_notes: e.target.value }))} placeholder="Document internal review comments before export." /></Field>
-                          <button onClick={finalizePdfExport} disabled={exporting} className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60">
-                            <Download className="h-4 w-4" />
-                            {exporting ? 'Exporting…' : 'Finalize PDF Export'}
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                        <h3 className="text-lg font-semibold">Saved exports</h3>
-                        <p className="mt-2 text-sm text-slate-400">Safe filenames use IDs instead of names to avoid exposing PHI in downloaded files.</p>
-                        <div className="mt-6 space-y-3">
-                          {exportsList.length === 0 ? <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">No draft or PDF exports yet.</div> : exportsList.map((item) => (
-                            <div key={item.export_id} className="rounded-2xl border border-white/10 bg-slate-950/30 p-4">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <p className="font-medium">{item.draft_title}</p>
-                                  <p className="mt-1 text-xs text-slate-400">{item.safe_filename || 'Draft not finalized to PDF yet'}</p>
-                                  <p className="mt-1 text-xs text-slate-500">{item.created_at ? new Date(item.created_at).toLocaleString() : ''}</p>
-                                </div>
-                                {item.file_path ? (
-                                  <button onClick={() => downloadExport(item.export_id)} className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/10">
-                                    <Download className="h-3.5 w-3.5" />
-                                    Download PDF
-                                  </button>
-                                ) : null}
-                              </div>
-                              <button
-                                onClick={() => setExportForm({
-                                  export_type: item.export_type || 'employer packet',
-                                  custom_instructions: '',
-                                  draft_title: item.draft_title || '',
-                                  draft_content: item.draft_content || '',
-                                  review_notes: item.review_notes || '',
-                                  warning_text: item.warning_text || '',
-                                  export_id: item.export_id || ''
-                                })}
-                                className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs transition hover:bg-white/10"
-                              >
-                                Load into editor
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
+                    ) : null}
+                  </div>
                 </div>
               )}
             </section>
+
+            {selectedCase || creatingNewCase ? (
+              <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+                  <h3 className="mb-4 text-lg font-semibold">Case Summary</h3>
+                  <div className="space-y-3 text-sm">
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Deadline</span><span>{deadlineState.label}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Employer</span><span className="text-right">{caseForm.employer_name || 'Not added'}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Provider</span><span className="text-right">{caseForm.provider_name || caseForm.clinic_name || 'Not added'}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Request type</span><span className="text-right capitalize">{caseForm.fmla_request_type}</span></div>
+                  </div>
+                  <div className="mt-6 rounded-2xl bg-slate-950/30 p-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Missing items</p>
+                    <ul className="mt-3 space-y-2 text-sm">
+                      {missingChecklist.length === 0 ? <li className="text-emerald-300">No missing items flagged.</li> : missingChecklist.map((item) => <li key={item} className="text-amber-200">• {item}</li>)}
+                    </ul>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-6 xl:col-span-2">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Create Reminder</h3>
+                    <span className="text-xs text-slate-400">Creates a persisted reminder in the main reminders module</span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <Field label="Reminder text"><Input value={reminderForm.reminder_text} onChange={(e) => setReminderForm((prev) => ({ ...prev, reminder_text: e.target.value }))} placeholder="Follow up with HR" /></Field>
+                    <Field label="Reason"><Input value={reminderForm.reason} onChange={(e) => setReminderForm((prev) => ({ ...prev, reason: e.target.value }))} placeholder="Paperwork due date" /></Field>
+                    <Field label="Due date"><Input type="date" value={reminderForm.due_date} onChange={(e) => setReminderForm((prev) => ({ ...prev, due_date: e.target.value }))} /></Field>
+                    <Field label="Priority">
+                      <Select value={reminderForm.priority} onChange={(e) => setReminderForm((prev) => ({ ...prev, priority: e.target.value }))}>
+                        {['Low', 'Medium', 'High', 'Critical'].map((item) => <option key={item} value={item}>{item}</option>)}
+                      </Select>
+                    </Field>
+                  </div>
+                  <button onClick={addReminder} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-violet-400">
+                    <BellRing className="h-4 w-4" />
+                    Create FMLA Reminder
+                  </button>
+                  <div className="mt-6 space-y-3">
+                    {reminders.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">No reminders linked to this FMLA case yet.</div>
+                    ) : reminders.map((reminder) => (
+                      <div key={reminder.reminder_id} className="rounded-2xl border border-white/10 bg-slate-950/30 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium">{reminder.message}</p>
+                          <span className="rounded-full bg-violet-500/20 px-2 py-1 text-xs text-violet-200">{reminder.priority}</span>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-400">Due {reminder.due_date || 'No due date'} • {reminder.status}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {selectedCase || creatingNewCase ? (
+              <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Paperwork Checklist</h3>
+                    <span className="text-xs text-slate-400">Upload files now or save a checklist-only entry</span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <Field label="Document type">
+                      <Select value={documentForm.document_type} onChange={(e) => setDocumentForm((prev) => ({ ...prev, document_type: e.target.value }))}>
+                        {['employer packet','medical certification','ROI','provider letter','extension form','denial letter','approval letter','return-to-work form','other'].map((item) => <option key={item} value={item}>{item}</option>)}
+                      </Select>
+                    </Field>
+                    <Field label="Status">
+                      <Select value={documentForm.document_status} onChange={(e) => setDocumentForm((prev) => ({ ...prev, document_status: e.target.value }))}>
+                        {['needed','requested','received','completed','sent','confirmed'].map((item) => <option key={item} value={item}>{item}</option>)}
+                      </Select>
+                    </Field>
+                    <Field label="Packet name" hint="Group multi-file submissions together">
+                      <Input value={documentForm.batch_name} onChange={(e) => setDocumentForm((prev) => ({ ...prev, batch_name: e.target.value }))} placeholder="Initial employer packet" />
+                    </Field>
+                    <Field label="Date requested"><Input type="date" value={documentForm.date_requested} onChange={(e) => setDocumentForm((prev) => ({ ...prev, date_requested: e.target.value }))} /></Field>
+                    <Field label="Date received"><Input type="date" value={documentForm.date_received} onChange={(e) => setDocumentForm((prev) => ({ ...prev, date_received: e.target.value }))} /></Field>
+                    <Field label="Date completed"><Input type="date" value={documentForm.date_completed} onChange={(e) => setDocumentForm((prev) => ({ ...prev, date_completed: e.target.value }))} /></Field>
+                    <Field label="Date sent"><Input type="date" value={documentForm.date_sent} onChange={(e) => setDocumentForm((prev) => ({ ...prev, date_sent: e.target.value }))} /></Field>
+                    <Field label="Sent to"><Input value={documentForm.sent_to} onChange={(e) => setDocumentForm((prev) => ({ ...prev, sent_to: e.target.value }))} /></Field>
+                    <Field label="Sent by"><Input value={documentForm.sent_by} onChange={(e) => setDocumentForm((prev) => ({ ...prev, sent_by: e.target.value }))} /></Field>
+                    <Field label="Confirmation number"><Input value={documentForm.confirmation_number} onChange={(e) => setDocumentForm((prev) => ({ ...prev, confirmation_number: e.target.value }))} /></Field>
+                    <Field label="Upload document or image" hint="PDF, DOC, JPG, PNG, and other file types">
+                      <input
+                        key={documentInputKey}
+                        type="file"
+                        multiple
+                        onChange={(e) => {
+                          const files = Array.from(e.target.files || [])
+                          setSelectedUploads(files)
+                          setDocumentForm((prev) => ({
+                            ...prev,
+                            file_name: files.map((file) => file.name).join(', '),
+                            file_size: files.reduce((total, file) => total + (file.size || 0), 0),
+                            content_type: files.length === 1 ? (files[0].type || '') : 'multiple'
+                          }))
+                        }}
+                        className="w-full rounded-xl border border-dashed border-white/15 bg-slate-950/50 px-3 py-2 text-sm text-slate-300 file:mr-4 file:rounded-lg file:border-0 file:bg-cyan-500 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-slate-950 hover:file:bg-cyan-400"
+                      />
+                    </Field>
+                    <div className="md:col-span-2">
+                      <Field label="Notes"><Textarea rows={3} value={documentForm.notes} onChange={(e) => setDocumentForm((prev) => ({ ...prev, notes: e.target.value }))} /></Field>
+                    </div>
+                  </div>
+                  {selectedUploads.length > 0 ? (
+                    <div className="mt-4 rounded-2xl border border-cyan-500/20 bg-cyan-500/10 p-4 text-sm text-cyan-100">
+                      <p className="font-medium">Ready to upload {selectedUploads.length} file(s).</p>
+                      <div className="mt-2 space-y-1 text-xs text-cyan-100/90">
+                        {selectedUploads.map((file) => (
+                          <div key={`${file.name}-${file.size}`} className="flex items-center justify-between gap-3">
+                            <span className="truncate">{file.name}</span>
+                            <span>{formatFileSize(file.size)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">
+                      No file selected. You can still create a checklist-only document entry for requested or missing paperwork.
+                    </div>
+                  )}
+                  <button onClick={addDocument} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400">
+                    {selectedUploads.length > 0 ? <Upload className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                    {selectedUploads.length > 0 ? `Upload ${selectedUploads.length} File(s)` : 'Add Document Entry'}
+                  </button>
+                  <div className="mt-6 space-y-3">
+                    {documents.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">No document entries yet.</div>
+                    ) : documents.map((doc) => (
+                      <div key={doc.document_id} className="rounded-2xl border border-white/10 bg-slate-950/30 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium">{doc.batch_name || doc.document_type}</p>
+                            {doc.file_name ? (
+                              <p className="mt-1 text-xs text-slate-400">
+                                {doc.file_name} {doc.file_size ? `• ${formatFileSize(doc.file_size)}` : ''}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="rounded-full bg-cyan-500/20 px-2 py-1 text-xs text-cyan-200 capitalize">{doc.document_status}</span>
+                            {doc.file_path ? (
+                              <button
+                                onClick={() => downloadDocument(doc.document_id)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/10"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                                Download
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-400">
+                          Requested {doc.date_requested || '—'} • Received {doc.date_received || '—'} • Sent {doc.date_sent || '—'}
+                        </p>
+                        {doc.notes ? <p className="mt-2 text-sm text-slate-300">{doc.notes}</p> : null}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-semibold">Correspondence Timeline</h3>
+                    <span className="text-xs text-slate-400">Chronological communication log</span>
+                  </div>
+                  <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <Field label="Date/time"><Input type="datetime-local" value={correspondenceForm.correspondence_at} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, correspondence_at: e.target.value }))} /></Field>
+                    <Field label="Contact type">
+                      <Select value={correspondenceForm.contact_type} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, contact_type: e.target.value }))}>
+                        {['phone','voicemail','email','fax','mail','portal','in-person'].map((item) => <option key={item} value={item}>{item}</option>)}
+                      </Select>
+                    </Field>
+                    <Field label="Person contacted"><Input value={correspondenceForm.person_contacted} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, person_contacted: e.target.value }))} /></Field>
+                    <Field label="Organization"><Input value={correspondenceForm.organization} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, organization: e.target.value }))} /></Field>
+                    <Field label="Contact information"><Input value={correspondenceForm.contact_information} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, contact_information: e.target.value }))} /></Field>
+                    <Field label="Follow-up date"><Input type="date" value={correspondenceForm.follow_up_date} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, follow_up_date: e.target.value }))} /></Field>
+                    <div className="md:col-span-2">
+                      <Field label="Summary"><Textarea rows={3} value={correspondenceForm.summary} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, summary: e.target.value }))} /></Field>
+                    </div>
+                    <div className="md:col-span-2">
+                      <DocumentationAssistPanel
+                        module="fmla"
+                        noteKind="fmla_correspondence"
+                        clientId={caseForm.client_id || ''}
+                        clientName={caseForm.client_name || ''}
+                        currentText={correspondenceForm.summary}
+                        context={{
+                          observations: `Contact type: ${correspondenceForm.contact_type}; Person: ${correspondenceForm.person_contacted}; Organization: ${correspondenceForm.organization}`,
+                          next_steps: correspondenceForm.next_step_needed,
+                          paperwork_deadline: caseForm.paperwork_deadline
+                        }}
+                        onApplyDraft={(draft) => setCorrespondenceForm((prev) => ({ ...prev, summary: draft }))}
+                      />
+                    </div>
+                    <Field label="Outcome"><Input value={correspondenceForm.outcome} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, outcome: e.target.value }))} /></Field>
+                    <Field label="Next step needed"><Input value={correspondenceForm.next_step_needed} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, next_step_needed: e.target.value }))} /></Field>
+                  </div>
+                  <button onClick={addCorrespondence} className="mt-4 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-orange-400">
+                    <MessageSquare className="h-4 w-4" />
+                    Add Correspondence Entry
+                  </button>
+                  <div className="mt-6 space-y-3">
+                    {correspondence.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-4 text-sm text-slate-400">No correspondence logged yet.</div>
+                    ) : correspondence.map((entry) => (
+                      <div key={entry.correspondence_id} className="rounded-2xl border border-white/10 bg-slate-950/30 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-medium capitalize">{entry.contact_type} with {entry.person_contacted || entry.organization || 'contact'}</p>
+                          <span className="text-xs text-slate-400">{new Date(entry.correspondence_at).toLocaleString()}</span>
+                        </div>
+                        <p className="mt-2 text-sm text-slate-300">{entry.summary}</p>
+                        <p className="mt-2 text-xs text-slate-400">Outcome: {entry.outcome || '—'} • Follow-up: {entry.follow_up_date || '—'}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            ) : null}
           </div>
         </section>
       </div>
