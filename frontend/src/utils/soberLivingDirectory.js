@@ -103,11 +103,38 @@ export const soberLivingDirectoryApi = {
       body: JSON.stringify(payload),
     }),
 
+  updateDiscoveryJobSchedule: (jobId, payload) =>
+    apiCall(`/api/sober-living-directory/discovery/jobs/${encodeURIComponent(jobId)}/schedule`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
   listDiscoveryRuns: (jobId) =>
     apiCall(`/api/sober-living-directory/discovery/runs${buildQuery({ job_id: jobId })}`),
 
   getDiscoveryRun: (runId) =>
     apiCall(`/api/sober-living-directory/discovery/runs/${encodeURIComponent(runId)}`),
+
+  listSchedulerPreview: () =>
+    apiCall('/api/sober-living-directory/discovery/scheduler/preview'),
+
+  getSchedulerStatus: () =>
+    apiCall('/api/sober-living-directory/discovery/scheduler/status'),
+
+  startSchedulerWorker: () =>
+    apiCall('/api/sober-living-directory/discovery/scheduler/start', {
+      method: 'POST',
+    }),
+
+  stopSchedulerWorker: () =>
+    apiCall('/api/sober-living-directory/discovery/scheduler/stop', {
+      method: 'POST',
+    }),
+
+  runSchedulerOnce: () =>
+    apiCall('/api/sober-living-directory/discovery/scheduler/run-once', {
+      method: 'POST',
+    }),
 
   runDiscoveryJobTest: (jobId) =>
     apiCall(`/api/sober-living-directory/discovery/jobs/${encodeURIComponent(jobId)}/run-test`, {

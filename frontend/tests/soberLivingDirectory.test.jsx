@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SoberLivingDirectory from '../src/pages/SoberLivingDirectory'
+import SoberLivingDirectoryDiscovery from '../src/pages/SoberLivingDirectoryDiscovery'
 import SoberLivingDirectoryListing from '../src/pages/SoberLivingDirectoryListing'
 import SoberLivingDirectoryReview from '../src/pages/SoberLivingDirectoryReview'
 
@@ -24,6 +25,21 @@ const api = vi.hoisted(() => ({
   archiveListing: vi.fn(),
   createTask: vi.fn(),
   updateTask: vi.fn(),
+  listSources: vi.fn(),
+  createSource: vi.fn(),
+  updateSource: vi.fn(),
+  listDiscoveryJobs: vi.fn(),
+  createDiscoveryJob: vi.fn(),
+  updateDiscoveryJob: vi.fn(),
+  updateDiscoveryJobSchedule: vi.fn(),
+  listDiscoveryRuns: vi.fn(),
+  getDiscoveryRun: vi.fn(),
+  runDiscoveryJob: vi.fn(),
+  listSchedulerPreview: vi.fn(),
+  getSchedulerStatus: vi.fn(),
+  startSchedulerWorker: vi.fn(),
+  stopSchedulerWorker: vi.fn(),
+  runSchedulerOnce: vi.fn(),
   getRawRecord: vi.fn(),
   approveRawRecord: vi.fn(),
   rejectRawRecord: vi.fn(),
@@ -204,6 +220,640 @@ describe('Sober living directory pages', () => {
     })
   })
 
+  it('renders discovery controls, creates source and job, runs discovery, and shows review links', async () => {
+    api.listSources
+      .mockResolvedValueOnce({
+        sources: [
+          {
+            source_id: 'src_ccapp',
+            source_name: 'CCAPP Recovery Residences',
+            source_type: 'certification_directory',
+            base_url: 'https://ccapprecoveryresidences.org/search/',
+            trust_level: 'high',
+            supports_api: false,
+            supports_scraping: true,
+            requires_manual_review: true,
+            is_active: true,
+            last_checked_at: '2030-01-01T00:00:00',
+          },
+        ],
+      })
+      .mockResolvedValue({
+        sources: [
+          {
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            source_type: 'manual',
+            base_url: 'https://example.com',
+            trust_level: 'medium',
+            supports_api: false,
+            supports_scraping: false,
+            requires_manual_review: true,
+            is_active: true,
+            last_checked_at: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        sources: [
+          {
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            source_type: 'manual',
+            base_url: 'https://example.com',
+            trust_level: 'medium',
+            supports_api: false,
+            supports_scraping: false,
+            requires_manual_review: true,
+            is_active: true,
+            last_checked_at: null,
+          },
+          {
+            source_id: 'src_ccapp',
+            source_name: 'CCAPP Recovery Residences',
+            source_type: 'certification_directory',
+            base_url: 'https://ccapprecoveryresidences.org/search/',
+            trust_level: 'high',
+            supports_api: false,
+            supports_scraping: true,
+            requires_manual_review: true,
+            is_active: true,
+            last_checked_at: '2030-01-01T00:00:00',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        sources: [
+          {
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            source_type: 'manual',
+            base_url: 'https://example.com',
+            trust_level: 'medium',
+            supports_api: false,
+            supports_scraping: false,
+            requires_manual_review: true,
+            is_active: true,
+            last_checked_at: null,
+          },
+        ],
+      })
+    api.listDiscoveryJobs
+      .mockResolvedValueOnce({
+        jobs: [
+          {
+            job_id: 'job_1',
+            source_id: 'src_ccapp',
+            source_name: 'CCAPP Recovery Residences',
+            job_name: 'CCAPP Sacramento Run',
+            job_type: 'scheduled_source_check',
+            target_city: 'Sacramento',
+            target_state: 'CA',
+            query: 'recovery residence',
+            is_active: true,
+            last_run_at: null,
+            next_run_at: null,
+          },
+        ],
+      })
+      .mockResolvedValue({
+        jobs: [
+          {
+            job_id: 'job_new',
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            job_name: 'Manual Discovery Job',
+            job_type: 'manual_test',
+            target_city: 'Los Angeles',
+            target_state: 'CA',
+            query: 'test',
+            is_active: true,
+            last_run_at: '2030-01-02T00:00:00',
+            next_run_at: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        jobs: [
+          {
+            job_id: 'job_new',
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            job_name: 'Manual Discovery Job',
+            job_type: 'manual_test',
+            target_city: 'Los Angeles',
+            target_state: 'CA',
+            query: 'test',
+            is_active: true,
+            last_run_at: null,
+            next_run_at: null,
+          },
+          {
+            job_id: 'job_1',
+            source_id: 'src_ccapp',
+            source_name: 'CCAPP Recovery Residences',
+            job_name: 'CCAPP Sacramento Run',
+            job_type: 'scheduled_source_check',
+            target_city: 'Sacramento',
+            target_state: 'CA',
+            query: 'recovery residence',
+            is_active: true,
+            last_run_at: null,
+            next_run_at: null,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        jobs: [
+          {
+            job_id: 'job_new',
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            job_name: 'Manual Discovery Job',
+            job_type: 'manual_test',
+            target_city: 'Los Angeles',
+            target_state: 'CA',
+            query: 'test',
+            is_active: true,
+            last_run_at: '2030-01-02T00:00:00',
+            next_run_at: null,
+          },
+        ],
+      })
+    api.listDiscoveryRuns
+      .mockResolvedValueOnce({
+        runs: [
+          {
+            run_id: 'run_1',
+            job_id: 'job_1',
+            job_name: 'CCAPP Sacramento Run',
+            source_id: 'src_ccapp',
+            source_name: 'CCAPP Recovery Residences',
+            started_at: '2030-01-01T00:00:00',
+            finished_at: '2030-01-01T00:01:00',
+            status: 'completed',
+            records_found: 6,
+            raw_records_created: 6,
+            duplicates_detected: 1,
+            errors_count: 0,
+            error_message: null,
+            notes: 'Connector run completed.',
+          },
+        ],
+      })
+      .mockResolvedValue({
+        runs: [
+          {
+            run_id: 'run_2',
+            job_id: 'job_new',
+            job_name: 'Manual Discovery Job',
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            started_at: '2030-01-02T00:00:00',
+            finished_at: '2030-01-02T00:01:00',
+            status: 'completed',
+            records_found: 2,
+            raw_records_created: 2,
+            duplicates_detected: 0,
+            errors_count: 0,
+            error_message: null,
+            notes: 'Manual run completed.',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        runs: [
+          {
+            run_id: 'run_1',
+            job_id: 'job_1',
+            job_name: 'CCAPP Sacramento Run',
+            source_id: 'src_ccapp',
+            source_name: 'CCAPP Recovery Residences',
+            started_at: '2030-01-01T00:00:00',
+            finished_at: '2030-01-01T00:01:00',
+            status: 'completed',
+            records_found: 6,
+            raw_records_created: 6,
+            duplicates_detected: 1,
+            errors_count: 0,
+            error_message: null,
+            notes: 'Connector run completed.',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        runs: [
+          {
+            run_id: 'run_2',
+            job_id: 'job_new',
+            job_name: 'Manual Discovery Job',
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            started_at: '2030-01-02T00:00:00',
+            finished_at: '2030-01-02T00:01:00',
+            status: 'completed',
+            records_found: 2,
+            raw_records_created: 2,
+            duplicates_detected: 0,
+            errors_count: 0,
+            error_message: null,
+            notes: 'Manual run completed.',
+          },
+        ],
+      })
+    api.listSchedulerPreview
+      .mockResolvedValueOnce({
+        jobs: [
+          {
+            job_id: 'job_1',
+            source_id: 'src_ccapp',
+            source_name: 'CCAPP Recovery Residences',
+            job_name: 'CCAPP Sacramento Run',
+            schedule_enabled: false,
+            schedule_frequency: 'manual_only',
+            next_scheduled_run_at: null,
+            last_scheduled_run_at: null,
+            last_run_status: null,
+            consecutive_failures: 0,
+            due: false,
+            can_run: false,
+            blocked_reason: 'schedule_disabled',
+            max_runs_per_day: 1,
+            scheduled_runs_today: 0,
+          },
+        ],
+      })
+      .mockResolvedValue({
+        jobs: [
+          {
+            job_id: 'job_new',
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            job_name: 'Manual Discovery Job',
+            schedule_enabled: true,
+            schedule_frequency: 'daily',
+            next_scheduled_run_at: '2030-01-03T00:00:00',
+            last_scheduled_run_at: null,
+            last_run_status: 'completed',
+            consecutive_failures: 0,
+            due: false,
+            can_run: false,
+            blocked_reason: 'not_due',
+            max_runs_per_day: 1,
+            scheduled_runs_today: 0,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        jobs: [
+          {
+            job_id: 'job_1',
+            source_id: 'src_ccapp',
+            source_name: 'CCAPP Recovery Residences',
+            job_name: 'CCAPP Sacramento Run',
+            schedule_enabled: true,
+            schedule_frequency: 'daily',
+            next_scheduled_run_at: '2030-01-03T00:00:00',
+            last_scheduled_run_at: null,
+            last_run_status: null,
+            consecutive_failures: 0,
+            due: false,
+            can_run: false,
+            blocked_reason: 'not_due',
+            max_runs_per_day: 1,
+            scheduled_runs_today: 0,
+          },
+          {
+            job_id: 'job_new',
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            job_name: 'Manual Discovery Job',
+            schedule_enabled: false,
+            schedule_frequency: 'manual_only',
+            next_scheduled_run_at: null,
+            last_scheduled_run_at: null,
+            last_run_status: null,
+            consecutive_failures: 0,
+            due: false,
+            can_run: false,
+            blocked_reason: 'schedule_disabled',
+            max_runs_per_day: 1,
+            scheduled_runs_today: 0,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        jobs: [
+          {
+            job_id: 'job_new',
+            source_id: 'src_new',
+            source_name: 'Manual Source',
+            job_name: 'Manual Discovery Job',
+            schedule_enabled: true,
+            schedule_frequency: 'daily',
+            next_scheduled_run_at: '2030-01-03T00:00:00',
+            last_scheduled_run_at: null,
+            last_run_status: null,
+            consecutive_failures: 0,
+            due: false,
+            can_run: false,
+            blocked_reason: 'not_due',
+            max_runs_per_day: 1,
+            scheduled_runs_today: 0,
+          },
+        ],
+      })
+    api.createSource.mockResolvedValue({
+      source: {
+        source_id: 'src_new',
+        source_name: 'Manual Source',
+        source_type: 'manual',
+        base_url: 'https://example.com',
+        trust_level: 'medium',
+        supports_api: false,
+        supports_scraping: false,
+        requires_manual_review: true,
+        is_active: true,
+        last_checked_at: null,
+      },
+    })
+    api.createDiscoveryJob.mockResolvedValue({
+      job: {
+        job_id: 'job_new',
+        source_id: 'src_new',
+        source_name: 'Manual Source',
+        job_name: 'Manual Discovery Job',
+        job_type: 'manual_test',
+        target_city: 'Los Angeles',
+        target_state: 'CA',
+        query: 'test',
+        is_active: true,
+        last_run_at: null,
+        next_run_at: null,
+      },
+    })
+    api.runDiscoveryJob.mockResolvedValue({
+      run: {
+        run_id: 'run_2',
+        status: 'completed',
+        records_found: 2,
+        raw_records_created: 2,
+        duplicates_detected: 0,
+        errors_count: 0,
+      },
+    })
+    api.updateDiscoveryJobSchedule.mockResolvedValue({
+      job: {
+        job_id: 'job_1',
+        schedule_enabled: true,
+      },
+    })
+    api.getSchedulerStatus.mockResolvedValue({
+      scheduler: {
+        running: false,
+        autostart_enabled: false,
+        poll_interval_seconds: 300,
+        max_jobs_per_cycle: 3,
+        started_at: null,
+        stopped_at: null,
+        last_poll_at: null,
+        last_cycle_started_at: null,
+        last_cycle_finished_at: null,
+        current_job_id: null,
+        current_job_name: null,
+        last_cycle_summary: {
+          checked_jobs: 0,
+          due_jobs: 0,
+          executed_jobs: 0,
+          failed_jobs: 0,
+          skipped_jobs: 0,
+          trigger: null,
+        },
+        warning: 'Scheduler worker is disabled by default.',
+      },
+    })
+    api.startSchedulerWorker.mockResolvedValue({
+      scheduler: {
+        running: true,
+        autostart_enabled: false,
+        poll_interval_seconds: 300,
+        max_jobs_per_cycle: 3,
+        last_cycle_summary: { checked_jobs: 0, due_jobs: 0, executed_jobs: 0, failed_jobs: 0, skipped_jobs: 0, trigger: null },
+      },
+    })
+    api.runSchedulerOnce.mockResolvedValue({
+      scheduler: {
+        running: false,
+        autostart_enabled: false,
+        poll_interval_seconds: 300,
+        max_jobs_per_cycle: 3,
+        last_cycle_summary: { checked_jobs: 2, due_jobs: 1, executed_jobs: 1, failed_jobs: 0, skipped_jobs: 1, trigger: 'manual_tick' },
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <SoberLivingDirectoryDiscovery />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Discovery Sources')).toBeTruthy()
+    expect(screen.getByText(/Scheduling remains disabled by default/i)).toBeTruthy()
+    expect(screen.getByText('Scheduling Eligibility Preview')).toBeTruthy()
+    expect(screen.getByText('Runtime Controls')).toBeTruthy()
+    expect(screen.getAllByText('CCAPP Recovery Residences').length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('link', { name: /Open Review Queue/i })[0].getAttribute('href')).toBe('/sober-living-directory/review')
+
+    fireEvent.click(screen.getByRole('button', { name: /Start Worker/i }))
+    await waitFor(() => {
+      expect(api.startSchedulerWorker).toHaveBeenCalled()
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /Poll Once/i }))
+    await waitFor(() => {
+      expect(api.runSchedulerOnce).toHaveBeenCalled()
+    })
+
+    fireEvent.change(screen.getByLabelText('Source Name'), { target: { value: 'Manual Source' } })
+    fireEvent.change(screen.getByLabelText('Base URL'), { target: { value: 'https://example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: /Create Source/i }))
+
+    await waitFor(() => {
+      expect(api.createSource).toHaveBeenCalled()
+    })
+
+    const sourceSelects = screen.getAllByLabelText('Source')
+    fireEvent.change(sourceSelects[0], { target: { value: 'src_new' } })
+    fireEvent.change(screen.getByLabelText('Job Name'), { target: { value: 'Manual Discovery Job' } })
+    fireEvent.change(screen.getByLabelText('Query'), { target: { value: 'test' } })
+    fireEvent.change(screen.getByLabelText('Target City'), { target: { value: 'Los Angeles' } })
+    fireEvent.click(screen.getByRole('button', { name: /Create Job/i }))
+
+    await waitFor(() => {
+      expect(api.createDiscoveryJob).toHaveBeenCalled()
+    })
+
+    expect((await screen.findAllByText('Manual Discovery Job')).length).toBeGreaterThan(0)
+    const runButtons = await screen.findAllByRole('button', { name: /Run Discovery/i })
+    const runButton = runButtons.find((button) => within(button.closest('article')).queryByText('Manual Discovery Job'))
+    const newJobCard = runButton.closest('article')
+    fireEvent.change(within(newJobCard).getByLabelText('Frequency'), { target: { value: 'daily' } })
+    fireEvent.click(within(newJobCard).getByRole('button', { name: /Save Schedule Settings/i }))
+
+    await waitFor(() => {
+      expect(api.updateDiscoveryJobSchedule).toHaveBeenCalledWith('job_new', expect.objectContaining({
+        schedule_enabled: false,
+        schedule_frequency: 'daily',
+      }))
+    })
+
+    expect((await screen.findAllByText('Manual Discovery Job')).length).toBeGreaterThan(0)
+    const refreshedRunButtons = await screen.findAllByRole('button', { name: /Run Discovery/i })
+    const refreshedRunButton = refreshedRunButtons.find((button) => within(button.closest('article')).queryByText('Manual Discovery Job'))
+    fireEvent.click(refreshedRunButton)
+
+    await waitFor(() => {
+      expect(api.runDiscoveryJob).toHaveBeenCalledWith('job_new')
+    })
+
+    expect(await screen.findByText(/Records found: 2/i)).toBeTruthy()
+  })
+
+  it('blocks invalid custom-hours schedule settings on the discovery page', async () => {
+    api.listSources.mockResolvedValue({ sources: [] })
+    api.listDiscoveryJobs.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job_sched',
+          source_id: 'src_sched',
+          source_name: 'Schedule Source',
+          job_name: 'Schedule Test Job',
+          job_type: 'scheduled_source_check',
+          target_city: 'Sacramento',
+          target_state: 'CA',
+          query: '',
+          is_active: true,
+          schedule_enabled: true,
+          schedule_frequency: 'custom_hours',
+          schedule_interval_hours: '',
+          max_runs_per_day: 1,
+          schedule_timezone: 'America/Los_Angeles',
+          auto_disable_after_failures: 3,
+          last_run_at: null,
+          next_run_at: null,
+        },
+      ],
+    })
+    api.listDiscoveryRuns.mockResolvedValue({ runs: [] })
+    api.listSchedulerPreview.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job_sched',
+          source_id: 'src_sched',
+          source_name: 'Schedule Source',
+          job_name: 'Schedule Test Job',
+          schedule_enabled: true,
+          schedule_frequency: 'custom_hours',
+          next_scheduled_run_at: null,
+          last_scheduled_run_at: null,
+          last_run_status: null,
+          consecutive_failures: 0,
+          due: false,
+          can_run: false,
+          blocked_reason: 'not_due',
+          max_runs_per_day: 1,
+          scheduled_runs_today: 0,
+        },
+      ],
+    })
+    api.getSchedulerStatus.mockResolvedValue({
+      scheduler: {
+        running: false,
+        autostart_enabled: false,
+        poll_interval_seconds: 300,
+        max_jobs_per_cycle: 3,
+        last_cycle_summary: { checked_jobs: 0, due_jobs: 0, executed_jobs: 0, failed_jobs: 0, skipped_jobs: 0, trigger: null },
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <SoberLivingDirectoryDiscovery />
+      </MemoryRouter>
+    )
+
+    expect((await screen.findAllByText('Schedule Test Job')).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: /Save Schedule Settings/i }))
+
+    await waitFor(() => {
+      expect(api.updateDiscoveryJobSchedule).not.toHaveBeenCalled()
+    })
+  })
+
+  it('shows discovery run failures on the discovery page', async () => {
+    api.listSources.mockResolvedValue({ sources: [] })
+    api.listDiscoveryJobs.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job_fail',
+          source_id: 'src_fail',
+          source_name: 'Broken Source',
+          job_name: 'Broken Run',
+          job_type: 'scheduled_source_check',
+          target_city: 'Los Angeles',
+          target_state: 'CA',
+          query: '',
+          is_active: true,
+          last_run_at: null,
+          next_run_at: null,
+        },
+      ],
+    })
+    api.listDiscoveryRuns.mockResolvedValue({ runs: [] })
+    api.listSchedulerPreview.mockResolvedValue({
+      jobs: [
+        {
+          job_id: 'job_fail',
+          source_id: 'src_fail',
+          source_name: 'Broken Source',
+          job_name: 'Broken Run',
+          schedule_enabled: false,
+          schedule_frequency: 'manual_only',
+          next_scheduled_run_at: null,
+          last_scheduled_run_at: null,
+          last_run_status: null,
+          consecutive_failures: 0,
+          due: false,
+          can_run: false,
+          blocked_reason: 'schedule_disabled',
+          max_runs_per_day: 1,
+          scheduled_runs_today: 0,
+        },
+      ],
+    })
+    api.getSchedulerStatus.mockResolvedValue({
+      scheduler: {
+        running: false,
+        autostart_enabled: false,
+        poll_interval_seconds: 300,
+        max_jobs_per_cycle: 3,
+        last_cycle_summary: { checked_jobs: 0, due_jobs: 0, executed_jobs: 0, failed_jobs: 0, skipped_jobs: 0, trigger: null },
+      },
+    })
+    api.runDiscoveryJob.mockRejectedValue(new Error('Connector failed'))
+
+    render(
+      <MemoryRouter>
+        <SoberLivingDirectoryDiscovery />
+      </MemoryRouter>
+    )
+
+    expect((await screen.findAllByText('Broken Run')).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('button', { name: /Run Discovery/i }))
+
+    expect(await screen.findByText('Connector failed')).toBeTruthy()
+  })
+
   it('renders raw record review details and approves a raw record from the review page', async () => {
     api.getReviewQueue
       .mockResolvedValueOnce({
@@ -220,6 +870,9 @@ describe('Sober living directory pages', () => {
             source_name: 'Manual Test Source',
             duplicate_candidate_count: 0,
             missing_required_fields: [],
+            normalized_preview: {
+              notes: 'State set from the manual discovery job target because the visible Oxford grid row does not expose a state column: CA.',
+            },
             extracted_json: { city: 'Los Angeles', state: 'CA', address: '101 Main St' },
           },
           {
@@ -292,6 +945,7 @@ describe('Sober living directory pages', () => {
         phone: '555-222-3333',
         website: 'https://raw.example.com',
         population_served: null,
+        notes: 'State set from the manual discovery job target because the visible Oxford grid row does not expose a state column: CA.',
       },
       duplicate_candidates: [],
       missing_required_fields: [],
@@ -309,6 +963,7 @@ describe('Sober living directory pages', () => {
     expect(await screen.findByText('Possible Duplicate Candidates')).toBeTruthy()
     expect(await screen.findByText('Raw Discovery Records')).toBeTruthy()
     expect(screen.getByText('Raw Discovery Home')).toBeTruthy()
+    expect(screen.getByText(/State shown here was inferred from the manual discovery job target/i)).toBeTruthy()
     expect(screen.getByText(/1 duplicate candidate/i)).toBeTruthy()
     const rawRecordCard = screen.getByText('Raw Discovery Home').closest('article')
     fireEvent.click(within(rawRecordCard).getByRole('button', { name: /View Details/i }))
@@ -318,6 +973,7 @@ describe('Sober living directory pages', () => {
     })
 
     expect(await screen.findByText('Normalized Preview')).toBeTruthy()
+    expect(screen.getByText(/Source state was inferred from the manual job target/i)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /Approve Into Pending Review/i }))
     await waitFor(() => {
       expect(api.approveRawRecord).toHaveBeenCalledWith('raw_1', expect.objectContaining({

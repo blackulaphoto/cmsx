@@ -35,6 +35,13 @@ ALLOWED_DISCOVERY_JOB_TYPES = {
     "reverification_check",
     "import_recheck",
 }
+ALLOWED_SCHEDULE_FREQUENCIES = {
+    "manual_only",
+    "daily",
+    "weekly",
+    "monthly",
+    "custom_hours",
+}
 ALLOWED_DISCOVERY_RUN_STATUSES = {"running", "completed", "failed", "cancelled"}
 ALLOWED_RAW_REVIEW_STATUSES = {
     "new",
@@ -309,6 +316,17 @@ class DiscoveryJobBase(BaseModel):
     is_active: bool = True
     last_run_at: Optional[str] = None
     next_run_at: Optional[str] = None
+    schedule_enabled: bool = False
+    schedule_frequency: str = "manual_only"
+    schedule_interval_hours: Optional[int] = None
+    max_runs_per_day: int = 1
+    last_scheduled_run_at: Optional[str] = None
+    next_scheduled_run_at: Optional[str] = None
+    schedule_timezone: str = "America/Los_Angeles"
+    run_lock_until: Optional[str] = None
+    last_run_status: Optional[str] = None
+    consecutive_failures: int = 0
+    auto_disable_after_failures: int = 3
 
     @field_validator("job_type")
     @classmethod
@@ -317,10 +335,42 @@ class DiscoveryJobBase(BaseModel):
             raise ValueError(f"Invalid discovery job type: {value}")
         return value
 
+    @field_validator("schedule_frequency")
+    @classmethod
+    def validate_schedule_frequency(cls, value: str) -> str:
+        if value not in ALLOWED_SCHEDULE_FREQUENCIES:
+            raise ValueError(f"Invalid schedule frequency: {value}")
+        return value
+
+    @field_validator("max_runs_per_day")
+    @classmethod
+    def validate_max_runs_per_day(cls, value: int) -> int:
+        if value < 1 or value > 24:
+            raise ValueError("max_runs_per_day must be between 1 and 24")
+        return value
+
+    @field_validator("auto_disable_after_failures")
+    @classmethod
+    def validate_auto_disable_after_failures(cls, value: int) -> int:
+        if value < 1 or value > 50:
+            raise ValueError("auto_disable_after_failures must be between 1 and 50")
+        return value
+
     @field_validator("target_state")
     @classmethod
     def normalize_target_state(cls, value: Optional[str]) -> Optional[str]:
         return value.upper() if value else value
+
+    @field_validator("schedule_interval_hours")
+    @classmethod
+    def validate_schedule_interval_hours(cls, value: Optional[int], info) -> Optional[int]:
+        frequency = info.data.get("schedule_frequency")
+        if frequency == "custom_hours":
+            if value is None or value <= 0:
+                raise ValueError("custom_hours schedule requires schedule_interval_hours greater than 0")
+        elif value is not None and value <= 0:
+            raise ValueError("schedule_interval_hours must be greater than 0")
+        return value
 
 
 class DiscoveryJobCreate(DiscoveryJobBase):
@@ -338,6 +388,17 @@ class DiscoveryJobUpdate(BaseModel):
     is_active: Optional[bool] = None
     last_run_at: Optional[str] = None
     next_run_at: Optional[str] = None
+    schedule_enabled: Optional[bool] = None
+    schedule_frequency: Optional[str] = None
+    schedule_interval_hours: Optional[int] = None
+    max_runs_per_day: Optional[int] = None
+    last_scheduled_run_at: Optional[str] = None
+    next_scheduled_run_at: Optional[str] = None
+    schedule_timezone: Optional[str] = None
+    run_lock_until: Optional[str] = None
+    last_run_status: Optional[str] = None
+    consecutive_failures: Optional[int] = None
+    auto_disable_after_failures: Optional[int] = None
 
     @field_validator("job_type")
     @classmethod
@@ -348,10 +409,89 @@ class DiscoveryJobUpdate(BaseModel):
             raise ValueError(f"Invalid discovery job type: {value}")
         return value
 
+    @field_validator("schedule_frequency")
+    @classmethod
+    def validate_optional_schedule_frequency(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        if value not in ALLOWED_SCHEDULE_FREQUENCIES:
+            raise ValueError(f"Invalid schedule frequency: {value}")
+        return value
+
+    @field_validator("max_runs_per_day")
+    @classmethod
+    def validate_optional_max_runs_per_day(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return value
+        if value < 1 or value > 24:
+            raise ValueError("max_runs_per_day must be between 1 and 24")
+        return value
+
+    @field_validator("auto_disable_after_failures")
+    @classmethod
+    def validate_optional_auto_disable_after_failures(cls, value: Optional[int]) -> Optional[int]:
+        if value is None:
+            return value
+        if value < 1 or value > 50:
+            raise ValueError("auto_disable_after_failures must be between 1 and 50")
+        return value
+
     @field_validator("target_state")
     @classmethod
     def normalize_optional_target_state(cls, value: Optional[str]) -> Optional[str]:
         return value.upper() if value else value
+
+    @field_validator("schedule_interval_hours")
+    @classmethod
+    def validate_optional_schedule_interval_hours(cls, value: Optional[int], info) -> Optional[int]:
+        frequency = info.data.get("schedule_frequency")
+        if frequency == "custom_hours":
+            if value is None or value <= 0:
+                raise ValueError("custom_hours schedule requires schedule_interval_hours greater than 0")
+        elif value is not None and value <= 0:
+            raise ValueError("schedule_interval_hours must be greater than 0")
+        return value
+
+
+class DiscoveryJobScheduleUpdate(BaseModel):
+    schedule_enabled: bool
+    schedule_frequency: str = "manual_only"
+    schedule_interval_hours: Optional[int] = None
+    max_runs_per_day: int = 1
+    schedule_timezone: str = "America/Los_Angeles"
+    auto_disable_after_failures: int = 3
+
+    @field_validator("schedule_frequency")
+    @classmethod
+    def validate_schedule_frequency(cls, value: str) -> str:
+        if value not in ALLOWED_SCHEDULE_FREQUENCIES:
+            raise ValueError(f"Invalid schedule frequency: {value}")
+        return value
+
+    @field_validator("schedule_interval_hours")
+    @classmethod
+    def validate_schedule_interval_hours(cls, value: Optional[int], info) -> Optional[int]:
+        frequency = info.data.get("schedule_frequency")
+        if frequency == "custom_hours":
+            if value is None or value <= 0:
+                raise ValueError("custom_hours schedule requires schedule_interval_hours greater than 0")
+        elif value is not None and value <= 0:
+            raise ValueError("schedule_interval_hours must be greater than 0")
+        return value
+
+    @field_validator("max_runs_per_day")
+    @classmethod
+    def validate_max_runs_per_day(cls, value: int) -> int:
+        if value < 1 or value > 24:
+            raise ValueError("max_runs_per_day must be between 1 and 24")
+        return value
+
+    @field_validator("auto_disable_after_failures")
+    @classmethod
+    def validate_auto_disable_after_failures(cls, value: int) -> int:
+        if value < 1 or value > 50:
+            raise ValueError("auto_disable_after_failures must be between 1 and 50")
+        return value
 
 
 class ReviewSummary(BaseModel):

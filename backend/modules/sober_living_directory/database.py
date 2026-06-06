@@ -6,7 +6,7 @@ import logging
 import os
 import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from .models import (
@@ -16,6 +16,7 @@ from .models import (
     ALLOWED_SOURCE_TYPES,
     DUPLICATE_CANDIDATE_STATUSES,
     DiscoveryJobCreate,
+    DiscoveryJobScheduleUpdate,
     DiscoveryJobUpdate,
     ListingVerifyRequest,
     SoberLivingDirectorySourceCreate,
@@ -26,6 +27,7 @@ from .models import (
     VerificationTaskUpdate,
     utcnow_iso,
 )
+from .scheduling import calculate_next_run, can_run_job, is_job_due, should_auto_disable_job
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +183,17 @@ class SoberLivingDirectoryDatabase:
                 is_active INTEGER NOT NULL DEFAULT 1,
                 last_run_at TEXT,
                 next_run_at TEXT,
+                schedule_enabled INTEGER NOT NULL DEFAULT 0,
+                schedule_frequency TEXT NOT NULL DEFAULT 'manual_only',
+                schedule_interval_hours INTEGER,
+                max_runs_per_day INTEGER NOT NULL DEFAULT 1,
+                last_scheduled_run_at TEXT,
+                next_scheduled_run_at TEXT,
+                schedule_timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles',
+                run_lock_until TEXT,
+                last_run_status TEXT,
+                consecutive_failures INTEGER NOT NULL DEFAULT 0,
+                auto_disable_after_failures INTEGER NOT NULL DEFAULT 3,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (source_id) REFERENCES sober_living_directory_sources(source_id)
@@ -199,6 +212,7 @@ class SoberLivingDirectoryDatabase:
                 duplicates_detected INTEGER NOT NULL DEFAULT 0,
                 errors_count INTEGER NOT NULL DEFAULT 0,
                 error_message TEXT,
+                trigger_type TEXT NOT NULL DEFAULT 'manual',
                 notes TEXT,
                 FOREIGN KEY (job_id) REFERENCES sober_living_discovery_jobs(job_id),
                 FOREIGN KEY (source_id) REFERENCES sober_living_directory_sources(source_id)
@@ -266,7 +280,6 @@ class SoberLivingDirectoryDatabase:
             "CREATE INDEX IF NOT EXISTS idx_sld_duplicates_status ON sober_living_duplicate_candidates(status)",
             "CREATE INDEX IF NOT EXISTS idx_sld_duplicates_existing ON sober_living_duplicate_candidates(existing_listing_id)",
             "CREATE INDEX IF NOT EXISTS idx_sld_raw_review_status ON sober_living_raw_listings(review_status)",
-            "CREATE INDEX IF NOT EXISTS idx_sld_raw_run ON sober_living_raw_listings(run_id)",
             "CREATE INDEX IF NOT EXISTS idx_sld_sources_type ON sober_living_directory_sources(source_type)",
             "CREATE INDEX IF NOT EXISTS idx_sld_jobs_source ON sober_living_discovery_jobs(source_id)",
             "CREATE INDEX IF NOT EXISTS idx_sld_jobs_active ON sober_living_discovery_jobs(is_active)",
@@ -287,6 +300,32 @@ class SoberLivingDirectoryDatabase:
                 table_name="sober_living_raw_listings",
                 column_name="review_notes",
                 column_sql="TEXT",
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sld_raw_run ON sober_living_raw_listings(run_id)")
+            for column_name, column_sql in [
+                ("schedule_enabled", "INTEGER NOT NULL DEFAULT 0"),
+                ("schedule_frequency", "TEXT NOT NULL DEFAULT 'manual_only'"),
+                ("schedule_interval_hours", "INTEGER"),
+                ("max_runs_per_day", "INTEGER NOT NULL DEFAULT 1"),
+                ("last_scheduled_run_at", "TEXT"),
+                ("next_scheduled_run_at", "TEXT"),
+                ("schedule_timezone", "TEXT NOT NULL DEFAULT 'America/Los_Angeles'"),
+                ("run_lock_until", "TEXT"),
+                ("last_run_status", "TEXT"),
+                ("consecutive_failures", "INTEGER NOT NULL DEFAULT 0"),
+                ("auto_disable_after_failures", "INTEGER NOT NULL DEFAULT 3"),
+            ]:
+                self._ensure_column(
+                    conn,
+                    table_name="sober_living_discovery_jobs",
+                    column_name=column_name,
+                    column_sql=column_sql,
+                )
+            self._ensure_column(
+                conn,
+                table_name="sober_living_discovery_runs",
+                column_name="trigger_type",
+                column_sql="TEXT NOT NULL DEFAULT 'manual'",
             )
             conn.commit()
         except Exception as exc:
@@ -335,6 +374,7 @@ class SoberLivingDirectoryDatabase:
     def _row_to_discovery_job(self, row: sqlite3.Row) -> Dict[str, Any]:
         item = dict(row)
         item["is_active"] = bool(item.get("is_active"))
+        item["schedule_enabled"] = bool(item.get("schedule_enabled"))
         return item
 
     def _row_to_discovery_run(self, row: sqlite3.Row) -> Dict[str, Any]:
@@ -935,12 +975,16 @@ class SoberLivingDirectoryDatabase:
         job_id = f"job_{uuid.uuid4().hex[:12]}"
         timestamp = utcnow_iso()
         data = payload.model_dump()
+        data["next_scheduled_run_at"] = calculate_next_run({**data, "created_at": timestamp}) if data.get("schedule_enabled") else None
         conn.execute(
             """
             INSERT INTO sober_living_discovery_jobs (
                 job_id, source_id, job_name, job_type, target_city, target_state, query,
-                schedule_label, is_active, last_run_at, next_run_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                schedule_label, is_active, last_run_at, next_run_at, schedule_enabled, schedule_frequency,
+                schedule_interval_hours, max_runs_per_day, last_scheduled_run_at, next_scheduled_run_at,
+                schedule_timezone, run_lock_until, last_run_status, consecutive_failures,
+                auto_disable_after_failures, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job_id,
@@ -954,6 +998,17 @@ class SoberLivingDirectoryDatabase:
                 1 if data.get("is_active", True) else 0,
                 data.get("last_run_at"),
                 data.get("next_run_at"),
+                1 if data.get("schedule_enabled", False) else 0,
+                data.get("schedule_frequency", "manual_only"),
+                data.get("schedule_interval_hours"),
+                data.get("max_runs_per_day", 1),
+                data.get("last_scheduled_run_at"),
+                data.get("next_scheduled_run_at"),
+                data.get("schedule_timezone", "America/Los_Angeles"),
+                data.get("run_lock_until"),
+                data.get("last_run_status"),
+                data.get("consecutive_failures", 0),
+                data.get("auto_disable_after_failures", 3),
                 timestamp,
                 timestamp,
             ),
@@ -971,13 +1026,19 @@ class SoberLivingDirectoryDatabase:
             raise ValueError("Source not found for discovery job")
 
         merged = {**existing, **update_data}
+        if "schedule_enabled" in update_data or "schedule_frequency" in update_data or "schedule_interval_hours" in update_data:
+            merged["next_scheduled_run_at"] = calculate_next_run(merged) if merged.get("schedule_enabled") else None
         merged["updated_at"] = utcnow_iso()
         conn = self.connect()
         conn.execute(
             """
             UPDATE sober_living_discovery_jobs
             SET source_id = ?, job_name = ?, job_type = ?, target_city = ?, target_state = ?, query = ?,
-                schedule_label = ?, is_active = ?, last_run_at = ?, next_run_at = ?, updated_at = ?
+                schedule_label = ?, is_active = ?, last_run_at = ?, next_run_at = ?, schedule_enabled = ?,
+                schedule_frequency = ?, schedule_interval_hours = ?, max_runs_per_day = ?,
+                last_scheduled_run_at = ?, next_scheduled_run_at = ?, schedule_timezone = ?,
+                run_lock_until = ?, last_run_status = ?, consecutive_failures = ?,
+                auto_disable_after_failures = ?, updated_at = ?
             WHERE job_id = ?
             """,
             (
@@ -991,12 +1052,172 @@ class SoberLivingDirectoryDatabase:
                 1 if merged.get("is_active", True) else 0,
                 merged.get("last_run_at"),
                 merged.get("next_run_at"),
+                1 if merged.get("schedule_enabled", False) else 0,
+                merged.get("schedule_frequency", "manual_only"),
+                merged.get("schedule_interval_hours"),
+                merged.get("max_runs_per_day", 1),
+                merged.get("last_scheduled_run_at"),
+                merged.get("next_scheduled_run_at"),
+                merged.get("schedule_timezone", "America/Los_Angeles"),
+                merged.get("run_lock_until"),
+                merged.get("last_run_status"),
+                merged.get("consecutive_failures", 0),
+                merged.get("auto_disable_after_failures", 3),
                 merged["updated_at"],
                 job_id,
             ),
         )
         conn.commit()
         return self.get_discovery_job(job_id)
+
+    def update_discovery_job_schedule(
+        self,
+        job_id: str,
+        payload: DiscoveryJobScheduleUpdate,
+    ) -> Optional[Dict[str, Any]]:
+        job = self.get_discovery_job(job_id)
+        if not job:
+            return None
+
+        source = self.get_source(job["source_id"])
+        if not source:
+            raise ValueError("Source not found for discovery job")
+
+        update_data = payload.model_dump()
+        if update_data["schedule_enabled"]:
+            if not source.get("is_active"):
+                raise ValueError("Cannot enable scheduling for an inactive source")
+            if not source.get("requires_manual_review"):
+                raise ValueError("Cannot enable scheduling for a source that bypasses review")
+
+        merged = {**job, **update_data}
+        merged["schedule_frequency"] = merged.get("schedule_frequency") or "manual_only"
+        if merged["schedule_enabled"]:
+            merged["next_scheduled_run_at"] = calculate_next_run(merged)
+        else:
+            merged["next_scheduled_run_at"] = None
+            merged["run_lock_until"] = None
+        updated = self.update_discovery_job(job_id, DiscoveryJobUpdate(**merged))
+        return updated
+
+    def list_scheduler_preview(self) -> List[Dict[str, Any]]:
+        preview_items: List[Dict[str, Any]] = []
+        for job in self.list_discovery_jobs():
+            source = self.get_source(job["source_id"])
+            scheduled_runs_today = self._count_scheduled_runs_today(job["job_id"], timezone_name=job.get("schedule_timezone"))
+            due = is_job_due(job)
+            can_run, blocked_reason = can_run_job(
+                job,
+                source=source,
+                scheduled_runs_today=scheduled_runs_today,
+            )
+            preview_items.append(
+                {
+                    **job,
+                    "source": source,
+                    "scheduled_runs_today": scheduled_runs_today,
+                    "due": due,
+                    "can_run": can_run,
+                    "blocked_reason": blocked_reason,
+                    "next_scheduled_run_at": job.get("next_scheduled_run_at") or calculate_next_run(job),
+                    "auto_disabled": should_auto_disable_job(job),
+                }
+            )
+        return preview_items
+
+    def mark_scheduled_run_started(self, job_id: str) -> Dict[str, Any]:
+        return self._mark_job_run_started(job_id, scheduled=True)
+
+    def mark_scheduled_run_finished(self, job_id: str, status: str) -> Dict[str, Any]:
+        return self._mark_job_run_finished(job_id, status=status, scheduled=True)
+
+    def mark_manual_run_started(self, job_id: str) -> Dict[str, Any]:
+        return self._mark_job_run_started(job_id, scheduled=False)
+
+    def mark_manual_run_finished(self, job_id: str, status: str) -> Dict[str, Any]:
+        return self._mark_job_run_finished(job_id, status=status, scheduled=False)
+
+    def _mark_job_run_started(self, job_id: str, *, scheduled: bool) -> Dict[str, Any]:
+        job = self.get_discovery_job(job_id)
+        if not job:
+            raise ValueError("Discovery job not found")
+
+        if job.get("run_lock_until") and self._parse_iso_date(job.get("run_lock_until")) and self._parse_iso_date(job.get("run_lock_until")) > datetime.utcnow():
+            raise ValueError("Discovery job already has an active run lock")
+
+        timestamp = utcnow_iso()
+        lock_until = (datetime.utcnow() + timedelta(minutes=30)).replace(microsecond=0).isoformat()
+        updates = {
+            "run_lock_until": lock_until,
+            "last_run_status": "running",
+        }
+        if scheduled:
+            updates["last_scheduled_run_at"] = timestamp
+        updated = self.update_discovery_job(job_id, DiscoveryJobUpdate(**updates))
+        if not updated:
+            raise ValueError("Discovery job not found")
+        return updated
+
+    def _mark_job_run_finished(self, job_id: str, *, status: str, scheduled: bool) -> Dict[str, Any]:
+        job = self.get_discovery_job(job_id)
+        if not job:
+            raise ValueError("Discovery job not found")
+
+        consecutive_failures = int(job.get("consecutive_failures") or 0)
+        if status == "completed":
+            consecutive_failures = 0
+        elif status == "failed":
+            consecutive_failures += 1
+
+        updates = {
+            "run_lock_until": None,
+            "last_run_status": status,
+            "consecutive_failures": consecutive_failures,
+        }
+        candidate = {**job, **updates}
+        if scheduled:
+            updates["next_scheduled_run_at"] = calculate_next_run(candidate) if job.get("schedule_enabled") else None
+        if should_auto_disable_job(candidate):
+            updates["schedule_enabled"] = False
+            updates["next_scheduled_run_at"] = None
+        updated = self.update_discovery_job(job_id, DiscoveryJobUpdate(**updates))
+        if not updated:
+            raise ValueError("Discovery job not found")
+        return updated
+
+    def _count_scheduled_runs_today(self, job_id: str, *, timezone_name: Optional[str]) -> int:
+        conn = self.connect()
+        rows = conn.execute(
+            """
+            SELECT started_at
+            FROM sober_living_discovery_runs
+            WHERE job_id = ? AND trigger_type = 'scheduled'
+            ORDER BY started_at DESC
+            """,
+            (job_id,),
+        ).fetchall()
+        if not rows:
+            return 0
+        zone_name = timezone_name or "America/Los_Angeles"
+        now_utc = datetime.utcnow().replace(tzinfo=timezone.utc)
+        try:
+            from zoneinfo import ZoneInfo
+
+            local_now = now_utc.astimezone(ZoneInfo(zone_name))
+        except Exception:
+            from zoneinfo import ZoneInfo
+
+            local_now = now_utc.astimezone(ZoneInfo("America/Los_Angeles"))
+        today = local_now.date()
+        count = 0
+        for row in rows:
+            parsed = self._parse_iso_date(row["started_at"])
+            if not parsed:
+                continue
+            parsed_local = parsed.replace(tzinfo=timezone.utc).astimezone(local_now.tzinfo)
+            if parsed_local.date() == today:
+                count += 1
+        return count
 
     def list_discovery_runs(self, job_id: Optional[str] = None) -> List[Dict[str, Any]]:
         conn = self.connect()
@@ -1042,6 +1263,7 @@ class SoberLivingDirectoryDatabase:
         job_id: str,
         source_id: str,
         status: str = "running",
+        trigger_type: str = "manual",
         notes: Optional[str] = None,
     ) -> str:
         if status not in ALLOWED_DISCOVERY_RUN_STATUSES:
@@ -1052,8 +1274,8 @@ class SoberLivingDirectoryDatabase:
             """
             INSERT INTO sober_living_discovery_runs (
                 run_id, job_id, source_id, started_at, finished_at, status, records_found,
-                raw_records_created, duplicates_detected, errors_count, error_message, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                raw_records_created, duplicates_detected, errors_count, error_message, trigger_type, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -1067,6 +1289,7 @@ class SoberLivingDirectoryDatabase:
                 0,
                 0,
                 None,
+                trigger_type,
                 notes,
             ),
         )
@@ -1349,8 +1572,52 @@ class SoberLivingDirectoryDatabase:
             job_id=job_id,
             source_id=job["source_id"],
             records=records,
+            trigger_type="manual",
             notes=notes,
         )
+
+    def record_discovery_run_failure(
+        self,
+        *,
+        job_id: str,
+        source_id: str,
+        trigger_type: str = "manual",
+        notes: Optional[str],
+        error_message: str,
+    ) -> Dict[str, Any]:
+        job = self.get_discovery_job(job_id)
+        if not job:
+            raise ValueError("Discovery job not found")
+
+        run_id = self._create_discovery_run(
+            job_id=job_id,
+            source_id=source_id,
+            trigger_type=trigger_type,
+            notes=notes,
+        )
+        now = utcnow_iso()
+        job_updates = {"last_run_status": "failed"}
+        if trigger_type == "manual":
+            job_updates["last_run_at"] = now
+        else:
+            job_updates["last_scheduled_run_at"] = now
+        self.update_discovery_job(job_id, DiscoveryJobUpdate(**job_updates))
+        self.update_source(
+            source_id,
+            SoberLivingDirectorySourceUpdate(last_checked_at=now),
+        )
+        self._finish_discovery_run(
+            run_id,
+            status="failed",
+            records_found=0,
+            raw_records_created=0,
+            duplicates_detected=0,
+            errors_count=1,
+            error_message=error_message,
+            notes=notes,
+        )
+        self._mark_job_run_finished(job_id, status="failed", scheduled=trigger_type == "scheduled")
+        return self.get_discovery_run(run_id)
 
     def process_discovery_records(
         self,
@@ -1358,6 +1625,7 @@ class SoberLivingDirectoryDatabase:
         job_id: str,
         source_id: str,
         records: List[Dict[str, Any]],
+        trigger_type: str = "manual",
         notes: Optional[str] = None,
     ) -> Dict[str, Any]:
         job = self.get_discovery_job(job_id)
@@ -1367,6 +1635,7 @@ class SoberLivingDirectoryDatabase:
         run_id = self._create_discovery_run(
             job_id=job_id,
             source_id=source_id,
+            trigger_type=trigger_type,
             notes=notes,
         )
 
@@ -1386,7 +1655,7 @@ class SoberLivingDirectoryDatabase:
                 raw_id = self.create_raw_listing(
                     source_id=source_id,
                     run_id=run_id,
-                    source_url=record.get("website"),
+                    source_url=record.get("source_url") or record.get("website"),
                     raw_name=record.get("name"),
                     raw_address=record.get("address"),
                     raw_phone=record.get("phone"),
@@ -1417,10 +1686,12 @@ class SoberLivingDirectoryDatabase:
                     )
 
             now = utcnow_iso()
-            self.update_discovery_job(
-                job_id,
-                DiscoveryJobUpdate(last_run_at=now),
-            )
+            job_updates = {"last_run_status": "completed"}
+            if trigger_type == "manual":
+                job_updates["last_run_at"] = now
+            else:
+                job_updates["last_scheduled_run_at"] = now
+            self.update_discovery_job(job_id, DiscoveryJobUpdate(**job_updates))
             self.update_source(
                 source_id,
                 SoberLivingDirectorySourceUpdate(last_checked_at=now),
@@ -1434,6 +1705,7 @@ class SoberLivingDirectoryDatabase:
                 errors_count=errors_count,
                 notes=notes,
             )
+            self._mark_job_run_finished(job_id, status="completed", scheduled=trigger_type == "scheduled")
         except Exception as exc:
             errors_count += 1
             self._finish_discovery_run(
@@ -1446,6 +1718,7 @@ class SoberLivingDirectoryDatabase:
                 error_message=str(exc),
                 notes=notes,
             )
+            self._mark_job_run_finished(job_id, status="failed", scheduled=trigger_type == "scheduled")
             raise
 
         return self.get_discovery_run(run_id)

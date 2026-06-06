@@ -10,8 +10,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from .database import SoberLivingDirectoryDatabase
 from .discovery import SoberLivingDiscoveryService
 from .importer import SoberLivingDirectoryImporter
+from .scheduler_worker import SoberLivingDiscoverySchedulerWorker
 from .models import (
     DiscoveryJobCreate,
+    DiscoveryJobScheduleUpdate,
     DiscoveryJobUpdate,
     DuplicateResolutionRequest,
     ListingVerifyRequest,
@@ -30,6 +32,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["sober-living-directory"])
 directory_db: Optional[SoberLivingDirectoryDatabase] = None
+scheduler_worker: Optional[SoberLivingDiscoverySchedulerWorker] = None
+scheduler_db_path: Optional[str] = None
 UPLOADS_DIR = Path(__file__).resolve().parents[3] / "uploads" / "sober_living_directory"
 UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -47,6 +51,17 @@ def get_importer() -> SoberLivingDirectoryImporter:
 
 def get_discovery_service() -> SoberLivingDiscoveryService:
     return SoberLivingDiscoveryService(get_directory_db())
+
+
+def get_scheduler():
+    global scheduler_worker, scheduler_db_path
+    db = get_directory_db()
+    if scheduler_worker is None or scheduler_db_path != db.db_path:
+        if scheduler_worker is not None:
+            scheduler_worker.stop()
+        scheduler_worker = SoberLivingDiscoverySchedulerWorker(db, SoberLivingDiscoveryService(db))
+        scheduler_db_path = db.db_path
+    return scheduler_worker
 
 
 @router.get("/listings")
@@ -325,6 +340,22 @@ async def update_discovery_job(job_id: str, payload: DiscoveryJobUpdate):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.put("/discovery/jobs/{job_id}/schedule")
+async def update_discovery_job_schedule(job_id: str, payload: DiscoveryJobScheduleUpdate):
+    try:
+        job = get_directory_db().update_discovery_job_schedule(job_id, payload)
+        if not job:
+            raise HTTPException(status_code=404, detail="Discovery job not found")
+        return {"success": True, "job": job}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to update discovery job schedule: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/discovery/runs")
 async def get_discovery_runs(job_id: Optional[str] = Query(None)):
     try:
@@ -341,6 +372,52 @@ async def get_discovery_run(run_id: str):
     if not run:
         raise HTTPException(status_code=404, detail="Discovery run not found")
     return {"success": True, "run": run}
+
+
+@router.get("/discovery/scheduler/preview")
+async def get_scheduler_preview():
+    try:
+        preview = get_directory_db().list_scheduler_preview()
+        return {"success": True, "jobs": preview, "total_count": len(preview)}
+    except Exception as exc:
+        logger.error("Failed to get scheduler preview: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.get("/discovery/scheduler/status")
+async def get_scheduler_status():
+    try:
+        return {"success": True, "scheduler": get_scheduler().status()}
+    except Exception as exc:
+        logger.error("Failed to get scheduler status: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/discovery/scheduler/start")
+async def start_scheduler_worker():
+    try:
+        return {"success": True, "scheduler": get_scheduler().start()}
+    except Exception as exc:
+        logger.error("Failed to start scheduler worker: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/discovery/scheduler/stop")
+async def stop_scheduler_worker():
+    try:
+        return {"success": True, "scheduler": get_scheduler().stop()}
+    except Exception as exc:
+        logger.error("Failed to stop scheduler worker: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/discovery/scheduler/run-once")
+async def run_scheduler_once():
+    try:
+        return {"success": True, "scheduler": get_scheduler().run_once(trigger="manual_tick")}
+    except Exception as exc:
+        logger.error("Failed to execute scheduler poll once: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @router.post("/discovery/jobs/{job_id}/run-test")
