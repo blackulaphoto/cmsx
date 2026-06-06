@@ -11,6 +11,7 @@ import {
   formatDisplayDate,
   formatPercent,
   formatUrLabel,
+  deriveSuggestedStatus,
   getApprovalRate,
   getDeadlineState,
   getDeniedDays,
@@ -257,12 +258,14 @@ function UR() {
   const saveCase = async () => {
     try {
       setSaving(true)
+      const normalizedStatus = deriveSuggestedStatus(caseForm)
       const payload = {
         ...caseForm,
         requested_days: Number(caseForm.requested_days || 0),
         approved_days: Number(caseForm.approved_days || 0),
         denied_days: caseForm.denied_days === '' ? null : Number(caseForm.denied_days || 0),
-        revenue_at_risk_amount: Number(caseForm.revenue_at_risk_amount || 0)
+        revenue_at_risk_amount: Number(caseForm.revenue_at_risk_amount || 0),
+        status: normalizedStatus
       }
       const endpoint = creatingNewCase ? '/api/ur' : `/api/ur/${selectedCaseId}`
       const method = creatingNewCase ? 'POST' : 'PUT'
@@ -491,6 +494,9 @@ function UR() {
                   <SectionHeading title="Authorization Detail" helper="Requested, approved, denied, and reviewer information drive the UR metrics." />
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <Field label="Status">
+                      <p className="text-xs text-amber-200/80">
+                        Manual status. If this stays on Auth Needed, saving with approved days or an approved date range will promote it to Approved.
+                      </p>
                       <Select value={caseForm.status} onChange={(e) => handleCaseFieldChange('status', e.target.value)}>
                         {UR_STATUS_OPTIONS.map((item) => <option key={item} value={item}>{formatUrLabel(item)}</option>)}
                       </Select>

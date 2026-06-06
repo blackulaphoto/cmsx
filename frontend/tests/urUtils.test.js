@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildStatusBanner,
+  deriveSuggestedStatus,
   deriveCurrentWorkflowStep,
   deriveNextAction,
+  formatDisplayDate,
   formatUrLabel,
   getApprovalRate,
   getDeniedDays,
@@ -45,6 +47,10 @@ describe('UR utilities', () => {
     expect(banner.nextAction).toBeTruthy()
   })
 
+  it('formats date-only values without timezone rollback', () => {
+    expect(formatDisplayDate('2030-03-04')).toBe('3/4/2030')
+  })
+
   it('maps cases into workflow coach steps', () => {
     expect(deriveCurrentWorkflowStep({ status: 'auth_needed' })).toBe(0)
     expect(deriveCurrentWorkflowStep({ status: 'submitted' })).toBe(1)
@@ -70,5 +76,11 @@ describe('UR utilities', () => {
 
   it('formats underscored labels for display', () => {
     expect(formatUrLabel('appeal_pending')).toBe('Appeal Pending')
+  })
+
+  it('suggests approved only when auth-needed cases have approval evidence', () => {
+    expect(deriveSuggestedStatus({ status: 'auth_needed', approved_days: 7 })).toBe('approved')
+    expect(deriveSuggestedStatus({ status: 'denied', approved_days: 7 })).toBe('denied')
+    expect(deriveSuggestedStatus({ status: 'auth_needed', approved_end_date: '2030-03-05' })).toBe('approved')
   })
 })

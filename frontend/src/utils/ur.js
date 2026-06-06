@@ -1,5 +1,7 @@
 const normalize = (value) => (value || '').toString().trim()
 
+const DATE_ONLY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/
+
 export const UR_STATUS_OPTIONS = [
   'auth_needed',
   'submitted',
@@ -73,6 +75,15 @@ export const getDeniedDays = (urCase) => {
 export const parseDateOnly = (value) => {
   const raw = normalize(value)
   if (!raw) return null
+
+  const dateOnlyMatch = raw.match(DATE_ONLY_PATTERN)
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch
+    const parsed = new Date(Number(year), Number(month) - 1, Number(day))
+    parsed.setHours(0, 0, 0, 0)
+    return Number.isNaN(parsed.getTime()) ? null : parsed
+  }
+
   const parsed = new Date(raw)
   if (Number.isNaN(parsed.getTime())) return null
   parsed.setHours(0, 0, 0, 0)
@@ -80,9 +91,32 @@ export const parseDateOnly = (value) => {
 }
 
 export const formatDisplayDate = (value, fallback = 'Not set') => {
-  const parsed = parseDateOnly(value)
+  const raw = normalize(value)
+  const parsed = parseDateOnly(raw)
   if (!parsed) return fallback
+
+  const dateOnlyMatch = raw.match(DATE_ONLY_PATTERN)
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch
+    return new Intl.DateTimeFormat('en-US').format(new Date(Number(year), Number(month) - 1, Number(day)))
+  }
+
   return parsed.toLocaleDateString()
+}
+
+export const deriveSuggestedStatus = (urCase) => {
+  const currentStatus = normalize(urCase?.status).toLowerCase() || 'auth_needed'
+  if (currentStatus !== 'auth_needed') {
+    return currentStatus
+  }
+
+  const approvedDays = Number(urCase?.approved_days || 0)
+  const hasApprovedDateRange = Boolean(normalize(urCase?.approved_start_date) || normalize(urCase?.approved_end_date))
+  if (approvedDays > 0 || hasApprovedDateRange) {
+    return 'approved'
+  }
+
+  return currentStatus
 }
 
 export const getDeadlineState = (value) => {
