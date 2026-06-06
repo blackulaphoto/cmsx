@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   filterFmlaCases,
   getCaseDisplayName,
+  getCurrentWorkflowStage,
   getDeadlineState,
   getDeadlineBuckets,
-  getMissingChecklist
+  getMissingChecklist,
+  normalizeFmlaStatusValue,
+  getWorkflowSnapshot
 } from '../src/utils/fmla'
 
 describe('FMLA utilities', () => {
@@ -55,6 +58,11 @@ describe('FMLA utilities', () => {
     expect(getCaseDisplayName({ case_subject_type: 'staff', staff_name: 'Alex Worker' })).toBe('Alex Worker')
   })
 
+  it('maps legacy statuses to the current backend vocabulary', () => {
+    expect(normalizeFmlaStatusValue('Confirmation pending')).toBe('submitted')
+    expect(normalizeFmlaStatusValue('Waiting on employer')).toBe('pending documents')
+  })
+
   it('combines case and reminder deadlines', () => {
     const buckets = getDeadlineBuckets(
       {
@@ -66,5 +74,36 @@ describe('FMLA utilities', () => {
       ]
     )
     expect(buckets).toHaveLength(3)
+  })
+
+  it('derives workflow stage from existing case fields', () => {
+    const stage = getCurrentWorkflowStage(
+      {
+        employer_name: 'ACME Logistics',
+        employer_response_deadline: '2030-01-10',
+        paperwork_received_date: '2030-01-11',
+        paperwork_completed_date: '2030-01-13',
+        paperwork_sent_date: ''
+      },
+      [{ document_type: 'medical certification', document_status: 'completed' }],
+      []
+    )
+    expect(stage).toBe('Provider Completed')
+  })
+
+  it('builds a workflow snapshot with action bucket and next action', () => {
+    const snapshot = getWorkflowSnapshot(
+      {
+        employer_name: 'ACME Logistics',
+        employer_response_deadline: '2030-01-10',
+        paperwork_received_date: '2030-01-11'
+      },
+      [],
+      [],
+      [{ reminder_id: 'r1', due_date: '2030-01-09', reminder_reason: 'Provider follow-up' }]
+    )
+    expect(snapshot.stage).toBe('Packet Received')
+    expect(snapshot.nextAction).toContain('send to provider')
+    expect(snapshot.actionBucket).toBeTruthy()
   })
 })

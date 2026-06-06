@@ -27,10 +27,31 @@ import { apiFetch } from '../api/config'
 import { useAuth } from '../contexts/AuthContext'
 import {
   filterFmlaCases,
+  formatFmlaLabel,
   getDeadlineState,
   getFmlaStatusBadgeClass,
-  getMissingChecklist
+  getMissingChecklist,
+  getWorkflowSnapshot,
+  normalizeFmlaStatusValue,
+  WORKFLOW_ACTION_BUCKETS,
+  WORKFLOW_STAGES
 } from '../utils/fmla'
+
+const FMLA_STATUS_OPTIONS = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'pending documents', label: 'Pending Documents' },
+  { value: 'submitted', label: 'Submitted' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'denied', label: 'Denied' },
+  { value: 'expired', label: 'Expired' },
+  { value: 'closed', label: 'Closed' }
+]
+
+const LEAVE_TYPE_OPTIONS = [
+  { value: 'continuous', label: 'Continuous' },
+  { value: 'intermittent', label: 'Intermittent' },
+  { value: 'reduced schedule', label: 'Reduced Schedule' }
+]
 
 const emptyCaseForm = () => ({
   client_id: '',
@@ -53,8 +74,13 @@ const emptyCaseForm = () => ({
   provider_address: '',
   roi_status: 'unknown',
   fmla_request_type: 'new request',
+  leave_type: 'continuous',
   leave_start_date: '',
+  leave_end_date: '',
   expected_return_date: '',
+  employer_response_deadline: '',
+  certification_expiration_date: '',
+  return_to_work_date: '',
   paperwork_deadline: '',
   paperwork_received_date: '',
   paperwork_completed_date: '',
@@ -62,8 +88,9 @@ const emptyCaseForm = () => ({
   paperwork_sent_method: 'fax',
   confirmation_received: false,
   approval_status: 'pending',
-  status: 'Draft',
-  notes: ''
+  status: 'draft',
+  notes: '',
+  internal_comments: ''
 })
 
 const emptyDocumentForm = () => ({
@@ -144,6 +171,29 @@ const Select = (props) => (
   />
 )
 
+const formatDisplayDate = (value, fallback = 'Not set') => {
+  if (!value) return fallback
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return value
+  return parsed.toLocaleDateString()
+}
+
+const WorkflowMetric = ({ label, value, tone = 'default' }) => {
+  const toneClass = {
+    default: 'border-white/10 bg-slate-950/30 text-white',
+    warning: 'border-amber-400/20 bg-amber-500/10 text-amber-100',
+    danger: 'border-rose-400/20 bg-rose-500/10 text-rose-100',
+    success: 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'
+  }[tone] || 'border-white/10 bg-slate-950/30 text-white'
+
+  return (
+    <div className={`rounded-2xl border p-4 ${toneClass}`}>
+      <p className="text-[11px] uppercase tracking-[0.2em] text-slate-400">{label}</p>
+      <p className="mt-2 text-sm font-semibold">{value}</p>
+    </div>
+  )
+}
+
 function FMLA() {
   const { profile } = useAuth()
   const defaultCaseManagerId = profile?.case_manager_id || ''
@@ -167,7 +217,8 @@ function FMLA() {
     status: searchParams.get('status') || '',
     employer: searchParams.get('employer') || '',
     deadline: searchParams.get('deadline') || '',
-    case_manager: searchParams.get('case_manager') || defaultCaseManagerId
+    case_manager: searchParams.get('case_manager') || defaultCaseManagerId,
+    workflow_bucket: searchParams.get('workflow_bucket') || ''
   })
   const [caseForm, setCaseForm] = useState(emptyCaseForm())
   const [documentForm, setDocumentForm] = useState(emptyDocumentForm())
@@ -181,6 +232,14 @@ function FMLA() {
 
   const visibleCases = useMemo(() => filterFmlaCases(cases, filters), [cases, filters])
   const missingChecklist = useMemo(() => getMissingChecklist(selectedCase, documents), [selectedCase, documents])
+  const visibleCaseSnapshots = useMemo(
+    () => visibleCases.map((item) => ({ caseItem: item, workflow: getWorkflowSnapshot(item) })),
+    [visibleCases]
+  )
+  const selectedWorkflow = useMemo(
+    () => getWorkflowSnapshot(selectedCase || caseForm, documents, correspondence, reminders),
+    [selectedCase, caseForm, documents, correspondence, reminders]
+  )
 
   useEffect(() => {
     loadSummary()
@@ -241,12 +300,13 @@ function FMLA() {
     try {
       const params = new URLSearchParams()
       Object.entries(filters).forEach(([key, value]) => {
+        if (key === 'workflow_bucket') return
         if (value) params.set(key, value)
       })
       const response = await apiFetch(`/api/fmla?${params.toString()}`)
       if (!response.ok) throw new Error('Failed to load FMLA cases')
       const data = await response.json()
-      setCases(data.cases || [])
+      setCases((data.cases || []).map((item) => ({ ...item, status: normalizeFmlaStatusValue(item.status) })))
       if (!selectedCaseId && (data.cases || []).length > 0) {
         setSelectedCaseId(data.cases[0].case_id)
       }
@@ -263,8 +323,8 @@ function FMLA() {
       const response = await apiFetch(`/api/fmla/${caseId}`)
       if (!response.ok) throw new Error('Failed to load FMLA case detail')
       const data = await response.json()
-      setSelectedCase(data.case || null)
-      setCaseForm(data.case || emptyCaseForm())
+      setSelectedCase(data.case ? { ...data.case, status: normalizeFmlaStatusValue(data.case.status) } : null)
+      setCaseForm(data.case ? { ...data.case, status: normalizeFmlaStatusValue(data.case.status) } : emptyCaseForm())
       setDocuments(data.documents || [])
       setCorrespondence(data.correspondence || [])
       setReminders(data.reminders || [])
@@ -417,14 +477,19 @@ function FMLA() {
 
   const deadlineState = getDeadlineState(selectedCase?.paperwork_deadline)
 
-  const summaryCards = [
-    { key: 'status', label: 'Active FMLA Cases', value: summary.total_active_cases, filter: { status: '' }, icon: ClipboardList },
-    { key: 'deadline', label: 'Due In 7 Days', value: summary.deadlines_next_7_days, filter: { deadline: 'next_7_days' }, icon: CalendarClock },
-    { key: 'missing', label: 'Missing Paperwork', value: summary.missing_paperwork, filter: { status: '' }, icon: AlertTriangle },
-    { key: 'followup', label: 'Needs Follow-Up', value: summary.needing_follow_up, filter: { status: 'Confirmation pending' }, icon: BellRing },
-    { key: 'approved', label: 'Approved', value: summary.approved_cases, filter: { status: 'Approved' }, icon: ShieldCheck },
-    { key: 'denied', label: 'Denied', value: summary.denied_cases, filter: { status: 'Denied' }, icon: AlertTriangle }
-  ]
+  const actionCards = useMemo(() => ([
+    { key: 'employer_follow_up', label: WORKFLOW_ACTION_BUCKETS.employer_follow_up, icon: BellRing },
+    { key: 'packet_not_received', label: WORKFLOW_ACTION_BUCKETS.packet_not_received, icon: AlertTriangle },
+    { key: 'provider_docs_pending', label: WORKFLOW_ACTION_BUCKETS.provider_docs_pending, icon: ClipboardList },
+    { key: 'due_within_3_days', label: WORKFLOW_ACTION_BUCKETS.due_within_3_days, icon: CalendarClock },
+    { key: 'ready_to_submit', label: WORKFLOW_ACTION_BUCKETS.ready_to_submit, icon: Send },
+    { key: 'rtw_extension_needed', label: WORKFLOW_ACTION_BUCKETS.rtw_extension_needed, icon: ShieldCheck }
+  ].map((item) => ({
+    ...item,
+    value: visibleCaseSnapshots.filter(({ workflow }) => workflow.actionBucket === item.key).length
+  }))), [visibleCaseSnapshots])
+
+  const selectedStageIndex = WORKFLOW_STAGES.indexOf(selectedWorkflow.stage)
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-900 text-white">
@@ -469,12 +534,12 @@ function FMLA() {
         </section>
 
         <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
-          {summaryCards.map((item) => {
+          {actionCards.map((item) => {
             const Icon = item.icon
             return (
               <button
                 key={item.key}
-                onClick={() => setFilters((prev) => ({ ...prev, ...item.filter }))}
+                onClick={() => setFilters((prev) => ({ ...prev, workflow_bucket: item.key }))}
                 className="rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition hover:-translate-y-0.5 hover:bg-white/10"
               >
                 <div className="flex items-center justify-between">
@@ -489,7 +554,7 @@ function FMLA() {
           })}
         </section>
 
-        <section className="grid grid-cols-1 gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 xl:grid-cols-5">
+        <section className="grid grid-cols-1 gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 xl:grid-cols-6">
           <Field label="Search">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -499,8 +564,8 @@ function FMLA() {
           <Field label="Status">
             <Select value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))}>
               <option value="">All statuses</option>
-              {['Draft','Waiting on client','Waiting on employer','Waiting on provider','Paperwork received','Paperwork sent','Confirmation pending','Approved','Denied','Extension needed','Closed'].map((status) => (
-                <option key={status} value={status}>{status}</option>
+              {FMLA_STATUS_OPTIONS.map((status) => (
+                <option key={status.value} value={status.value}>{status.label}</option>
               ))}
             </Select>
           </Field>
@@ -517,9 +582,17 @@ function FMLA() {
           <Field label="Case Manager">
             <Input value={filters.case_manager} onChange={(e) => setFilters((prev) => ({ ...prev, case_manager: e.target.value }))} />
           </Field>
+          <Field label="Needs action">
+            <Select value={filters.workflow_bucket} onChange={(e) => setFilters((prev) => ({ ...prev, workflow_bucket: e.target.value }))}>
+              <option value="">All workflow buckets</option>
+              {Object.entries(WORKFLOW_ACTION_BUCKETS).filter(([key]) => key !== 'monitoring').map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </Select>
+          </Field>
         </section>
 
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[400px_minmax(0,1fr)]">
           <aside className="rounded-3xl border border-white/10 bg-white/5 p-4">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-lg font-semibold">FMLA Cases</h2>
@@ -530,8 +603,8 @@ function FMLA() {
                 <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-sm text-slate-300">Loading cases…</div>
               ) : visibleCases.length === 0 ? (
                 <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-4 text-sm text-slate-300">No FMLA cases match the current filters.</div>
-              ) : visibleCases.map((item) => {
-                const state = getDeadlineState(item.paperwork_deadline)
+              ) : visibleCaseSnapshots.map(({ caseItem: item, workflow }) => {
+                const state = workflow.nextDue?.state || getDeadlineState(item.paperwork_deadline)
                 return (
                   <button
                     key={item.case_id}
@@ -548,12 +621,17 @@ function FMLA() {
                         <p className="text-sm text-slate-400">{item.employer_name || 'Employer not added'}</p>
                       </div>
                       <span className={`rounded-full border px-2 py-1 text-[11px] ${getFmlaStatusBadgeClass(item.status)}`}>
-                        {item.status}
+                        {formatFmlaLabel(item.status)}
                       </span>
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-300">
-                      <div>Type: <span className="text-white">{item.fmla_request_type}</span></div>
-                      <div>Manager: <span className="text-white">{item.assigned_case_manager}</span></div>
+                    <div className="mt-3 rounded-xl border border-cyan-400/20 bg-cyan-400/10 px-3 py-2 text-xs text-cyan-100">
+                      Stage: <span className="font-semibold text-white">{workflow.stage}</span>
+                    </div>
+                    <div className="mt-3 space-y-2 text-xs text-slate-300">
+                      <div>Next action: <span className="text-white">{workflow.nextAction}</span></div>
+                      <div>Waiting on: <span className="text-white">{workflow.waitingOn}</span></div>
+                      <div>Next due: <span className="text-white">{workflow.nextDue ? `${workflow.nextDue.label} · ${formatDisplayDate(workflow.nextDue.value)}` : 'No active deadline'}</span></div>
+                      <div>Last contact: <span className="text-white">{formatDisplayDate(workflow.lastContactDate, 'No contact logged')}</span></div>
                     </div>
                     <div className={`mt-3 rounded-xl px-3 py-2 text-xs ${
                       state.tone === 'danger' ? 'bg-rose-500/10 text-rose-200' :
@@ -562,6 +640,11 @@ function FMLA() {
                       'bg-slate-500/10 text-slate-300'
                     }`}>
                       {state.label}
+                    </div>
+                    <div className="mt-3 text-right">
+                      <span className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white">
+                        Open Case
+                      </span>
                     </div>
                   </button>
                 )
@@ -575,12 +658,13 @@ function FMLA() {
                 <div>
                   <h2 className="text-2xl font-semibold">{creatingNewCase ? 'New FMLA Case' : (selectedCase?.client_name || 'Select an FMLA case')}</h2>
                   <p className="text-sm text-slate-400">
-                    Organize employer contacts, provider paperwork, deadlines, correspondence, and follow-up reminders in one case file.
+                    Move the case from employer contact through packet handling, provider completion, employer return, and RTW follow-up.
                   </p>
                 </div>
                 {!creatingNewCase && selectedCase ? (
-                  <div className="flex items-center gap-3">
-                    <span className={`rounded-full border px-3 py-1 text-xs ${getFmlaStatusBadgeClass(selectedCase.status)}`}>{selectedCase.status}</span>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-100">{selectedWorkflow.stage}</span>
+                    <span className={`rounded-full border px-3 py-1 text-xs ${getFmlaStatusBadgeClass(selectedCase.status)}`}>{formatFmlaLabel(selectedCase.status)}</span>
                     <span className="rounded-full bg-slate-950/40 px-3 py-1 text-xs text-slate-300">{deadlineState.label}</span>
                   </div>
                 ) : null}
@@ -598,6 +682,46 @@ function FMLA() {
                 </div>
               ) : (
                 <div className="space-y-8">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <WorkflowMetric label="Current stage" value={selectedWorkflow.stage} tone="default" />
+                    <WorkflowMetric label="Waiting on" value={selectedWorkflow.waitingOn} tone="warning" />
+                    <WorkflowMetric label="Next action" value={selectedWorkflow.nextAction} tone="danger" />
+                    <WorkflowMetric
+                      label="Next due"
+                      value={selectedWorkflow.nextDue ? `${selectedWorkflow.nextDue.label} · ${formatDisplayDate(selectedWorkflow.nextDue.value)}` : 'No active deadline'}
+                      tone={selectedWorkflow.nextDue?.state?.tone === 'danger' ? 'danger' : selectedWorkflow.nextDue?.state?.tone === 'warning' ? 'warning' : 'success'}
+                    />
+                  </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-lg font-semibold">Workflow Stage Tracker</h3>
+                      <span className="text-xs text-slate-400">Last contact: {formatDisplayDate(selectedWorkflow.lastContactDate, 'No contact logged')}</span>
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {WORKFLOW_STAGES.map((stage, index) => {
+                        const isCurrent = stage === selectedWorkflow.stage
+                        const isComplete = selectedStageIndex > -1 && index < selectedStageIndex
+                        return (
+                          <span
+                            key={stage}
+                            className={`rounded-full border px-3 py-1 text-xs ${
+                              isCurrent
+                                ? 'border-cyan-400/40 bg-cyan-400/15 text-cyan-100'
+                                : isComplete
+                                  ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+                                  : 'border-white/10 bg-white/5 text-slate-300'
+                            }`}
+                          >
+                            {stage}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="mb-4 text-lg font-semibold">Overview</h3>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <Field label="Client name"><Input value={caseForm.client_name} onChange={(e) => handleCaseFieldChange('client_name', e.target.value)} /></Field>
                     <Field label="Linked client">
@@ -617,7 +741,7 @@ function FMLA() {
                     </Field>
                     <Field label="Status">
                       <Select value={caseForm.status} onChange={(e) => handleCaseFieldChange('status', e.target.value)}>
-                        {['Draft','Waiting on client','Waiting on employer','Waiting on provider','Paperwork received','Paperwork sent','Confirmation pending','Approved','Denied','Extension needed','Closed'].map((item) => <option key={item} value={item}>{item}</option>)}
+                        {FMLA_STATUS_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
                       </Select>
                     </Field>
                     <Field label="Approval status">
@@ -626,10 +750,11 @@ function FMLA() {
                       </Select>
                     </Field>
                   </div>
+                  </div>
 
                   <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                     <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5 space-y-4">
-                      <h3 className="flex items-center gap-2 text-lg font-semibold"><Building2 className="h-5 w-5 text-cyan-300" /> Employer Information</h3>
+                      <h3 className="flex items-center gap-2 text-lg font-semibold"><Building2 className="h-5 w-5 text-cyan-300" /> Employer Contact and Packet Request</h3>
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <Field label="Employer name"><Input value={caseForm.employer_name || ''} onChange={(e) => handleCaseFieldChange('employer_name', e.target.value)} /></Field>
                         <Field label="HR contact name"><Input value={caseForm.hr_contact_name || ''} onChange={(e) => handleCaseFieldChange('hr_contact_name', e.target.value)} /></Field>
@@ -641,6 +766,7 @@ function FMLA() {
                             {['phone','email','fax','mail','portal'].map((item) => <option key={item} value={item}>{item}</option>)}
                           </Select>
                         </Field>
+                        <Field label="Employer response deadline"><Input type="date" value={caseForm.employer_response_deadline || ''} onChange={(e) => handleCaseFieldChange('employer_response_deadline', e.target.value)} /></Field>
                         <div className="md:col-span-2">
                           <Field label="Employer address"><Textarea rows={2} value={caseForm.employer_address || ''} onChange={(e) => handleCaseFieldChange('employer_address', e.target.value)} /></Field>
                         </div>
@@ -648,7 +774,7 @@ function FMLA() {
                     </div>
 
                     <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5 space-y-4">
-                      <h3 className="flex items-center gap-2 text-lg font-semibold"><Phone className="h-5 w-5 text-cyan-300" /> Medical / Provider Contact</h3>
+                      <h3 className="flex items-center gap-2 text-lg font-semibold"><Phone className="h-5 w-5 text-cyan-300" /> Medical / Provider</h3>
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <Field label="Provider / doctor name"><Input value={caseForm.provider_name || ''} onChange={(e) => handleCaseFieldChange('provider_name', e.target.value)} /></Field>
                         <Field label="Clinic / facility name"><Input value={caseForm.clinic_name || ''} onChange={(e) => handleCaseFieldChange('clinic_name', e.target.value)} /></Field>
@@ -660,6 +786,7 @@ function FMLA() {
                             {['unknown','not needed','needed','requested','received','expired'].map((item) => <option key={item} value={item}>{item}</option>)}
                           </Select>
                         </Field>
+                        <Field label="Certification expiration"><Input type="date" value={caseForm.certification_expiration_date || ''} onChange={(e) => handleCaseFieldChange('certification_expiration_date', e.target.value)} /></Field>
                         <div className="md:col-span-2">
                           <Field label="Provider address"><Textarea rows={2} value={caseForm.provider_address || ''} onChange={(e) => handleCaseFieldChange('provider_address', e.target.value)} /></Field>
                         </div>
@@ -668,11 +795,18 @@ function FMLA() {
                   </div>
 
                   <div className="rounded-2xl border border-white/10 bg-slate-950/20 p-5 space-y-4">
-                    <h3 className="flex items-center gap-2 text-lg font-semibold"><CalendarClock className="h-5 w-5 text-cyan-300" /> FMLA Details and Deadlines</h3>
+                    <h3 className="flex items-center gap-2 text-lg font-semibold"><CalendarClock className="h-5 w-5 text-cyan-300" /> Packet, Decision, and Return-to-Work</h3>
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                      <Field label="Leave type">
+                        <Select value={caseForm.leave_type || 'continuous'} onChange={(e) => handleCaseFieldChange('leave_type', e.target.value)}>
+                          {LEAVE_TYPE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+                        </Select>
+                      </Field>
                       <Field label="Leave start date"><Input type="date" value={caseForm.leave_start_date || ''} onChange={(e) => handleCaseFieldChange('leave_start_date', e.target.value)} /></Field>
+                      <Field label="Leave end date"><Input type="date" value={caseForm.leave_end_date || ''} onChange={(e) => handleCaseFieldChange('leave_end_date', e.target.value)} /></Field>
                       <Field label="Expected return date"><Input type="date" value={caseForm.expected_return_date || ''} onChange={(e) => handleCaseFieldChange('expected_return_date', e.target.value)} /></Field>
                       <Field label="Deadline to submit paperwork"><Input type="date" value={caseForm.paperwork_deadline || ''} onChange={(e) => handleCaseFieldChange('paperwork_deadline', e.target.value)} /></Field>
+                      <Field label="Return-to-work date"><Input type="date" value={caseForm.return_to_work_date || ''} onChange={(e) => handleCaseFieldChange('return_to_work_date', e.target.value)} /></Field>
                       <Field label="Confirmation received">
                         <Select value={caseForm.confirmation_received ? 'yes' : 'no'} onChange={(e) => handleCaseFieldChange('confirmation_received', e.target.value === 'yes')}>
                           <option value="no">No</option>
@@ -690,6 +824,9 @@ function FMLA() {
                     </div>
                     <Field label="Notes">
                       <Textarea rows={4} value={caseForm.notes || ''} onChange={(e) => handleCaseFieldChange('notes', e.target.value)} placeholder="Add case notes, blockers, missing items, or follow-up details." />
+                    </Field>
+                    <Field label="Internal comments">
+                      <Textarea rows={3} value={caseForm.internal_comments || ''} onChange={(e) => handleCaseFieldChange('internal_comments', e.target.value)} placeholder="Internal case manager comments only." />
                     </Field>
                     <div className="mt-4">
                       <DocumentationAssistPanel
@@ -727,12 +864,17 @@ function FMLA() {
             {selectedCase || creatingNewCase ? (
               <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
                 <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
-                  <h3 className="mb-4 text-lg font-semibold">Case Summary</h3>
+                  <h3 className="mb-4 text-lg font-semibold">Workflow Snapshot</h3>
                   <div className="space-y-3 text-sm">
-                    <div className="flex justify-between gap-4"><span className="text-slate-400">Deadline</span><span>{deadlineState.label}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Stage</span><span className="text-right">{selectedWorkflow.stage}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Waiting on</span><span className="text-right">{selectedWorkflow.waitingOn}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Next action</span><span className="text-right">{selectedWorkflow.nextAction}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Next due</span><span className="text-right">{selectedWorkflow.nextDue ? `${selectedWorkflow.nextDue.label} · ${formatDisplayDate(selectedWorkflow.nextDue.value)}` : deadlineState.label}</span></div>
                     <div className="flex justify-between gap-4"><span className="text-slate-400">Employer</span><span className="text-right">{caseForm.employer_name || 'Not added'}</span></div>
                     <div className="flex justify-between gap-4"><span className="text-slate-400">Provider</span><span className="text-right">{caseForm.provider_name || caseForm.clinic_name || 'Not added'}</span></div>
-                    <div className="flex justify-between gap-4"><span className="text-slate-400">Request type</span><span className="text-right capitalize">{caseForm.fmla_request_type}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Request type</span><span className="text-right">{formatFmlaLabel(caseForm.fmla_request_type)}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Leave type</span><span className="text-right">{formatFmlaLabel(caseForm.leave_type)}</span></div>
+                    <div className="flex justify-between gap-4"><span className="text-slate-400">Return-to-work</span><span className="text-right">{caseForm.return_to_work_date || 'Not set'}</span></div>
                   </div>
                   <div className="mt-6 rounded-2xl bg-slate-950/30 p-4">
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Missing items</p>
@@ -744,8 +886,8 @@ function FMLA() {
 
                 <div className="rounded-3xl border border-white/10 bg-white/5 p-6 xl:col-span-2">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Create Reminder</h3>
-                    <span className="text-xs text-slate-400">Creates a persisted reminder in the main reminders module</span>
+                    <h3 className="text-lg font-semibold">Follow-Up / RTW / Extension</h3>
+                    <span className="text-xs text-slate-400">Persisted reminders for employer, provider, RTW, and extension follow-up</span>
                   </div>
                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                     <Field label="Reminder text"><Input value={reminderForm.reminder_text} onChange={(e) => setReminderForm((prev) => ({ ...prev, reminder_text: e.target.value }))} placeholder="Follow up with HR" /></Field>
@@ -782,8 +924,8 @@ function FMLA() {
               <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
                 <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Paperwork Checklist</h3>
-                    <span className="text-xs text-slate-400">Upload files now or save a checklist-only entry</span>
+                    <h3 className="text-lg font-semibold">Packet & Documents</h3>
+                    <span className="text-xs text-slate-400">Receive/store packet, track missing paperwork, and return completed documents</span>
                   </div>
                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                     <Field label="Document type">
@@ -887,8 +1029,8 @@ function FMLA() {
 
                 <div className="rounded-3xl border border-white/10 bg-white/5 p-6">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Correspondence Timeline</h3>
-                    <span className="text-xs text-slate-400">Chronological communication log</span>
+                    <h3 className="text-lg font-semibold">Timeline</h3>
+                    <span className="text-xs text-slate-400">Employer, provider, and follow-up activity history</span>
                   </div>
                   <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
                     <Field label="Date/time"><Input type="datetime-local" value={correspondenceForm.correspondence_at} onChange={(e) => setCorrespondenceForm((prev) => ({ ...prev, correspondence_at: e.target.value }))} /></Field>
