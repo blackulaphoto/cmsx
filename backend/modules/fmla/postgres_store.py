@@ -21,10 +21,15 @@ def _mappings(result) -> List[Dict[str, Any]]:
 
 class PostgresFMLAStore(FMLAStore):
     def __init__(self, reminders_db_path: str = "databases/reminders.db"):
-        self.engine = _engine()
+        self.engine = None
         self.reminders_db_path = Path(reminders_db_path)
         self.reminders_db_path.parent.mkdir(parents=True, exist_ok=True)
         self._schema_ready = False
+
+    def _get_engine(self):
+        if self.engine is None:
+            self.engine = _engine()
+        return self.engine
 
     def _ensure_ready(self) -> None:
         if self._schema_ready:
@@ -48,19 +53,19 @@ class PostgresFMLAStore(FMLAStore):
 
     def _fetchone(self, query: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         self._ensure_ready()
-        with self.engine.begin() as conn:
+        with self._get_engine().begin() as conn:
             row = conn.execute(text(query), params or {}).mappings().first()
         return dict(row) if row else None
 
     def _fetchall(self, query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         self._ensure_ready()
-        with self.engine.begin() as conn:
+        with self._get_engine().begin() as conn:
             result = conn.execute(text(query), params or {})
             return _mappings(result)
 
     def _execute(self, query: str, params: Optional[Dict[str, Any]] = None) -> None:
         self._ensure_ready()
-        with self.engine.begin() as conn:
+        with self._get_engine().begin() as conn:
             conn.execute(text(query), params or {})
 
     def list_cases(self, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
