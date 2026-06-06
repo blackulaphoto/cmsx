@@ -12,11 +12,11 @@ from backend.auth.authorization import assert_client_access, effective_case_mana
 from backend.auth.service import require_authenticated_user
 
 from .export_service import build_packet_pdf, generate_employer_safe_packet
-from .store import FMLAStore
+from .store_factory import get_fmla_store
 
 
 router = APIRouter(tags=["fmla"])
-store = FMLAStore()
+store = get_fmla_store()
 logger = logging.getLogger(__name__)
 FMLA_UPLOADS_DIR = Path(__file__).resolve().parents[3] / "uploads" / "fmla"
 FMLA_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)

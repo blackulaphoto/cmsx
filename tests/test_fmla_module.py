@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
@@ -12,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from backend.auth.service import AuthenticatedUser
 from backend.modules.fmla import routes as fmla_routes
 from backend.modules.fmla.store import FMLAStore
+from backend.modules.fmla.store_factory import get_fmla_store
 
 
 class FMLAStoreTests(unittest.TestCase):
@@ -263,6 +265,21 @@ class FMLAStoreTests(unittest.TestCase):
         self.assertEqual(summary["denied_cases"], 1)
         self.assertGreaterEqual(summary["missing_paperwork"], 3)
         self.assertGreaterEqual(summary["total_active_cases"], 2)
+
+
+class FMLAStoreFactoryTests(unittest.TestCase):
+    def test_sqlite_fallback_selected_without_postgres(self):
+        with patch("backend.modules.fmla.store_factory.is_postgres_configured", return_value=False):
+            store = get_fmla_store()
+        self.assertIsInstance(store, FMLAStore)
+
+    def test_postgres_store_selected_with_postgres_url(self):
+        sentinel = object()
+        with patch("backend.modules.fmla.store_factory.is_postgres_configured", return_value=True):
+            with patch("backend.modules.fmla.store_factory.PostgresFMLAStore", return_value=sentinel) as mocked:
+                store = get_fmla_store()
+        mocked.assert_called_once_with()
+        self.assertIs(store, sentinel)
 
 
 if __name__ == "__main__":
