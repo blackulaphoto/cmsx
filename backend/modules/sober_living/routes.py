@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+import traceback
+
 from fastapi import APIRouter, HTTPException
 
-from .database import get_store
+from .database import get_store, _use_postgres, _pg_conn, _database_url
 from .models import (
     BedCreate, BedTransfer, BedUpdate,
     HouseCreate, HouseUpdate,
@@ -16,6 +19,8 @@ from .models import (
     IncidentCreate, IncidentUpdate,
     RentChargeCreate, RentPaymentCreate,
 )
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/sober-living", tags=["sober-living"])
 
@@ -29,6 +34,41 @@ def get_summary():
     return get_store().get_summary()
 
 
+@router.get("/diagnostics")
+def diagnostics():
+    """Returns schema state and backend info — no secrets, safe to call authenticated."""
+    result = {
+        "backend": "postgres" if _use_postgres() else "sqlite",
+        "store_loaded": False,
+        "tables": {},
+        "errors": [],
+    }
+    try:
+        get_store()
+        result["store_loaded"] = True
+    except Exception as e:
+        result["errors"].append(f"get_store: {e}")
+
+    if _use_postgres():
+        try:
+            with _pg_conn() as conn:
+                cur = conn.cursor()
+                for table in [
+                    "sober_living_houses", "sober_living_rooms",
+                    "sober_living_beds", "sober_living_residents", "sober_living_stays",
+                ]:
+                    cur.execute(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name = %s ORDER BY ordinal_position",
+                        (table,),
+                    )
+                    cols = [r["column_name"] for r in cur.fetchall()]
+                    result["tables"][table] = cols
+        except Exception as e:
+            result["errors"].append(f"schema_inspect: {e}")
+
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Houses
 # ---------------------------------------------------------------------------
@@ -40,7 +80,15 @@ def list_houses():
 
 @router.post("/houses", status_code=201)
 def create_house(body: HouseCreate):
-    return get_store().create_house(body.dict())
+    data = body.dict()
+    log.info(f"[sober_living] create_house payload keys={list(data.keys())} house_name={data.get('house_name')!r}")
+    try:
+        result = get_store().create_house(data)
+        log.info(f"[sober_living] create_house success house_id={result.get('house_id') if result else None}")
+        return result
+    except Exception as e:
+        log.error(f"[sober_living] create_house FAILED: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/houses/{house_id}")
