@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import {
   filterFmlaCases,
+  getCaseDisplayName,
   getDeadlineState,
+  getDeadlineBuckets,
   getMissingChecklist
 } from '../src/utils/fmla'
 
 describe('FMLA utilities', () => {
   it('filters cases by status and search', () => {
     const cases = [
-      { client_name: 'Taylor Jones', employer_name: 'ACME Logistics', assigned_case_manager: 'cm_001', status: 'Approved', paperwork_deadline: '2030-01-10' },
-      { client_name: 'Jordan Smith', employer_name: 'Northwind Health', assigned_case_manager: 'cm_001', status: 'Denied', paperwork_deadline: '2030-01-11' }
+      { client_name: 'Taylor Jones', employer_name: 'ACME Logistics', assigned_case_manager: 'cm_001', status: 'approved', paperwork_deadline: '2030-01-10', case_subject_type: 'client' },
+      { staff_name: 'Jordan Smith', staff_identifier: 'emp-2', employer_name: 'Northwind Health', assigned_case_manager: 'cm_001', status: 'denied', paperwork_deadline: '2030-01-11', case_subject_type: 'staff' }
     ]
-    const result = filterFmlaCases(cases, { search: 'taylor', status: 'Approved', employer: '', case_manager: '', deadline: '' })
+    const result = filterFmlaCases(cases, { search: 'taylor', status: 'approved', employer: '', case_manager: '', deadline: '', case_subject_type: 'client' })
     expect(result).toHaveLength(1)
     expect(result[0].client_name).toBe('Taylor Jones')
   })
@@ -30,10 +32,14 @@ describe('FMLA utilities', () => {
   it('identifies missing paperwork checklist items', () => {
     const checklist = getMissingChecklist(
       {
+        case_subject_type: 'client',
+        leave_type: 'intermittent',
         paperwork_received_date: '',
         paperwork_completed_date: '',
         paperwork_sent_date: '',
-        confirmation_received: false
+        confirmation_received: false,
+        expected_return_date: '',
+        certification_expiration_date: ''
       },
       [
         { document_type: 'employer packet', document_status: 'needed' }
@@ -41,5 +47,24 @@ describe('FMLA utilities', () => {
     )
     expect(checklist).toContain('Paperwork not received')
     expect(checklist).toContain('Open document requests')
+    expect(checklist).toContain('Expected return date not set')
+    expect(checklist).toContain('Certification expiration date not set')
+  })
+
+  it('prefers staff identifiers for staff cases', () => {
+    expect(getCaseDisplayName({ case_subject_type: 'staff', staff_name: 'Alex Worker' })).toBe('Alex Worker')
+  })
+
+  it('combines case and reminder deadlines', () => {
+    const buckets = getDeadlineBuckets(
+      {
+        paperwork_deadline: '2030-01-10',
+        employer_response_deadline: '2030-01-11'
+      },
+      [
+        { reminder_id: 'r1', reminder_reason: 'Follow up', due_date: '2030-01-09' }
+      ]
+    )
+    expect(buckets).toHaveLength(3)
   })
 })

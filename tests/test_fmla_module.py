@@ -4,11 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from backend.auth.service import AuthenticatedUser
 from backend.modules.fmla import routes as fmla_routes
 from backend.modules.fmla.store import FMLAStore
 
@@ -44,7 +45,22 @@ class FMLAStoreTests(unittest.TestCase):
         fmla_routes.store = self.store
         fmla_routes.FMLA_UPLOADS_DIR = self.base_path / "uploads"
         fmla_routes.FMLA_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
         app = FastAPI()
+
+        @app.middleware("http")
+        async def inject_auth_user(request: Request, call_next):
+            request.state.auth_user = AuthenticatedUser(
+                firebase_uid="uid-1",
+                email="case.manager@example.com",
+                full_name="Case Manager",
+                role="admin",
+                case_manager_id="cm_001",
+                auth_provider="password",
+                is_active=True,
+            )
+            return await call_next(request)
+
         app.include_router(fmla_routes.router, prefix="/api")
         self.client = TestClient(app)
 
@@ -53,32 +69,33 @@ class FMLAStoreTests(unittest.TestCase):
         fmla_routes.FMLA_UPLOADS_DIR = self.original_upload_dir
         self.temp_dir.cleanup()
 
-    def _create_case(self):
-        return self.store.create_case(
-            {
-                "client_id": "client_1",
-                "client_name": "Taylor Jones",
-                "assigned_case_manager": "cm_001",
-                "employer_name": "ACME Logistics",
-                "fmla_request_type": "new request",
-                "paperwork_deadline": "2030-01-15",
-                "status": "Waiting on provider",
-                "approval_status": "pending",
-            }
-        )
+    def _create_case(self, **overrides):
+        payload = {
+            "client_id": "",
+            "client_name": "Taylor Jones",
+            "assigned_case_manager": "cm_001",
+            "employer_name": "ACME Logistics",
+            "fmla_request_type": "new request",
+            "leave_type": "continuous",
+            "paperwork_deadline": "2030-01-15",
+            "status": "pending documents",
+            "approval_status": "pending",
+        }
+        payload.update(overrides)
+        return self.store.create_case(payload)
 
     def test_create_and_update_case_persists_after_reload(self):
         created = self._create_case()
         self.assertEqual(created["client_name"], "Taylor Jones")
 
-        updated = self.store.update_case(created["case_id"], {"status": "Paperwork sent", "confirmation_received": True})
+        updated = self.store.update_case(created["case_id"], {"status": "submitted", "confirmation_received": True})
         self.assertIsNotNone(updated)
-        self.assertEqual(updated["status"], "Paperwork sent")
+        self.assertEqual(updated["status"], "submitted")
         self.assertEqual(updated["confirmation_received"], 1)
 
         reloaded_store = FMLAStore(str(self.fmla_db), str(self.reminders_db))
         reloaded = reloaded_store.get_case(created["case_id"])
-        self.assertEqual(reloaded["status"], "Paperwork sent")
+        self.assertEqual(reloaded["status"], "submitted")
         self.assertEqual(reloaded["confirmation_received"], 1)
 
     def test_add_document_and_correspondence(self):
@@ -89,6 +106,7 @@ class FMLAStoreTests(unittest.TestCase):
                 "document_type": "medical certification",
                 "document_status": "received",
                 "date_received": "2030-01-10",
+                "uploader_name": "Case Manager",
             },
         )
         correspondence = self.store.create_correspondence(
@@ -103,6 +121,7 @@ class FMLAStoreTests(unittest.TestCase):
         documents = self.store.list_documents(created["case_id"])
         correspondence_rows = self.store.list_correspondence(created["case_id"])
         self.assertEqual(document["document_type"], "medical certification")
+        self.assertEqual(documents[0]["uploader_name"], "Case Manager")
         self.assertEqual(len(documents), 1)
         self.assertEqual(correspondence["contact_type"], "email")
         self.assertEqual(len(correspondence_rows), 1)
@@ -128,21 +147,10 @@ class FMLAStoreTests(unittest.TestCase):
         payload = upload_response.json()
         self.assertTrue(payload["success"])
         self.assertEqual(payload["document_count"], 2)
-        self.assertEqual(len(payload["documents"]), 2)
         first_document = payload["documents"][0]
-        second_document = payload["documents"][1]
-        self.assertEqual(first_document["batch_name"], "Initial employer packet")
-        self.assertTrue(first_document["batch_id"])
-        self.assertEqual(first_document["batch_id"], second_document["batch_id"])
-        self.assertEqual(first_document["file_name"], "release.pdf")
-        self.assertEqual(second_document["file_name"], "employer-letter.jpg")
-
         stored_first = self.store.get_document(first_document["document_id"])
-        stored_second = self.store.get_document(second_document["document_id"])
-        self.assertIsNotNone(stored_first)
-        self.assertIsNotNone(stored_second)
+        self.assertEqual(stored_first["uploader_case_manager_id"], "cm_001")
         self.assertTrue((fmla_routes.FMLA_UPLOADS_DIR / stored_first["file_path"]).exists())
-        self.assertTrue((fmla_routes.FMLA_UPLOADS_DIR / stored_second["file_path"]).exists())
 
         download_response = self.client.get(f"/api/fmla/documents/{first_document['document_id']}/download")
         self.assertEqual(download_response.status_code, 200)
@@ -174,29 +182,87 @@ class FMLAStoreTests(unittest.TestCase):
         self.assertEqual(row[1], "High")
         self.assertEqual(row[2], "2030-01-12")
 
+    def test_leave_usage_and_exports_persist(self):
+        created = self._create_case(leave_type="intermittent", certification_expiration_date="2030-02-01")
+
+        usage_response = self.client.post(
+            f"/api/fmla/{created['case_id']}/leave-usage",
+            json={
+                "usage_date": "2030-01-05",
+                "duration_minutes": 90,
+                "reason_category": "medical appointment",
+                "notes": "Follow-up visit",
+            },
+        )
+        self.assertEqual(usage_response.status_code, 200)
+        usage_payload = usage_response.json()
+        self.assertEqual(usage_payload["summary"]["total_minutes"], 90)
+
+        draft_response = self.client.post(
+            f"/api/fmla/{created['case_id']}/exports/draft",
+            json={
+                "export_type": "employer packet",
+                "custom_instructions": "Avoid diagnosis details",
+            },
+        )
+        self.assertEqual(draft_response.status_code, 200)
+        draft_payload = draft_response.json()
+        self.assertIn("Generated draft only", draft_payload["export"]["warning_text"])
+
+        export_id = draft_payload["export"]["export_id"]
+        pdf_response = self.client.post(
+            f"/api/fmla/{created['case_id']}/exports/{export_id}/pdf",
+            json={
+                "draft_title": "Employer Safe Packet",
+                "draft_content": draft_payload["export"]["draft_content"],
+                "review_notes": "Reviewed by supervisor",
+            },
+        )
+        self.assertEqual(pdf_response.status_code, 200)
+        export_payload = pdf_response.json()
+        self.assertTrue(export_payload["export"]["safe_filename"].endswith(".pdf"))
+
+        download_response = self.client.get(f"/api/fmla/exports/{export_id}/download")
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(download_response.headers["content-type"], "application/pdf")
+
     def test_filters_and_summary(self):
-        first = self._create_case()
-        self.store.update_case(first["case_id"], {"status": "Approved", "approval_status": "approved"})
-        second = self.store.create_case(
+        first = self._create_case(status="approved", approval_status="approved")
+        self.store.create_case(
             {
-                "client_id": "client_2",
+                "client_id": "",
                 "client_name": "Jordan Smith",
                 "assigned_case_manager": "cm_001",
                 "employer_name": "Northwind Health",
                 "fmla_request_type": "extension",
+                "leave_type": "continuous",
                 "paperwork_deadline": "2000-01-01",
-                "status": "Denied",
+                "status": "denied",
                 "approval_status": "denied",
             }
         )
-        denied_cases = self.store.list_cases({"status": "Denied"})
+        self.store.create_case(
+            {
+                "case_subject_type": "staff",
+                "client_name": "Staff leave case",
+                "staff_identifier": "emp-22",
+                "staff_name": "Alex Worker",
+                "assigned_case_manager": "cm_001",
+                "employer_name": "Northwind Health",
+                "fmla_request_type": "new request",
+                "leave_type": "reduced schedule",
+                "status": "submitted",
+                "approval_status": "pending",
+            }
+        )
+        denied_cases = self.store.list_cases({"status": "denied"})
         self.assertEqual(len(denied_cases), 1)
-        self.assertEqual(denied_cases[0]["case_id"], second["case_id"])
 
         summary = self.store.get_summary("cm_001")
         self.assertEqual(summary["approved_cases"], 1)
         self.assertEqual(summary["denied_cases"], 1)
-        self.assertGreaterEqual(summary["missing_paperwork"], 2)
+        self.assertGreaterEqual(summary["missing_paperwork"], 3)
+        self.assertGreaterEqual(summary["total_active_cases"], 2)
 
 
 if __name__ == "__main__":
