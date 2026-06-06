@@ -23,6 +23,7 @@ import Rolodex from './pages/Rolodex'
 import Resume from './pages/Resume'
 import Legal from './pages/Legal'
 import FMLA from './pages/FMLA'
+import UR from './pages/UR'
 import DocumentationCenter from './pages/DocumentationCenter'
 import AIChat from './pages/AIChat'
 import Services from './pages/Services'
@@ -74,6 +75,7 @@ function App() {
         <Route path="/resume" element={<Resume />} />
         <Route path="/legal" element={<Legal />} />
         <Route path="/fmla" element={<FMLA />} />
+        <Route path="/ur" element={<UR />} />
         <Route path="/documentation" element={<DocumentationCenter />} />
         <Route path="/ai-chat" element={<AIChat />} />
         <Route path="/services" element={<Services />} />

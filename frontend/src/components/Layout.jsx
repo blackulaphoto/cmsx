@@ -42,6 +42,7 @@ const Layout = ({ children }) => {
     { path: '/rolodex', label: 'Rolodex', icon: Contact, gradient: 'from-cyan-500 to-sky-500' },
     { path: '/legal', label: 'Legal', icon: Scale, gradient: 'from-indigo-500 to-purple-500' },
     { path: '/fmla', label: 'FMLA', icon: ClipboardList, gradient: 'from-cyan-500 to-sky-500' },
+    { path: '/ur', label: 'UR', icon: Bell, gradient: 'from-amber-500 to-orange-500' },
     { path: '/resume', label: 'Resume', icon: FileText, gradient: 'from-emerald-500 to-green-500' },
     { path: '/jobs', label: 'Jobs', icon: Briefcase, gradient: 'from-emerald-500 to-green-500' },
     { path: '/supervisor-dashboard', label: 'Supervisor', icon: BarChart3, gradient: 'from-cyan-500 to-blue-500' },

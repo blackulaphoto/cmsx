@@ -208,6 +208,15 @@ except Exception as e:
     logger.warning(f"FMLA module not loaded: {e}")
 
 try:
+    from backend.modules.ur.routes import router as ur_router
+    app.include_router(ur_router, prefix="/api", tags=["ur"])
+    loaded_modules["ur"] = "loaded"
+    logger.info("UR module loaded successfully")
+except Exception as e:
+    loaded_modules["ur"] = f"error: {e}"
+    logger.warning(f"UR module not loaded: {e}")
+
+try:
     from backend.modules.resume.routes import router as resume_router
     app.include_router(resume_router, prefix="/api/resume", tags=["resume"])
     loaded_modules["resume"] = "loaded"
@@ -385,6 +394,7 @@ async def root():
             "rolodex": "/api/rolodex",
             "legal": "/api/legal",
             "fmla": "/api/fmla",
+            "ur": "/api/ur",
             "resume": "/api/resume",
             "ai": "/api/ai",
             "ai_documentation": "/api/ai-documentation",
