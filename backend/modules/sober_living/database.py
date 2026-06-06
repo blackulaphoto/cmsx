@@ -406,10 +406,18 @@ def _pg_table_exists(cur, table: str) -> bool:
 
 def _migrate_legacy() -> None:
     """
-    Rename columns from old schema if they still exist.
-    Each rename runs in its own SAVEPOINT so failures don't cascade.
-    Safe to call repeatedly — no-ops if columns already have the new names.
-    Only runs on Postgres; SQLite DBs start fresh from DDL.
+    Bring any existing Postgres table up to the current schema.
+
+    Three operations, each in its own SAVEPOINT so failures don't cascade:
+      1. Column renames  — old_name -> new_name if old_name still exists
+      2. Column additions — ADD COLUMN IF NOT EXISTS for every column the old
+         schema lacked (CREATE TABLE IF NOT EXISTS is a no-op on existing tables,
+         so new columns were never added to tables created by earlier deployments)
+      3. Type fixes      — ALTER COLUMN ... USING ... for columns whose type
+         changed (e.g. is_active was renamed from status TEXT, type must be INTEGER)
+
+    Safe to call repeatedly — all operations are idempotent.
+    Only runs on Postgres; SQLite starts fresh from DDL.
     """
     if not _use_postgres():
         return
@@ -417,8 +425,8 @@ def _migrate_legacy() -> None:
     import psycopg2
     import psycopg2.extras
 
+    # Step 1: renames (old_col -> new_col)
     renames = [
-        # (table, old_column, new_column)
         ("sober_living_houses",    "name",             "house_name"),
         ("sober_living_houses",    "manager_name",     "house_manager_name"),
         ("sober_living_houses",    "phone",            "house_manager_phone"),
@@ -434,6 +442,61 @@ def _migrate_legacy() -> None:
         ("sober_living_residents", "client_id",        "linked_client_id"),
     ]
 
+    # Step 2: columns that must exist but may be absent on old installs
+    # (table, column, column_definition)
+    add_columns = [
+        # sober_living_houses — columns added after initial deployment
+        ("sober_living_houses", "house_manager_name",        "TEXT"),
+        ("sober_living_houses", "house_manager_phone",       "TEXT"),
+        ("sober_living_houses", "house_manager_email",       "TEXT"),
+        ("sober_living_houses", "address",                   "TEXT"),
+        ("sober_living_houses", "city",                      "TEXT"),
+        ("sober_living_houses", "state",                     "TEXT"),
+        ("sober_living_houses", "zip_code",                  "TEXT"),
+        ("sober_living_houses", "house_type",                "TEXT DEFAULT 'any'"),
+        ("sober_living_houses", "certification_level",       "TEXT"),
+        ("sober_living_houses", "total_beds",                "INTEGER DEFAULT 0"),
+        ("sober_living_houses", "monthly_rent",              "REAL"),
+        ("sober_living_houses", "house_rules_version",       "TEXT"),
+        ("sober_living_houses", "affiliated_clinical_program", "TEXT"),
+        ("sober_living_houses", "notes",                     "TEXT"),
+        ("sober_living_houses", "is_active",                 "INTEGER DEFAULT 1"),
+        # sober_living_rooms
+        ("sober_living_rooms",  "floor",                     "TEXT"),
+        ("sober_living_rooms",  "room_type",                 "TEXT"),
+        ("sober_living_rooms",  "max_occupancy",             "INTEGER DEFAULT 1"),
+        ("sober_living_rooms",  "notes",                     "TEXT"),
+        ("sober_living_rooms",  "is_active",                 "INTEGER DEFAULT 1"),
+        # sober_living_beds
+        ("sober_living_beds",   "current_resident_id",       "TEXT"),
+        ("sober_living_beds",   "reserved_for_client_id",    "TEXT"),
+        ("sober_living_beds",   "reserved_until",            "TEXT"),
+        ("sober_living_beds",   "notes",                     "TEXT"),
+        # sober_living_stays
+        ("sober_living_stays",  "expected_move_out_date",    "TEXT"),
+        ("sober_living_stays",  "actual_move_out_date",      "TEXT"),
+        ("sober_living_stays",  "move_out_reason",           "TEXT"),
+        ("sober_living_stays",  "resident_status",           "TEXT DEFAULT 'active'"),
+        ("sober_living_stays",  "clinical_program",          "TEXT"),
+        ("sober_living_stays",  "case_manager_name",         "TEXT"),
+        ("sober_living_stays",  "referral_source",           "TEXT"),
+        ("sober_living_stays",  "step_down_from_level",      "TEXT"),
+        ("sober_living_stays",  "discharge_destination",     "TEXT"),
+        # sober_living_residents
+        ("sober_living_residents", "linked_client_id",              "TEXT"),
+        ("sober_living_residents", "emergency_contact_relationship", "TEXT"),
+        ("sober_living_residents", "primary_substance",              "TEXT"),
+        ("sober_living_residents", "sobriety_date",                  "TEXT"),
+    ]
+
+    # Step 3: type fixes — columns that exist but have wrong type
+    # (table, column, new_pg_type, using_expr)
+    # is_active was renamed from status TEXT — must be INTEGER for "= 1" to work
+    type_fixes = [
+        ("sober_living_houses", "is_active", "INTEGER",
+         "CASE WHEN is_active::text IN ('1','true','active') THEN 1 ELSE 0 END"),
+    ]
+
     conn = psycopg2.connect(
         _database_url(),
         cursor_factory=psycopg2.extras.RealDictCursor,
@@ -441,22 +504,62 @@ def _migrate_legacy() -> None:
     try:
         conn.autocommit = False
         cur = conn.cursor()
+
+        # --- Step 1: renames ---
         for table, old_col, new_col in renames:
             try:
-                cur.execute("SAVEPOINT sl_migrate")
-                # Skip entirely if the table doesn't exist yet
+                cur.execute("SAVEPOINT sl_rename")
                 if not _pg_table_exists(cur, table):
-                    cur.execute("RELEASE SAVEPOINT sl_migrate")
+                    cur.execute("RELEASE SAVEPOINT sl_rename")
                     continue
                 if _pg_col_exists(cur, table, old_col):
-                    cur.execute(
-                        f"ALTER TABLE {table} RENAME COLUMN {old_col} TO {new_col}"
-                    )
-                    log.info(f"[sober_living] migrated {table}.{old_col} -> {new_col}")
-                cur.execute("RELEASE SAVEPOINT sl_migrate")
+                    cur.execute(f"ALTER TABLE {table} RENAME COLUMN {old_col} TO {new_col}")
+                    log.info(f"[sober_living] renamed {table}.{old_col} -> {new_col}")
+                cur.execute("RELEASE SAVEPOINT sl_rename")
             except Exception as e:
-                cur.execute("ROLLBACK TO SAVEPOINT sl_migrate")
-                log.warning(f"[sober_living] migration skipped {table}.{old_col}: {e}")
+                cur.execute("ROLLBACK TO SAVEPOINT sl_rename")
+                log.warning(f"[sober_living] rename skipped {table}.{old_col}: {e}")
+
+        # --- Step 2: add missing columns ---
+        for table, col, col_def in add_columns:
+            try:
+                cur.execute("SAVEPOINT sl_add_col")
+                if not _pg_table_exists(cur, table):
+                    cur.execute("RELEASE SAVEPOINT sl_add_col")
+                    continue
+                if not _pg_col_exists(cur, table, col):
+                    cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}")
+                    log.info(f"[sober_living] added column {table}.{col}")
+                cur.execute("RELEASE SAVEPOINT sl_add_col")
+            except Exception as e:
+                cur.execute("ROLLBACK TO SAVEPOINT sl_add_col")
+                log.warning(f"[sober_living] add_col skipped {table}.{col}: {e}")
+
+        # --- Step 3: type fixes ---
+        for table, col, new_type, using in type_fixes:
+            try:
+                cur.execute("SAVEPOINT sl_type_fix")
+                if not _pg_table_exists(cur, table) or not _pg_col_exists(cur, table, col):
+                    cur.execute("RELEASE SAVEPOINT sl_type_fix")
+                    continue
+                # Check current type
+                cur.execute(
+                    "SELECT data_type FROM information_schema.columns "
+                    "WHERE table_name = %s AND column_name = %s",
+                    (table, col),
+                )
+                row = cur.fetchone()
+                current_type = row["data_type"] if row else None
+                if current_type and current_type.lower() not in ("integer", "bigint", "smallint"):
+                    cur.execute(
+                        f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {new_type} USING {using}"
+                    )
+                    log.info(f"[sober_living] fixed type {table}.{col}: {current_type} -> {new_type}")
+                cur.execute("RELEASE SAVEPOINT sl_type_fix")
+            except Exception as e:
+                cur.execute("ROLLBACK TO SAVEPOINT sl_type_fix")
+                log.warning(f"[sober_living] type_fix skipped {table}.{col}: {e}")
+
         conn.commit()
         log.info("[sober_living] _migrate_legacy complete")
     except Exception as e:
@@ -490,7 +593,7 @@ class SoberLivingStore:
         try:
             with _db() as conn:
                 houses_row = _fetchone(conn,
-                    "SELECT COUNT(*) as c FROM sober_living_houses WHERE is_active = 1")
+                    "SELECT COUNT(*) as c FROM sober_living_houses WHERE CAST(is_active AS TEXT) = '1'")
                 houses_count = int(houses_row["c"]) if houses_row and houses_row.get("c") is not None else 0
 
                 beds_row = _fetchone(conn, "SELECT COUNT(*) as c FROM sober_living_beds")
@@ -555,7 +658,7 @@ class SoberLivingStore:
         try:
             with _db() as conn:
                 rows = _fetchall(conn,
-                    "SELECT * FROM sober_living_houses WHERE is_active = 1 ORDER BY house_name")
+                    "SELECT * FROM sober_living_houses WHERE CAST(is_active AS TEXT) = '1' ORDER BY house_name")
                 for h in rows:
                     h["bed_counts"] = self._bed_counts(conn, h["house_id"])
                     h["is_active"] = bool(h.get("is_active", 1))
