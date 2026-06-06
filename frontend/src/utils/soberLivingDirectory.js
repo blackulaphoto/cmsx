@@ -90,6 +90,11 @@ export const soberLivingDirectoryApi = {
       method: 'POST',
     }),
 
+  runDiscoveryJob: (jobId) =>
+    apiCall(`/api/sober-living-directory/discovery/jobs/${encodeURIComponent(jobId)}/run`, {
+      method: 'POST',
+    }),
+
   getDuplicateCandidate: (candidateId) =>
     apiCall(`/api/sober-living-directory/duplicates/${encodeURIComponent(candidateId)}`),
 

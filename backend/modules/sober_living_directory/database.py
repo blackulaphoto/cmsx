@@ -1137,19 +1137,39 @@ class SoberLivingDirectoryDatabase:
         if not source:
             raise ValueError("Source not found for discovery job")
 
-        run_id = self._create_discovery_run(
+        notes = "Manual Phase 4A fake connector run"
+        records = self._build_fake_discovery_records(job)
+        return self.process_discovery_records(
             job_id=job_id,
             source_id=job["source_id"],
-            notes="Manual Phase 4A fake connector run",
+            records=records,
+            notes=notes,
+        )
+
+    def process_discovery_records(
+        self,
+        *,
+        job_id: str,
+        source_id: str,
+        records: List[Dict[str, Any]],
+        notes: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        job = self.get_discovery_job(job_id)
+        if not job:
+            raise ValueError("Discovery job not found")
+
+        run_id = self._create_discovery_run(
+            job_id=job_id,
+            source_id=source_id,
+            notes=notes,
         )
 
         records_found = 0
         raw_records_created = 0
         duplicates_detected = 0
         errors_count = 0
-        notes = "Manual test run generated fake discovery records only."
         try:
-            for record in self._build_fake_discovery_records(job):
+            for record in records:
                 records_found += 1
                 duplicate = self.find_possible_duplicate(
                     name=record.get("name"),
@@ -1158,7 +1178,7 @@ class SoberLivingDirectoryDatabase:
                     website=record.get("website"),
                 )
                 raw_id = self.create_raw_listing(
-                    source_id=job["source_id"],
+                    source_id=source_id,
                     run_id=run_id,
                     source_url=record.get("website"),
                     raw_name=record.get("name"),
@@ -1196,7 +1216,7 @@ class SoberLivingDirectoryDatabase:
                 DiscoveryJobUpdate(last_run_at=now),
             )
             self.update_source(
-                source["source_id"],
+                source_id,
                 SoberLivingDirectorySourceUpdate(last_checked_at=now),
             )
             self._finish_discovery_run(

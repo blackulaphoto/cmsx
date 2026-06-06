@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from .database import SoberLivingDirectoryDatabase
+from .discovery import SoberLivingDiscoveryService
 from .importer import SoberLivingDirectoryImporter
 from .models import (
     DiscoveryJobCreate,
@@ -39,6 +40,10 @@ def get_directory_db() -> SoberLivingDirectoryDatabase:
 
 def get_importer() -> SoberLivingDirectoryImporter:
     return SoberLivingDirectoryImporter(get_directory_db())
+
+
+def get_discovery_service() -> SoberLivingDiscoveryService:
+    return SoberLivingDiscoveryService(get_directory_db())
 
 
 @router.get("/listings")
@@ -267,6 +272,18 @@ async def run_discovery_job_test(job_id: str):
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.error("Failed to run discovery job test: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/discovery/jobs/{job_id}/run")
+async def run_discovery_job(job_id: str):
+    try:
+        run = get_discovery_service().run_job(job_id)
+        return {"success": True, "run": run}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Failed to run discovery job connector: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
