@@ -24,6 +24,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from .intelligent_processor import IntelligentTaskProcessor
 from .data_integration import RealDataIntegrator
+from . import repository as _repo
 
 # Note: Authentication dependencies would be imported here when auth module is implemented
 # from auth.dependencies import get_current_active_user, require_case_manager, require_supervisor
@@ -107,48 +108,15 @@ async def reminders_api_info():
 async def create_reminder(request: ReminderCreate):
     """Create a reminder for a client"""
     try:
-        import uuid
-        from datetime import datetime, timezone
-        from .models import ReminderDatabase
-
-        reminder_db = ReminderDatabase('databases/reminders.db')
-        if not reminder_db.connection:
-            reminder_db.connect()
-
-        reminder_id = str(uuid.uuid4())
-        created_at = datetime.now(timezone.utc).isoformat()
         case_manager_id = request.case_manager_id or "unknown"
-
-        cursor = reminder_db.connection.cursor()
-        cursor.execute(
-            """
-            INSERT INTO active_reminders (
-                reminder_id,
-                client_id,
-                case_manager_id,
-                reminder_type,
-                message,
-                priority,
-                due_date,
-                status,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                reminder_id,
-                request.client_id,
-                case_manager_id,
-                "manual",
-                request.reminder_text,
-                request.priority,
-                request.due_date,
-                "Active",
-                created_at,
-            ),
+        reminder_id = _repo.create_active_reminder(
+            client_id=request.client_id,
+            case_manager_id=case_manager_id,
+            reminder_type="manual",
+            message=request.reminder_text,
+            priority=request.priority,
+            due_date=request.due_date,
         )
-        reminder_db.connection.commit()
-
         return {
             "success": True,
             "reminder_id": reminder_id,
@@ -158,7 +126,7 @@ async def create_reminder(request: ReminderCreate):
             "priority": request.priority,
             "due_date": request.due_date,
             "status": "Active",
-            "created_at": created_at,
+            "created_at": datetime.now().isoformat(),
         }
     except Exception as e:
         logger.error(f"Error creating reminder: {e}")
@@ -449,29 +417,34 @@ async def get_weekly_plan(case_manager_id: str):
 @router.post("/start-process")
 async def start_intelligent_process(process_data: StartProcess):
     """
-    Start an intelligent process workflow (disability, housing, employment)
-    This implements the process templates from the specification
+    Start an intelligent process workflow (disability, housing, employment).
+    Generates tasks and persists them via repository (Postgres-first, SQLite fallback).
     """
     try:
-        # Generate intelligent task sequence
         tasks = intelligent_processor.generate_process_tasks(
             client_id=process_data.client_id,
             process_type=process_data.process_type,
-            context=process_data.context
+            context=process_data.context,
         )
-        
-        # In a real system, these would be saved to database
-        # For now, return the generated tasks
-        
+
+        if tasks:
+            _repo.create_intelligent_tasks(
+                client_id=process_data.client_id,
+                tasks=tasks,
+                case_manager_id=process_data.case_manager_id,
+                is_demo=False,
+                clear_process_types=[process_data.process_type],
+            )
+
         return {
             "success": True,
             "message": f"Started {process_data.process_type} process for client {process_data.client_id}",
             "process_type": process_data.process_type,
             "tasks_generated": len(tasks),
             "tasks": tasks,
-            "estimated_total_time": sum(task.get("estimated_minutes", 30) for task in tasks)
+            "estimated_total_time": sum(task.get("estimated_minutes", 30) for task in tasks),
         }
-        
+
     except Exception as e:
         logger.error(f"Error starting process: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -755,23 +728,9 @@ async def get_today_schedule(case_manager_id: str = Query("default_cm")):
         today = datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.now().strftime("%H:%M")
 
-        # Load only this case manager's clients
-        client_names: Dict[str, str] = {}
-        scoped_client_ids: List[str] = []
-        with sqlite3.connect("databases/core_clients.db") as client_conn:
-            client_cursor = client_conn.cursor()
-            client_cursor.execute(
-                "SELECT client_id, first_name, last_name FROM clients WHERE case_manager_id = ?",
-                (case_manager_id,),
-            )
-            for row in client_cursor.fetchall():
-                client_names[row[0]] = f"{row[1]} {row[2]}".strip()
-                scoped_client_ids.append(row[0])
-
-        schedule_tasks: List[Dict[str, Any]] = []
-
-        # No clients for this case manager → return empty schedule immediately
-        if not scoped_client_ids:
+        # Repository handles client scoping and Postgres/SQLite routing
+        client_ids, client_names = _repo.get_clients_for_case_manager(case_manager_id)
+        if not client_ids:
             return {
                 "date": today,
                 "generated_at": current_time,
@@ -779,111 +738,46 @@ async def get_today_schedule(case_manager_id: str = Query("default_cm")):
                 "tasks": [],
                 "client_coverage": {},
                 "schedule_validation": {"no_conflicts": True, "all_clients_covered": True, "high_priority_first": True, "appointments_confirmed": True},
-                "data_source": "core_clients.db + reminders.db + case_management.db",
+                "data_source": _repo.storage_status().get("backend", "unknown"),
             }
 
+        schedule_tasks = _repo.get_today_tasks(case_manager_id)
+
+        # Pull appointments from case_management.db (SQLite-only for now; no Postgres table yet)
+        scoped_client_ids = client_ids
         placeholders = ",".join("?" * len(scoped_client_ids))
-
-        with sqlite3.connect("databases/reminders.db") as reminders_conn:
-            reminders_cursor = reminders_conn.cursor()
-            reminders_cursor.execute(
-                f"""
-                SELECT id, client_id, title, description, priority, status, due_date, task_type, estimated_minutes
-                FROM intelligent_tasks
-                WHERE DATE(due_date) = ?
-                  AND client_id IN ({placeholders})
-                  AND status != 'completed'
-                ORDER BY
-                    CASE priority
-                        WHEN 'high' THEN 1
-                        WHEN 'medium' THEN 2
-                        WHEN 'low' THEN 3
-                        ELSE 4
-                    END,
-                    due_date ASC
-                """,
-                [today] + scoped_client_ids,
-            )
-            for row in reminders_cursor.fetchall():
-                schedule_tasks.append({
-                    "task_id": row[0],
-                    "client_id": row[1],
-                    "client_name": client_names.get(row[1], "Unknown Client"),
-                    "task": row[2],
-                    "description": row[3],
-                    "urgency": row[4],
-                    "urgency_color": _priority_color(row[4]),
-                    "scheduled_for": today,
-                    "scheduled_time": _time_or_default(row[6]),
-                    "status": row[5],
-                    "estimated_minutes": row[8] or 30,
-                    "task_type": row[7] or "task",
-                    "source": "intelligent_task",
-                })
-
-            reminders_cursor.execute(
-                f"""
-                SELECT reminder_id, client_id, message, priority, due_date, status, reminder_type
-                FROM active_reminders
-                WHERE DATE(due_date) = ? AND status = 'Active'
-                  AND client_id IN ({placeholders})
-                ORDER BY
-                    CASE priority
-                        WHEN 'Critical' THEN 1
-                        WHEN 'High' THEN 2
-                        WHEN 'Medium' THEN 3
-                        ELSE 4
-                    END,
-                    due_date ASC
-                """,
-                [today] + scoped_client_ids,
-            )
-            for row in reminders_cursor.fetchall():
-                schedule_tasks.append({
-                    "task_id": row[0],
-                    "client_id": row[1],
-                    "client_name": client_names.get(row[1], "Unknown Client"),
-                    "task": row[2],
-                    "description": row[2],
-                    "urgency": str(row[3]).lower(),
-                    "urgency_color": _priority_color(row[3]),
-                    "scheduled_for": today,
-                    "scheduled_time": _time_or_default(row[4]),
-                    "status": row[5],
-                    "estimated_minutes": 15,
-                    "task_type": row[6] or "reminder",
-                    "source": "active_reminder",
-                })
-
-        with sqlite3.connect("databases/case_management.db") as case_conn:
-            case_cursor = case_conn.cursor()
-            case_cursor.execute(
-                f"""
-                SELECT id, client_id, appointment_type, appointment_time, status, notes, appointment_date
-                FROM appointments
-                WHERE DATE(appointment_date) = ?
-                  AND client_id IN ({placeholders})
-                ORDER BY appointment_time ASC
-                """,
-                [today] + scoped_client_ids,
-            )
-            for row in case_cursor.fetchall():
-                schedule_tasks.append({
-                    "task_id": row[0],
-                    "client_id": row[1],
-                    "client_name": client_names.get(row[1], "Unknown Client"),
-                    "task": f"Appointment: {row[2]}",
-                    "description": row[5] or "",
-                    "urgency": "scheduled",
-                    "urgency_color": "#4444FF",
-                    "scheduled_for": today,
-                    "scheduled_time": row[3] or "09:00",
-                    "status": row[4] or "scheduled",
-                    "estimated_minutes": 30,
-                    "task_type": "appointment",
-                    "source": "appointment",
-                    "appointment_confirmed": str(row[4]).lower() in {"confirmed", "scheduled"},
-                })
+        try:
+            with sqlite3.connect("databases/case_management.db") as case_conn:
+                case_cursor = case_conn.cursor()
+                case_cursor.execute(
+                    f"""
+                    SELECT id, client_id, appointment_type, appointment_time, status, notes, appointment_date
+                    FROM appointments
+                    WHERE DATE(appointment_date) = ?
+                      AND client_id IN ({placeholders})
+                    ORDER BY appointment_time ASC
+                    """,
+                    [today] + scoped_client_ids,
+                )
+                for row in case_cursor.fetchall():
+                    schedule_tasks.append({
+                        "task_id": row[0],
+                        "client_id": row[1],
+                        "client_name": client_names.get(row[1], "Unknown Client"),
+                        "task": f"Appointment: {row[2]}",
+                        "description": row[5] or "",
+                        "urgency": "scheduled",
+                        "urgency_color": "#4444FF",
+                        "scheduled_for": today,
+                        "scheduled_time": row[3] or "09:00",
+                        "status": row[4] or "scheduled",
+                        "estimated_minutes": 30,
+                        "task_type": "appointment",
+                        "source": "appointment",
+                        "appointment_confirmed": str(row[4]).lower() in {"confirmed", "scheduled"},
+                    })
+        except Exception:
+            pass  # appointments table may not exist yet
 
         priority_rank = {"critical": 0, "high": 1, "scheduled": 2, "medium": 3, "low": 4}
         schedule_tasks.sort(
@@ -892,24 +786,20 @@ async def get_today_schedule(case_manager_id: str = Query("default_cm")):
                 item.get("scheduled_time") or "23:59",
             )
         )
-
         for index, task in enumerate(schedule_tasks, start=1):
             task["priority_rank"] = index
 
         client_coverage: Dict[str, Dict[str, Any]] = {}
         for task in schedule_tasks:
-            client_id = str(task["client_id"])
-            coverage = client_coverage.setdefault(
-                client_id,
-                {
-                    "client_name": task["client_name"],
-                    "tasks_today": 0,
-                    "has_actionable_task": False,
-                    "next_task": task["task"],
-                },
-            )
+            cid = str(task["client_id"])
+            coverage = client_coverage.setdefault(cid, {
+                "client_name": task.get("client_name", cid),
+                "tasks_today": 0,
+                "has_actionable_task": False,
+                "next_task": task.get("task", task.get("title", "")),
+            })
             coverage["tasks_today"] += 1
-            coverage["has_actionable_task"] = coverage["has_actionable_task"] or task["status"] not in {"completed", "cancelled"}
+            coverage["has_actionable_task"] = coverage["has_actionable_task"] or task.get("status") not in {"completed", "cancelled"}
 
         today_schedule = {
             "date": today,
@@ -932,12 +822,12 @@ async def get_today_schedule(case_manager_id: str = Query("default_cm")):
                     if t.get("task_type") == "appointment"
                 ),
             },
-            "data_source": "core_clients.db + reminders.db + case_management.db",
+            "data_source": _repo.storage_status().get("backend", "unknown"),
         }
 
-        logger.info(f"Generated real daily schedule with {len(today_schedule['tasks'])} tasks")
+        logger.info(f"Generated real daily schedule with {len(schedule_tasks)} tasks")
         return today_schedule
-        
+
     except Exception as e:
         logger.error(f"Error generating today's schedule: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -972,38 +862,16 @@ def _time_or_default(date_value: Optional[str]) -> str:
 
 @router.post("/tasks/{task_id}/complete")
 async def complete_task(task_id: str):
-    """
-    NEW ENDPOINT: Mark task as completed in database
-    """
+    """Mark an intelligent task as completed."""
     try:
-        import sqlite3
-        from pathlib import Path
-        
-        db_path = Path("databases/reminders.db")
-        
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                UPDATE intelligent_tasks 
-                SET status = 'completed', completed_at = ?
-                WHERE id = ?
-            """, (datetime.now().isoformat(), task_id))
-            
-            if cursor.rowcount == 0:
-                raise HTTPException(status_code=404, detail="Task not found")
-            
-            conn.commit()
-            
-            logger.info(f"Task {task_id} marked as completed")
-            
-            return {
-                "success": True,
-                "task_id": task_id,
-                "status": "completed",
-                "updated_at": datetime.now().isoformat()
-            }
-            
+        completed_at = datetime.now().isoformat()
+        updated = _repo.update_task_status(task_id, "completed", completed_at=completed_at)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Task not found")
+        logger.info(f"Task {task_id} marked as completed")
+        return {"success": True, "task_id": task_id, "status": "completed", "updated_at": completed_at}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to complete task {task_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to complete task: {str(e)}")
@@ -1012,205 +880,25 @@ async def complete_task(task_id: str):
 async def get_prioritized_tasks(case_manager_id: str):
     """
     Return tasks bucketed by priority: overdue, today, next_3_days, this_week,
-    high_priority_no_date, and later.  Only returns tasks for clients that
-    actually belong to this case manager.  Completed tasks are excluded.
+    high_priority_no_date, and later.  Delegates to repository (Postgres-first).
     """
     try:
-        today = datetime.now().date()
-        in_3_days = today + timedelta(days=3)
-        in_7_days = today + timedelta(days=7)
-
-        # Resolve scoped client IDs for this case manager
-        scoped_client_ids: List[str] = []
-        client_names: Dict[str, str] = {}
-        with sqlite3.connect("databases/core_clients.db") as client_conn:
-            client_cursor = client_conn.cursor()
-            client_cursor.execute(
-                "SELECT client_id, first_name, last_name FROM clients WHERE case_manager_id = ?",
-                (case_manager_id,),
-            )
-            for row in client_cursor.fetchall():
-                scoped_client_ids.append(row[0])
-                client_names[row[0]] = f"{row[1]} {row[2]}".strip()
-
-        buckets: Dict[str, List[Dict[str, Any]]] = {
-            "overdue": [],
-            "today": [],
-            "next_3_days": [],
-            "this_week": [],
-            "high_priority_no_date": [],
-            "later": [],
-        }
-
-        if not scoped_client_ids:
-            return {
-                "success": True,
-                "case_manager_id": case_manager_id,
-                "generated_at": datetime.now().isoformat(),
-                "buckets": buckets,
-                "ai_summary": None,
-                "total_active": 0,
-            }
-
-        placeholders = ",".join("?" * len(scoped_client_ids))
-
-        with sqlite3.connect("databases/reminders.db") as conn:
-            cursor = conn.cursor()
-
-            # Fetch all non-completed tasks for scoped clients
-            cursor.execute(
-                f"""
-                SELECT id, client_id, title, description, priority, status, due_date, task_type, estimated_minutes
-                FROM intelligent_tasks
-                WHERE client_id IN ({placeholders})
-                  AND status != 'completed'
-                ORDER BY
-                    CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
-                    due_date ASC NULLS LAST
-                """,
-                scoped_client_ids,
-            )
-
-            for row in cursor.fetchall():
-                raw_due = row[6]
-                due_date = None
-                if raw_due:
-                    try:
-                        due_date = datetime.fromisoformat(str(raw_due)).date()
-                    except ValueError:
-                        try:
-                            due_date = datetime.strptime(str(raw_due)[:10], "%Y-%m-%d").date()
-                        except ValueError:
-                            due_date = None
-
-                task = {
-                    "task_id": row[0],
-                    "client_id": row[1],
-                    "client_name": client_names.get(row[1], f"Client {str(row[1])[:8]}"),
-                    "title": row[2],
-                    "description": row[3],
-                    "priority": row[4] or "low",
-                    "status": row[5],
-                    "due_date": str(due_date) if due_date else None,
-                    "task_type": row[7] or "task",
-                    "estimated_minutes": row[8] or 30,
-                    "source": "intelligent_task",
-                    "urgency_color": _priority_color(row[4]),
-                }
-
-                if due_date is None:
-                    if str(task["priority"]).lower() in {"high", "critical"}:
-                        buckets["high_priority_no_date"].append(task)
-                elif due_date < today:
-                    buckets["overdue"].append(task)
-                elif due_date == today:
-                    buckets["today"].append(task)
-                elif due_date <= in_3_days:
-                    buckets["next_3_days"].append(task)
-                elif due_date <= in_7_days:
-                    buckets["this_week"].append(task)
-                else:
-                    buckets["later"].append(task)
-
-            # Also pull active_reminders for this manager's clients
-            cursor.execute(
-                f"""
-                SELECT reminder_id, client_id, message, priority, due_date, status, reminder_type
-                FROM active_reminders
-                WHERE client_id IN ({placeholders})
-                  AND status = 'Active'
-                """,
-                scoped_client_ids,
-            )
-            for row in cursor.fetchall():
-                raw_due = row[4]
-                due_date = None
-                if raw_due:
-                    try:
-                        due_date = datetime.fromisoformat(str(raw_due)).date()
-                    except ValueError:
-                        try:
-                            due_date = datetime.strptime(str(raw_due)[:10], "%Y-%m-%d").date()
-                        except ValueError:
-                            due_date = None
-
-                task = {
-                    "task_id": row[0],
-                    "client_id": row[1],
-                    "client_name": client_names.get(row[1], f"Client {str(row[1])[:8]}"),
-                    "title": row[2],
-                    "description": row[2],
-                    "priority": str(row[3]).lower() if row[3] else "medium",
-                    "status": row[5],
-                    "due_date": str(due_date) if due_date else None,
-                    "task_type": row[6] or "reminder",
-                    "estimated_minutes": 15,
-                    "source": "active_reminder",
-                    "urgency_color": _priority_color(row[3]),
-                }
-
-                if due_date is None:
-                    if str(task["priority"]).lower() in {"high", "critical"}:
-                        buckets["high_priority_no_date"].append(task)
-                elif due_date < today:
-                    buckets["overdue"].append(task)
-                elif due_date == today:
-                    buckets["today"].append(task)
-                elif due_date <= in_3_days:
-                    buckets["next_3_days"].append(task)
-                elif due_date <= in_7_days:
-                    buckets["this_week"].append(task)
-                else:
-                    buckets["later"].append(task)
-
-        total_active = sum(len(v) for k, v in buckets.items() if k != "later")
-        overdue_count = len(buckets["overdue"])
-        today_count = len(buckets["today"])
-        next3_count = len(buckets["next_3_days"])
-
-        # Build concise AI summary — only when there is real work
-        ai_summary: Optional[str] = None
-        if overdue_count > 0 or today_count > 0 or next3_count > 0:
-            parts = []
-            if overdue_count:
-                first_overdue = buckets["overdue"][0]["title"] if buckets["overdue"] else ""
-                parts.append(
-                    f"{overdue_count} overdue task{'s' if overdue_count > 1 else ''}"
-                    + (f" — start with \"{first_overdue}\"" if first_overdue else "")
-                )
-            if today_count:
-                parts.append(f"{today_count} due today")
-            if next3_count:
-                parts.append(f"{next3_count} coming up in the next 3 days")
-            ai_summary = "You have " + ", ".join(parts) + "."
-        elif buckets["high_priority_no_date"]:
-            ai_summary = f"You have {len(buckets['high_priority_no_date'])} high-priority item{'s' if len(buckets['high_priority_no_date']) > 1 else ''} without due dates. Consider scheduling them."
-        elif buckets["later"]:
-            first_later = buckets["later"][0]["title"] if buckets["later"] else ""
-            ai_summary = f"Nothing urgent right now. Next up: \"{first_later}\"" if first_later else "Nothing urgent right now."
-        # else ai_summary stays None → empty state on frontend
-
-        return {
-            "success": True,
-            "case_manager_id": case_manager_id,
-            "generated_at": datetime.now().isoformat(),
-            "buckets": buckets,
-            "ai_summary": ai_summary,
-            "total_active": total_active,
-            "counts": {
-                "overdue": overdue_count,
-                "today": today_count,
-                "next_3_days": next3_count,
-                "this_week": len(buckets["this_week"]),
-                "high_priority_no_date": len(buckets["high_priority_no_date"]),
-                "later": len(buckets["later"]),
-            },
-        }
-
+        result = _repo.get_prioritized_tasks(case_manager_id)
+        return result
     except Exception as e:
         logger.error(f"Error generating prioritized tasks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/storage/status")
+async def get_storage_status():
+    """Diagnostic: reports which database backend is active and table health."""
+    try:
+        status = _repo.storage_status()
+        return {"success": True, **status}
+    except Exception as e:
+        logger.error(f"Storage status check failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/health")
 async def health_check():

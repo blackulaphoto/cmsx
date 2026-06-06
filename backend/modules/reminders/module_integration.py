@@ -411,20 +411,17 @@ class ModuleIntegrationManager:
             return f"Client {client_id[:8]}" if client_id else 'Client record unavailable'
     
     def save_reminder(self, reminder: ActiveReminder):
-        """Save reminder to database"""
+        """Save reminder via repository (Postgres-first, SQLite fallback)."""
         try:
-            cursor = self.reminder_db.connection.cursor()
-            cursor.execute("""
-                INSERT INTO active_reminders (
-                    reminder_id, client_id, case_manager_id, reminder_type,
-                    message, priority, due_date, status, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                reminder.reminder_id, reminder.client_id, reminder.case_manager_id,
-                reminder.reminder_type, reminder.message, reminder.priority,
-                reminder.due_date, reminder.status, reminder.created_at
-            ))
-            self.reminder_db.connection.commit()
+            from . import repository as _repo
+            _repo.create_active_reminder(
+                client_id=reminder.client_id,
+                case_manager_id=reminder.case_manager_id,
+                reminder_type=reminder.reminder_type,
+                message=reminder.message,
+                priority=reminder.priority,
+                due_date=reminder.due_date,
+            )
         except Exception as e:
             logger.error(f"Error saving reminder: {e}")
     

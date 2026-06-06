@@ -9,8 +9,6 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import uuid
 import json
-import sqlite3
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -499,144 +497,36 @@ class IntelligentTaskProcessor:
             logger.error(f"Error validating task dependencies: {e}")
             return False
     
-    def _get_database_path(self) -> Path:
-        """Get the path to the reminders database"""
-        return Path("databases/reminders.db")
-    
     def _save_tasks_to_database(self, client_id: str, tasks: List[Dict[str, Any]], is_demo: bool = False) -> Dict[str, Any]:
-        """
-        Persist generated tasks to database.
-        Pass is_demo=True to mark tasks as demo-only so they can be excluded from real user views.
-        """
+        """Persist generated tasks via repository (Postgres-first, SQLite fallback)."""
         try:
-            db_path = self._get_database_path()
-
-            with sqlite3.connect(db_path) as conn:
-                cursor = conn.cursor()
-
-                # Clear existing tasks for this client (for this process type only if possible)
-                process_types = list({t.get('process_type', '') for t in tasks if t.get('process_type')})
-                if process_types:
-                    placeholders = ",".join("?" * len(process_types))
-                    cursor.execute(
-                        f"DELETE FROM intelligent_tasks WHERE client_id = ? AND task_type IN ({placeholders})",
-                        [client_id] + process_types,
-                    )
-                else:
-                    cursor.execute("DELETE FROM intelligent_tasks WHERE client_id = ?", (client_id,))
-
-                # Insert new tasks using existing schema
-                inserted_count = 0
-                demo_flag = 1 if is_demo else 0
-                for task in tasks:
-                    try:
-                        task_id = task.get('task_id', str(uuid.uuid4()))
-                        title = task.get('title', 'Untitled Task')
-                        description = task.get('description', '')
-                        task_type = task.get('process_type', 'unknown')
-                        due_date = task.get('scheduled_date', self.current_date.isoformat())
-                        priority = task.get('priority', 'medium').lower()
-                        status = task.get('status', 'pending').lower()
-                        estimated_minutes = task.get('estimated_minutes', 45)
-                        created_at = task.get('created_at', self.current_date.isoformat())
-
-                        cursor.execute("""
-                            INSERT INTO intelligent_tasks (
-                                id, client_id, task_type, title, description,
-                                priority, estimated_minutes, status, created_at, due_date, completed_at, is_demo
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (
-                            task_id, client_id, task_type, title, description,
-                            priority, estimated_minutes, status, created_at, due_date, None, demo_flag
-                        ))
-                        inserted_count += 1
-
-                    except Exception as e:
-                        logger.warning(f"Failed to insert task {task.get('title', 'unknown')}: {str(e)}")
-
-                conn.commit()
-                
-                logger.info(f"Successfully persisted {inserted_count}/{len(tasks)} tasks for client {client_id}")
-                
-                return {
-                    "success": True,
-                    "inserted_count": inserted_count,
-                    "total_tasks": len(tasks),
-                    "client_id": client_id
-                }
-                
+            from backend.modules.reminders.repository import repo
+            process_types = list({t.get('process_type', '') for t in tasks if t.get('process_type')}) or None
+            return repo.create_intelligent_tasks(
+                client_id=client_id,
+                tasks=tasks,
+                is_demo=is_demo,
+                clear_process_types=process_types,
+            )
         except Exception as e:
             logger.error(f"Database persistence error for client {client_id}: {str(e)}")
-            return {
-                "success": False,
-                "error": str(e),
-                "inserted_count": 0
-            }
-    
+            return {"success": False, "error": str(e), "inserted_count": 0}
+
     def get_client_tasks_from_database(self, client_id: str) -> List[Dict[str, Any]]:
-        """
-        NEW METHOD: Retrieve persisted tasks from database
-        FIXED: Uses existing database schema
-        """
+        """Retrieve persisted tasks via repository (Postgres-first, SQLite fallback)."""
         try:
-            db_path = self._get_database_path()
-            
-            with sqlite3.connect(db_path) as conn:
-                cursor = conn.cursor()
-                
-                # Use EXISTING schema: id, client_id, task_type, title, description, priority, estimated_minutes, status, created_at, due_date, completed_at
-                cursor.execute("""
-                    SELECT id, client_id, task_type, title, description, 
-                           priority, estimated_minutes, status, created_at, due_date, completed_at
-                    FROM intelligent_tasks 
-                    WHERE client_id = ?
-                    ORDER BY due_date ASC, 
-                             CASE priority 
-                                 WHEN 'high' THEN 1 
-                                 WHEN 'medium' THEN 2 
-                                 WHEN 'low' THEN 3 
-                                 ELSE 4 
-                             END
-                """, (client_id,))
-                
-                rows = cursor.fetchall()
-                
-                tasks = []
-                for row in rows:
-                    tasks.append({
-                        'task_id': row[0],  # id column
-                        'client_id': row[1],
-                        'process_type': row[2],  # task_type column
-                        'title': row[3],
-                        'description': row[4],
-                        'priority': row[5],
-                        'estimated_minutes': row[6],
-                        'status': row[7],
-                        'created_at': row[8],
-                        'scheduled_date': row[9],  # due_date column mapped to scheduled_date
-                        'due_date': row[9],
-                        'completed_at': row[10],
-                        'dependencies': []  # Not stored in existing schema
-                    })
-                
-                logger.info(f"Retrieved {len(tasks)} persisted tasks for client {client_id}")
-                return tasks
-                
+            from backend.modules.reminders.repository import repo
+            return repo.list_tasks_for_client(client_id)
         except Exception as e:
             logger.error(f"Error retrieving tasks from database for client {client_id}: {str(e)}")
             return []
-    
+
     def generate_and_persist_process_tasks(self, client_id: str, process_types: List[str] = None) -> List[Dict[str, Any]]:
-        """
-        NEW METHOD: Generate tasks and persist them to database
-        This is the main method that combines generation with persistence
-        """
+        """Generate tasks and persist them via repository."""
         try:
-            # Use all available process types if none specified
             if process_types is None:
                 process_types = self.get_available_process_types()
-            
-            # Generate tasks using existing logic (preserves all AI optimization)
+
             all_tasks = []
             for process_type in process_types:
                 try:
@@ -644,14 +534,13 @@ class IntelligentTaskProcessor:
                     all_tasks.extend(process_tasks)
                 except Exception as e:
                     logger.warning(f"Error generating {process_type} tasks for client {client_id}: {e}")
-            
-            # Persist tasks to database
+
             if all_tasks:
-                persistence_result = self._save_tasks_to_database(client_id, all_tasks)
-                logger.info(f"Task persistence result for client {client_id}: {persistence_result}")
-            
+                result = self._save_tasks_to_database(client_id, all_tasks)
+                logger.info(f"Task persistence result for client {client_id}: {result}")
+
             return all_tasks
-            
+
         except Exception as e:
             logger.error(f"Error in generate_and_persist_process_tasks for client {client_id}: {e}")
             return []
