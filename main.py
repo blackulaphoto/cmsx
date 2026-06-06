@@ -163,6 +163,15 @@ except Exception as e:
     logger.warning(f"Housing module not loaded: {e}")
 
 try:
+    from backend.modules.sober_living_directory.routes import router as sober_living_directory_router
+    app.include_router(sober_living_directory_router, prefix="/api/sober-living-directory", tags=["sober-living-directory"])
+    loaded_modules["sober_living_directory"] = "loaded"
+    logger.info("Sober living directory module loaded successfully")
+except Exception as e:
+    loaded_modules["sober_living_directory"] = f"error: {e}"
+    logger.warning(f"Sober living directory module not loaded: {e}")
+
+try:
     from backend.modules.benefits.routes import router as benefits_router
     app.include_router(benefits_router, prefix="/api/benefits", tags=["benefits"])
     loaded_modules["benefits"] = "loaded"

@@ -17,6 +17,9 @@ import ClientDashboard from './pages/ClientDashboard'
 import HousingSearch from './pages/HousingSearch'
 import CaseManagerHousing from './pages/CaseManagerHousing'
 import HousingTest from './pages/HousingTest'
+import SoberLivingDirectory from './pages/SoberLivingDirectory'
+import SoberLivingDirectoryListing from './pages/SoberLivingDirectoryListing'
+import SoberLivingDirectoryReview from './pages/SoberLivingDirectoryReview'
 import Benefits from './pages/Benefits'
 import Medical from './pages/Medical'
 import Rolodex from './pages/Rolodex'
@@ -69,6 +72,9 @@ function App() {
         <Route path="/housing" element={<HousingSearch />} />
         <Route path="/housing/case-manager" element={<CaseManagerHousing />} />
         <Route path="/housing/test" element={<HousingTest />} />
+        <Route path="/sober-living-directory" element={<SoberLivingDirectory />} />
+        <Route path="/sober-living-directory/review" element={<SoberLivingDirectoryReview />} />
+        <Route path="/sober-living-directory/:listingId" element={<SoberLivingDirectoryListing />} />
         <Route path="/benefits" element={<Benefits />} />
         <Route path="/medical" element={<Medical />} />
         <Route path="/rolodex" element={<Rolodex />} />
