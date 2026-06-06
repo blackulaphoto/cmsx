@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, BedDouble, Users, Plus, RefreshCw,
   Home, Phone, Mail, User, AlertCircle, ChevronDown, ChevronRight,
   DollarSign, ClipboardList, Beaker, ShieldAlert, Building2,
+  CheckCircle2, Circle, CheckSquare, Square, X, Edit3,
+  Receipt, TrendingDown,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import BedMap from '../components/BedMap'
@@ -23,6 +25,34 @@ const TABS = [
   { id: 'incidents',   label: 'Incidents',   icon: ShieldAlert },
   { id: 'rent',        label: 'Rent',        icon: DollarSign },
 ]
+
+// Compliance checklist field definitions
+const CHECKLIST_FIELDS = [
+  { key: 'house_rules_signed',               label: 'House Rules Signed',                hasDate: true },
+  { key: 'photo_id_on_file',                 label: 'Photo ID on File',                  hasDate: false },
+  { key: 'emergency_contact_on_file',        label: 'Emergency Contact on File',          hasDate: false },
+  { key: 'intake_form_complete',             label: 'Intake Form Complete',               hasDate: false },
+  { key: 'consent_to_coordinate_care',       label: 'Consent to Coordinate Care',         hasDate: false },
+  { key: 'medication_policy_signed',         label: 'Medication Policy Signed',           hasDate: false },
+  { key: 'ua_policy_signed',                 label: 'UA Policy Signed',                   hasDate: false },
+  { key: 'financial_agreement_signed',       label: 'Financial Agreement Signed',         hasDate: false },
+  { key: 'grievance_policy_acknowledged',    label: 'Grievance Policy Acknowledged',      hasDate: false },
+  { key: 'good_neighbor_policy_acknowledged',label: 'Good Neighbor Policy Acknowledged',  hasDate: false },
+  { key: 'release_of_information_on_file',   label: 'Release of Information on File',     hasDate: false },
+]
+
+const BOOL_KEYS = CHECKLIST_FIELDS.map((f) => f.key)
+
+const UA_RESULTS = ['negative', 'positive', 'dilute', 'refused', 'not_completed']
+
+const CHARGE_TYPES = ['rent', 'late_fee', 'deposit', 'damage', 'other']
+
+const SEVERITY_COLORS = {
+  critical: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
+  high:     'bg-orange-500/20 text-orange-300 border-orange-500/30',
+  medium:   'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  low:      'bg-slate-500/20 text-slate-300 border-slate-500/30',
+}
 
 export default function SoberLivingHouse() {
   const { houseId } = useParams()
@@ -45,6 +75,22 @@ export default function SoberLivingHouse() {
   const [ledgerData, setLedgerData]     = useState({})
   const [saving, setSaving]       = useState(false)
 
+  // Compliance state keyed by stay_id
+  const [complianceData, setComplianceData] = useState({})
+  const [complianceDraft, setComplianceDraft] = useState({})
+  const [complianceSaving, setComplianceSaving] = useState({})
+
+  // Incident expand/edit state
+  const [expandedIncident, setExpandedIncident] = useState(null)
+  const [incidentEditForm, setIncidentEditForm] = useState({})
+  const [incidentSaving, setIncidentSaving] = useState(false)
+
+  // UA expand state
+  const [expandedUA, setExpandedUA] = useState(null)
+
+  // Ledger expand state (for rent tab)
+  const [expandedLedger, setExpandedLedger] = useState(null)
+
   // Forms
   const [roomForm, setRoomForm]     = useState({ room_name: '', floor: '', room_type: '', max_occupancy: 1, notes: '' })
   const [bedForm, setBedForm]       = useState({ bed_label: '', room_id: '', bed_status: 'available', notes: '' })
@@ -56,11 +102,25 @@ export default function SoberLivingHouse() {
   })
   const [assignForm, setAssignForm] = useState({ resident_id: '', bed_id: '', move_in_date: '', case_manager_name: '', referral_source: '' })
   const [dischargeForm, setDischargeForm] = useState({ actual_move_out_date: '', move_out_reason: '', discharge_destination: '' })
-  const [incidentForm, setIncidentForm] = useState({ incident_date: '', incident_type: '', severity: '', description: '', reported_by_name: '', location_in_house: '', response_taken: '' })
-  const [uaForm, setUAForm] = useState({ test_date: '', result: '', administered_by_name: '', stay_id: '', resident_id: '', notes: '' })
-  const [paymentForm, setPaymentForm] = useState({ stay_id: '', resident_id: '', amount: '', payment_method: 'Cash', payment_for_month: '', received_by: '', notes: '' })
+  const [incidentForm, setIncidentForm] = useState({
+    incident_date: '', incident_type: '', severity: '', description: '',
+    reported_by_name: '', location_in_house: '', response_taken: '',
+    immediate_safety_concern: false,
+  })
+  const [uaForm, setUAForm] = useState({
+    test_date: '', result: '', administered_by_name: '',
+    stay_id: '', resident_id: '', test_type: '', test_method: '', notes: '',
+  })
+  const [paymentForm, setPaymentForm] = useState({
+    stay_id: '', resident_id: '', amount: '', payment_method: 'Cash',
+    payment_for_month: '', received_by: '', notes: '',
+  })
+  const [chargeForm, setChargeForm] = useState({
+    stay_id: '', resident_id: '', amount: '', charge_type: 'rent',
+    charge_month: '', due_date: '', notes: '',
+  })
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const [h, b, r, res, allRes] = await Promise.all([
@@ -80,9 +140,9 @@ export default function SoberLivingHouse() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [houseId])
 
-  const loadTabData = async (t) => {
+  const loadTabData = useCallback(async (t) => {
     try {
       if (t === 'incidents') {
         const data = await slApi.listIncidents(houseId)
@@ -97,25 +157,47 @@ export default function SoberLivingHouse() {
         setRentSummary(data)
       }
     } catch {}
-  }
+  }, [houseId])
 
-  useEffect(() => { load() }, [houseId])
-  useEffect(() => { loadTabData(tab) }, [tab])
+  useEffect(() => { load() }, [load])
+  useEffect(() => { loadTabData(tab) }, [tab, loadTabData])
 
-  const loadLedger = async (stayId) => {
+  const loadLedger = useCallback(async (stayId) => {
     if (ledgerData[stayId]) return
     try {
       const data = await slApi.getLedger(stayId)
       setLedgerData((prev) => ({ ...prev, [stayId]: data }))
     } catch {}
-  }
+  }, [ledgerData])
 
-  const handleTabChange = (t) => {
-    setTab(t)
-  }
+  const reloadLedger = useCallback(async (stayId) => {
+    try {
+      const data = await slApi.getLedger(stayId)
+      setLedgerData((prev) => ({ ...prev, [stayId]: data }))
+    } catch {}
+  }, [])
+
+  const loadCompliance = useCallback(async (stayId) => {
+    if (complianceData[stayId] !== undefined) return
+    try {
+      const data = await slApi.getCompliance(stayId)
+      const checklist = data || {}
+      setComplianceData((prev) => ({ ...prev, [stayId]: checklist }))
+      // Initialize draft from server state
+      const draft = {}
+      BOOL_KEYS.forEach((k) => { draft[k] = checklist[k] ? 1 : 0 })
+      draft.house_rules_signed_date = checklist.house_rules_signed_date || ''
+      draft.missing_items_summary = checklist.missing_items_summary || ''
+      setComplianceDraft((prev) => ({ ...prev, [stayId]: draft }))
+    } catch {
+      setComplianceData((prev) => ({ ...prev, [stayId]: null }))
+    }
+  }, [complianceData])
+
+  const handleTabChange = (t) => setTab(t)
 
   // ---------------------------------------------------------------------------
-  // Handlers
+  // Handlers — House management
   // ---------------------------------------------------------------------------
 
   const handleAddRoom = async (e) => {
@@ -174,10 +256,10 @@ export default function SoberLivingHouse() {
     setSaving(true)
     try {
       await slApi.createStay({
-        resident_id:  assignForm.resident_id,
-        house_id:     houseId,
-        bed_id:       assignForm.bed_id || null,
-        move_in_date: assignForm.move_in_date,
+        resident_id:       assignForm.resident_id,
+        house_id:          houseId,
+        bed_id:            assignForm.bed_id || null,
+        move_in_date:      assignForm.move_in_date,
         case_manager_name: assignForm.case_manager_name || null,
         referral_source:   assignForm.referral_source || null,
       })
@@ -218,20 +300,68 @@ export default function SoberLivingHouse() {
     setModal('bed-detail')
   }
 
+  // ---------------------------------------------------------------------------
+  // Handlers — Incidents
+  // ---------------------------------------------------------------------------
+
   const handleAddIncident = async (e) => {
     e.preventDefault()
     if (!incidentForm.incident_date || !incidentForm.incident_type) return toast.error('Date and type required')
     setSaving(true)
     try {
-      await slApi.createIncident({ ...incidentForm, house_id: houseId })
+      await slApi.createIncident({
+        ...incidentForm,
+        house_id: houseId,
+        immediate_safety_concern: incidentForm.immediate_safety_concern ? 1 : 0,
+      })
       toast.success('Incident logged')
       setModal(null)
-      setIncidentForm({ incident_date: '', incident_type: '', severity: '', description: '', reported_by_name: '', location_in_house: '', response_taken: '' })
+      setIncidentForm({
+        incident_date: '', incident_type: '', severity: '', description: '',
+        reported_by_name: '', location_in_house: '', response_taken: '',
+        immediate_safety_concern: false,
+      })
       const data = await slApi.listIncidents(houseId)
       setIncidents(Array.isArray(data) ? data : [])
     } catch (err) { toast.error(err.message || 'Failed to log incident') }
     finally { setSaving(false) }
   }
+
+  const handleExpandIncident = (inc) => {
+    if (expandedIncident === inc.incident_id) {
+      setExpandedIncident(null)
+      return
+    }
+    setExpandedIncident(inc.incident_id)
+    setIncidentEditForm({
+      response_taken:   inc.response_taken || '',
+      resolution_notes: inc.resolution_notes || '',
+      follow_up_required:  inc.follow_up_required ? true : false,
+      follow_up_due_date:  inc.follow_up_due_date || '',
+      incident_resolved:   inc.incident_resolved ? true : false,
+    })
+  }
+
+  const handleUpdateIncident = async (incidentId) => {
+    setIncidentSaving(true)
+    try {
+      const payload = {
+        ...incidentEditForm,
+        follow_up_required: incidentEditForm.follow_up_required ? 1 : 0,
+        incident_resolved:  incidentEditForm.incident_resolved ? 1 : 0,
+      }
+      await slApi.updateIncident(incidentId, payload)
+      toast.success('Incident updated')
+      setExpandedIncident(null)
+      const data = await slApi.listIncidents(houseId)
+      setIncidents(Array.isArray(data) ? data : [])
+    } catch (err) { toast.error(err.message || 'Failed to update incident') }
+    finally { setIncidentSaving(false) }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Handlers — UA Tests
+  // ---------------------------------------------------------------------------
 
   const handleAddUATest = async (e) => {
     e.preventDefault()
@@ -241,12 +371,47 @@ export default function SoberLivingHouse() {
       await slApi.createUATest({ ...uaForm, house_id: houseId })
       toast.success('UA test logged')
       setModal(null)
-      setUAForm({ test_date: '', result: '', administered_by_name: '', stay_id: '', resident_id: '', notes: '' })
+      setUAForm({ test_date: '', result: '', administered_by_name: '', stay_id: '', resident_id: '', test_type: '', test_method: '', notes: '' })
       const data = await slApi.listUATests(houseId)
       setUATests(Array.isArray(data) ? data : [])
     } catch (err) { toast.error(err.message || 'Failed to log UA test') }
     finally { setSaving(false) }
   }
+
+  // ---------------------------------------------------------------------------
+  // Handlers — Compliance
+  // ---------------------------------------------------------------------------
+
+  const handleToggleCompliance = (stayId, key) => {
+    setComplianceDraft((prev) => {
+      const draft = { ...(prev[stayId] || {}) }
+      draft[key] = draft[key] ? 0 : 1
+      return { ...prev, [stayId]: draft }
+    })
+  }
+
+  const handleSaveCompliance = async (stayId) => {
+    setComplianceSaving((prev) => ({ ...prev, [stayId]: true }))
+    try {
+      const draft = complianceDraft[stayId] || {}
+      await slApi.updateCompliance(stayId, draft)
+      toast.success('Checklist saved')
+      // Refresh from server
+      const data = await slApi.getCompliance(stayId)
+      const checklist = data || {}
+      setComplianceData((prev) => ({ ...prev, [stayId]: checklist }))
+      const updated = {}
+      BOOL_KEYS.forEach((k) => { updated[k] = checklist[k] ? 1 : 0 })
+      updated.house_rules_signed_date = checklist.house_rules_signed_date || ''
+      updated.missing_items_summary = checklist.missing_items_summary || ''
+      setComplianceDraft((prev) => ({ ...prev, [stayId]: updated }))
+    } catch (err) { toast.error(err.message || 'Failed to save checklist') }
+    finally { setComplianceSaving((prev) => ({ ...prev, [stayId]: false })) }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Handlers — Rent
+  // ---------------------------------------------------------------------------
 
   const handleAddPayment = async (e) => {
     e.preventDefault()
@@ -265,10 +430,40 @@ export default function SoberLivingHouse() {
       setPaymentForm({ stay_id: '', resident_id: '', amount: '', payment_method: 'Cash', payment_for_month: '', received_by: '', notes: '' })
       const data = await slApi.getRentSummary(houseId)
       setRentSummary(data)
-      // Clear cached ledgers so they reload fresh
-      setLedgerData({})
+      if (expandedLedger) reloadLedger(expandedLedger)
     } catch (err) { toast.error(err.message || 'Failed to record payment') }
     finally { setSaving(false) }
+  }
+
+  const handleAddCharge = async (e) => {
+    e.preventDefault()
+    if (!chargeForm.stay_id || !chargeForm.amount) return toast.error('Stay and amount required')
+    setSaving(true)
+    try {
+      const resident = residents.find((r) => r.stay_id === chargeForm.stay_id)
+      await slApi.createCharge({
+        ...chargeForm,
+        house_id:    houseId,
+        resident_id: resident?.resident_id || chargeForm.resident_id,
+        amount:      parseFloat(chargeForm.amount),
+      })
+      toast.success('Charge added')
+      setModal(null)
+      setChargeForm({ stay_id: '', resident_id: '', amount: '', charge_type: 'rent', charge_month: '', due_date: '', notes: '' })
+      const data = await slApi.getRentSummary(houseId)
+      setRentSummary(data)
+      if (expandedLedger) reloadLedger(expandedLedger)
+    } catch (err) { toast.error(err.message || 'Failed to add charge') }
+    finally { setSaving(false) }
+  }
+
+  const handleToggleLedger = (stayId) => {
+    if (expandedLedger === stayId) {
+      setExpandedLedger(null)
+    } else {
+      setExpandedLedger(stayId)
+      reloadLedger(stayId)
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -390,16 +585,52 @@ export default function SoberLivingHouse() {
           onAssign={() => setModal('assign-bed')}
         />
       )}
-      {tab === 'compliance' && <TabCompliance residents={residents} />}
-      {tab === 'ua'         && <TabUA uaTests={uaTests} residents={residents} onAdd={() => setModal('add-ua')} />}
-      {tab === 'incidents'  && <TabIncidents incidents={incidents} onAdd={() => setModal('add-incident')} />}
-      {tab === 'rent'       && (
+      {tab === 'compliance' && (
+        <TabCompliance
+          residents={residents}
+          complianceDraft={complianceDraft}
+          complianceSaving={complianceSaving}
+          onLoad={loadCompliance}
+          onToggle={handleToggleCompliance}
+          onSave={handleSaveCompliance}
+          onDraftChange={(stayId, field, value) =>
+            setComplianceDraft((prev) => ({
+              ...prev,
+              [stayId]: { ...(prev[stayId] || {}), [field]: value },
+            }))
+          }
+        />
+      )}
+      {tab === 'ua' && (
+        <TabUA
+          uaTests={uaTests}
+          residents={residents}
+          expandedUA={expandedUA}
+          setExpandedUA={setExpandedUA}
+          onAdd={() => setModal('add-ua')}
+        />
+      )}
+      {tab === 'incidents' && (
+        <TabIncidents
+          incidents={incidents}
+          expandedIncident={expandedIncident}
+          incidentEditForm={incidentEditForm}
+          incidentSaving={incidentSaving}
+          onExpand={handleExpandIncident}
+          onEditChange={(field, value) => setIncidentEditForm((prev) => ({ ...prev, [field]: value }))}
+          onUpdate={handleUpdateIncident}
+          onAdd={() => setModal('add-incident')}
+        />
+      )}
+      {tab === 'rent' && (
         <TabRent
           rentSummary={rentSummary}
           residents={residents}
           ledgerData={ledgerData}
-          loadLedger={loadLedger}
+          expandedLedger={expandedLedger}
+          onToggleLedger={handleToggleLedger}
           onAddPayment={() => setModal('add-payment')}
+          onAddCharge={() => setModal('add-charge')}
         />
       )}
 
@@ -551,16 +782,13 @@ export default function SoberLivingHouse() {
               </span>
               {selectedBed.room_name && <span className="text-xs text-slate-400">{selectedBed.room_name}</span>}
             </div>
-
             {selectedBed.bed_status === 'occupied' && selectedBed.first_name && (
               <div className="bg-slate-700/40 rounded-lg p-3 text-sm">
                 <p className="text-white font-medium">{selectedBed.first_name} {selectedBed.last_name}</p>
                 <p className="text-slate-400 text-xs mt-1">Active stay</p>
               </div>
             )}
-
             {selectedBed.notes && <p className="text-xs text-slate-400">{selectedBed.notes}</p>}
-
             <div>
               <p className="text-xs text-slate-400 font-medium uppercase tracking-wide mb-2">Change Status</p>
               <div className="grid grid-cols-2 gap-2">
@@ -575,7 +803,6 @@ export default function SoberLivingHouse() {
                 ))}
               </div>
             </div>
-
             {selectedBed.bed_status === 'occupied' && selectedBed.stay_id && (
               <button
                 onClick={() => setModal('discharge')}
@@ -633,6 +860,17 @@ export default function SoberLivingHouse() {
               <Field label="Reported By">
                 <TInput value={incidentForm.reported_by_name} onChange={(e) => setIncidentForm({ ...incidentForm, reported_by_name: e.target.value })} />
               </Field>
+              <Field label="Immediate Safety Concern?">
+                <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={incidentForm.immediate_safety_concern}
+                    onChange={(e) => setIncidentForm({ ...incidentForm, immediate_safety_concern: e.target.checked })}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-slate-300">Yes</span>
+                </label>
+              </Field>
             </div>
             <Field label="Description">
               <TArea rows={3} value={incidentForm.description} onChange={(e) => setIncidentForm({ ...incidentForm, description: e.target.value })} />
@@ -666,10 +904,16 @@ export default function SoberLivingHouse() {
               <Field label="Result">
                 <TSelect value={uaForm.result} onChange={(e) => setUAForm({ ...uaForm, result: e.target.value })}>
                   <option value="">Select...</option>
-                  {['negative','positive','dilute','refused','not_completed'].map((r) => (
+                  {UA_RESULTS.map((r) => (
                     <option key={r} value={r}>{r.replace(/_/g, ' ')}</option>
                   ))}
                 </TSelect>
+              </Field>
+              <Field label="Test Type">
+                <TInput value={uaForm.test_type} onChange={(e) => setUAForm({ ...uaForm, test_type: e.target.value })} placeholder="Random, Scheduled, etc." />
+              </Field>
+              <Field label="Test Method">
+                <TInput value={uaForm.test_method} onChange={(e) => setUAForm({ ...uaForm, test_method: e.target.value })} placeholder="Dip strip, Lab send, etc." />
               </Field>
               <Field label="Administered By">
                 <TInput value={uaForm.administered_by_name} onChange={(e) => setUAForm({ ...uaForm, administered_by_name: e.target.value })} />
@@ -717,6 +961,44 @@ export default function SoberLivingHouse() {
               <TArea value={paymentForm.notes} onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })} />
             </Field>
             <MFooter onCancel={() => setModal(null)} saving={saving} label="Record Payment" submitClass="bg-emerald-500 hover:bg-emerald-600" />
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'add-charge' && (
+        <Modal title="Add Charge" onClose={() => setModal(null)}>
+          <form onSubmit={handleAddCharge} className="space-y-4">
+            <Field label="Resident Stay *">
+              <TSelect value={chargeForm.stay_id} onChange={(e) => {
+                const res = residents.find((r) => r.stay_id === e.target.value)
+                setChargeForm({ ...chargeForm, stay_id: e.target.value, resident_id: res?.resident_id || '' })
+              }}>
+                <option value="">Select resident...</option>
+                {residents.map((r) => (
+                  <option key={r.stay_id} value={r.stay_id}>{r.first_name} {r.last_name}</option>
+                ))}
+              </TSelect>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Charge Type">
+                <TSelect value={chargeForm.charge_type} onChange={(e) => setChargeForm({ ...chargeForm, charge_type: e.target.value })}>
+                  {CHARGE_TYPES.map((t) => <option key={t} value={t}>{t.replace(/_/g, ' ')}</option>)}
+                </TSelect>
+              </Field>
+              <Field label="Amount ($) *">
+                <TInput type="number" min="0" step="0.01" value={chargeForm.amount} onChange={(e) => setChargeForm({ ...chargeForm, amount: e.target.value })} />
+              </Field>
+              <Field label="Charge Month (YYYY-MM)">
+                <TInput value={chargeForm.charge_month} onChange={(e) => setChargeForm({ ...chargeForm, charge_month: e.target.value })} placeholder="2026-06" />
+              </Field>
+              <Field label="Due Date">
+                <TInput type="date" value={chargeForm.due_date} onChange={(e) => setChargeForm({ ...chargeForm, due_date: e.target.value })} />
+              </Field>
+            </div>
+            <Field label="Notes">
+              <TArea value={chargeForm.notes} onChange={(e) => setChargeForm({ ...chargeForm, notes: e.target.value })} />
+            </Field>
+            <MFooter onCancel={() => setModal(null)} saving={saving} label="Add Charge" submitClass="bg-amber-500 hover:bg-amber-600" />
           </form>
         </Modal>
       )}
@@ -874,31 +1156,146 @@ function TabResidents({ residents, expandedStay, setExpandedStay, ledgerData, on
   )
 }
 
-function TabCompliance({ residents }) {
+// ---------------------------------------------------------------------------
+// 2A: Compliance checklist tab
+// ---------------------------------------------------------------------------
+
+function TabCompliance({ residents, complianceDraft, complianceSaving, onLoad, onToggle, onSave, onDraftChange }) {
+  const [expanded, setExpanded] = useState(null)
+
   if (residents.length === 0) {
     return <EmptyTab message="No active residents — compliance tracking requires at least one active stay." />
   }
+
+  const handleExpand = (stayId) => {
+    if (expanded === stayId) {
+      setExpanded(null)
+    } else {
+      setExpanded(stayId)
+      onLoad(stayId)
+    }
+  }
+
   return (
-    <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-6">
-      <h3 className="font-semibold text-white mb-4 flex items-center gap-2">
-        <ClipboardList size={16} className="text-indigo-400" />
-        Document Compliance
-      </h3>
-      <div className="space-y-3">
-        {residents.map((r) => (
-          <div key={r.resident_id} className="bg-slate-700/30 rounded-lg p-4">
-            <p className="font-medium text-white text-sm mb-2">{r.first_name} {r.last_name}</p>
-            <p className="text-xs text-slate-400">
-              Compliance checklist UI coming in next phase. Stay ID: <code className="text-indigo-300">{r.stay_id?.slice(0, 8)}…</code>
-            </p>
+    <div className="space-y-2">
+      {residents.map((r) => {
+        const isOpen = expanded === r.stay_id
+        const draft = complianceDraft[r.stay_id] || {}
+        const checked = BOOL_KEYS.filter((k) => draft[k]).length
+        const pct = Math.round((checked / BOOL_KEYS.length) * 100)
+        const isSaving = complianceSaving[r.stay_id]
+
+        return (
+          <div key={r.stay_id} className="bg-slate-800/60 border border-slate-700/50 rounded-xl overflow-hidden">
+            <button
+              onClick={() => handleExpand(r.stay_id)}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-700/20 transition-colors text-left"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                  <User size={14} className="text-indigo-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white">{r.first_name} {r.last_name}</p>
+                  {isOpen || Object.keys(draft).length > 0 ? (
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <div className="w-24 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-400' : pct >= 50 ? 'bg-amber-400' : 'bg-rose-400'}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-slate-400">{checked}/{BOOL_KEYS.length} items</span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-500">Click to view checklist</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {pct === 100 && <CheckCircle2 size={16} className="text-emerald-400" />}
+                {isOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+              </div>
+            </button>
+
+            {isOpen && (
+              <div className="border-t border-slate-700/50 px-5 py-4 bg-slate-800/40">
+                <div className="space-y-2 mb-4">
+                  {CHECKLIST_FIELDS.map(({ key, label, hasDate }) => (
+                    <div key={key}>
+                      <button
+                        onClick={() => onToggle(r.stay_id, key)}
+                        className="flex items-center gap-3 w-full text-left py-1.5 hover:opacity-80 transition-opacity"
+                      >
+                        {draft[key] ? (
+                          <CheckSquare size={16} className="text-emerald-400 shrink-0" />
+                        ) : (
+                          <Square size={16} className="text-slate-500 shrink-0" />
+                        )}
+                        <span className={`text-sm ${draft[key] ? 'text-white' : 'text-slate-400'}`}>{label}</span>
+                      </button>
+                      {hasDate && draft[key] ? (
+                        <div className="ml-7 mt-1">
+                          <input
+                            type="date"
+                            value={draft.house_rules_signed_date || ''}
+                            onChange={(e) => onDraftChange(r.stay_id, 'house_rules_signed_date', e.target.value)}
+                            className="bg-slate-700/50 border border-slate-600 rounded px-2 py-1 text-white text-xs focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mb-4">
+                  <label className="block text-xs text-slate-400 mb-1">Missing Items / Notes</label>
+                  <textarea
+                    value={draft.missing_items_summary || ''}
+                    onChange={(e) => onDraftChange(r.stay_id, 'missing_items_summary', e.target.value)}
+                    rows={2}
+                    placeholder="Note any pending items..."
+                    className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 resize-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-medium ${pct === 100 ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {pct === 100 ? '✓ All items complete' : `${pct}% complete`}
+                  </span>
+                  <button
+                    onClick={() => onSave(r.stay_id)}
+                    disabled={isSaving}
+                    className="px-4 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium disabled:opacity-50"
+                  >
+                    {isSaving ? 'Saving...' : 'Save Checklist'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        ))}
-      </div>
+        )
+      })}
     </div>
   )
 }
 
-function TabUA({ uaTests, residents, onAdd }) {
+// ---------------------------------------------------------------------------
+// 2D: UA Tests tab (improved display)
+// ---------------------------------------------------------------------------
+
+const UA_RESULT_COLORS = {
+  negative:      'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+  positive:      'bg-rose-500/10 text-rose-300 border-rose-500/30',
+  dilute:        'bg-amber-500/10 text-amber-300 border-amber-500/30',
+  refused:       'bg-orange-500/10 text-orange-300 border-orange-500/30',
+  not_completed: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
+}
+
+function TabUA({ uaTests, residents, expandedUA, setExpandedUA, onAdd }) {
+  const residentMap = {}
+  residents.forEach((r) => { residentMap[r.resident_id] = r })
+
   return (
     <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
@@ -916,28 +1313,80 @@ function TabUA({ uaTests, residents, onAdd }) {
         <EmptyTab message="No UA tests logged yet." />
       ) : (
         <div className="space-y-2">
-          {uaTests.map((t) => (
-            <div key={t.test_id} className="bg-slate-700/30 rounded-lg px-4 py-3 flex items-center justify-between text-sm">
-              <div>
-                <p className="text-white font-medium">{formatDate(t.test_date)}</p>
-                <p className="text-xs text-slate-400">{t.administered_by_name || 'Unknown administrator'}</p>
+          {uaTests.map((t) => {
+            const resident = residentMap[t.resident_id]
+            const residentName = resident
+              ? `${resident.first_name} ${resident.last_name}`
+              : t.resident_id?.slice(0, 8) + '…'
+            const isOpen = expandedUA === t.test_id
+            const resultColor = UA_RESULT_COLORS[t.result] || UA_RESULT_COLORS.not_completed
+
+            return (
+              <div key={t.test_id} className="bg-slate-700/30 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => setExpandedUA(isOpen ? null : t.test_id)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-700/40 transition-colors"
+                >
+                  <div className="flex items-center gap-4 flex-1 min-w-0">
+                    <div className="shrink-0">
+                      <p className="text-sm text-white font-medium">{formatDate(t.test_date)}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{residentName}</p>
+                    </div>
+                    <div className="hidden sm:flex flex-col min-w-0">
+                      {t.test_type && <span className="text-xs text-slate-400 truncate">{t.test_type}</span>}
+                      {t.administered_by_name && <span className="text-xs text-slate-500 truncate">by {t.administered_by_name}</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 ml-2">
+                    <span className={`text-xs px-2 py-1 rounded-full border ${resultColor}`}>
+                      {t.result?.replace(/_/g, ' ') || 'Pending'}
+                    </span>
+                    {isOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                  </div>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t border-slate-600/40 px-4 py-3 bg-slate-700/20 space-y-2 text-sm">
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+                      {[
+                        ['Resident', residentName],
+                        ['Test Date', formatDate(t.test_date)],
+                        ['Test Type', t.test_type],
+                        ['Test Method', t.test_method],
+                        ['Administered By', t.administered_by_name],
+                        ['Result', t.result?.replace(/_/g, ' ')],
+                        ['Specimen Validity', t.specimen_validity],
+                        ['Action Taken', t.action_taken],
+                        ['Clinical Notified', t.clinical_notified ? `Yes${t.clinical_notified_at ? ' · ' + formatDate(t.clinical_notified_at) : ''}` : null],
+                        ['CM Notified', t.case_manager_notified ? `Yes${t.case_manager_notified_at ? ' · ' + formatDate(t.case_manager_notified_at) : ''}` : null],
+                      ].filter(([, v]) => v).map(([label, value]) => (
+                        <div key={label}>
+                          <span className="text-slate-500">{label}: </span>
+                          <span className="text-slate-200">{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {t.notes && (
+                      <div className="pt-2 border-t border-slate-600/40">
+                        <p className="text-xs text-slate-400">{t.notes}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <span className={`text-xs px-2 py-1 rounded-full border ${
-                t.result === 'negative' ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' :
-                t.result === 'positive' ? 'bg-rose-500/10 text-rose-300 border-rose-500/30' :
-                'bg-amber-500/10 text-amber-300 border-amber-500/30'
-              }`}>
-                {t.result?.replace(/_/g, ' ') || 'Pending'}
-              </span>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
   )
 }
 
-function TabIncidents({ incidents, onAdd }) {
+// ---------------------------------------------------------------------------
+// 2B: Incidents tab with update/resolve workflow
+// ---------------------------------------------------------------------------
+
+function TabIncidents({ incidents, expandedIncident, incidentEditForm, incidentSaving, onExpand, onEditChange, onUpdate, onAdd }) {
   return (
     <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
@@ -953,65 +1402,261 @@ function TabIncidents({ incidents, onAdd }) {
         <EmptyTab message="No incidents logged." />
       ) : (
         <div className="space-y-2">
-          {incidents.map((inc) => (
-            <div key={inc.incident_id} className="bg-slate-700/30 rounded-lg px-4 py-3 text-sm">
-              <div className="flex items-center justify-between mb-1">
-                <p className="text-white font-medium">{inc.incident_type.replace(/_/g, ' ')}</p>
-                <span className="text-xs text-slate-400">{formatDate(inc.incident_date)}</span>
+          {incidents.map((inc) => {
+            const isOpen = expandedIncident === inc.incident_id
+            const isResolved = inc.incident_resolved
+
+            return (
+              <div key={inc.incident_id} className="bg-slate-700/30 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => onExpand(inc)}
+                  className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-700/40 transition-colors"
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {isResolved ? (
+                      <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                    ) : (
+                      <Circle size={16} className="text-slate-500 shrink-0" />
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-medium text-white capitalize">
+                          {inc.incident_type.replace(/_/g, ' ')}
+                        </p>
+                        {inc.severity && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded border ${SEVERITY_COLORS[inc.severity] || SEVERITY_COLORS.low}`}>
+                            {inc.severity}
+                          </span>
+                        )}
+                        {inc.immediate_safety_concern ? (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                            Safety concern
+                          </span>
+                        ) : null}
+                        {isResolved && (
+                          <span className="text-xs text-emerald-400">Resolved</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5 truncate">
+                        {formatDate(inc.incident_date)}
+                        {inc.reported_by_name ? ` · ${inc.reported_by_name}` : ''}
+                        {inc.description ? ` · ${inc.description}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 ml-2">
+                    {isOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                  </div>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t border-slate-600/40 px-4 py-4 bg-slate-700/20 space-y-4">
+                    {inc.description && (
+                      <div>
+                        <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Description</p>
+                        <p className="text-sm text-slate-300">{inc.description}</p>
+                      </div>
+                    )}
+
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Response Taken</label>
+                      <textarea
+                        value={incidentEditForm.response_taken || ''}
+                        onChange={(e) => onEditChange('response_taken', e.target.value)}
+                        rows={2}
+                        className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 resize-none"
+                        placeholder="Actions taken in response..."
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={incidentEditForm.follow_up_required || false}
+                            onChange={(e) => onEditChange('follow_up_required', e.target.checked)}
+                            className="rounded"
+                          />
+                          <span className="text-sm text-slate-300">Follow-up Required</span>
+                        </label>
+                      </div>
+                      {incidentEditForm.follow_up_required && (
+                        <div>
+                          <label className="block text-xs text-slate-400 mb-1">Follow-up Due</label>
+                          <input
+                            type="date"
+                            value={incidentEditForm.follow_up_due_date || ''}
+                            onChange={(e) => onEditChange('follow_up_due_date', e.target.value)}
+                            className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="flex items-center gap-2 cursor-pointer mb-2">
+                        <input
+                          type="checkbox"
+                          checked={incidentEditForm.incident_resolved || false}
+                          onChange={(e) => onEditChange('incident_resolved', e.target.checked)}
+                          className="rounded"
+                        />
+                        <span className="text-sm text-slate-300">Mark as Resolved</span>
+                      </label>
+                      {incidentEditForm.incident_resolved && (
+                        <textarea
+                          value={incidentEditForm.resolution_notes || ''}
+                          onChange={(e) => onEditChange('resolution_notes', e.target.value)}
+                          rows={2}
+                          placeholder="Resolution notes..."
+                          className="w-full bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 resize-none"
+                        />
+                      )}
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => onUpdate(inc.incident_id)}
+                        disabled={incidentSaving}
+                        className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-sm font-medium disabled:opacity-50"
+                      >
+                        <Edit3 size={13} />
+                        {incidentSaving ? 'Saving...' : 'Update Incident'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-              {inc.description && <p className="text-xs text-slate-400 truncate">{inc.description}</p>}
-              {inc.severity && (
-                <span className={`text-xs px-2 py-0.5 rounded-full mt-1 inline-block ${
-                  inc.severity === 'critical' ? 'bg-rose-500/20 text-rose-300' :
-                  inc.severity === 'high'     ? 'bg-orange-500/20 text-orange-300' :
-                  'bg-slate-500/20 text-slate-400'
-                }`}>
-                  {inc.severity}
-                </span>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
   )
 }
 
-function TabRent({ rentSummary, residents, ledgerData, loadLedger, onAddPayment }) {
+// ---------------------------------------------------------------------------
+// 2C: Rent tab with charge creation and full ledger
+// ---------------------------------------------------------------------------
+
+function TabRent({ rentSummary, residents, ledgerData, expandedLedger, onToggleLedger, onAddPayment, onAddCharge }) {
   return (
     <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold text-white flex items-center gap-2">
           <DollarSign size={16} className="text-indigo-400" />
-          Rent Summary
+          Rent &amp; Payments
         </h3>
         {residents.length > 0 && (
-          <button onClick={onAddPayment} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-medium">
-            <Plus size={12} /> Record Payment
-          </button>
+          <div className="flex gap-2">
+            <button onClick={onAddCharge} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium">
+              <Receipt size={12} /> Add Charge
+            </button>
+            <button onClick={onAddPayment} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-medium">
+              <Plus size={12} /> Record Payment
+            </button>
+          </div>
         )}
       </div>
       {!rentSummary || rentSummary.residents.length === 0 ? (
         <EmptyTab message="No active residents with rent data." />
       ) : (
         <div className="space-y-3">
-          {rentSummary.residents.map((r) => (
-            <div key={r.resident_id} className="bg-slate-700/30 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="font-medium text-white text-sm">{r.first_name} {r.last_name}</p>
-                <div className="flex gap-3 text-xs">
-                  <span className="text-slate-400">Charged: <span className="text-white">{formatCurrency(r.total_charged)}</span></span>
-                  <span className="text-slate-400">Paid: <span className="text-emerald-300">{formatCurrency(r.total_paid)}</span></span>
-                </div>
+          {rentSummary.residents.map((r) => {
+            const balance = (r.total_charged || 0) - (r.total_paid || 0)
+            const isOpen = expandedLedger === r.stay_id
+            const ledger = ledgerData[r.stay_id]
+
+            return (
+              <div key={r.resident_id} className="bg-slate-700/30 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => onToggleLedger(r.stay_id)}
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-700/40 transition-colors text-left"
+                >
+                  <div>
+                    <p className="font-medium text-white text-sm">{r.first_name} {r.last_name}</p>
+                    <div className="flex gap-4 mt-1 text-xs">
+                      <span className="text-slate-400">Charged: <span className="text-white">{formatCurrency(r.total_charged)}</span></span>
+                      <span className="text-slate-400">Paid: <span className="text-emerald-300">{formatCurrency(r.total_paid)}</span></span>
+                      <span className="text-slate-400">Balance: <span className={balance > 0 ? 'text-rose-300' : 'text-emerald-300'}>{formatCurrency(balance)}</span></span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 ml-3">
+                    {balance > 0 && <TrendingDown size={14} className="text-rose-400" />}
+                    {isOpen ? <ChevronDown size={14} className="text-slate-400" /> : <ChevronRight size={14} className="text-slate-400" />}
+                  </div>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t border-slate-600/40 px-4 py-3 bg-slate-700/20">
+                    {!ledger ? (
+                      <p className="text-xs text-slate-400 py-2">Loading ledger...</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {ledger.charges.length > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase tracking-wide mb-1.5">Charges</p>
+                            <div className="space-y-1">
+                              {ledger.charges.map((c) => (
+                                <div key={c.charge_id} className="flex items-center justify-between text-xs bg-slate-700/40 rounded px-3 py-2">
+                                  <div>
+                                    <span className="text-slate-300 capitalize">{c.charge_type?.replace(/_/g, ' ')}</span>
+                                    {c.charge_month && <span className="text-slate-500 ml-1">· {c.charge_month}</span>}
+                                    {c.due_date && <span className="text-slate-500 ml-1">· due {formatDate(c.due_date)}</span>}
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <span className={`px-1.5 py-0.5 rounded text-xs ${
+                                      c.status === 'paid'   ? 'bg-emerald-500/20 text-emerald-300' :
+                                      c.status === 'void'   ? 'bg-slate-500/20 text-slate-500'    :
+                                      c.status === 'waived' ? 'bg-indigo-500/20 text-indigo-300'  :
+                                                              'bg-amber-500/20 text-amber-300'
+                                    }`}>{c.status}</span>
+                                    <span className="text-white font-medium">{formatCurrency(c.amount)}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {ledger.payments.length > 0 && (
+                          <div>
+                            <p className="text-xs text-slate-500 uppercase tracking-wide mb-1.5">Payments</p>
+                            <div className="space-y-1">
+                              {ledger.payments.map((p) => (
+                                <div key={p.payment_id} className="flex items-center justify-between text-xs bg-slate-700/40 rounded px-3 py-2">
+                                  <div>
+                                    <span className="text-slate-300">{formatDate(p.payment_date)}</span>
+                                    {p.payment_method && <span className="text-slate-500 ml-1">· {p.payment_method}</span>}
+                                    {p.payment_for_month && <span className="text-slate-500 ml-1">· for {p.payment_for_month}</span>}
+                                    {p.received_by && <span className="text-slate-500 ml-1">· {p.received_by}</span>}
+                                  </div>
+                                  <span className="text-emerald-300 font-medium">{formatCurrency(p.amount)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {ledger.charges.length === 0 && ledger.payments.length === 0 && (
+                          <p className="text-xs text-slate-500 py-1">No charges or payments recorded yet.</p>
+                        )}
+
+                        <div className="flex gap-3 pt-1 border-t border-slate-600/40">
+                          <div className="flex gap-4 flex-1 text-xs">
+                            <span className="text-slate-400">Total Charged: <span className="text-white font-medium">{formatCurrency(ledger.total_charged)}</span></span>
+                            <span className="text-slate-400">Total Paid: <span className="text-emerald-300 font-medium">{formatCurrency(ledger.total_paid)}</span></span>
+                            <span className="text-slate-400">Balance: <span className={`font-medium ${ledger.balance > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>{formatCurrency(ledger.balance)}</span></span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => loadLedger(r.stay_id)}
-                className="text-xs text-indigo-400 hover:text-indigo-300"
-              >
-                {ledgerData[r.stay_id] ? 'Ledger loaded ✓' : 'Load full ledger →'}
-              </button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
@@ -1034,7 +1679,9 @@ function Modal({ title, onClose, children }) {
       <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-slate-700 shrink-0">
           <h2 className="font-semibold text-white">{title}</h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+          <button onClick={onClose} className="text-slate-400 hover:text-white">
+            <X size={18} />
+          </button>
         </div>
         <div className="p-5 overflow-y-auto flex-1">{children}</div>
       </div>
