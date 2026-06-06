@@ -226,7 +226,7 @@ export const getWaitingOnLabel = (fmlaCase, documents = [], correspondence = [])
 export const getNextActionLabel = (fmlaCase, documents = [], correspondence = [], reminders = []) => {
   const stage = getCurrentWorkflowStage(fmlaCase, documents, correspondence)
   const nextDue = getNextDueDate(fmlaCase, reminders)
-  if (nextDue?.state?.daysUntil !== null && nextDue.state.daysUntil <= 0) {
+  if (nextDue?.state?.daysUntil != null && nextDue.state.daysUntil <= 0) {
     return `Address overdue item: ${nextDue.label}`
   }
   switch (stage) {
@@ -263,7 +263,7 @@ export const getActionBucket = (fmlaCase, documents = [], correspondence = [], r
   if ((stage === 'Approved' || normalize(fmlaCase?.fmla_request_type).toLowerCase() === 'extension') && !fmlaCase?.return_to_work_date) {
     return 'rtw_extension_needed'
   }
-  if (nextDue?.state?.daysUntil !== null && nextDue.state.daysUntil <= 3) {
+  if (nextDue?.state?.daysUntil != null && nextDue.state.daysUntil <= 3) {
     return 'due_within_3_days'
   }
   if (stage === 'Provider Completed') return 'ready_to_submit'

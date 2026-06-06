@@ -106,4 +106,19 @@ describe('FMLA utilities', () => {
     expect(snapshot.nextAction).toContain('send to provider')
     expect(snapshot.actionBucket).toBeTruthy()
   })
+
+  it('does not crash when no next due date exists', () => {
+    const snapshot = getWorkflowSnapshot(
+      {
+        client_name: 'Taylor Jones',
+        status: 'draft'
+      },
+      [],
+      [],
+      []
+    )
+    expect(snapshot.nextDue).toBeNull()
+    expect(snapshot.nextAction).toBeTruthy()
+    expect(snapshot.actionBucket).toBeTruthy()
+  })
 })
