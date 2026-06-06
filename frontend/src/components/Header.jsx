@@ -1,4 +1,4 @@
-import { Home, Bell, User, Search, Flame, Sparkles, Zap } from 'lucide-react'
+import { Home, Bell, User, Search, Flame, Sparkles, Zap, BedDouble } from 'lucide-react'
 
 function Header() {
   return (
@@ -88,8 +88,18 @@ function Header() {
               <span className="group-hover:text-emerald-200 transition-colors duration-300">Jobs</span>
             </a>
             
-            <a 
-              href="/ai-chat" 
+            <a
+              href="/sober-living"
+              className="group flex items-center gap-3 px-6 py-3 rounded-xl transition-all duration-300 hover:bg-white/10 hover:backdrop-blur-md hover:scale-105 hover:shadow-lg hover:shadow-teal-500/25 font-medium border border-transparent hover:border-white/20"
+            >
+              <div className="p-1 bg-gradient-to-r from-teal-500 to-emerald-500 rounded-lg group-hover:from-teal-400 group-hover:to-emerald-400 transition-all duration-300">
+                <BedDouble className="h-4 w-4 text-white" />
+              </div>
+              <span className="group-hover:text-teal-200 transition-colors duration-300">Sober Living</span>
+            </a>
+
+            <a
+              href="/ai-chat"
               className="group flex items-center gap-3 px-6 py-3 rounded-xl transition-all duration-300 hover:bg-white/10 hover:backdrop-blur-md hover:scale-105 hover:shadow-lg hover:shadow-yellow-500/25 font-medium border border-transparent hover:border-white/20"
             >
               <div className="p-1 bg-gradient-to-r from-yellow-500 to-amber-500 rounded-lg group-hover:from-yellow-400 group-hover:to-amber-400 transition-all duration-300">

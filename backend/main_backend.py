@@ -134,6 +134,14 @@ except ImportError as e:
     logger.warning(f"Unified client view routes not available: {e}")
     UNIFIED_CLIENT_VIEW_AVAILABLE = False
 
+# Import sober living module
+try:
+    from modules.sober_living.routes import router as sober_living_router
+    SOBER_LIVING_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Sober living module not available: {e}")
+    SOBER_LIVING_AVAILABLE = False
+
 # Pydantic models for API
 class ClientCreate(BaseModel):
     first_name: str
@@ -267,7 +275,14 @@ class NewUnifiedPlatform:
             logger.info("[CHECK] Unified client view routes integrated")
         else:
             logger.warning("[WARNING] Unified client view routes not available")
-            
+
+        # Include sober living module if available
+        if SOBER_LIVING_AVAILABLE:
+            self.app.include_router(sober_living_router)
+            logger.info("[CHECK] Sober living module integrated")
+        else:
+            logger.warning("[WARNING] Sober living module not available")
+
         # Include database integrity routes
         self.app.include_router(integrity_router)
         logger.info("[CHECK] Database integrity management system integrated")

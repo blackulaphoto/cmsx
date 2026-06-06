@@ -20,6 +20,8 @@ import HousingTest from './pages/HousingTest'
 import SoberLivingDirectory from './pages/SoberLivingDirectory'
 import SoberLivingDirectoryListing from './pages/SoberLivingDirectoryListing'
 import SoberLivingDirectoryReview from './pages/SoberLivingDirectoryReview'
+import SoberLiving from './pages/SoberLiving'
+import SoberLivingHouse from './pages/SoberLivingHouse'
 import Benefits from './pages/Benefits'
 import Medical from './pages/Medical'
 import Rolodex from './pages/Rolodex'
@@ -75,6 +77,8 @@ function App() {
         <Route path="/sober-living-directory" element={<SoberLivingDirectory />} />
         <Route path="/sober-living-directory/review" element={<SoberLivingDirectoryReview />} />
         <Route path="/sober-living-directory/:listingId" element={<SoberLivingDirectoryListing />} />
+        <Route path="/sober-living" element={<SoberLiving />} />
+        <Route path="/sober-living/:houseId" element={<SoberLivingHouse />} />
         <Route path="/benefits" element={<Benefits />} />
         <Route path="/medical" element={<Medical />} />
         <Route path="/rolodex" element={<Rolodex />} />
