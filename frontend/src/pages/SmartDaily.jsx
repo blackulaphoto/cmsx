@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Calendar, Clock, CheckCircle, AlertCircle, TrendingUp, Bell,
   Search, Filter, Sparkles, Zap, Brain, Star, PlusCircle, ArrowRight,
-  AlertTriangle, ChevronDown, ChevronRight, ListChecks
+  AlertTriangle, ChevronDown, ChevronRight, ListChecks, X
 } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import toast from 'react-hot-toast'
@@ -166,7 +166,147 @@ function BucketSection({ bucketKey, tasks, onComplete, onStart, defaultOpen = tr
   )
 }
 
-function EmptyState() {
+function CreateTaskModal({ onClose, onCreated, clients }) {
+  const today = new Date().toISOString().split('T')[0]
+  const [form, setForm] = useState({
+    client_id: clients[0]?.client_id || '',
+    reminder_text: '',
+    due_date: today,
+    priority: 'Medium',
+  })
+  const [saving, setSaving] = useState(false)
+  const firstInput = useRef(null)
+
+  useEffect(() => { firstInput.current?.focus() }, [])
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.reminder_text.trim()) { toast.error('Task title is required'); return }
+    if (!form.client_id) { toast.error('Select a client'); return }
+    setSaving(true)
+    try {
+      const res = await apiFetch('/api/reminders/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: form.client_id,
+          reminder_text: form.reminder_text.trim(),
+          due_date: form.due_date,
+          priority: form.priority,
+          case_manager_id: CASE_MANAGER_ID,
+        }),
+      })
+      if (!res.ok) throw new Error('Server error')
+      toast.success('Task created!')
+      onCreated()
+      onClose()
+    } catch {
+      toast.error('Failed to create task')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="w-full max-w-md bg-gradient-to-br from-slate-800 to-slate-900 border border-white/20 rounded-2xl shadow-2xl"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg">
+              <PlusCircle size={18} className="text-white" />
+            </div>
+            <h2 className="text-lg font-bold text-white">New Task</h2>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400 hover:text-white">
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">Task title <span className="text-red-400">*</span></label>
+            <input
+              ref={firstInput}
+              type="text"
+              value={form.reminder_text}
+              onChange={e => set('reminder_text', e.target.value)}
+              placeholder="e.g. Follow up on housing application"
+              className="w-full px-4 py-3 bg-white/8 border border-white/15 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all"
+              maxLength={200}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-1.5">Client <span className="text-red-400">*</span></label>
+            <select
+              value={form.client_id}
+              onChange={e => set('client_id', e.target.value)}
+              className="w-full px-4 py-3 bg-white/8 border border-white/15 rounded-xl text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all"
+            >
+              {clients.length === 0 && <option value="">No clients found</option>}
+              {clients.map(c => (
+                <option key={c.client_id} value={c.client_id} className="bg-slate-800">
+                  {c.first_name} {c.last_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Due date</label>
+              <input
+                type="date"
+                value={form.due_date}
+                onChange={e => set('due_date', e.target.value)}
+                className="w-full px-4 py-3 bg-white/8 border border-white/15 rounded-xl text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Priority</label>
+              <select
+                value={form.priority}
+                onChange={e => set('priority', e.target.value)}
+                className="w-full px-4 py-3 bg-white/8 border border-white/15 rounded-xl text-white focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all"
+              >
+                <option value="Critical" className="bg-slate-800">Critical</option>
+                <option value="High" className="bg-slate-800">High</option>
+                <option value="Medium" className="bg-slate-800">Medium</option>
+                <option value="Low" className="bg-slate-800">Low</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-3 bg-white/8 border border-white/15 text-gray-300 rounded-xl font-medium hover:bg-white/15 hover:text-white transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 px-4 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white rounded-xl font-semibold transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+            >
+              {saving ? 'Saving…' : 'Create Task'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function EmptyState({ onCreateClick }) {
   return (
     <div className="bg-gradient-to-br from-white/8 to-white/3 backdrop-blur-xl border border-white/15 rounded-2xl p-16 text-center">
       <div className="p-5 bg-gradient-to-br from-cyan-500/15 to-blue-500/10 rounded-2xl w-fit mx-auto mb-6 border border-cyan-500/20">
@@ -179,14 +319,14 @@ function EmptyState() {
       <p className="text-gray-500 text-sm mb-8">
         Tasks due today, overdue items, and upcoming deadlines will appear here automatically.
       </p>
-      <Link
-        to="/"
+      <button
+        onClick={onCreateClick}
         className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-white rounded-xl font-semibold transition-all hover:scale-105 hover:shadow-xl hover:shadow-cyan-500/20"
       >
         <PlusCircle size={18} />
-        Create Task in Dashboard
+        Create Task
         <ArrowRight size={16} />
-      </Link>
+      </button>
     </div>
   )
 }
@@ -201,41 +341,47 @@ function SmartDaily() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('all')
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [clients, setClients] = useState([])
+
+  const fetchData = async () => {
+    try {
+      const [prioritizedRes, dashboardRes] = await Promise.all([
+        apiFetch(`/api/reminders/prioritized/${CASE_MANAGER_ID}`),
+        apiFetch(`/api/reminders/smart-dashboard/${CASE_MANAGER_ID}`),
+      ])
+
+      if (prioritizedRes.ok) {
+        const data = await prioritizedRes.json()
+        setBuckets(data.buckets || {})
+        setAiSummary(data.ai_summary || null)
+        setCounts(data.counts || {})
+        setTotalActive(data.total_active || 0)
+      } else {
+        setBuckets({})
+        setAiSummary(null)
+      }
+
+      if (dashboardRes.ok) {
+        const dashData = await dashboardRes.json()
+        const todayTasks = dashData.dashboard?.today_tasks || []
+        setCompletedCount(todayTasks.filter(t => String(t.status).toLowerCase() === 'completed').length)
+      }
+    } catch (error) {
+      console.error('Error fetching reminders:', error)
+      toast.error('Failed to load reminders')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [prioritizedRes, dashboardRes] = await Promise.all([
-          apiFetch(`/api/reminders/prioritized/${CASE_MANAGER_ID}`),
-          apiFetch(`/api/reminders/smart-dashboard/${CASE_MANAGER_ID}`),
-        ])
-
-        if (prioritizedRes.ok) {
-          const data = await prioritizedRes.json()
-          setBuckets(data.buckets || {})
-          setAiSummary(data.ai_summary || null)
-          setCounts(data.counts || {})
-          setTotalActive(data.total_active || 0)
-        } else {
-          setBuckets({})
-          setAiSummary(null)
-        }
-
-        // Count completed tasks from smart dashboard if available
-        if (dashboardRes.ok) {
-          const dashData = await dashboardRes.json()
-          const todayTasks = dashData.dashboard?.today_tasks || []
-          setCompletedCount(todayTasks.filter(t => String(t.status).toLowerCase() === 'completed').length)
-        }
-      } catch (error) {
-        console.error('Error fetching reminders:', error)
-        toast.error('Failed to load reminders')
-      } finally {
-        setLoading(false)
-      }
-    }
-
     fetchData()
+    // Load clients for the create-task modal
+    apiFetch(`/api/dashboard/case-manager/${CASE_MANAGER_ID}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.clients) setClients(data.clients) })
+      .catch(() => {})
   }, [])
 
   const getTaskDestination = (task) => {
@@ -378,14 +524,13 @@ function SmartDaily() {
                   New tasks are created in Dashboard and appear here once saved.
                 </p>
               </div>
-              <Link
-                to="/"
+              <button
+                onClick={() => setShowCreateModal(true)}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-2.5 text-sm font-semibold text-white hover:from-cyan-400 hover:to-blue-400 hover:shadow-lg hover:shadow-cyan-500/20 transition-all"
               >
                 <PlusCircle size={16} />
                 Create Task
-                <ArrowRight size={14} />
-              </Link>
+              </button>
             </div>
             <div className="flex flex-col sm:flex-row gap-3">
               <div className="relative flex-1">
@@ -429,7 +574,7 @@ function SmartDaily() {
               <p className="text-gray-300 font-medium">Loading your priorities...</p>
             </div>
           ) : !hasAnyTask ? (
-            <EmptyState />
+            <EmptyState onCreateClick={() => setShowCreateModal(true)} />
           ) : (
             <div className="space-y-4" data-testid="urgent-tasks">
               {/* Overdue — always expanded */}
@@ -502,6 +647,14 @@ function SmartDaily() {
 
         </div>
       </div>
+
+      {showCreateModal && (
+        <CreateTaskModal
+          clients={clients}
+          onClose={() => setShowCreateModal(false)}
+          onCreated={() => { setLoading(true); fetchData() }}
+        />
+      )}
     </div>
   )
 }
