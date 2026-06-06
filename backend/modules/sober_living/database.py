@@ -8,6 +8,7 @@ All queries written with %s placeholders; _q() converts to ? for SQLite.
 
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import uuid
@@ -15,6 +16,8 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
+
+log = logging.getLogger(__name__)
 
 SQLITE_PATH = Path("databases/sober_living_ops.db")
 
@@ -49,6 +52,7 @@ def _use_postgres() -> bool:
 
 
 def _q(sql: str) -> str:
+    """Convert %s placeholders to ? for SQLite. No-op for Postgres."""
     if _use_postgres():
         return sql
     return sql.replace("%s", "?")
@@ -123,7 +127,7 @@ def _fetchall(conn, sql: str, args=()) -> List[Dict]:
 
 
 # ---------------------------------------------------------------------------
-# Schema DDL
+# Schema DDL — order matters: referenced tables must come first
 # ---------------------------------------------------------------------------
 
 _DDL = [
@@ -327,28 +331,138 @@ _DDL = [
 
 
 def _setup_schema() -> None:
-    import logging
-    log = logging.getLogger(__name__)
+    """
+    Create all tables if they don't exist.
+
+    Postgres: each DDL runs in its own mini-transaction via SAVEPOINT so that a
+    failure on one statement (e.g. table already exists with a different constraint)
+    does not abort the entire connection and block every subsequent statement.
+    """
+    backend = "postgres" if _use_postgres() else "sqlite"
+    log.info(f"[sober_living] init_db starting — backend={backend}")
+
     if _use_postgres():
-        with _pg_conn() as conn:
+        import psycopg2
+        import psycopg2.extras
+        conn = psycopg2.connect(
+            _database_url(),
+            cursor_factory=psycopg2.extras.RealDictCursor,
+        )
+        try:
+            conn.autocommit = False
             cur = conn.cursor()
-            for ddl in _DDL:
+            for i, ddl in enumerate(_DDL):
                 try:
+                    cur.execute("SAVEPOINT sl_ddl")
                     cur.execute(ddl)
+                    cur.execute("RELEASE SAVEPOINT sl_ddl")
                 except Exception as e:
-                    log.warning(f"DDL skipped: {e}")
+                    cur.execute("ROLLBACK TO SAVEPOINT sl_ddl")
+                    # "already exists" is normal on repeat startups — log at DEBUG
+                    msg = str(e).strip().splitlines()[0]
+                    log.debug(f"[sober_living] DDL[{i}] skipped: {msg}")
+            conn.commit()
+            log.info("[sober_living] init_db complete")
+        except Exception as e:
+            conn.rollback()
+            log.error(f"[sober_living] init_db FAILED: {e}")
+            raise
+        finally:
+            conn.close()
     else:
         SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(SQLITE_PATH))
         conn.execute("PRAGMA foreign_keys = ON")
         for ddl in _DDL:
-            # SQLite doesn't support REAL as DOUBLE PRECISION, but we write REAL already
-            # SQLite doesn't support ALTER TABLE ADD COLUMN in IF NOT EXISTS — skip gracefully
             try:
                 conn.execute(ddl)
             except Exception as e:
-                log.debug(f"SQLite DDL skip: {e}")
+                log.debug(f"[sober_living] SQLite DDL skip: {e}")
         conn.commit()
+        conn.close()
+        log.info("[sober_living] init_db complete (sqlite)")
+
+
+def _pg_col_exists(cur, table: str, column: str) -> bool:
+    """Check information_schema — works even when the table doesn't exist (returns False)."""
+    cur.execute(
+        """
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = %s AND column_name = %s
+        LIMIT 1
+        """,
+        (table, column),
+    )
+    return cur.fetchone() is not None
+
+
+def _pg_table_exists(cur, table: str) -> bool:
+    cur.execute(
+        "SELECT 1 FROM information_schema.tables WHERE table_name = %s LIMIT 1",
+        (table,),
+    )
+    return cur.fetchone() is not None
+
+
+def _migrate_legacy() -> None:
+    """
+    Rename columns from old schema if they still exist.
+    Each rename runs in its own SAVEPOINT so failures don't cascade.
+    Safe to call repeatedly — no-ops if columns already have the new names.
+    Only runs on Postgres; SQLite DBs start fresh from DDL.
+    """
+    if not _use_postgres():
+        return
+
+    import psycopg2
+    import psycopg2.extras
+
+    renames = [
+        # (table, old_column, new_column)
+        ("sober_living_houses",    "name",             "house_name"),
+        ("sober_living_houses",    "manager_name",     "house_manager_name"),
+        ("sober_living_houses",    "phone",            "house_manager_phone"),
+        ("sober_living_houses",    "email",            "house_manager_email"),
+        ("sober_living_houses",    "gender_policy",    "house_type"),
+        ("sober_living_houses",    "total_capacity",   "total_beds"),
+        ("sober_living_houses",    "status",           "is_active"),
+        ("sober_living_rooms",     "room_number",      "room_name"),
+        ("sober_living_beds",      "status",           "bed_status"),
+        ("sober_living_stays",     "status",           "resident_status"),
+        ("sober_living_stays",     "move_out_date",    "actual_move_out_date"),
+        ("sober_living_stays",     "discharge_reason", "move_out_reason"),
+        ("sober_living_residents", "client_id",        "linked_client_id"),
+    ]
+
+    conn = psycopg2.connect(
+        _database_url(),
+        cursor_factory=psycopg2.extras.RealDictCursor,
+    )
+    try:
+        conn.autocommit = False
+        cur = conn.cursor()
+        for table, old_col, new_col in renames:
+            try:
+                cur.execute("SAVEPOINT sl_migrate")
+                # Skip entirely if the table doesn't exist yet
+                if not _pg_table_exists(cur, table):
+                    cur.execute("RELEASE SAVEPOINT sl_migrate")
+                    continue
+                if _pg_col_exists(cur, table, old_col):
+                    cur.execute(
+                        f"ALTER TABLE {table} RENAME COLUMN {old_col} TO {new_col}"
+                    )
+                    log.info(f"[sober_living] migrated {table}.{old_col} -> {new_col}")
+                cur.execute("RELEASE SAVEPOINT sl_migrate")
+            except Exception as e:
+                cur.execute("ROLLBACK TO SAVEPOINT sl_migrate")
+                log.warning(f"[sober_living] migration skipped {table}.{old_col}: {e}")
+        conn.commit()
+        log.info("[sober_living] _migrate_legacy complete")
+    except Exception as e:
+        conn.rollback()
+        log.error(f"[sober_living] _migrate_legacy FAILED: {e}")
+    finally:
         conn.close()
 
 
@@ -359,198 +473,66 @@ def _setup_schema() -> None:
 class SoberLivingStore:
 
     def __init__(self):
-        _setup_schema()
-        self._migrate_legacy()
-
-    def _migrate_legacy(self):
-        """
-        Rename columns from old schema (name→house_name, etc.) if they still exist.
-        Safe to call repeatedly; skips if columns already match.
-        """
-        import logging
-        log = logging.getLogger(__name__)
-        if _use_postgres():
-            with _pg_conn() as conn:
-                cur = conn.cursor()
-                # Check if old 'name' column exists (legacy)
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_houses' AND column_name='name'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_houses RENAME COLUMN name TO house_name")
-                        log.info("Migrated: sober_living_houses.name -> house_name")
-                except Exception:
-                    pass
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_houses' AND column_name='manager_name'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_houses RENAME COLUMN manager_name TO house_manager_name")
-                        log.info("Migrated: sober_living_houses.manager_name -> house_manager_name")
-                except Exception:
-                    pass
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_houses' AND column_name='phone'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_houses RENAME COLUMN phone TO house_manager_phone")
-                        log.info("Migrated: sober_living_houses.phone -> house_manager_phone")
-                except Exception:
-                    pass
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_houses' AND column_name='email'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_houses RENAME COLUMN email TO house_manager_email")
-                        log.info("Migrated: sober_living_houses.email -> house_manager_email")
-                except Exception:
-                    pass
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_houses' AND column_name='gender_policy'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_houses RENAME COLUMN gender_policy TO house_type")
-                        log.info("Migrated: sober_living_houses.gender_policy -> house_type")
-                except Exception:
-                    pass
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_houses' AND column_name='total_capacity'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_houses RENAME COLUMN total_capacity TO total_beds")
-                        log.info("Migrated: sober_living_houses.total_capacity -> total_beds")
-                except Exception:
-                    pass
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_houses' AND column_name='status'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_houses RENAME COLUMN status TO is_active")
-                        log.info("Migrated: sober_living_houses.status -> is_active")
-                except Exception:
-                    pass
-                # Rooms
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_rooms' AND column_name='room_number'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_rooms RENAME COLUMN room_number TO room_name")
-                        log.info("Migrated: sober_living_rooms.room_number -> room_name")
-                except Exception:
-                    pass
-                # Beds
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_beds' AND column_name='status'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_beds RENAME COLUMN status TO bed_status")
-                        log.info("Migrated: sober_living_beds.status -> bed_status")
-                except Exception:
-                    pass
-                # Stays
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_stays' AND column_name='status'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_stays RENAME COLUMN status TO resident_status")
-                        log.info("Migrated: sober_living_stays.status -> resident_status")
-                except Exception:
-                    pass
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_stays' AND column_name='move_out_date'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_stays RENAME COLUMN move_out_date TO actual_move_out_date")
-                        log.info("Migrated: sober_living_stays.move_out_date -> actual_move_out_date")
-                except Exception:
-                    pass
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_stays' AND column_name='discharge_reason'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_stays RENAME COLUMN discharge_reason TO move_out_reason")
-                        log.info("Migrated: sober_living_stays.discharge_reason -> move_out_reason")
-                except Exception:
-                    pass
-                # Residents legacy
-                try:
-                    cur.execute("""
-                        SELECT column_name FROM information_schema.columns
-                        WHERE table_name='sober_living_residents' AND column_name='client_id'
-                    """)
-                    if cur.fetchone():
-                        cur.execute("ALTER TABLE sober_living_residents RENAME COLUMN client_id TO linked_client_id")
-                        log.info("Migrated: sober_living_residents.client_id -> linked_client_id")
-                except Exception:
-                    pass
+        try:
+            _setup_schema()
+        except Exception as e:
+            log.error(f"[sober_living] schema setup error (continuing): {e}")
+        try:
+            _migrate_legacy()
+        except Exception as e:
+            log.error(f"[sober_living] migration error (continuing): {e}")
 
     # ------------------------------------------------------------------
     # Summary
     # ------------------------------------------------------------------
 
     def get_summary(self) -> Dict:
-        with _db() as conn:
-            houses = _fetchone(conn,
-                "SELECT COUNT(*) as c FROM sober_living_houses WHERE is_active = 1")
-            # Postgres stores is_active as text '1' if migrated from status; handle both
-            if houses is None or houses.get("c") is None:
-                houses_count = 0
-            else:
-                houses_count = int(houses["c"])
+        try:
+            with _db() as conn:
+                houses_row = _fetchone(conn,
+                    "SELECT COUNT(*) as c FROM sober_living_houses WHERE is_active = 1")
+                houses_count = int(houses_row["c"]) if houses_row and houses_row.get("c") is not None else 0
 
-            total_beds = _fetchone(conn, "SELECT COUNT(*) as c FROM sober_living_beds")
-            total_beds = int(total_beds["c"]) if total_beds else 0
+                beds_row = _fetchone(conn, "SELECT COUNT(*) as c FROM sober_living_beds")
+                total_beds = int(beds_row["c"]) if beds_row else 0
 
-            occupied = _fetchone(conn,
-                "SELECT COUNT(*) as c FROM sober_living_beds WHERE bed_status = 'occupied'")
-            occupied = int(occupied["c"]) if occupied else 0
+                occ_row = _fetchone(conn,
+                    "SELECT COUNT(*) as c FROM sober_living_beds WHERE bed_status = 'occupied'")
+                occupied = int(occ_row["c"]) if occ_row else 0
 
-            available = _fetchone(conn,
-                "SELECT COUNT(*) as c FROM sober_living_beds WHERE bed_status = 'available'")
-            available = int(available["c"]) if available else 0
+                avail_row = _fetchone(conn,
+                    "SELECT COUNT(*) as c FROM sober_living_beds WHERE bed_status = 'available'")
+                available = int(avail_row["c"]) if avail_row else 0
 
-            reserved = _fetchone(conn,
-                "SELECT COUNT(*) as c FROM sober_living_beds WHERE bed_status = 'reserved'")
-            reserved = int(reserved["c"]) if reserved else 0
+                res_row = _fetchone(conn,
+                    "SELECT COUNT(*) as c FROM sober_living_beds WHERE bed_status = 'reserved'")
+                reserved = int(res_row["c"]) if res_row else 0
 
-            active_stays = _fetchone(conn,
-                "SELECT COUNT(*) as c FROM sober_living_stays WHERE resident_status = 'active'")
-            active_stays = int(active_stays["c"]) if active_stays else 0
+                stays_row = _fetchone(conn,
+                    "SELECT COUNT(*) as c FROM sober_living_stays WHERE resident_status = 'active'")
+                active_stays = int(stays_row["c"]) if stays_row else 0
 
-        rate = round((occupied / total_beds * 100), 1) if total_beds else 0.0
-        return {
-            "total_houses":   houses_count,
-            "total_beds":     total_beds,
-            "occupied_beds":  occupied,
-            "available_beds": available,
-            "reserved_beds":  reserved,
-            "active_stays":   active_stays,
-            "occupancy_rate": rate,
-        }
+            rate = round((occupied / total_beds * 100), 1) if total_beds else 0.0
+            return {
+                "total_houses":   houses_count,
+                "total_beds":     total_beds,
+                "occupied_beds":  occupied,
+                "available_beds": available,
+                "reserved_beds":  reserved,
+                "active_stays":   active_stays,
+                "occupancy_rate": rate,
+            }
+        except Exception as e:
+            log.error(f"[sober_living] get_summary error: {e}")
+            return {
+                "total_houses": 0,
+                "total_beds": 0,
+                "occupied_beds": 0,
+                "available_beds": 0,
+                "reserved_beds": 0,
+                "active_stays": 0,
+                "occupancy_rate": 0.0,
+            }
 
     # ------------------------------------------------------------------
     # Houses
@@ -570,13 +552,17 @@ class SoberLivingStore:
         }
 
     def list_houses(self) -> List[Dict]:
-        with _db() as conn:
-            rows = _fetchall(conn,
-                "SELECT * FROM sober_living_houses WHERE is_active = 1 ORDER BY house_name")
-            for h in rows:
-                h["bed_counts"] = self._bed_counts(conn, h["house_id"])
-                h["is_active"] = bool(h.get("is_active", 1))
-        return rows
+        try:
+            with _db() as conn:
+                rows = _fetchall(conn,
+                    "SELECT * FROM sober_living_houses WHERE is_active = 1 ORDER BY house_name")
+                for h in rows:
+                    h["bed_counts"] = self._bed_counts(conn, h["house_id"])
+                    h["is_active"] = bool(h.get("is_active", 1))
+            return rows
+        except Exception as e:
+            log.error(f"[sober_living] list_houses error: {e}")
+            return []
 
     def get_house(self, house_id: str) -> Optional[Dict]:
         with _db() as conn:
