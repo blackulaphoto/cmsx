@@ -132,33 +132,17 @@ async def get_client_intelligent_tasks(
                     "message": f"Retrieved {len(existing_tasks)} persisted tasks from database"
                 }
         
-        # STEP 2: Generate and persist new tasks
-        print(f"ðŸ”„ Generating tasks for client {client_id}")
-        
-        # Use the new method that implements database-first pattern
-        generated_tasks = generate_and_persist_process_tasks(client_id)
-        
-        if generated_tasks:
-            task_statistics = calculate_task_statistics(generated_tasks)
-            
-            return {
-                "success": True,
-                "tasks": generated_tasks,
-                "total_count": len(generated_tasks),
-                "data_source": "generated_and_persisted",  # Correctly indicate generation
-                "client_id": client_id,
-                "task_statistics": task_statistics,
-                "message": f"Generated and persisted {len(generated_tasks)} new tasks"
-            }
-        else:
-            return {
-                "success": False,
-                "tasks": [],
-                "total_count": 0,
-                "data_source": "error",
-                "client_id": client_id,
-                "error": "Failed to generate tasks"
-            }
+        # Tasks are only created via POST /api/reminders/start-process — never auto-generated on GET.
+        # Return empty list; the frontend will show the clean empty state.
+        return {
+            “success”: True,
+            “tasks”: [],
+            “total_count”: 0,
+            “data_source”: “database”,
+            “client_id”: client_id,
+            “task_statistics”: {},
+            “message”: “No tasks found. Use Start Process to generate tasks for a specific workflow.”
+        }
             
     except Exception as e:
         print(f"âŒ Error in get_client_intelligent_tasks: {str(e)}")

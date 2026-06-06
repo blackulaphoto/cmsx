@@ -746,32 +746,53 @@ async def generate_tasks():  # TODO: Add auth when implemented
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/today")
-async def get_today_schedule():  # TODO: Add auth when implemented
+async def get_today_schedule(case_manager_id: str = Query("default_cm")):
     """
-    Get today's real daily schedule from persisted tasks, reminders, and appointments.
+    Get today's real daily schedule scoped to the given case manager's clients.
+    Only returns tasks for clients that actually belong to this case manager.
     """
     try:
         today = datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.now().strftime("%H:%M")
 
+        # Load only this case manager's clients
         client_names: Dict[str, str] = {}
+        scoped_client_ids: List[str] = []
         with sqlite3.connect("databases/core_clients.db") as client_conn:
             client_cursor = client_conn.cursor()
-            client_cursor.execute("SELECT client_id, first_name, last_name FROM clients")
-            client_names = {
-                row[0]: f"{row[1]} {row[2]}".strip()
-                for row in client_cursor.fetchall()
-            }
+            client_cursor.execute(
+                "SELECT client_id, first_name, last_name FROM clients WHERE case_manager_id = ?",
+                (case_manager_id,),
+            )
+            for row in client_cursor.fetchall():
+                client_names[row[0]] = f"{row[1]} {row[2]}".strip()
+                scoped_client_ids.append(row[0])
 
         schedule_tasks: List[Dict[str, Any]] = []
+
+        # No clients for this case manager → return empty schedule immediately
+        if not scoped_client_ids:
+            return {
+                "date": today,
+                "generated_at": current_time,
+                "summary": {"total_tasks": 0, "high_urgency": 0, "scheduled_appointments": 0, "estimated_total_minutes": 0},
+                "tasks": [],
+                "client_coverage": {},
+                "schedule_validation": {"no_conflicts": True, "all_clients_covered": True, "high_priority_first": True, "appointments_confirmed": True},
+                "data_source": "core_clients.db + reminders.db + case_management.db",
+            }
+
+        placeholders = ",".join("?" * len(scoped_client_ids))
 
         with sqlite3.connect("databases/reminders.db") as reminders_conn:
             reminders_cursor = reminders_conn.cursor()
             reminders_cursor.execute(
-                """
+                f"""
                 SELECT id, client_id, title, description, priority, status, due_date, task_type, estimated_minutes
                 FROM intelligent_tasks
                 WHERE DATE(due_date) = ?
+                  AND client_id IN ({placeholders})
+                  AND status != 'completed'
                 ORDER BY
                     CASE priority
                         WHEN 'high' THEN 1
@@ -781,7 +802,7 @@ async def get_today_schedule():  # TODO: Add auth when implemented
                     END,
                     due_date ASC
                 """,
-                (today,),
+                [today] + scoped_client_ids,
             )
             for row in reminders_cursor.fetchall():
                 schedule_tasks.append({
@@ -801,10 +822,11 @@ async def get_today_schedule():  # TODO: Add auth when implemented
                 })
 
             reminders_cursor.execute(
-                """
+                f"""
                 SELECT reminder_id, client_id, message, priority, due_date, status, reminder_type
                 FROM active_reminders
                 WHERE DATE(due_date) = ? AND status = 'Active'
+                  AND client_id IN ({placeholders})
                 ORDER BY
                     CASE priority
                         WHEN 'Critical' THEN 1
@@ -814,7 +836,7 @@ async def get_today_schedule():  # TODO: Add auth when implemented
                     END,
                     due_date ASC
                 """,
-                (today,),
+                [today] + scoped_client_ids,
             )
             for row in reminders_cursor.fetchall():
                 schedule_tasks.append({
@@ -836,13 +858,14 @@ async def get_today_schedule():  # TODO: Add auth when implemented
         with sqlite3.connect("databases/case_management.db") as case_conn:
             case_cursor = case_conn.cursor()
             case_cursor.execute(
-                """
+                f"""
                 SELECT id, client_id, appointment_type, appointment_time, status, notes, appointment_date
                 FROM appointments
                 WHERE DATE(appointment_date) = ?
+                  AND client_id IN ({placeholders})
                 ORDER BY appointment_time ASC
                 """,
-                (today,),
+                [today] + scoped_client_ids,
             )
             for row in case_cursor.fetchall():
                 schedule_tasks.append({
@@ -984,6 +1007,210 @@ async def complete_task(task_id: str):
     except Exception as e:
         logger.error(f"Failed to complete task {task_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to complete task: {str(e)}")
+
+@router.get("/prioritized/{case_manager_id}")
+async def get_prioritized_tasks(case_manager_id: str):
+    """
+    Return tasks bucketed by priority: overdue, today, next_3_days, this_week,
+    high_priority_no_date, and later.  Only returns tasks for clients that
+    actually belong to this case manager.  Completed tasks are excluded.
+    """
+    try:
+        today = datetime.now().date()
+        in_3_days = today + timedelta(days=3)
+        in_7_days = today + timedelta(days=7)
+
+        # Resolve scoped client IDs for this case manager
+        scoped_client_ids: List[str] = []
+        client_names: Dict[str, str] = {}
+        with sqlite3.connect("databases/core_clients.db") as client_conn:
+            client_cursor = client_conn.cursor()
+            client_cursor.execute(
+                "SELECT client_id, first_name, last_name FROM clients WHERE case_manager_id = ?",
+                (case_manager_id,),
+            )
+            for row in client_cursor.fetchall():
+                scoped_client_ids.append(row[0])
+                client_names[row[0]] = f"{row[1]} {row[2]}".strip()
+
+        buckets: Dict[str, List[Dict[str, Any]]] = {
+            "overdue": [],
+            "today": [],
+            "next_3_days": [],
+            "this_week": [],
+            "high_priority_no_date": [],
+            "later": [],
+        }
+
+        if not scoped_client_ids:
+            return {
+                "success": True,
+                "case_manager_id": case_manager_id,
+                "generated_at": datetime.now().isoformat(),
+                "buckets": buckets,
+                "ai_summary": None,
+                "total_active": 0,
+            }
+
+        placeholders = ",".join("?" * len(scoped_client_ids))
+
+        with sqlite3.connect("databases/reminders.db") as conn:
+            cursor = conn.cursor()
+
+            # Fetch all non-completed tasks for scoped clients
+            cursor.execute(
+                f"""
+                SELECT id, client_id, title, description, priority, status, due_date, task_type, estimated_minutes
+                FROM intelligent_tasks
+                WHERE client_id IN ({placeholders})
+                  AND status != 'completed'
+                ORDER BY
+                    CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END,
+                    due_date ASC NULLS LAST
+                """,
+                scoped_client_ids,
+            )
+
+            for row in cursor.fetchall():
+                raw_due = row[6]
+                due_date = None
+                if raw_due:
+                    try:
+                        due_date = datetime.fromisoformat(str(raw_due)).date()
+                    except ValueError:
+                        try:
+                            due_date = datetime.strptime(str(raw_due)[:10], "%Y-%m-%d").date()
+                        except ValueError:
+                            due_date = None
+
+                task = {
+                    "task_id": row[0],
+                    "client_id": row[1],
+                    "client_name": client_names.get(row[1], f"Client {str(row[1])[:8]}"),
+                    "title": row[2],
+                    "description": row[3],
+                    "priority": row[4] or "low",
+                    "status": row[5],
+                    "due_date": str(due_date) if due_date else None,
+                    "task_type": row[7] or "task",
+                    "estimated_minutes": row[8] or 30,
+                    "source": "intelligent_task",
+                    "urgency_color": _priority_color(row[4]),
+                }
+
+                if due_date is None:
+                    if str(task["priority"]).lower() in {"high", "critical"}:
+                        buckets["high_priority_no_date"].append(task)
+                elif due_date < today:
+                    buckets["overdue"].append(task)
+                elif due_date == today:
+                    buckets["today"].append(task)
+                elif due_date <= in_3_days:
+                    buckets["next_3_days"].append(task)
+                elif due_date <= in_7_days:
+                    buckets["this_week"].append(task)
+                else:
+                    buckets["later"].append(task)
+
+            # Also pull active_reminders for this manager's clients
+            cursor.execute(
+                f"""
+                SELECT reminder_id, client_id, message, priority, due_date, status, reminder_type
+                FROM active_reminders
+                WHERE client_id IN ({placeholders})
+                  AND status = 'Active'
+                """,
+                scoped_client_ids,
+            )
+            for row in cursor.fetchall():
+                raw_due = row[4]
+                due_date = None
+                if raw_due:
+                    try:
+                        due_date = datetime.fromisoformat(str(raw_due)).date()
+                    except ValueError:
+                        try:
+                            due_date = datetime.strptime(str(raw_due)[:10], "%Y-%m-%d").date()
+                        except ValueError:
+                            due_date = None
+
+                task = {
+                    "task_id": row[0],
+                    "client_id": row[1],
+                    "client_name": client_names.get(row[1], f"Client {str(row[1])[:8]}"),
+                    "title": row[2],
+                    "description": row[2],
+                    "priority": str(row[3]).lower() if row[3] else "medium",
+                    "status": row[5],
+                    "due_date": str(due_date) if due_date else None,
+                    "task_type": row[6] or "reminder",
+                    "estimated_minutes": 15,
+                    "source": "active_reminder",
+                    "urgency_color": _priority_color(row[3]),
+                }
+
+                if due_date is None:
+                    if str(task["priority"]).lower() in {"high", "critical"}:
+                        buckets["high_priority_no_date"].append(task)
+                elif due_date < today:
+                    buckets["overdue"].append(task)
+                elif due_date == today:
+                    buckets["today"].append(task)
+                elif due_date <= in_3_days:
+                    buckets["next_3_days"].append(task)
+                elif due_date <= in_7_days:
+                    buckets["this_week"].append(task)
+                else:
+                    buckets["later"].append(task)
+
+        total_active = sum(len(v) for k, v in buckets.items() if k != "later")
+        overdue_count = len(buckets["overdue"])
+        today_count = len(buckets["today"])
+        next3_count = len(buckets["next_3_days"])
+
+        # Build concise AI summary — only when there is real work
+        ai_summary: Optional[str] = None
+        if overdue_count > 0 or today_count > 0 or next3_count > 0:
+            parts = []
+            if overdue_count:
+                first_overdue = buckets["overdue"][0]["title"] if buckets["overdue"] else ""
+                parts.append(
+                    f"{overdue_count} overdue task{'s' if overdue_count > 1 else ''}"
+                    + (f" — start with \"{first_overdue}\"" if first_overdue else "")
+                )
+            if today_count:
+                parts.append(f"{today_count} due today")
+            if next3_count:
+                parts.append(f"{next3_count} coming up in the next 3 days")
+            ai_summary = "You have " + ", ".join(parts) + "."
+        elif buckets["high_priority_no_date"]:
+            ai_summary = f"You have {len(buckets['high_priority_no_date'])} high-priority item{'s' if len(buckets['high_priority_no_date']) > 1 else ''} without due dates. Consider scheduling them."
+        elif buckets["later"]:
+            first_later = buckets["later"][0]["title"] if buckets["later"] else ""
+            ai_summary = f"Nothing urgent right now. Next up: \"{first_later}\"" if first_later else "Nothing urgent right now."
+        # else ai_summary stays None → empty state on frontend
+
+        return {
+            "success": True,
+            "case_manager_id": case_manager_id,
+            "generated_at": datetime.now().isoformat(),
+            "buckets": buckets,
+            "ai_summary": ai_summary,
+            "total_active": total_active,
+            "counts": {
+                "overdue": overdue_count,
+                "today": today_count,
+                "next_3_days": next3_count,
+                "this_week": len(buckets["this_week"]),
+                "high_priority_no_date": len(buckets["high_priority_no_date"]),
+                "later": len(buckets["later"]),
+            },
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating prioritized tasks: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/health")
 async def health_check():

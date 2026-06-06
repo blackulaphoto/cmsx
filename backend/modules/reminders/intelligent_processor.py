@@ -503,51 +503,57 @@ class IntelligentTaskProcessor:
         """Get the path to the reminders database"""
         return Path("databases/reminders.db")
     
-    def _save_tasks_to_database(self, client_id: str, tasks: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _save_tasks_to_database(self, client_id: str, tasks: List[Dict[str, Any]], is_demo: bool = False) -> Dict[str, Any]:
         """
-        NEW METHOD: Persist generated tasks to database
-        FIXED: Uses existing database schema (id, task_type, etc.)
+        Persist generated tasks to database.
+        Pass is_demo=True to mark tasks as demo-only so they can be excluded from real user views.
         """
         try:
             db_path = self._get_database_path()
-            
+
             with sqlite3.connect(db_path) as conn:
                 cursor = conn.cursor()
-                
-                # Clear existing tasks for this client to prevent duplicates
-                cursor.execute("DELETE FROM intelligent_tasks WHERE client_id = ?", (client_id,))
-                
-                # Insert new tasks using EXISTING schema
+
+                # Clear existing tasks for this client (for this process type only if possible)
+                process_types = list({t.get('process_type', '') for t in tasks if t.get('process_type')})
+                if process_types:
+                    placeholders = ",".join("?" * len(process_types))
+                    cursor.execute(
+                        f"DELETE FROM intelligent_tasks WHERE client_id = ? AND task_type IN ({placeholders})",
+                        [client_id] + process_types,
+                    )
+                else:
+                    cursor.execute("DELETE FROM intelligent_tasks WHERE client_id = ?", (client_id,))
+
+                # Insert new tasks using existing schema
                 inserted_count = 0
+                demo_flag = 1 if is_demo else 0
                 for task in tasks:
                     try:
-                        # Map task fields to EXISTING database schema
                         task_id = task.get('task_id', str(uuid.uuid4()))
                         title = task.get('title', 'Untitled Task')
                         description = task.get('description', '')
-                        task_type = task.get('process_type', 'unknown')  # Maps to task_type column
-                        
+                        task_type = task.get('process_type', 'unknown')
                         due_date = task.get('scheduled_date', self.current_date.isoformat())
                         priority = task.get('priority', 'medium').lower()
                         status = task.get('status', 'pending').lower()
                         estimated_minutes = task.get('estimated_minutes', 45)
                         created_at = task.get('created_at', self.current_date.isoformat())
-                        
-                        # Use existing schema: id, client_id, task_type, title, description, priority, estimated_minutes, status, created_at, due_date, completed_at
+
                         cursor.execute("""
                             INSERT INTO intelligent_tasks (
-                                id, client_id, task_type, title, description, 
-                                priority, estimated_minutes, status, created_at, due_date, completed_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                id, client_id, task_type, title, description,
+                                priority, estimated_minutes, status, created_at, due_date, completed_at, is_demo
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
                             task_id, client_id, task_type, title, description,
-                            priority, estimated_minutes, status, created_at, due_date, None
+                            priority, estimated_minutes, status, created_at, due_date, None, demo_flag
                         ))
                         inserted_count += 1
-                        
+
                     except Exception as e:
                         logger.warning(f"Failed to insert task {task.get('title', 'unknown')}: {str(e)}")
-                
+
                 conn.commit()
                 
                 logger.info(f"Successfully persisted {inserted_count}/{len(tasks)} tasks for client {client_id}")

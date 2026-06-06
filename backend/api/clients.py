@@ -849,8 +849,7 @@ async def get_intelligent_tasks(client_id: str, request: Request):
 
         processor = IntelligentTaskProcessor()
         tasks = processor.get_client_tasks_from_database(client_id)
-        if not tasks:
-            tasks = processor.generate_and_persist_process_tasks(client_id)
+        # Never auto-generate tasks on GET — tasks are created via POST /api/reminders/start-process
 
         recommendations = [
             f"Complete {task['title']}" for task in tasks[:3] if task.get("title")
