@@ -134,6 +134,28 @@ export const slApi = {
   getRentSummary:  (houseId) => sl(`${BASE}/houses/${houseId}/rent-summary`),
   createCharge:    (data)    => sl(`${BASE}/rent-charges`, { method: 'POST', body: JSON.stringify(data) }),
   createPayment:   (data)    => sl(`${BASE}/rent-payments`, { method: 'POST', body: JSON.stringify(data) }),
+
+  // Meetings
+  listMeetings:   (houseId)          => sl(`${BASE}/houses/${houseId}/meetings`),
+  createMeeting:  (data)             => sl(`${BASE}/meetings`, { method: 'POST', body: JSON.stringify(data) }),
+  updateMeeting:  (meetingId, data)  => sl(`${BASE}/meetings/${meetingId}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Chores
+  listChores:   (houseId, dueDate) => sl(`${BASE}/houses/${houseId}/chores${dueDate ? `?due_date=${dueDate}` : ''}`),
+  createChore:  (data)             => sl(`${BASE}/chores`, { method: 'POST', body: JSON.stringify(data) }),
+  updateChore:  (choreId, data)    => sl(`${BASE}/chores/${choreId}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Passes
+  listPasses:   (houseId)        => sl(`${BASE}/houses/${houseId}/passes`),
+  createPass:   (data)           => sl(`${BASE}/passes`, { method: 'POST', body: JSON.stringify(data) }),
+  updatePass:   (passId, data)   => sl(`${BASE}/passes/${passId}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Curfew
+  listCurfew:   (houseId, date)  => sl(`${BASE}/houses/${houseId}/curfew?check_date=${date}`),
+  upsertCurfew: (houseId, data)  => sl(`${BASE}/houses/${houseId}/curfew`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Dashboard
+  getDashboard: (houseId)        => sl(`${BASE}/houses/${houseId}/dashboard`),
 }
 
 // ---------------------------------------------------------------------------

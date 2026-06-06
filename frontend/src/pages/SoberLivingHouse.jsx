@@ -5,7 +5,9 @@ import {
   Home, Phone, Mail, User, AlertCircle, ChevronDown, ChevronRight,
   DollarSign, ClipboardList, Beaker, ShieldAlert, Building2,
   CheckCircle2, Circle, CheckSquare, Square, X, Edit3,
-  Receipt, TrendingDown,
+  Receipt, TrendingDown, LayoutDashboard, CalendarDays,
+  ListChecks, Footprints, Moon, Clock, CheckCheck,
+  AlertTriangle, Ban,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import BedMap from '../components/BedMap'
@@ -17,6 +19,7 @@ import {
 } from '../utils/soberLiving'
 
 const TABS = [
+  { id: 'dashboard',   label: 'Dashboard',   icon: LayoutDashboard },
   { id: 'overview',    label: 'Overview',    icon: Building2 },
   { id: 'bedmap',      label: 'Bed Map',     icon: BedDouble },
   { id: 'residents',   label: 'Residents',   icon: Users },
@@ -24,7 +27,18 @@ const TABS = [
   { id: 'ua',          label: 'UA Tests',    icon: Beaker },
   { id: 'incidents',   label: 'Incidents',   icon: ShieldAlert },
   { id: 'rent',        label: 'Rent',        icon: DollarSign },
+  { id: 'meetings',    label: 'Meetings',    icon: CalendarDays },
+  { id: 'chores',      label: 'Chores',      icon: ListChecks },
+  { id: 'passes',      label: 'Passes',      icon: Footprints },
+  { id: 'curfew',      label: 'Curfew',      icon: Moon },
 ]
+
+const MEETING_TYPES   = ['house', 'aa', 'na', 'clinical', 'staff', 'other']
+const PASS_TYPES      = ['day', 'overnight', 'weekend', 'extended']
+const CURFEW_STATUSES = ['present', 'absent', 'on_pass', 'unexcused']
+const RECURRENCE_OPTIONS = ['once', 'daily', 'weekly', 'biweekly', 'monthly']
+
+const todayStr = () => new Date().toISOString().slice(0, 10)
 
 // Compliance checklist field definitions
 const CHECKLIST_FIELDS = [
@@ -58,7 +72,7 @@ export default function SoberLivingHouse() {
   const { houseId } = useParams()
   const navigate    = useNavigate()
 
-  const [tab, setTab]             = useState('overview')
+  const [tab, setTab]             = useState('dashboard')
   const [house, setHouse]         = useState(null)
   const [beds, setBeds]           = useState([])
   const [rooms, setRooms]         = useState([])
@@ -90,6 +104,37 @@ export default function SoberLivingHouse() {
 
   // Ledger expand state (for rent tab)
   const [expandedLedger, setExpandedLedger] = useState(null)
+
+  // Phase 3 state
+  const [dashboard, setDashboard]   = useState(null)
+  const [meetings, setMeetings]     = useState([])
+  const [chores, setChores]         = useState([])
+  const [passes, setPasses]         = useState([])
+  const [curfewChecks, setCurfewChecks] = useState([])
+  const [curfewDate, setCurfewDate] = useState(todayStr())
+  const [choreDate, setChoreDate]   = useState('')
+
+  // Phase 3 forms
+  const [meetingForm, setMeetingForm] = useState({
+    scheduled_date: '', scheduled_time: '', meeting_type: 'house',
+    topic: '', facilitator_name: '', location: '', notes: '',
+  })
+  const [choreForm, setChoreForm] = useState({
+    chore_name: '', resident_id: '', stay_id: '', location: '',
+    due_date: todayStr(), recurrence: 'once', assigned_by: '', notes: '',
+  })
+  const [passForm, setPassForm] = useState({
+    resident_id: '', stay_id: '', pass_type: 'day', destination: '',
+    leave_date: todayStr(), leave_time: '', expected_return_date: '', expected_return_time: '',
+    approved_by: '', is_blackout: false, notes: '',
+  })
+
+  // Pass return form (separate, opened from pass row)
+  const [selectedPass, setSelectedPass] = useState(null)
+  const [returnForm, setReturnForm] = useState({ actual_return_date: todayStr(), actual_return_time: '' })
+
+  // Meeting attendance editing
+  const [attendanceModal, setAttendanceModal] = useState(null) // meeting object
 
   // Forms
   const [roomForm, setRoomForm]     = useState({ room_name: '', floor: '', room_type: '', max_occupancy: 1, notes: '' })
@@ -144,6 +189,10 @@ export default function SoberLivingHouse() {
 
   const loadTabData = useCallback(async (t) => {
     try {
+      if (t === 'dashboard') {
+        const data = await slApi.getDashboard(houseId)
+        setDashboard(data)
+      }
       if (t === 'incidents') {
         const data = await slApi.listIncidents(houseId)
         setIncidents(Array.isArray(data) ? data : [])
@@ -156,8 +205,24 @@ export default function SoberLivingHouse() {
         const data = await slApi.getRentSummary(houseId)
         setRentSummary(data)
       }
+      if (t === 'meetings') {
+        const data = await slApi.listMeetings(houseId)
+        setMeetings(Array.isArray(data) ? data : [])
+      }
+      if (t === 'chores') {
+        const data = await slApi.listChores(houseId, choreDate || undefined)
+        setChores(Array.isArray(data) ? data : [])
+      }
+      if (t === 'passes') {
+        const data = await slApi.listPasses(houseId)
+        setPasses(Array.isArray(data) ? data : [])
+      }
+      if (t === 'curfew') {
+        const data = await slApi.listCurfew(houseId, curfewDate)
+        setCurfewChecks(Array.isArray(data) ? data : [])
+      }
     } catch {}
-  }, [houseId])
+  }, [houseId, curfewDate, choreDate])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { loadTabData(tab) }, [tab, loadTabData])
@@ -467,6 +532,143 @@ export default function SoberLivingHouse() {
   }
 
   // ---------------------------------------------------------------------------
+  // Phase 3 handlers
+  // ---------------------------------------------------------------------------
+
+  const handleAddMeeting = async (e) => {
+    e.preventDefault()
+    if (!meetingForm.scheduled_date) return toast.error('Date required')
+    setSaving(true)
+    try {
+      await slApi.createMeeting({ ...meetingForm, house_id: houseId })
+      toast.success('Meeting scheduled')
+      setModal(null)
+      setMeetingForm({ scheduled_date: '', scheduled_time: '', meeting_type: 'house', topic: '', facilitator_name: '', location: '', notes: '' })
+      const data = await slApi.listMeetings(houseId)
+      setMeetings(Array.isArray(data) ? data : [])
+      const dash = await slApi.getDashboard(houseId)
+      setDashboard(dash)
+    } catch (err) { toast.error(err.message || 'Failed to schedule meeting') }
+    finally { setSaving(false) }
+  }
+
+  const handleMeetingStatus = async (meetingId, status) => {
+    try {
+      await slApi.updateMeeting(meetingId, { status })
+      const data = await slApi.listMeetings(houseId)
+      setMeetings(Array.isArray(data) ? data : [])
+      const dash = await slApi.getDashboard(houseId)
+      setDashboard(dash)
+    } catch (err) { toast.error(err.message || 'Failed to update meeting') }
+  }
+
+  const handleSaveAttendance = async (meeting, attendanceJson) => {
+    try {
+      await slApi.updateMeeting(meeting.meeting_id, { status: 'completed', attendance_json: attendanceJson })
+      toast.success('Attendance saved')
+      setAttendanceModal(null)
+      const data = await slApi.listMeetings(houseId)
+      setMeetings(Array.isArray(data) ? data : [])
+    } catch (err) { toast.error(err.message || 'Failed to save attendance') }
+  }
+
+  const handleAddChore = async (e) => {
+    e.preventDefault()
+    if (!choreForm.chore_name.trim() || !choreForm.due_date) return toast.error('Name and date required')
+    setSaving(true)
+    try {
+      const payload = { ...choreForm, house_id: houseId }
+      if (!payload.resident_id) { delete payload.resident_id; delete payload.stay_id }
+      await slApi.createChore(payload)
+      toast.success('Chore assigned')
+      setModal(null)
+      setChoreForm({ chore_name: '', resident_id: '', stay_id: '', location: '', due_date: todayStr(), recurrence: 'once', assigned_by: '', notes: '' })
+      const data = await slApi.listChores(houseId, choreDate || undefined)
+      setChores(Array.isArray(data) ? data : [])
+    } catch (err) { toast.error(err.message || 'Failed to assign chore') }
+    finally { setSaving(false) }
+  }
+
+  const handleToggleChore = async (chore) => {
+    const done = !chore.completed
+    try {
+      await slApi.updateChore(chore.chore_id, {
+        completed:    done ? 1 : 0,
+        completed_at: done ? new Date().toISOString() : null,
+      })
+      const data = await slApi.listChores(houseId, choreDate || undefined)
+      setChores(Array.isArray(data) ? data : [])
+    } catch (err) { toast.error(err.message || 'Failed to update chore') }
+  }
+
+  const handleAddPass = async (e) => {
+    e.preventDefault()
+    if (!passForm.resident_id || !passForm.leave_date || !passForm.expected_return_date)
+      return toast.error('Resident and dates required')
+    setSaving(true)
+    try {
+      const res = residents.find((r) => r.resident_id === passForm.resident_id)
+      await slApi.createPass({
+        ...passForm,
+        house_id:    houseId,
+        stay_id:     res?.stay_id || passForm.stay_id,
+        is_blackout: passForm.is_blackout ? 1 : 0,
+      })
+      toast.success('Pass logged')
+      setModal(null)
+      setPassForm({ resident_id: '', stay_id: '', pass_type: 'day', destination: '', leave_date: todayStr(), leave_time: '', expected_return_date: '', expected_return_time: '', approved_by: '', is_blackout: false, notes: '' })
+      const data = await slApi.listPasses(houseId)
+      setPasses(Array.isArray(data) ? data : [])
+      const dash = await slApi.getDashboard(houseId)
+      setDashboard(dash)
+    } catch (err) { toast.error(err.message || 'Failed to log pass') }
+    finally { setSaving(false) }
+  }
+
+  const handleReturnPass = async (e) => {
+    e.preventDefault()
+    if (!selectedPass) return
+    setSaving(true)
+    try {
+      await slApi.updatePass(selectedPass.pass_id, {
+        ...returnForm,
+        status: 'returned',
+      })
+      toast.success('Return recorded')
+      setModal(null)
+      setSelectedPass(null)
+      setReturnForm({ actual_return_date: todayStr(), actual_return_time: '' })
+      const data = await slApi.listPasses(houseId)
+      setPasses(Array.isArray(data) ? data : [])
+      const dash = await slApi.getDashboard(houseId)
+      setDashboard(dash)
+    } catch (err) { toast.error(err.message || 'Failed to record return') }
+    finally { setSaving(false) }
+  }
+
+  const handleCurfewCheck = async (resident, status) => {
+    try {
+      await slApi.upsertCurfew(houseId, {
+        resident_id: resident.resident_id,
+        stay_id:     resident.stay_id,
+        status,
+      })
+      const data = await slApi.listCurfew(houseId, curfewDate)
+      setCurfewChecks(Array.isArray(data) ? data : [])
+      const dash = await slApi.getDashboard(houseId)
+      setDashboard(dash)
+    } catch (err) { toast.error(err.message || 'Failed to update curfew check') }
+  }
+
+  const handleCurfewDateChange = async (date) => {
+    setCurfewDate(date)
+    try {
+      const data = await slApi.listCurfew(houseId, date)
+      setCurfewChecks(Array.isArray(data) ? data : [])
+    } catch {}
+  }
+
+  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
@@ -570,6 +772,15 @@ export default function SoberLivingHouse() {
       </div>
 
       {/* Tab content */}
+      {tab === 'dashboard'  && (
+        <TabDashboard
+          dashboard={dashboard}
+          residents={residents}
+          onTabSwitch={setTab}
+          onAddPass={() => setModal('add-pass')}
+          onAddChore={() => setModal('add-chore')}
+        />
+      )}
       {tab === 'overview'   && <TabOverview house={house} counts={counts} residents={residents} />}
       {tab === 'bedmap'     && <TabBedMap beds={beds} onBedClick={handleBedClick} />}
       {tab === 'residents'  && (
@@ -631,6 +842,44 @@ export default function SoberLivingHouse() {
           onToggleLedger={handleToggleLedger}
           onAddPayment={() => setModal('add-payment')}
           onAddCharge={() => setModal('add-charge')}
+        />
+      )}
+      {tab === 'meetings'   && (
+        <TabMeetings
+          meetings={meetings}
+          residents={residents}
+          onAdd={() => setModal('add-meeting')}
+          onStatusChange={handleMeetingStatus}
+          onTakeAttendance={(m) => setAttendanceModal(m)}
+        />
+      )}
+      {tab === 'chores'     && (
+        <TabChores
+          chores={chores}
+          choreDate={choreDate}
+          onDateChange={async (d) => {
+            setChoreDate(d)
+            const data = await slApi.listChores(houseId, d || undefined)
+            setChores(Array.isArray(data) ? data : [])
+          }}
+          onAdd={() => setModal('add-chore')}
+          onToggle={handleToggleChore}
+        />
+      )}
+      {tab === 'passes'     && (
+        <TabPasses
+          passes={passes}
+          onAdd={() => setModal('add-pass')}
+          onReturn={(p) => { setSelectedPass(p); setModal('log-return') }}
+        />
+      )}
+      {tab === 'curfew'     && (
+        <TabCurfew
+          residents={residents}
+          curfewChecks={curfewChecks}
+          curfewDate={curfewDate}
+          onDateChange={handleCurfewDateChange}
+          onCheck={handleCurfewCheck}
         />
       )}
 
@@ -1001,6 +1250,156 @@ export default function SoberLivingHouse() {
             <MFooter onCancel={() => setModal(null)} saving={saving} label="Add Charge" submitClass="bg-amber-500 hover:bg-amber-600" />
           </form>
         </Modal>
+      )}
+
+      {modal === 'add-meeting' && (
+        <Modal title="Schedule Meeting" onClose={() => setModal(null)}>
+          <form onSubmit={handleAddMeeting} className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Date *">
+                <TInput type="date" value={meetingForm.scheduled_date} onChange={(e) => setMeetingForm({ ...meetingForm, scheduled_date: e.target.value })} />
+              </Field>
+              <Field label="Time">
+                <TInput type="time" value={meetingForm.scheduled_time} onChange={(e) => setMeetingForm({ ...meetingForm, scheduled_time: e.target.value })} />
+              </Field>
+              <Field label="Type">
+                <TSelect value={meetingForm.meeting_type} onChange={(e) => setMeetingForm({ ...meetingForm, meeting_type: e.target.value })}>
+                  {MEETING_TYPES.map((t) => <option key={t} value={t}>{t.toUpperCase()}</option>)}
+                </TSelect>
+              </Field>
+              <Field label="Location">
+                <TInput value={meetingForm.location} onChange={(e) => setMeetingForm({ ...meetingForm, location: e.target.value })} placeholder="Living room, Zoom, etc." />
+              </Field>
+            </div>
+            <Field label="Topic">
+              <TInput value={meetingForm.topic} onChange={(e) => setMeetingForm({ ...meetingForm, topic: e.target.value })} placeholder="Agenda / discussion topic" />
+            </Field>
+            <Field label="Facilitator">
+              <TInput value={meetingForm.facilitator_name} onChange={(e) => setMeetingForm({ ...meetingForm, facilitator_name: e.target.value })} />
+            </Field>
+            <Field label="Notes">
+              <TArea value={meetingForm.notes} onChange={(e) => setMeetingForm({ ...meetingForm, notes: e.target.value })} />
+            </Field>
+            <MFooter onCancel={() => setModal(null)} saving={saving} label="Schedule Meeting" />
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'add-chore' && (
+        <Modal title="Assign Chore" onClose={() => setModal(null)}>
+          <form onSubmit={handleAddChore} className="space-y-4">
+            <Field label="Chore *">
+              <TInput value={choreForm.chore_name} onChange={(e) => setChoreForm({ ...choreForm, chore_name: e.target.value })} placeholder="Kitchen cleanup, Mop floors, etc." />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Assign To">
+                <TSelect value={choreForm.resident_id} onChange={(e) => {
+                  const r = residents.find((r) => r.resident_id === e.target.value)
+                  setChoreForm({ ...choreForm, resident_id: e.target.value, stay_id: r?.stay_id || '' })
+                }}>
+                  <option value="">All residents / unassigned</option>
+                  {residents.map((r) => <option key={r.resident_id} value={r.resident_id}>{r.first_name} {r.last_name}</option>)}
+                </TSelect>
+              </Field>
+              <Field label="Due Date *">
+                <TInput type="date" value={choreForm.due_date} onChange={(e) => setChoreForm({ ...choreForm, due_date: e.target.value })} />
+              </Field>
+              <Field label="Location in House">
+                <TInput value={choreForm.location} onChange={(e) => setChoreForm({ ...choreForm, location: e.target.value })} placeholder="Kitchen, Bathroom, etc." />
+              </Field>
+              <Field label="Recurrence">
+                <TSelect value={choreForm.recurrence} onChange={(e) => setChoreForm({ ...choreForm, recurrence: e.target.value })}>
+                  {RECURRENCE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+                </TSelect>
+              </Field>
+              <Field label="Assigned By">
+                <TInput value={choreForm.assigned_by} onChange={(e) => setChoreForm({ ...choreForm, assigned_by: e.target.value })} />
+              </Field>
+            </div>
+            <Field label="Notes">
+              <TArea value={choreForm.notes} onChange={(e) => setChoreForm({ ...choreForm, notes: e.target.value })} />
+            </Field>
+            <MFooter onCancel={() => setModal(null)} saving={saving} label="Assign Chore" />
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'add-pass' && (
+        <Modal title="Log Pass / Leave" onClose={() => setModal(null)}>
+          <form onSubmit={handleAddPass} className="space-y-4">
+            <Field label="Resident *">
+              <TSelect value={passForm.resident_id} onChange={(e) => setPassForm({ ...passForm, resident_id: e.target.value })}>
+                <option value="">Select resident...</option>
+                {residents.map((r) => <option key={r.resident_id} value={r.resident_id}>{r.first_name} {r.last_name}</option>)}
+              </TSelect>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Pass Type">
+                <TSelect value={passForm.pass_type} onChange={(e) => setPassForm({ ...passForm, pass_type: e.target.value })}>
+                  {PASS_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </TSelect>
+              </Field>
+              <Field label="Destination">
+                <TInput value={passForm.destination} onChange={(e) => setPassForm({ ...passForm, destination: e.target.value })} placeholder="Family home, Work, etc." />
+              </Field>
+              <Field label="Leave Date *">
+                <TInput type="date" value={passForm.leave_date} onChange={(e) => setPassForm({ ...passForm, leave_date: e.target.value })} />
+              </Field>
+              <Field label="Leave Time">
+                <TInput type="time" value={passForm.leave_time} onChange={(e) => setPassForm({ ...passForm, leave_time: e.target.value })} />
+              </Field>
+              <Field label="Expected Return *">
+                <TInput type="date" value={passForm.expected_return_date} onChange={(e) => setPassForm({ ...passForm, expected_return_date: e.target.value })} />
+              </Field>
+              <Field label="Return Time">
+                <TInput type="time" value={passForm.expected_return_time} onChange={(e) => setPassForm({ ...passForm, expected_return_time: e.target.value })} />
+              </Field>
+              <Field label="Approved By">
+                <TInput value={passForm.approved_by} onChange={(e) => setPassForm({ ...passForm, approved_by: e.target.value })} />
+              </Field>
+              <Field label="Blackout Restriction?">
+                <label className="flex items-center gap-2 mt-2 cursor-pointer">
+                  <input type="checkbox" checked={passForm.is_blackout} onChange={(e) => setPassForm({ ...passForm, is_blackout: e.target.checked })} className="rounded" />
+                  <span className="text-sm text-slate-300">Yes — resident on blackout</span>
+                </label>
+              </Field>
+            </div>
+            <Field label="Notes">
+              <TArea value={passForm.notes} onChange={(e) => setPassForm({ ...passForm, notes: e.target.value })} />
+            </Field>
+            <MFooter onCancel={() => setModal(null)} saving={saving} label="Log Pass" />
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'log-return' && selectedPass && (
+        <Modal title={`Record Return — ${selectedPass.first_name} ${selectedPass.last_name}`} onClose={() => { setModal(null); setSelectedPass(null) }}>
+          <form onSubmit={handleReturnPass} className="space-y-4">
+            <div className="bg-slate-700/30 rounded-lg p-3 text-sm space-y-1">
+              <p className="text-slate-300">Left: <span className="text-white">{formatDate(selectedPass.leave_date)}{selectedPass.leave_time ? ` at ${selectedPass.leave_time}` : ''}</span></p>
+              <p className="text-slate-300">Expected back: <span className="text-white">{formatDate(selectedPass.expected_return_date)}{selectedPass.expected_return_time ? ` at ${selectedPass.expected_return_time}` : ''}</span></p>
+              {selectedPass.destination && <p className="text-slate-400 text-xs">Destination: {selectedPass.destination}</p>}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Actual Return Date">
+                <TInput type="date" value={returnForm.actual_return_date} onChange={(e) => setReturnForm({ ...returnForm, actual_return_date: e.target.value })} />
+              </Field>
+              <Field label="Actual Return Time">
+                <TInput type="time" value={returnForm.actual_return_time} onChange={(e) => setReturnForm({ ...returnForm, actual_return_time: e.target.value })} />
+              </Field>
+            </div>
+            <MFooter onCancel={() => { setModal(null); setSelectedPass(null) }} saving={saving} label="Confirm Return" submitClass="bg-emerald-500 hover:bg-emerald-600" />
+          </form>
+        </Modal>
+      )}
+
+      {attendanceModal && (
+        <AttendanceModal
+          meeting={attendanceModal}
+          residents={residents}
+          onSave={handleSaveAttendance}
+          onClose={() => setAttendanceModal(null)}
+        />
       )}
     </div>
   )
@@ -1659,6 +2058,588 @@ function TabRent({ rentSummary, residents, ledgerData, expandedLedger, onToggleL
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 3E: House manager daily dashboard
+// ---------------------------------------------------------------------------
+
+function TabDashboard({ dashboard, residents, onTabSwitch, onAddPass, onAddChore }) {
+  if (!dashboard) {
+    return <EmptyTab message="Loading dashboard..." />
+  }
+
+  const { curfew_checks = [], active_passes = [], open_incidents = [], todays_chores = [], upcoming_meetings = [], on_blackout = [] } = dashboard
+
+  const curfewTotal   = residents.length
+  const curfewPresent = curfew_checks.filter((c) => c.status === 'present').length
+  const curfewAbsent  = curfew_checks.filter((c) => c.status === 'absent' || c.status === 'unexcused').length
+  const curfewOnPass  = curfew_checks.filter((c) => c.status === 'on_pass').length
+  const curfewUnchecked = curfewTotal - curfew_checks.length
+
+  const today = dashboard.today || new Date().toISOString().slice(0, 10)
+  const overduePassesList = active_passes.filter((p) => p.expected_return_date < today && p.status !== 'returned')
+
+  return (
+    <div className="space-y-5">
+      {/* Curfew summary */}
+      <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-white flex items-center gap-2">
+            <Moon size={16} className="text-indigo-400" /> Tonight's Curfew
+          </h3>
+          <button onClick={() => onTabSwitch('curfew')} className="text-xs text-indigo-400 hover:text-indigo-300">
+            Take Roll Call →
+          </button>
+        </div>
+        <div className="grid grid-cols-4 gap-3">
+          {[
+            { label: 'Present',   value: curfewPresent,   color: 'text-emerald-300' },
+            { label: 'Absent',    value: curfewAbsent,    color: 'text-rose-300'    },
+            { label: 'On Pass',   value: curfewOnPass,    color: 'text-amber-300'   },
+            { label: 'Unchecked', value: curfewUnchecked, color: 'text-slate-400'   },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-slate-700/30 rounded-lg p-3 text-center">
+              <div className={`text-2xl font-bold ${color}`}>{value}</div>
+              <div className="text-xs text-slate-500 mt-1">{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Active passes + overdue */}
+      <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-white flex items-center gap-2">
+            <Footprints size={16} className="text-indigo-400" /> Active Passes
+            {overduePassesList.length > 0 && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                {overduePassesList.length} overdue
+              </span>
+            )}
+          </h3>
+          <div className="flex gap-2">
+            <button onClick={onAddPass} className="text-xs text-indigo-400 hover:text-indigo-300">+ Log Pass</button>
+            <button onClick={() => onTabSwitch('passes')} className="text-xs text-slate-400 hover:text-slate-300">All →</button>
+          </div>
+        </div>
+        {active_passes.length === 0 ? (
+          <p className="text-sm text-slate-500">No active passes.</p>
+        ) : (
+          <div className="space-y-2">
+            {active_passes.map((p) => {
+              const isOverdue = p.expected_return_date < today && p.status !== 'returned'
+              return (
+                <div key={p.pass_id} className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm ${isOverdue ? 'bg-rose-500/10 border border-rose-500/30' : 'bg-slate-700/30'}`}>
+                  <div>
+                    <p className={`font-medium ${isOverdue ? 'text-rose-300' : 'text-white'}`}>
+                      {p.first_name} {p.last_name}
+                      {isOverdue && <span className="ml-2 text-xs text-rose-400">OVERDUE</span>}
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      Left {p.leave_date} · Expected back {p.expected_return_date}
+                      {p.destination ? ` · ${p.destination}` : ''}
+                    </p>
+                  </div>
+                  {p.is_blackout ? <Ban size={14} className="text-rose-400 shrink-0" /> : null}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Today's chores */}
+        <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-white flex items-center gap-2">
+              <ListChecks size={16} className="text-indigo-400" /> Today's Chores
+            </h3>
+            <div className="flex gap-2">
+              <button onClick={onAddChore} className="text-xs text-indigo-400 hover:text-indigo-300">+ Add</button>
+              <button onClick={() => onTabSwitch('chores')} className="text-xs text-slate-400 hover:text-slate-300">All →</button>
+            </div>
+          </div>
+          {todays_chores.length === 0 ? (
+            <p className="text-sm text-slate-500">No chores due today.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {todays_chores.map((c) => (
+                <div key={c.chore_id} className="flex items-center gap-2 text-sm">
+                  {c.completed
+                    ? <CheckCheck size={14} className="text-emerald-400 shrink-0" />
+                    : <Clock size={14} className="text-amber-400 shrink-0" />
+                  }
+                  <span className={c.completed ? 'text-slate-500 line-through' : 'text-slate-200'}>{c.chore_name}</span>
+                  {(c.first_name || c.last_name) && (
+                    <span className="text-xs text-slate-500 ml-auto">{c.first_name} {c.last_name}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Upcoming meetings */}
+        <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-white flex items-center gap-2">
+              <CalendarDays size={16} className="text-indigo-400" /> Upcoming Meetings
+            </h3>
+            <button onClick={() => onTabSwitch('meetings')} className="text-xs text-slate-400 hover:text-slate-300">All →</button>
+          </div>
+          {upcoming_meetings.length === 0 ? (
+            <p className="text-sm text-slate-500">No upcoming meetings.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {upcoming_meetings.map((m) => (
+                <div key={m.meeting_id} className="flex items-center justify-between text-sm bg-slate-700/30 rounded-lg px-3 py-2">
+                  <div>
+                    <p className="text-white font-medium">{m.scheduled_date} {m.scheduled_time && `· ${m.scheduled_time}`}</p>
+                    <p className="text-xs text-slate-400 capitalize">{m.meeting_type}{m.topic ? ` · ${m.topic}` : ''}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Residents on blackout */}
+      {on_blackout.length > 0 && (
+        <div className="bg-slate-800/60 border border-rose-500/30 rounded-xl p-5">
+          <h3 className="font-semibold text-rose-300 flex items-center gap-2 mb-3">
+            <Ban size={16} /> Residents on Blackout Restriction ({on_blackout.length})
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {on_blackout.map((r) => (
+              <span key={r.resident_id} className="px-3 py-1 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-300 text-sm">
+                {r.first_name} {r.last_name}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Open incidents needing follow-up */}
+      {open_incidents.length > 0 && (
+        <div className="bg-slate-800/60 border border-amber-500/30 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-amber-300 flex items-center gap-2">
+              <AlertTriangle size={16} /> Open Incidents ({open_incidents.length})
+            </h3>
+            <button onClick={() => onTabSwitch('incidents')} className="text-xs text-slate-400 hover:text-slate-300">View all →</button>
+          </div>
+          <div className="space-y-1.5">
+            {open_incidents.slice(0, 5).map((inc) => (
+              <div key={inc.incident_id} className="flex items-center justify-between text-sm bg-slate-700/30 rounded px-3 py-2">
+                <span className="text-slate-200 capitalize">{inc.incident_type?.replace(/_/g, ' ')}</span>
+                <span className="text-xs text-slate-500">{inc.incident_date}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 3A: Meetings tab
+// ---------------------------------------------------------------------------
+
+const MEETING_STATUS_COLORS = {
+  scheduled:  'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+  completed:  'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  cancelled:  'bg-slate-500/20 text-slate-400 border-slate-500/30',
+}
+
+function TabMeetings({ meetings, residents, onAdd, onStatusChange, onTakeAttendance }) {
+  return (
+    <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-white flex items-center gap-2">
+          <CalendarDays size={16} className="text-indigo-400" /> Meetings ({meetings.length})
+        </h3>
+        <button onClick={onAdd} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium">
+          <Plus size={12} /> Schedule
+        </button>
+      </div>
+      {meetings.length === 0 ? (
+        <EmptyTab message="No meetings scheduled." />
+      ) : (
+        <div className="space-y-2">
+          {meetings.map((m) => {
+            const statusColor = MEETING_STATUS_COLORS[m.status] || MEETING_STATUS_COLORS.scheduled
+            let attendance = []
+            try { attendance = m.attendance_json ? JSON.parse(m.attendance_json) : [] } catch {}
+            return (
+              <div key={m.meeting_id} className="bg-slate-700/30 rounded-lg px-4 py-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor}`}>
+                        {m.status}
+                      </span>
+                      <span className="text-xs text-slate-400 uppercase tracking-wide">{m.meeting_type}</span>
+                    </div>
+                    <p className="text-white font-medium text-sm">
+                      {m.scheduled_date}{m.scheduled_time ? ` · ${m.scheduled_time}` : ''}
+                    </p>
+                    {m.topic && <p className="text-xs text-slate-400 mt-0.5">{m.topic}</p>}
+                    <div className="flex gap-3 mt-1 text-xs text-slate-500">
+                      {m.location && <span>{m.location}</span>}
+                      {m.facilitator_name && <span>Facilitator: {m.facilitator_name}</span>}
+                      {attendance.length > 0 && <span>{attendance.length} attended</span>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 shrink-0">
+                    {m.status === 'scheduled' && (
+                      <>
+                        <button
+                          onClick={() => onTakeAttendance(m)}
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30"
+                        >
+                          Take Attendance
+                        </button>
+                        <button
+                          onClick={() => onStatusChange(m.meeting_id, 'cancelled')}
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-700/50 hover:bg-slate-600 text-slate-400"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    )}
+                    {m.status === 'completed' && attendance.length === 0 && residents.length > 0 && (
+                      <button
+                        onClick={() => onTakeAttendance(m)}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-700/50 hover:bg-slate-600 text-slate-400"
+                      >
+                        Edit Attendance
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 3B: Chores tab
+// ---------------------------------------------------------------------------
+
+function TabChores({ chores, choreDate, onDateChange, onAdd, onToggle }) {
+  const pending   = chores.filter((c) => !c.completed).length
+  const completed = chores.filter((c) => c.completed).length
+
+  return (
+    <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <h3 className="font-semibold text-white flex items-center gap-2">
+            <ListChecks size={16} className="text-indigo-400" /> Chores
+          </h3>
+          {chores.length > 0 && (
+            <div className="flex gap-2 text-xs">
+              <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">{pending} pending</span>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">{completed} done</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={choreDate}
+            onChange={(e) => onDateChange(e.target.value)}
+            className="bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+          />
+          {choreDate && (
+            <button onClick={() => onDateChange('')} className="text-xs text-slate-400 hover:text-slate-200">Clear</button>
+          )}
+          <button onClick={onAdd} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium">
+            <Plus size={12} /> Assign
+          </button>
+        </div>
+      </div>
+      {chores.length === 0 ? (
+        <EmptyTab message={choreDate ? `No chores for ${choreDate}.` : 'No chores logged.'} />
+      ) : (
+        <div className="space-y-2">
+          {chores.map((c) => (
+            <div key={c.chore_id} className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${c.completed ? 'bg-slate-700/20' : 'bg-slate-700/40'}`}>
+              <button onClick={() => onToggle(c)} className="shrink-0 text-slate-400 hover:text-white transition-colors">
+                {c.completed
+                  ? <CheckSquare size={18} className="text-emerald-400" />
+                  : <Square size={18} />
+                }
+              </button>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-medium ${c.completed ? 'text-slate-500 line-through' : 'text-white'}`}>
+                  {c.chore_name}
+                </p>
+                <div className="flex flex-wrap gap-2 mt-0.5 text-xs text-slate-500">
+                  {c.due_date && <span>Due {c.due_date}</span>}
+                  {(c.first_name || c.last_name) && <span>→ {c.first_name} {c.last_name}</span>}
+                  {c.location && <span>· {c.location}</span>}
+                  {c.recurrence !== 'once' && c.recurrence && <span>· {c.recurrence}</span>}
+                  {c.verified_by && <span>· Verified by {c.verified_by}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 3C: Passes tab
+// ---------------------------------------------------------------------------
+
+const PASS_STATUS_COLORS = {
+  approved: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+  returned: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+  revoked:  'bg-rose-500/20 text-rose-300 border-rose-500/30',
+  overdue:  'bg-rose-500/20 text-rose-300 border-rose-500/30',
+}
+
+function TabPasses({ passes, onAdd, onReturn }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  return (
+    <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold text-white flex items-center gap-2">
+          <Footprints size={16} className="text-indigo-400" /> Passes &amp; Overnight Leaves ({passes.length})
+        </h3>
+        <button onClick={onAdd} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-medium">
+          <Plus size={12} /> Log Pass
+        </button>
+      </div>
+      {passes.length === 0 ? (
+        <EmptyTab message="No passes logged." />
+      ) : (
+        <div className="space-y-2">
+          {passes.map((p) => {
+            const isOverdue = p.expected_return_date < today && p.status === 'approved'
+            const effectiveStatus = isOverdue ? 'overdue' : p.status
+            const statusColor = PASS_STATUS_COLORS[effectiveStatus] || PASS_STATUS_COLORS.approved
+
+            return (
+              <div key={p.pass_id} className="bg-slate-700/30 rounded-lg px-4 py-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <p className="text-white font-medium text-sm">{p.first_name} {p.last_name}</p>
+                      <span className={`text-xs px-2 py-0.5 rounded-full border ${statusColor}`}>
+                        {isOverdue ? 'OVERDUE' : p.status}
+                      </span>
+                      <span className="text-xs text-slate-500 capitalize">{p.pass_type}</span>
+                      {p.is_blackout ? <Ban size={13} className="text-rose-400" /> : null}
+                    </div>
+                    <div className="text-xs text-slate-400 space-y-0.5">
+                      <p>Left: {p.leave_date}{p.leave_time ? ` at ${p.leave_time}` : ''}</p>
+                      <p>Expected back: {p.expected_return_date}{p.expected_return_time ? ` at ${p.expected_return_time}` : ''}</p>
+                      {p.actual_return_date && <p className="text-emerald-400">Returned: {p.actual_return_date}{p.actual_return_time ? ` at ${p.actual_return_time}` : ''}</p>}
+                      {p.destination && <p>Destination: {p.destination}</p>}
+                      {p.approved_by && <p>Approved by: {p.approved_by}</p>}
+                    </div>
+                  </div>
+                  {p.status === 'approved' && (
+                    <button
+                      onClick={() => onReturn(p)}
+                      className="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30"
+                    >
+                      Record Return
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 3D: Curfew roll call tab
+// ---------------------------------------------------------------------------
+
+const CURFEW_STATUS_CONFIG = {
+  present:   { color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', label: 'Present' },
+  absent:    { color: 'bg-rose-500/20 text-rose-300 border-rose-500/30',         label: 'Absent'  },
+  on_pass:   { color: 'bg-amber-500/20 text-amber-300 border-amber-500/30',      label: 'On Pass' },
+  unexcused: { color: 'bg-orange-500/20 text-orange-300 border-orange-500/30',   label: 'Unexcused' },
+}
+
+function TabCurfew({ residents, curfewChecks, curfewDate, onDateChange, onCheck }) {
+  const checkMap = {}
+  curfewChecks.forEach((c) => { checkMap[c.resident_id] = c })
+
+  const checkedCount   = Object.keys(checkMap).length
+  const uncheckedCount = residents.length - checkedCount
+
+  return (
+    <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <h3 className="font-semibold text-white flex items-center gap-2">
+            <Moon size={16} className="text-indigo-400" /> Curfew Roll Call
+          </h3>
+          {residents.length > 0 && (
+            <span className="text-xs text-slate-400">{checkedCount}/{residents.length} checked</span>
+          )}
+        </div>
+        <input
+          type="date"
+          value={curfewDate}
+          onChange={(e) => onDateChange(e.target.value)}
+          className="bg-slate-700/50 border border-slate-600 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-indigo-500"
+        />
+      </div>
+
+      {uncheckedCount > 0 && (
+        <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300">
+          {uncheckedCount} resident{uncheckedCount !== 1 ? 's' : ''} not yet checked in
+        </div>
+      )}
+
+      {residents.length === 0 ? (
+        <EmptyTab message="No active residents to check." />
+      ) : (
+        <div className="space-y-2">
+          {residents.map((r) => {
+            const check = checkMap[r.resident_id]
+            const currentStatus = check?.status || null
+
+            return (
+              <div key={r.resident_id} className="flex items-center justify-between gap-3 bg-slate-700/30 rounded-lg px-4 py-3">
+                <div>
+                  <p className="text-sm font-medium text-white">{r.first_name} {r.last_name}</p>
+                  {check?.checked_at && (
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Checked {new Date(check.checked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      {check.checked_by ? ` by ${check.checked_by}` : ''}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-1.5 flex-wrap justify-end">
+                  {Object.entries(CURFEW_STATUS_CONFIG).map(([status, cfg]) => (
+                    <button
+                      key={status}
+                      onClick={() => onCheck(r, status)}
+                      className={`text-xs px-2.5 py-1.5 rounded-lg border transition-all ${
+                        currentStatus === status
+                          ? `${cfg.color} font-medium`
+                          : 'bg-slate-700/40 text-slate-500 border-slate-600 hover:border-slate-500 hover:text-slate-300'
+                      }`}
+                    >
+                      {cfg.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// 3A: Attendance modal
+// ---------------------------------------------------------------------------
+
+function AttendanceModal({ meeting, residents, onSave, onClose }) {
+  const [selected, setSelected] = useState(() => {
+    try {
+      const existing = meeting.attendance_json ? JSON.parse(meeting.attendance_json) : []
+      return new Set(existing)
+    } catch {
+      return new Set()
+    }
+  })
+  const [saving, setSaving] = useState(false)
+
+  const toggle = (residentId) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(residentId)) next.delete(residentId)
+      else next.add(residentId)
+      return next
+    })
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    await onSave(meeting, JSON.stringify(Array.from(selected)))
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-slate-700">
+          <div>
+            <h2 className="font-semibold text-white">Take Attendance</h2>
+            <p className="text-xs text-slate-400 mt-0.5">{meeting.scheduled_date}{meeting.meeting_type ? ` · ${meeting.meeting_type.toUpperCase()}` : ''}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-2 max-h-80 overflow-y-auto">
+          {residents.length === 0 ? (
+            <p className="text-sm text-slate-400">No residents to mark.</p>
+          ) : (
+            residents.map((r) => {
+              const isSelected = selected.has(r.resident_id)
+              return (
+                <button
+                  key={r.resident_id}
+                  onClick={() => toggle(r.resident_id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                    isSelected ? 'bg-emerald-500/15 border border-emerald-500/30' : 'bg-slate-700/30 border border-transparent hover:bg-slate-700/50'
+                  }`}
+                >
+                  {isSelected
+                    ? <CheckSquare size={16} className="text-emerald-400 shrink-0" />
+                    : <Square size={16} className="text-slate-500 shrink-0" />
+                  }
+                  <span className={`text-sm ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                    {r.first_name} {r.last_name}
+                  </span>
+                </button>
+              )
+            })
+          )}
+        </div>
+        <div className="flex items-center justify-between px-5 py-4 border-t border-slate-700">
+          <span className="text-xs text-slate-400">{selected.size} of {residents.length} present</span>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm">
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save Attendance'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

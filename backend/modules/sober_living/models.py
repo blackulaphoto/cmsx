@@ -284,3 +284,110 @@ class RentPaymentCreate(BaseModel):
     receipt_number: Optional[str] = None
     received_by: Optional[str] = None
     notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Meetings
+# ---------------------------------------------------------------------------
+
+class MeetingCreate(BaseModel):
+    house_id: str
+    scheduled_date: str
+    meeting_type: Optional[str] = "house"
+    scheduled_time: Optional[str] = None
+    topic: Optional[str] = None
+    facilitator_name: Optional[str] = None
+    location: Optional[str] = None
+    status: Optional[str] = "scheduled"
+    attendance_json: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class MeetingUpdate(BaseModel):
+    scheduled_date: Optional[str] = None
+    scheduled_time: Optional[str] = None
+    meeting_type: Optional[str] = None
+    topic: Optional[str] = None
+    facilitator_name: Optional[str] = None
+    location: Optional[str] = None
+    status: Optional[str] = None
+    attendance_json: Optional[str] = None
+    notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Chores
+# ---------------------------------------------------------------------------
+
+class ChoreCreate(BaseModel):
+    house_id: str
+    chore_name: str
+    due_date: str
+    resident_id: Optional[str] = None
+    stay_id: Optional[str] = None
+    location: Optional[str] = None
+    recurrence: Optional[str] = "once"
+    assigned_by: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class ChoreUpdate(BaseModel):
+    chore_name: Optional[str] = None
+    resident_id: Optional[str] = None
+    stay_id: Optional[str] = None
+    location: Optional[str] = None
+    due_date: Optional[str] = None
+    recurrence: Optional[str] = None
+    assigned_by: Optional[str] = None
+    completed: Optional[int] = None
+    completed_at: Optional[str] = None
+    verified_by: Optional[str] = None
+    notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Passes
+# ---------------------------------------------------------------------------
+
+class PassCreate(BaseModel):
+    house_id: str
+    resident_id: str
+    stay_id: str
+    leave_date: str
+    expected_return_date: str
+    pass_type: Optional[str] = "day"
+    destination: Optional[str] = None
+    leave_time: Optional[str] = None
+    expected_return_time: Optional[str] = None
+    approved_by: Optional[str] = None
+    status: Optional[str] = "approved"
+    is_blackout: Optional[int] = 0
+    notes: Optional[str] = None
+
+
+class PassUpdate(BaseModel):
+    pass_type: Optional[str] = None
+    destination: Optional[str] = None
+    leave_date: Optional[str] = None
+    leave_time: Optional[str] = None
+    expected_return_date: Optional[str] = None
+    expected_return_time: Optional[str] = None
+    actual_return_date: Optional[str] = None
+    actual_return_time: Optional[str] = None
+    approved_by: Optional[str] = None
+    status: Optional[str] = None
+    is_blackout: Optional[int] = None
+    notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Curfew checks
+# ---------------------------------------------------------------------------
+
+class CurfewCheckUpsert(BaseModel):
+    resident_id: str
+    stay_id: str
+    status: str
+    checked_by: Optional[str] = None
+    method: Optional[str] = None
+    notes: Optional[str] = None

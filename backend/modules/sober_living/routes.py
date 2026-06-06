@@ -18,6 +18,10 @@ from .models import (
     UATestCreate,
     IncidentCreate, IncidentUpdate,
     RentChargeCreate, RentPaymentCreate,
+    MeetingCreate, MeetingUpdate,
+    ChoreCreate, ChoreUpdate,
+    PassCreate, PassUpdate,
+    CurfewCheckUpsert,
 )
 
 log = logging.getLogger(__name__)
@@ -310,3 +314,104 @@ def create_charge(body: RentChargeCreate):
 @router.post("/rent-payments", status_code=201)
 def create_payment(body: RentPaymentCreate):
     return get_store().create_payment(body.dict())
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Meetings
+# ---------------------------------------------------------------------------
+
+@router.get("/houses/{house_id}/meetings")
+def list_meetings(house_id: str):
+    return get_store().list_meetings(house_id)
+
+
+@router.post("/meetings", status_code=201)
+def create_meeting(body: MeetingCreate):
+    return get_store().create_meeting(body.dict())
+
+
+@router.put("/meetings/{meeting_id}")
+def update_meeting(meeting_id: str, body: MeetingUpdate):
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    result = get_store().update_meeting(meeting_id, updates)
+    if not result:
+        raise HTTPException(404, "Meeting not found")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Chores
+# ---------------------------------------------------------------------------
+
+@router.get("/houses/{house_id}/chores")
+def list_chores(house_id: str, due_date: str = None):
+    return get_store().list_chores(house_id, due_date)
+
+
+@router.post("/chores", status_code=201)
+def create_chore(body: ChoreCreate):
+    return get_store().create_chore(body.dict())
+
+
+@router.put("/chores/{chore_id}")
+def update_chore(chore_id: str, body: ChoreUpdate):
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    result = get_store().update_chore(chore_id, updates)
+    if not result:
+        raise HTTPException(404, "Chore not found")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Passes
+# ---------------------------------------------------------------------------
+
+@router.get("/houses/{house_id}/passes")
+def list_passes(house_id: str):
+    return get_store().list_passes(house_id)
+
+
+@router.post("/passes", status_code=201)
+def create_pass(body: PassCreate):
+    return get_store().create_pass(body.dict())
+
+
+@router.put("/passes/{pass_id}")
+def update_pass(pass_id: str, body: PassUpdate):
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    result = get_store().update_pass(pass_id, updates)
+    if not result:
+        raise HTTPException(404, "Pass not found")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Curfew checks
+# ---------------------------------------------------------------------------
+
+@router.get("/houses/{house_id}/curfew")
+def list_curfew(house_id: str, check_date: str):
+    return get_store().list_curfew_checks(house_id, check_date)
+
+
+@router.put("/houses/{house_id}/curfew")
+def upsert_curfew(house_id: str, body: CurfewCheckUpsert):
+    return get_store().upsert_curfew_check(
+        house_id=house_id,
+        check_date=__import__("datetime").datetime.utcnow().strftime("%Y-%m-%d"),
+        resident_id=body.resident_id,
+        stay_id=body.stay_id,
+        status=body.status,
+        checked_by=body.checked_by,
+        method=body.method,
+        notes=body.notes,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Dashboard
+# ---------------------------------------------------------------------------
+
+@router.get("/houses/{house_id}/dashboard")
+def get_dashboard(house_id: str):
+    return get_store().get_dashboard(house_id)

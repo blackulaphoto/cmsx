@@ -315,6 +315,76 @@ _DDL = [
         notes               TEXT,
         created_at          TEXT NOT NULL
     )""",
+    # ---- Phase 3: Meetings ----
+    """CREATE TABLE IF NOT EXISTS sober_living_meetings (
+        meeting_id       TEXT PRIMARY KEY,
+        house_id         TEXT NOT NULL REFERENCES sober_living_houses(house_id) ON DELETE CASCADE,
+        scheduled_date   TEXT NOT NULL,
+        scheduled_time   TEXT,
+        meeting_type     TEXT NOT NULL DEFAULT 'house',
+        topic            TEXT,
+        facilitator_name TEXT,
+        location         TEXT,
+        status           TEXT NOT NULL DEFAULT 'scheduled',
+        attendance_json  TEXT,
+        notes            TEXT,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL
+    )""",
+    # ---- Phase 3: Chores ----
+    """CREATE TABLE IF NOT EXISTS sober_living_chores (
+        chore_id      TEXT PRIMARY KEY,
+        house_id      TEXT NOT NULL REFERENCES sober_living_houses(house_id) ON DELETE CASCADE,
+        resident_id   TEXT REFERENCES sober_living_residents(resident_id),
+        stay_id       TEXT,
+        chore_name    TEXT NOT NULL,
+        location      TEXT,
+        due_date      TEXT NOT NULL,
+        recurrence    TEXT DEFAULT 'once',
+        assigned_by   TEXT,
+        completed     INTEGER DEFAULT 0,
+        completed_at  TEXT,
+        verified_by   TEXT,
+        notes         TEXT,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL
+    )""",
+    # ---- Phase 3: Passes ----
+    """CREATE TABLE IF NOT EXISTS sober_living_passes (
+        pass_id          TEXT PRIMARY KEY,
+        house_id         TEXT NOT NULL REFERENCES sober_living_houses(house_id) ON DELETE CASCADE,
+        resident_id      TEXT NOT NULL REFERENCES sober_living_residents(resident_id),
+        stay_id          TEXT NOT NULL,
+        pass_type        TEXT NOT NULL DEFAULT 'day',
+        destination      TEXT,
+        leave_date       TEXT NOT NULL,
+        leave_time       TEXT,
+        expected_return_date TEXT NOT NULL,
+        expected_return_time TEXT,
+        actual_return_date   TEXT,
+        actual_return_time   TEXT,
+        approved_by      TEXT,
+        status           TEXT NOT NULL DEFAULT 'approved',
+        is_blackout      INTEGER DEFAULT 0,
+        notes            TEXT,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL
+    )""",
+    # ---- Phase 3: Curfew checks ----
+    """CREATE TABLE IF NOT EXISTS sober_living_curfew_checks (
+        check_id       TEXT PRIMARY KEY,
+        house_id       TEXT NOT NULL REFERENCES sober_living_houses(house_id) ON DELETE CASCADE,
+        check_date     TEXT NOT NULL,
+        resident_id    TEXT NOT NULL REFERENCES sober_living_residents(resident_id),
+        stay_id        TEXT NOT NULL,
+        status         TEXT NOT NULL DEFAULT 'pending',
+        checked_at     TEXT,
+        checked_by     TEXT,
+        method         TEXT,
+        notes          TEXT,
+        created_at     TEXT NOT NULL,
+        updated_at     TEXT NOT NULL
+    )""",
     # ---- Indexes ----
     "CREATE INDEX IF NOT EXISTS idx_sl_rooms_house      ON sober_living_rooms(house_id)",
     "CREATE INDEX IF NOT EXISTS idx_sl_beds_house       ON sober_living_beds(house_id)",
@@ -327,6 +397,14 @@ _DDL = [
     "CREATE INDEX IF NOT EXISTS idx_sl_incidents_house  ON sober_living_incidents(house_id)",
     "CREATE INDEX IF NOT EXISTS idx_sl_rcharge_stay     ON sober_living_rent_charges(stay_id)",
     "CREATE INDEX IF NOT EXISTS idx_sl_rpay_stay        ON sober_living_rent_payments(stay_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sl_meetings_house   ON sober_living_meetings(house_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sl_meetings_date    ON sober_living_meetings(scheduled_date)",
+    "CREATE INDEX IF NOT EXISTS idx_sl_chores_house     ON sober_living_chores(house_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sl_chores_date      ON sober_living_chores(due_date)",
+    "CREATE INDEX IF NOT EXISTS idx_sl_passes_house     ON sober_living_passes(house_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sl_passes_resident  ON sober_living_passes(resident_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sl_curfew_house     ON sober_living_curfew_checks(house_id)",
+    "CREATE INDEX IF NOT EXISTS idx_sl_curfew_date      ON sober_living_curfew_checks(check_date)",
 ]
 
 
@@ -497,6 +575,14 @@ def _migrate_legacy() -> None:
         ("sober_living_residents", "emergency_contact_relationship", "TEXT"),
         ("sober_living_residents", "primary_substance",              "TEXT"),
         ("sober_living_residents", "sobriety_date",                  "TEXT"),
+        # Phase 3 — new tables; ADD COLUMN on non-existent table is caught and skipped
+        # These are here as a safety net; _setup_schema handles table creation
+        ("sober_living_meetings",  "attendance_json",  "TEXT"),
+        ("sober_living_meetings",  "location",         "TEXT"),
+        ("sober_living_chores",    "verified_by",      "TEXT"),
+        ("sober_living_chores",    "completed_at",     "TEXT"),
+        ("sober_living_passes",    "is_blackout",      "INTEGER DEFAULT 0"),
+        ("sober_living_curfew_checks", "method",       "TEXT"),
     ]
 
     # Step 3: type fixes — columns that exist but have wrong type
@@ -1296,6 +1382,262 @@ class SoberLivingStore:
             "total_charged": round(total_charged, 2),
             "total_paid":    round(total_paid, 2),
             "balance":       round(total_charged - total_paid, 2),
+        }
+
+    # ------------------------------------------------------------------
+    # Meetings
+    # ------------------------------------------------------------------
+
+    def list_meetings(self, house_id: str) -> List[Dict]:
+        with _db() as conn:
+            return _fetchall(conn,
+                "SELECT * FROM sober_living_meetings WHERE house_id = %s ORDER BY scheduled_date DESC, scheduled_time DESC",
+                (house_id,))
+
+    def create_meeting(self, data: Dict) -> Dict:
+        meeting_id = str(uuid.uuid4())
+        now = _now()
+        with _db() as conn:
+            _exec(conn, """
+                INSERT INTO sober_living_meetings
+                (meeting_id, house_id, scheduled_date, scheduled_time, meeting_type,
+                 topic, facilitator_name, location, status, attendance_json, notes, created_at, updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (meeting_id, data["house_id"],
+                 data["scheduled_date"],
+                 data.get("scheduled_time"),
+                 data.get("meeting_type", "house"),
+                 data.get("topic"),
+                 data.get("facilitator_name"),
+                 data.get("location"),
+                 data.get("status", "scheduled"),
+                 data.get("attendance_json"),
+                 data.get("notes"),
+                 now, now))
+            return _fetchone(conn, "SELECT * FROM sober_living_meetings WHERE meeting_id = %s", (meeting_id,))
+
+    def update_meeting(self, meeting_id: str, data: Dict) -> Optional[Dict]:
+        updatable = ["scheduled_date", "scheduled_time", "meeting_type", "topic",
+                     "facilitator_name", "location", "status", "attendance_json", "notes"]
+        pairs = [f"{f} = %s" for f in updatable if f in data]
+        vals  = [data[f] for f in updatable if f in data]
+        if not pairs:
+            with _db() as conn:
+                return _fetchone(conn, "SELECT * FROM sober_living_meetings WHERE meeting_id = %s", (meeting_id,))
+        with _db() as conn:
+            _exec(conn,
+                f"UPDATE sober_living_meetings SET {', '.join(pairs)}, updated_at = %s WHERE meeting_id = %s",
+                vals + [_now(), meeting_id])
+            return _fetchone(conn, "SELECT * FROM sober_living_meetings WHERE meeting_id = %s", (meeting_id,))
+
+    # ------------------------------------------------------------------
+    # Chores
+    # ------------------------------------------------------------------
+
+    def list_chores(self, house_id: str, due_date: Optional[str] = None) -> List[Dict]:
+        with _db() as conn:
+            if due_date:
+                return _fetchall(conn,
+                    "SELECT c.*, r.first_name, r.last_name FROM sober_living_chores c "
+                    "LEFT JOIN sober_living_residents r ON r.resident_id = c.resident_id "
+                    "WHERE c.house_id = %s AND c.due_date = %s ORDER BY c.completed, c.chore_name",
+                    (house_id, due_date))
+            return _fetchall(conn,
+                "SELECT c.*, r.first_name, r.last_name FROM sober_living_chores c "
+                "LEFT JOIN sober_living_residents r ON r.resident_id = c.resident_id "
+                "WHERE c.house_id = %s ORDER BY c.due_date DESC, c.completed, c.chore_name",
+                (house_id,))
+
+    def create_chore(self, data: Dict) -> Dict:
+        chore_id = str(uuid.uuid4())
+        now = _now()
+        with _db() as conn:
+            _exec(conn, """
+                INSERT INTO sober_living_chores
+                (chore_id, house_id, resident_id, stay_id, chore_name, location,
+                 due_date, recurrence, assigned_by, completed, notes, created_at, updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (chore_id, data["house_id"],
+                 data.get("resident_id"),
+                 data.get("stay_id"),
+                 data["chore_name"],
+                 data.get("location"),
+                 data["due_date"],
+                 data.get("recurrence", "once"),
+                 data.get("assigned_by"),
+                 0,
+                 data.get("notes"),
+                 now, now))
+            return _fetchone(conn, "SELECT * FROM sober_living_chores WHERE chore_id = %s", (chore_id,))
+
+    def update_chore(self, chore_id: str, data: Dict) -> Optional[Dict]:
+        updatable = ["resident_id", "stay_id", "chore_name", "location", "due_date",
+                     "recurrence", "assigned_by", "completed", "completed_at", "verified_by", "notes"]
+        pairs = [f"{f} = %s" for f in updatable if f in data]
+        vals  = [data[f] for f in updatable if f in data]
+        if not pairs:
+            with _db() as conn:
+                return _fetchone(conn, "SELECT * FROM sober_living_chores WHERE chore_id = %s", (chore_id,))
+        with _db() as conn:
+            _exec(conn,
+                f"UPDATE sober_living_chores SET {', '.join(pairs)}, updated_at = %s WHERE chore_id = %s",
+                vals + [_now(), chore_id])
+            return _fetchone(conn, "SELECT * FROM sober_living_chores WHERE chore_id = %s", (chore_id,))
+
+    # ------------------------------------------------------------------
+    # Passes
+    # ------------------------------------------------------------------
+
+    def list_passes(self, house_id: str) -> List[Dict]:
+        with _db() as conn:
+            return _fetchall(conn,
+                "SELECT p.*, r.first_name, r.last_name FROM sober_living_passes p "
+                "JOIN sober_living_residents r ON r.resident_id = p.resident_id "
+                "WHERE p.house_id = %s ORDER BY p.leave_date DESC",
+                (house_id,))
+
+    def create_pass(self, data: Dict) -> Dict:
+        pass_id = str(uuid.uuid4())
+        now = _now()
+        with _db() as conn:
+            _exec(conn, """
+                INSERT INTO sober_living_passes
+                (pass_id, house_id, resident_id, stay_id, pass_type, destination,
+                 leave_date, leave_time, expected_return_date, expected_return_time,
+                 approved_by, status, is_blackout, notes, created_at, updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                (pass_id, data["house_id"], data["resident_id"], data["stay_id"],
+                 data.get("pass_type", "day"),
+                 data.get("destination"),
+                 data["leave_date"],
+                 data.get("leave_time"),
+                 data["expected_return_date"],
+                 data.get("expected_return_time"),
+                 data.get("approved_by"),
+                 data.get("status", "approved"),
+                 int(data.get("is_blackout", 0)),
+                 data.get("notes"),
+                 now, now))
+            return _fetchone(conn, "SELECT * FROM sober_living_passes WHERE pass_id = %s", (pass_id,))
+
+    def update_pass(self, pass_id: str, data: Dict) -> Optional[Dict]:
+        updatable = ["pass_type", "destination", "leave_date", "leave_time",
+                     "expected_return_date", "expected_return_time",
+                     "actual_return_date", "actual_return_time",
+                     "approved_by", "status", "is_blackout", "notes"]
+        pairs = [f"{f} = %s" for f in updatable if f in data]
+        vals  = [data[f] for f in updatable if f in data]
+        if not pairs:
+            with _db() as conn:
+                return _fetchone(conn, "SELECT * FROM sober_living_passes WHERE pass_id = %s", (pass_id,))
+        with _db() as conn:
+            _exec(conn,
+                f"UPDATE sober_living_passes SET {', '.join(pairs)}, updated_at = %s WHERE pass_id = %s",
+                vals + [_now(), pass_id])
+            return _fetchone(conn, "SELECT * FROM sober_living_passes WHERE pass_id = %s", (pass_id,))
+
+    # ------------------------------------------------------------------
+    # Curfew checks
+    # ------------------------------------------------------------------
+
+    def list_curfew_checks(self, house_id: str, check_date: str) -> List[Dict]:
+        with _db() as conn:
+            return _fetchall(conn,
+                "SELECT cc.*, r.first_name, r.last_name FROM sober_living_curfew_checks cc "
+                "JOIN sober_living_residents r ON r.resident_id = cc.resident_id "
+                "WHERE cc.house_id = %s AND cc.check_date = %s ORDER BY r.last_name, r.first_name",
+                (house_id, check_date))
+
+    def upsert_curfew_check(self, house_id: str, check_date: str, resident_id: str,
+                             stay_id: str, status: str,
+                             checked_by: Optional[str] = None,
+                             method: Optional[str] = None,
+                             notes: Optional[str] = None) -> Dict:
+        now = _now()
+        with _db() as conn:
+            existing = _fetchone(conn,
+                "SELECT check_id FROM sober_living_curfew_checks "
+                "WHERE house_id = %s AND check_date = %s AND resident_id = %s",
+                (house_id, check_date, resident_id))
+            if existing:
+                _exec(conn,
+                    "UPDATE sober_living_curfew_checks "
+                    "SET status = %s, checked_at = %s, checked_by = %s, method = %s, notes = %s, updated_at = %s "
+                    "WHERE check_id = %s",
+                    (status, now if status != "pending" else None,
+                     checked_by, method, notes, now, existing["check_id"]))
+                return _fetchone(conn,
+                    "SELECT * FROM sober_living_curfew_checks WHERE check_id = %s", (existing["check_id"],))
+            else:
+                check_id = str(uuid.uuid4())
+                _exec(conn, """
+                    INSERT INTO sober_living_curfew_checks
+                    (check_id, house_id, check_date, resident_id, stay_id, status,
+                     checked_at, checked_by, method, notes, created_at, updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (check_id, house_id, check_date, resident_id, stay_id, status,
+                     now if status != "pending" else None,
+                     checked_by, method, notes, now, now))
+                return _fetchone(conn,
+                    "SELECT * FROM sober_living_curfew_checks WHERE check_id = %s", (check_id,))
+
+    def get_dashboard(self, house_id: str) -> Dict:
+        today = _today()
+        with _db() as conn:
+            # Tonight's curfew checks
+            curfew = _fetchall(conn,
+                "SELECT cc.*, r.first_name, r.last_name FROM sober_living_curfew_checks cc "
+                "JOIN sober_living_residents r ON r.resident_id = cc.resident_id "
+                "WHERE cc.house_id = %s AND cc.check_date = %s ORDER BY r.last_name",
+                (house_id, today))
+
+            # Active passes — on leave right now or overdue
+            active_passes = _fetchall(conn,
+                "SELECT p.*, r.first_name, r.last_name FROM sober_living_passes p "
+                "JOIN sober_living_residents r ON r.resident_id = p.resident_id "
+                "WHERE p.house_id = %s AND p.status = 'approved' "
+                "AND p.actual_return_date IS NULL AND p.leave_date <= %s "
+                "ORDER BY p.expected_return_date",
+                (house_id, today))
+
+            # Open incidents needing follow-up
+            open_incidents = _fetchall(conn,
+                "SELECT * FROM sober_living_incidents "
+                "WHERE house_id = %s AND follow_up_required = 1 AND incident_resolved = 0 "
+                "ORDER BY follow_up_due_date",
+                (house_id,))
+
+            # Today's chores
+            todays_chores = _fetchall(conn,
+                "SELECT c.*, r.first_name, r.last_name FROM sober_living_chores c "
+                "LEFT JOIN sober_living_residents r ON r.resident_id = c.resident_id "
+                "WHERE c.house_id = %s AND c.due_date = %s ORDER BY c.completed, c.chore_name",
+                (house_id, today))
+
+            # Upcoming meetings (next 7 days)
+            upcoming_meetings = _fetchall(conn,
+                "SELECT * FROM sober_living_meetings "
+                "WHERE house_id = %s AND scheduled_date >= %s AND status = 'scheduled' "
+                "ORDER BY scheduled_date, scheduled_time LIMIT 5",
+                (house_id, today))
+
+            # Residents currently on blackout
+            on_blackout = _fetchall(conn,
+                "SELECT p.*, r.first_name, r.last_name FROM sober_living_passes p "
+                "JOIN sober_living_residents r ON r.resident_id = p.resident_id "
+                "WHERE p.house_id = %s AND p.is_blackout = 1 "
+                "AND p.actual_return_date IS NULL AND p.leave_date <= %s "
+                "ORDER BY r.last_name",
+                (house_id, today))
+
+        return {
+            "today":            today,
+            "curfew_checks":    curfew,
+            "active_passes":    active_passes,
+            "open_incidents":   open_incidents,
+            "todays_chores":    todays_chores,
+            "upcoming_meetings":upcoming_meetings,
+            "on_blackout":      on_blackout,
         }
 
     def get_house_rent_summary(self, house_id: str) -> Dict:
