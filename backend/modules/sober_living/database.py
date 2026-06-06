@@ -383,23 +383,33 @@ def _setup_schema() -> None:
         log.info("[sober_living] init_db complete (sqlite)")
 
 
-def _pg_col_exists(cur, table: str, column: str) -> bool:
-    """Check information_schema — works even when the table doesn't exist (returns False)."""
+def _pg_table_exists(cur, table: str) -> bool:
     cur.execute(
         """
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = %s AND column_name = %s
+        SELECT 1
+        FROM pg_catalog.pg_class c
+        WHERE c.relname = %s
+          AND c.relkind = 'r'
         LIMIT 1
         """,
-        (table, column),
+        (table,),
     )
     return cur.fetchone() is not None
 
 
-def _pg_table_exists(cur, table: str) -> bool:
+def _pg_col_exists(cur, table: str, column: str) -> bool:
     cur.execute(
-        "SELECT 1 FROM information_schema.tables WHERE table_name = %s LIMIT 1",
-        (table,),
+        """
+        SELECT 1
+        FROM pg_catalog.pg_attribute a
+        JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+        WHERE c.relname = %s
+          AND a.attname = %s
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+        LIMIT 1
+        """,
+        (table, column),
     )
     return cur.fetchone() is not None
 
@@ -504,6 +514,8 @@ def _migrate_legacy() -> None:
     try:
         conn.autocommit = False
         cur = conn.cursor()
+        log.info(f"[sober_living] _migrate_legacy starting — catalog=pg_catalog "
+                 f"renames={len(renames)} add_columns={len(add_columns)} type_fixes={len(type_fixes)}")
 
         # --- Step 1: renames ---
         for table, old_col, new_col in renames:
@@ -521,19 +533,20 @@ def _migrate_legacy() -> None:
                 log.warning(f"[sober_living] rename skipped {table}.{old_col}: {e}")
 
         # --- Step 2: add missing columns ---
+        # Attempt ALTER TABLE directly; catch DuplicateColumn as a no-op.
+        # This avoids any dependency on catalog queries for the add path.
         for table, col, col_def in add_columns:
             try:
                 cur.execute("SAVEPOINT sl_add_col")
-                if not _pg_table_exists(cur, table):
-                    cur.execute("RELEASE SAVEPOINT sl_add_col")
-                    continue
-                if not _pg_col_exists(cur, table, col):
-                    cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}")
-                    log.info(f"[sober_living] added column {table}.{col}")
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN {col} {col_def}")
                 cur.execute("RELEASE SAVEPOINT sl_add_col")
+                log.info(f"[sober_living] added column {table}.{col}")
+            except psycopg2.errors.DuplicateColumn:
+                cur.execute("ROLLBACK TO SAVEPOINT sl_add_col")
+                log.debug(f"[sober_living] column already exists (ok): {table}.{col}")
             except Exception as e:
                 cur.execute("ROLLBACK TO SAVEPOINT sl_add_col")
-                log.warning(f"[sober_living] add_col skipped {table}.{col}: {e}")
+                log.warning(f"[sober_living] add_col FAILED {table}.{col}: {e}")
 
         # --- Step 3: type fixes ---
         for table, col, new_type, using in type_fixes:
@@ -542,15 +555,22 @@ def _migrate_legacy() -> None:
                 if not _pg_table_exists(cur, table) or not _pg_col_exists(cur, table, col):
                     cur.execute("RELEASE SAVEPOINT sl_type_fix")
                     continue
-                # Check current type
+                # Check current type via pg_catalog (avoids information_schema search_path issues)
                 cur.execute(
-                    "SELECT data_type FROM information_schema.columns "
-                    "WHERE table_name = %s AND column_name = %s",
+                    """
+                    SELECT t.typname
+                    FROM pg_catalog.pg_attribute a
+                    JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+                    JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+                    WHERE c.relname = %s AND a.attname = %s
+                      AND a.attnum > 0 AND NOT a.attisdropped
+                    LIMIT 1
+                    """,
                     (table, col),
                 )
                 row = cur.fetchone()
-                current_type = row["data_type"] if row else None
-                if current_type and current_type.lower() not in ("integer", "bigint", "smallint"):
+                current_type = row["typname"] if row else None
+                if current_type and current_type.lower() not in ("int4", "int8", "int2", "integer"):
                     cur.execute(
                         f"ALTER TABLE {table} ALTER COLUMN {col} TYPE {new_type} USING {using}"
                     )
