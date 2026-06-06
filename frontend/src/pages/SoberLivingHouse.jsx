@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   ArrowLeft, BedDouble, Users, Plus, RefreshCw,
-  Home, Phone, Mail, User, AlertCircle
+  Home, Phone, Mail, User, AlertCircle, ChevronDown, ChevronRight, DollarSign
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import BedMap from '../components/BedMap'
+import RentLedger from '../components/RentLedger'
 import {
   slApi,
   BED_STATUS_COLORS, BED_STATUS_LABELS, BED_STATUS_OPTIONS,
@@ -46,6 +47,7 @@ export default function SoberLivingHouse() {
 
   // Modal states
   const [modal, setModal] = useState(null) // 'add-room' | 'add-bed' | 'add-resident' | 'assign-bed' | 'bed-detail' | 'discharge'
+  const [expandedResident, setExpandedResident] = useState(null) // resident_id with rent ledger open
 
   // Forms
   const [roomForm, setRoomForm] = useState({ room_number: '', floor: '', notes: '' })
@@ -283,7 +285,7 @@ export default function SoberLivingHouse() {
         <BedMap beds={beds} onBedClick={handleBedClick} />
       </div>
 
-      {/* Residents Table */}
+      {/* Residents & Rent */}
       <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
         <h2 className="font-semibold text-white mb-4 flex items-center gap-2">
           <Users size={16} className="text-indigo-400" />
@@ -292,30 +294,56 @@ export default function SoberLivingHouse() {
         {residents.length === 0 ? (
           <p className="text-sm text-slate-400">No active residents.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-700 text-left">
-                  <th className="pb-2 pr-4 text-xs text-slate-400 font-medium">Name</th>
-                  <th className="pb-2 pr-4 text-xs text-slate-400 font-medium">Room / Bed</th>
-                  <th className="pb-2 pr-4 text-xs text-slate-400 font-medium">Move-in</th>
-                  <th className="pb-2 pr-4 text-xs text-slate-400 font-medium">Phone</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-700/50">
-                {residents.map((r) => (
-                  <tr key={r.resident_id} className="hover:bg-slate-700/20 transition-colors">
-                    <td className="py-2.5 pr-4 text-white font-medium">{r.first_name} {r.last_name}</td>
-                    <td className="py-2.5 pr-4 text-slate-400">
-                      {r.room_number ? `Room ${r.room_number}` : '—'}
-                      {r.bed_label ? ` / ${r.bed_label}` : ''}
-                    </td>
-                    <td className="py-2.5 pr-4 text-slate-400">{formatMoveInDate(r.move_in_date)}</td>
-                    <td className="py-2.5 pr-4 text-slate-400">{r.phone || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-2">
+            {residents.map((r) => {
+              const isOpen = expandedResident === r.resident_id
+              return (
+                <div key={r.resident_id} className="border border-slate-700/60 rounded-xl overflow-hidden">
+                  {/* Resident header row */}
+                  <button
+                    onClick={() => setExpandedResident(isOpen ? null : r.resident_id)}
+                    className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-700/20 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                        <User size={14} className="text-indigo-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white">{r.first_name} {r.last_name}</p>
+                        <p className="text-xs text-slate-400">
+                          {r.room_number ? `Room ${r.room_number}` : ''}
+                          {r.bed_label ? ` / ${r.bed_label}` : ''}
+                          {r.move_in_date ? ` · In since ${formatMoveInDate(r.move_in_date)}` : ''}
+                          {r.phone ? ` · ${r.phone}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 ml-3">
+                      <span className="text-xs text-slate-500 flex items-center gap-1">
+                        <DollarSign size={11} />
+                        Rent
+                      </span>
+                      {isOpen
+                        ? <ChevronDown size={14} className="text-slate-400" />
+                        : <ChevronRight size={14} className="text-slate-400" />
+                      }
+                    </div>
+                  </button>
+
+                  {/* Expanded: RentLedger */}
+                  {isOpen && r.stay_id && (
+                    <div className="border-t border-slate-700/50 px-4 py-4 bg-slate-800/40">
+                      <RentLedger
+                        stayId={r.stay_id}
+                        residentId={r.resident_id}
+                        houseId={houseId}
+                        residentName={`${r.first_name} ${r.last_name}`}
+                      />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

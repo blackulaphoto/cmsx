@@ -1,5 +1,5 @@
 """
-Sober Living SQLite store — Phase 1 MVP.
+Sober Living SQLite store — Phase 1 + Phase 2 (Rent & Payments).
 
 Database file: databases/sober_living_ops.db
 Pattern mirrors backend/modules/fmla/store.py exactly.
@@ -129,6 +129,47 @@ class SoberLivingStore:
                 CREATE INDEX IF NOT EXISTS idx_stays_resident ON sober_living_stays(resident_id);
                 CREATE INDEX IF NOT EXISTS idx_stays_house    ON sober_living_stays(house_id);
                 CREATE INDEX IF NOT EXISTS idx_stays_bed      ON sober_living_stays(bed_id);
+            """)
+            # Phase 2: rent tables added via ALTER-safe separate script
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS sober_living_rent_agreements (
+                    agreement_id    TEXT PRIMARY KEY,
+                    stay_id         TEXT NOT NULL REFERENCES sober_living_stays(stay_id),
+                    resident_id     TEXT NOT NULL REFERENCES sober_living_residents(resident_id),
+                    house_id        TEXT NOT NULL REFERENCES sober_living_houses(house_id),
+                    rent_amount     REAL NOT NULL,
+                    frequency       TEXT NOT NULL DEFAULT 'monthly',
+                    due_day         INTEGER,
+                    payment_method  TEXT,
+                    notes           TEXT,
+                    status          TEXT NOT NULL DEFAULT 'active',
+                    created_at      TEXT NOT NULL,
+                    updated_at      TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS sober_living_rent_payments (
+                    payment_id      TEXT PRIMARY KEY,
+                    agreement_id    TEXT NOT NULL REFERENCES sober_living_rent_agreements(agreement_id),
+                    stay_id         TEXT NOT NULL REFERENCES sober_living_stays(stay_id),
+                    resident_id     TEXT NOT NULL REFERENCES sober_living_residents(resident_id),
+                    house_id        TEXT NOT NULL REFERENCES sober_living_houses(house_id),
+                    amount          REAL NOT NULL,
+                    payment_date    TEXT NOT NULL,
+                    period_start    TEXT,
+                    period_end      TEXT,
+                    payment_method  TEXT,
+                    reference_number TEXT,
+                    notes           TEXT,
+                    status          TEXT NOT NULL DEFAULT 'posted',
+                    recorded_by     TEXT,
+                    created_at      TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_rent_agreements_stay     ON sober_living_rent_agreements(stay_id);
+                CREATE INDEX IF NOT EXISTS idx_rent_agreements_house    ON sober_living_rent_agreements(house_id);
+                CREATE INDEX IF NOT EXISTS idx_rent_payments_agreement  ON sober_living_rent_payments(agreement_id);
+                CREATE INDEX IF NOT EXISTS idx_rent_payments_stay       ON sober_living_rent_payments(stay_id);
+                CREATE INDEX IF NOT EXISTS idx_rent_payments_house      ON sober_living_rent_payments(house_id);
             """)
 
     # ------------------------------------------------------------------
@@ -485,6 +526,176 @@ class SoberLivingStore:
                 "SELECT * FROM sober_living_stays WHERE stay_id = ?", (stay_id,)
             ).fetchone()
         return dict(row) if row else None
+
+    # ------------------------------------------------------------------
+    # Rent Agreements (Phase 2)
+    # ------------------------------------------------------------------
+
+    def get_rent_agreement(self, agreement_id: str) -> Optional[Dict]:
+        with self._db() as conn:
+            row = conn.execute(
+                "SELECT * FROM sober_living_rent_agreements WHERE agreement_id = ?",
+                (agreement_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_rent_agreement_for_stay(self, stay_id: str) -> Optional[Dict]:
+        with self._db() as conn:
+            row = conn.execute(
+                "SELECT * FROM sober_living_rent_agreements WHERE stay_id = ? AND status = 'active' LIMIT 1",
+                (stay_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def create_rent_agreement(self, data: Dict) -> Dict:
+        agreement_id = str(uuid.uuid4())
+        now = _now()
+        with self._db() as conn:
+            conn.execute(
+                """INSERT INTO sober_living_rent_agreements
+                   (agreement_id, stay_id, resident_id, house_id,
+                    rent_amount, frequency, due_day, payment_method, notes, status,
+                    created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    agreement_id,
+                    data["stay_id"], data["resident_id"], data["house_id"],
+                    data["rent_amount"],
+                    data.get("frequency", "monthly"),
+                    data.get("due_day"),
+                    data.get("payment_method"),
+                    data.get("notes"),
+                    "active", now, now,
+                ),
+            )
+        return self.get_rent_agreement(agreement_id)
+
+    def update_rent_agreement(self, agreement_id: str, data: Dict) -> Optional[Dict]:
+        now = _now()
+        fields = ["rent_amount", "frequency", "due_day", "payment_method", "notes", "status"]
+        sets = ", ".join(f"{f} = ?" for f in fields if f in data)
+        vals = [data[f] for f in fields if f in data]
+        if not sets:
+            return self.get_rent_agreement(agreement_id)
+        with self._db() as conn:
+            conn.execute(
+                f"UPDATE sober_living_rent_agreements SET {sets}, updated_at = ? WHERE agreement_id = ?",
+                vals + [now, agreement_id],
+            )
+        return self.get_rent_agreement(agreement_id)
+
+    # ------------------------------------------------------------------
+    # Rent Payments (Phase 2)
+    # ------------------------------------------------------------------
+
+    def list_payments_for_stay(self, stay_id: str) -> List[Dict]:
+        with self._db() as conn:
+            rows = conn.execute(
+                """SELECT * FROM sober_living_rent_payments
+                   WHERE stay_id = ?
+                   ORDER BY payment_date DESC""",
+                (stay_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_payments_for_house(self, house_id: str) -> List[Dict]:
+        with self._db() as conn:
+            rows = conn.execute(
+                """SELECT p.*, res.first_name, res.last_name
+                   FROM sober_living_rent_payments p
+                   JOIN sober_living_residents res ON res.resident_id = p.resident_id
+                   WHERE p.house_id = ?
+                   ORDER BY p.payment_date DESC""",
+                (house_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def create_payment(self, data: Dict) -> Dict:
+        payment_id = str(uuid.uuid4())
+        now = _now()
+        with self._db() as conn:
+            conn.execute(
+                """INSERT INTO sober_living_rent_payments
+                   (payment_id, agreement_id, stay_id, resident_id, house_id,
+                    amount, payment_date, period_start, period_end,
+                    payment_method, reference_number, notes, status, recorded_by, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    payment_id,
+                    data["agreement_id"], data["stay_id"],
+                    data["resident_id"], data["house_id"],
+                    data["amount"],
+                    data.get("payment_date", _now()[:10]),
+                    data.get("period_start"),
+                    data.get("period_end"),
+                    data.get("payment_method"),
+                    data.get("reference_number"),
+                    data.get("notes"),
+                    data.get("status", "posted"),
+                    data.get("recorded_by"),
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM sober_living_rent_payments WHERE payment_id = ?", (payment_id,)
+            ).fetchone()
+        return dict(row)
+
+    def void_payment(self, payment_id: str) -> Optional[Dict]:
+        with self._db() as conn:
+            row = conn.execute(
+                "SELECT * FROM sober_living_rent_payments WHERE payment_id = ?", (payment_id,)
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute(
+                "UPDATE sober_living_rent_payments SET status = 'voided' WHERE payment_id = ?",
+                (payment_id,),
+            )
+            row = conn.execute(
+                "SELECT * FROM sober_living_rent_payments WHERE payment_id = ?", (payment_id,)
+            ).fetchone()
+        return dict(row)
+
+    def get_ledger_for_stay(self, stay_id: str) -> Dict:
+        """Full ledger: agreement + payment history + balance calculation."""
+        agreement = self.get_rent_agreement_for_stay(stay_id)
+        payments = self.list_payments_for_stay(stay_id)
+        posted = [p for p in payments if p["status"] == "posted"]
+        total_paid = sum(p["amount"] for p in posted)
+        return {
+            "stay_id": stay_id,
+            "agreement": agreement,
+            "payments": payments,
+            "total_paid": round(total_paid, 2),
+        }
+
+    def get_rent_summary_for_house(self, house_id: str) -> Dict:
+        """Overdue and collection stats for a house's current residents."""
+        with self._db() as conn:
+            agreements = conn.execute(
+                """SELECT a.*, res.first_name, res.last_name, s.move_in_date
+                   FROM sober_living_rent_agreements a
+                   JOIN sober_living_residents res ON res.resident_id = a.resident_id
+                   JOIN sober_living_stays s ON s.stay_id = a.stay_id
+                   WHERE a.house_id = ? AND a.status = 'active' AND s.status = 'active'
+                   ORDER BY res.last_name""",
+                (house_id,),
+            ).fetchall()
+            result_rows = []
+            for ag in agreements:
+                ag_dict = dict(ag)
+                paid_row = conn.execute(
+                    "SELECT COALESCE(SUM(amount),0) as total FROM sober_living_rent_payments WHERE agreement_id = ? AND status = 'posted'",
+                    (ag_dict["agreement_id"],),
+                ).fetchone()
+                ag_dict["total_paid"] = round(paid_row["total"], 2)
+                result_rows.append(ag_dict)
+        return {
+            "house_id": house_id,
+            "residents": result_rows,
+            "total_agreements": len(result_rows),
+        }
 
 
 # Module-level singleton — matches fmla store_factory pattern

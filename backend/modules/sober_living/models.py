@@ -115,3 +115,46 @@ class StayDischarge(BaseModel):
 
 class BedTransfer(BaseModel):
     new_bed_id: str
+
+
+# ---------------------------------------------------------------------------
+# Rent Agreement (Phase 2)
+# ---------------------------------------------------------------------------
+
+class RentAgreementCreate(BaseModel):
+    stay_id: str
+    resident_id: str
+    house_id: str
+    rent_amount: float
+    frequency: Optional[str] = "monthly"
+    due_day: Optional[int] = None
+    payment_method: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class RentAgreementUpdate(BaseModel):
+    rent_amount: Optional[float] = None
+    frequency: Optional[str] = None
+    due_day: Optional[int] = None
+    payment_method: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Rent Payment (Phase 2)
+# ---------------------------------------------------------------------------
+
+class RentPaymentCreate(BaseModel):
+    agreement_id: str
+    stay_id: str
+    resident_id: str
+    house_id: str
+    amount: float
+    payment_date: Optional[str] = None
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    payment_method: Optional[str] = None
+    reference_number: Optional[str] = None
+    notes: Optional[str] = None
+    recorded_by: Optional[str] = None

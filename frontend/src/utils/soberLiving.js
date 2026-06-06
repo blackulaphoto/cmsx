@@ -42,12 +42,57 @@ export const DISCHARGE_REASON_OPTIONS = [
 ]
 
 // ---------------------------------------------------------------------------
+// Rent & Payment constants (Phase 2)
+// ---------------------------------------------------------------------------
+
+export const PAYMENT_FREQUENCIES = [
+  { value: 'weekly',    label: 'Weekly' },
+  { value: 'biweekly',  label: 'Bi-Weekly' },
+  { value: 'monthly',   label: 'Monthly' },
+]
+
+export const PAYMENT_METHODS = [
+  'Cash',
+  'Check',
+  'Money Order',
+  'EBT',
+  'Venmo',
+  'Zelle',
+  'CashApp',
+  'Credit Card',
+  'Debit Card',
+  'Insurance',
+  'Voucher',
+  'Other',
+]
+
+export const PAYMENT_STATUS_COLORS = {
+  posted: { bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-emerald-500/30' },
+  voided: { bg: 'bg-rose-500/10',    text: 'text-rose-400',    border: 'border-rose-500/20'    },
+}
+
+export const formatCurrency = (amount) => {
+  if (amount == null) return '—'
+  return `$${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+export const formatDate = (dateStr) => {
+  if (!dateStr) return '—'
+  try {
+    return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch {
+    return dateStr
+  }
+}
+
+// ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
 
 const BASE = '/api/sober-living'
 
 export const slApi = {
+  // Phase 1
   getSummary:          ()              => apiFetch(`${BASE}/summary`),
   listHouses:          ()              => apiFetch(`${BASE}/houses`),
   createHouse:         (data)          => apiFetch(`${BASE}/houses`, { method: 'POST', body: JSON.stringify(data) }),
@@ -64,6 +109,14 @@ export const slApi = {
   updateStay:          (stayId, data)  => apiFetch(`${BASE}/stays/${stayId}`, { method: 'PUT', body: JSON.stringify(data) }),
   dischargeStay:       (stayId, data)  => apiFetch(`${BASE}/stays/${stayId}/discharge`, { method: 'POST', body: JSON.stringify(data) }),
   transferBed:         (stayId, newBedId) => apiFetch(`${BASE}/stays/${stayId}/transfer-bed`, { method: 'POST', body: JSON.stringify({ new_bed_id: newBedId }) }),
+  // Phase 2 — Rent
+  getRentAgreement:    (stayId)             => apiFetch(`${BASE}/stays/${stayId}/rent-agreement`),
+  createRentAgreement: (data)               => apiFetch(`${BASE}/rent-agreements`, { method: 'POST', body: JSON.stringify(data) }),
+  updateRentAgreement: (agreementId, data)  => apiFetch(`${BASE}/rent-agreements/${agreementId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getLedger:           (stayId)             => apiFetch(`${BASE}/stays/${stayId}/ledger`),
+  getRentSummary:      (houseId)            => apiFetch(`${BASE}/houses/${houseId}/rent-summary`),
+  createPayment:       (data)               => apiFetch(`${BASE}/rent-payments`, { method: 'POST', body: JSON.stringify(data) }),
+  voidPayment:         (paymentId)          => apiFetch(`${BASE}/rent-payments/${paymentId}/void`, { method: 'POST' }),
 }
 
 // ---------------------------------------------------------------------------

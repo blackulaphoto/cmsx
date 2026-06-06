@@ -1,4 +1,4 @@
-"""Sober living API routes — Phase 1 MVP."""
+"""Sober living API routes — Phase 1 + Phase 2 (Rent & Payments)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,8 @@ from .models import (
     HouseCreate, HouseUpdate,
     ResidentCreate,
     RoomCreate,
+    RentAgreementCreate, RentAgreementUpdate,
+    RentPaymentCreate,
     StayCreate, StayDischarge, StayUpdate,
 )
 
@@ -147,4 +149,57 @@ def transfer_bed(stay_id: str, body: BedTransfer):
         raise HTTPException(status_code=400, detail=str(exc))
     if not result:
         raise HTTPException(status_code=404, detail="Stay not found or not active")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Rent Agreements (Phase 2)
+# ---------------------------------------------------------------------------
+
+@router.get("/stays/{stay_id}/rent-agreement")
+def get_rent_agreement(stay_id: str):
+    agreement = get_store().get_rent_agreement_for_stay(stay_id)
+    if not agreement:
+        raise HTTPException(status_code=404, detail="No active rent agreement for this stay")
+    return agreement
+
+
+@router.post("/rent-agreements", status_code=201)
+def create_rent_agreement(body: RentAgreementCreate):
+    return get_store().create_rent_agreement(body.dict())
+
+
+@router.put("/rent-agreements/{agreement_id}")
+def update_rent_agreement(agreement_id: str, body: RentAgreementUpdate):
+    updates = {k: v for k, v in body.dict().items() if v is not None}
+    result = get_store().update_rent_agreement(agreement_id, updates)
+    if not result:
+        raise HTTPException(status_code=404, detail="Rent agreement not found")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Rent Payments (Phase 2)
+# ---------------------------------------------------------------------------
+
+@router.get("/stays/{stay_id}/ledger")
+def get_ledger(stay_id: str):
+    return get_store().get_ledger_for_stay(stay_id)
+
+
+@router.get("/houses/{house_id}/rent-summary")
+def get_rent_summary(house_id: str):
+    return get_store().get_rent_summary_for_house(house_id)
+
+
+@router.post("/rent-payments", status_code=201)
+def create_payment(body: RentPaymentCreate):
+    return get_store().create_payment(body.dict())
+
+
+@router.post("/rent-payments/{payment_id}/void")
+def void_payment(payment_id: str):
+    result = get_store().void_payment(payment_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Payment not found")
     return result
