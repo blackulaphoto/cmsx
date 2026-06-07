@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Archive, CheckCircle2, ClipboardList, Save } from 'lucide-react'
 import toast from 'react-hot-toast'
 import TrustScoreBadge from '../components/TrustScoreBadge'
@@ -11,6 +11,10 @@ import {
 } from '../utils/soberLivingDirectory'
 
 const statusOptions = ['pending_review', 'approved', 'needs_reverification', 'use_caution', 'do_not_refer', 'archived']
+const reservedDirectoryRoutes = {
+  discovery: '/sober-living-directory/discovery',
+  review: '/sober-living-directory/review',
+}
 
 function SoberLivingDirectoryListing() {
   const { listingId } = useParams()
@@ -27,6 +31,10 @@ function SoberLivingDirectoryListing() {
     result_notes: '',
   })
   const [updatingTaskId, setUpdatingTaskId] = useState('')
+
+  if (listingId && reservedDirectoryRoutes[listingId]) {
+    return <Navigate to={reservedDirectoryRoutes[listingId]} replace />
+  }
 
   const loadListing = async () => {
     setLoading(true)

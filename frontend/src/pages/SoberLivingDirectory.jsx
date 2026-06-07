@@ -138,6 +138,12 @@ function SoberLivingDirectory() {
             </div>
             <div className="flex flex-wrap gap-3">
               <Link
+                to="/sober-living-directory/discovery"
+                className="rounded-2xl border border-fuchsia-400/30 bg-fuchsia-500/15 px-4 py-3 text-sm font-medium text-fuchsia-100 transition hover:bg-fuchsia-500/25"
+              >
+                Discovery
+              </Link>
+              <Link
                 to="/sober-living-directory/review"
                 className="rounded-2xl border border-amber-400/30 bg-amber-500/15 px-4 py-3 text-sm font-medium text-amber-100 transition hover:bg-amber-500/25"
               >
@@ -152,6 +158,54 @@ function SoberLivingDirectory() {
                 Add Listing
               </button>
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-fuchsia-200">Controlled Discovery</p>
+              <h2 className="mt-2 text-2xl font-semibold text-white">CCAPP and Oxford connectors live in Discovery Controls</h2>
+              <p className="mt-2 max-w-3xl text-sm text-slate-300">
+                Manual upload is only one intake path. Public directory connectors for CCAPP Recovery Residences and Oxford House are configured and run from
+                the discovery workspace, where every result stays raw and review-gated before it can become a trusted directory listing.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to="/sober-living-directory/discovery"
+                className="rounded-2xl border border-cyan-400/30 bg-cyan-500/15 px-4 py-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/25"
+              >
+                Open Discovery Controls
+              </Link>
+              <Link
+                to="/sober-living-directory/review"
+                className="rounded-2xl border border-white/15 px-4 py-3 text-sm font-medium text-slate-100 transition hover:bg-white/10"
+              >
+                Review Raw Records
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <ConnectorCard
+              eyebrow="Certification Directory"
+              name="CCAPP Recovery Residences"
+              description="Bounded public certification-directory discovery. Best for higher-trust recovery residence leads that still require human review."
+              bullets={[
+                'Run from the Discovery page with a manual job by city and state.',
+                'Results land in raw records and duplicate review, never directly in approved listings.',
+              ]}
+            />
+            <ConnectorCard
+              eyebrow="Public Recovery Housing Directory"
+              name="Oxford House"
+              description="Bounded Oxford vacancy discovery for public recovery housing results. Useful for sober living referrals that may not appear in certification lists."
+              bullets={[
+                'Run from the Discovery page with a manual Oxford job.',
+                'Visible public rows are reviewed before approval, and inferred state stays flagged in review.',
+              ]}
+            />
           </div>
         </section>
 
@@ -382,6 +436,23 @@ function SummaryCard({ label, value, danger = false }) {
       <p className="text-xs uppercase tracking-[0.2em] text-slate-400">{label}</p>
       <p className={`mt-2 text-2xl font-semibold ${danger ? 'text-red-100' : 'text-white'}`}>{value}</p>
     </div>
+  )
+}
+
+function ConnectorCard({ eyebrow, name, description, bullets }) {
+  return (
+    <article className="rounded-[1.75rem] border border-white/10 bg-slate-950/35 p-5">
+      <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">{eyebrow}</p>
+      <h3 className="mt-2 text-lg font-semibold text-white">{name}</h3>
+      <p className="mt-2 text-sm text-slate-300">{description}</p>
+      <ul className="mt-4 space-y-2 text-sm text-slate-200">
+        {bullets.map((bullet) => (
+          <li key={bullet} className="rounded-2xl border border-white/8 bg-white/[0.03] px-3 py-2">
+            {bullet}
+          </li>
+        ))}
+      </ul>
+    </article>
   )
 }
 

@@ -118,6 +118,9 @@ describe('Sober living directory pages', () => {
     expect(screen.getByText(/Loading sober living directory/i)).toBeTruthy()
     expect(await screen.findByText('Oak Recovery House')).toBeTruthy()
     expect(screen.getByRole('link', { name: /Open Review Queue/i }).getAttribute('href')).toBe('/sober-living-directory/review')
+    expect(screen.getByText('CCAPP Recovery Residences')).toBeTruthy()
+    expect(screen.getByText('Oxford House')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Open Discovery Controls/i }).getAttribute('href')).toBe('/sober-living-directory/discovery')
 
     fireEvent.change(screen.getByLabelText('City'), { target: { value: 'Los Angeles' } })
     fireEvent.click(screen.getByRole('button', { name: /Apply Filters/i }))
