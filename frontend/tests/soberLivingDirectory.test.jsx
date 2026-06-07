@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SoberLivingDirectory from '../src/pages/SoberLivingDirectory'
-import SoberLivingDirectoryDiscovery from '../src/pages/SoberLivingDirectoryDiscovery'
+import SoberLivingDirectoryDiscovery, { DiscoveryPageErrorBoundary } from '../src/pages/SoberLivingDirectoryDiscovery'
 import SoberLivingDirectoryListing from '../src/pages/SoberLivingDirectoryListing'
 import SoberLivingDirectoryReview from '../src/pages/SoberLivingDirectoryReview'
 
@@ -661,7 +661,7 @@ describe('Sober living directory pages', () => {
     )
 
     expect(await screen.findByText('Discovery Sources')).toBeTruthy()
-    expect(screen.getByText(/Scheduling remains disabled by default/i)).toBeTruthy()
+    expect(screen.getByText(/Scheduling is configured here but no autonomous runner is active yet/i)).toBeTruthy()
     expect(screen.getByText('Scheduling Eligibility Preview')).toBeTruthy()
     expect(screen.getByText('Runtime Controls')).toBeTruthy()
     expect(screen.getAllByText('CCAPP Recovery Residences').length).toBeGreaterThan(0)
@@ -791,6 +791,108 @@ describe('Sober living directory pages', () => {
     await waitFor(() => {
       expect(api.updateDiscoveryJobSchedule).not.toHaveBeenCalled()
     })
+  })
+
+  it('renders empty states on the discovery page when all collections are empty', async () => {
+    api.listSources.mockResolvedValue({ sources: [] })
+    api.listDiscoveryJobs.mockResolvedValue({ jobs: [] })
+    api.listDiscoveryRuns.mockResolvedValue({ runs: [] })
+    api.listSchedulerPreview.mockResolvedValue({ jobs: [] })
+    api.getSchedulerStatus.mockResolvedValue({
+      scheduler: {
+        running: false,
+        autostart_enabled: false,
+        poll_interval_seconds: 300,
+        max_jobs_per_cycle: 3,
+        last_cycle_summary: { checked_jobs: 0, due_jobs: 0, executed_jobs: 0, failed_jobs: 0, skipped_jobs: 0, trigger: null },
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <SoberLivingDirectoryDiscovery />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Sober Living Discovery')).toBeTruthy()
+    expect(await screen.findByText('No discovery sources configured yet.')).toBeTruthy()
+    expect(screen.getByText('No discovery jobs configured yet.')).toBeTruthy()
+    expect(screen.getByText('No discovery runs have been recorded yet.')).toBeTruthy()
+    expect(screen.getByText('No discovery jobs are available for scheduler preview yet.')).toBeTruthy()
+  })
+
+  it('renders section-level errors without blanking the discovery page when one endpoint fails', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    api.listSources.mockResolvedValue({ sources: [] })
+    api.listDiscoveryJobs.mockResolvedValue({ jobs: [] })
+    api.listDiscoveryRuns.mockRejectedValue(new Error('HTTP 500'))
+    api.listSchedulerPreview.mockResolvedValue({ jobs: [] })
+    api.getSchedulerStatus.mockResolvedValue({
+      scheduler: {
+        running: false,
+        autostart_enabled: false,
+        poll_interval_seconds: 300,
+        max_jobs_per_cycle: 3,
+        last_cycle_summary: { checked_jobs: 0, due_jobs: 0, executed_jobs: 0, failed_jobs: 0, skipped_jobs: 0, trigger: null },
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <SoberLivingDirectoryDiscovery />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Sober Living Discovery')).toBeTruthy()
+    expect(await screen.findByText('Some discovery sections could not load')).toBeTruthy()
+    expect(screen.getByText('Run history unavailable')).toBeTruthy()
+    expect(screen.getByText('HTTP 500')).toBeTruthy()
+    expect(screen.getByText('No discovery sources configured yet.')).toBeTruthy()
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('renders visible auth or API errors when all discovery endpoints fail', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    api.listSources.mockRejectedValue(new Error('HTTP 401'))
+    api.listDiscoveryJobs.mockRejectedValue(new Error('HTTP 401'))
+    api.listDiscoveryRuns.mockRejectedValue(new Error('HTTP 401'))
+    api.listSchedulerPreview.mockRejectedValue(new Error('HTTP 401'))
+    api.getSchedulerStatus.mockRejectedValue(new Error('HTTP 401'))
+
+    render(
+      <MemoryRouter>
+        <SoberLivingDirectoryDiscovery />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Sober Living Discovery')).toBeTruthy()
+    expect(await screen.findByText(/authentication or API access failure/i)).toBeTruthy()
+    expect(screen.getByText('Source registry unavailable')).toBeTruthy()
+    expect(screen.getByText('Discovery jobs unavailable')).toBeTruthy()
+    expect(screen.getByText('Run history unavailable')).toBeTruthy()
+    expect(screen.getByText('Scheduler preview unavailable')).toBeTruthy()
+    expect(screen.getByText('Scheduler controls unavailable')).toBeTruthy()
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('shows the route-level discovery error boundary when a child render throws', async () => {
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const ThrowingChild = () => {
+      throw new Error('render explosion')
+    }
+
+    render(
+      <MemoryRouter>
+        <DiscoveryPageErrorBoundary>
+          <ThrowingChild />
+        </DiscoveryPageErrorBoundary>
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Discovery page failed to render')).toBeTruthy()
+    expect(screen.getByText('render explosion')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Reload/i })).toBeTruthy()
+    consoleErrorSpy.mockRestore()
   })
 
   it('shows discovery run failures on the discovery page', async () => {

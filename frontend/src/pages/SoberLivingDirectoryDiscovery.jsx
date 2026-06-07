@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import React, { Component, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { PauseCircle, Play, Plus, RefreshCw, TimerReset, Workflow } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -61,6 +61,46 @@ const blockedReasonLabels = {
   not_due: 'Job is not due yet',
 }
 
+const initialSectionLoading = {
+  sources: true,
+  jobs: true,
+  runs: true,
+  schedulerPreview: true,
+  schedulerStatus: true,
+}
+
+const initialSectionErrors = {
+  sources: '',
+  jobs: '',
+  runs: '',
+  schedulerPreview: '',
+  schedulerStatus: '',
+}
+
+const defaultSchedulerStatus = {
+  running: false,
+  autostart_enabled: false,
+  poll_interval_seconds: 300,
+  max_jobs_per_cycle: 3,
+  started_at: null,
+  stopped_at: null,
+  last_poll_at: null,
+  last_cycle_started_at: null,
+  last_cycle_finished_at: null,
+  current_job_id: null,
+  current_job_name: null,
+  warning:
+    'Scheduling is configured here but no autonomous runner is active yet. Jobs will not run automatically until the scheduler worker is implemented.',
+  last_cycle_summary: {
+    checked_jobs: 0,
+    due_jobs: 0,
+    executed_jobs: 0,
+    failed_jobs: 0,
+    skipped_jobs: 0,
+    trigger: null,
+  },
+}
+
 const buildScheduleForm = (job = {}) => ({
   schedule_enabled: Boolean(job.schedule_enabled),
   schedule_frequency: job.schedule_frequency || 'manual_only',
@@ -70,16 +110,18 @@ const buildScheduleForm = (job = {}) => ({
   auto_disable_after_failures: job.auto_disable_after_failures ?? 3,
 })
 
+const isObject = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+
 const uniqById = (items = [], idKey) => {
   if (!Array.isArray(items)) {
     return []
   }
   const seen = new Set()
   return items.filter((item) => {
-    if (!item || typeof item !== 'object') {
+    if (!isObject(item)) {
       return false
     }
-    const id = item?.[idKey]
+    const id = item[idKey]
     if (!id || seen.has(id)) {
       return false
     }
@@ -95,14 +137,106 @@ const humanizeToken = (value, fallback = 'Unknown') => {
   return value.replaceAll('_', ' ')
 }
 
-function SoberLivingDirectoryDiscovery() {
+const safeErrorMessage = (error, fallback = 'Unknown error') => {
+  if (typeof error === 'string' && error.trim()) {
+    return error.trim()
+  }
+  if (typeof error?.message === 'string' && error.message.trim()) {
+    return error.message.trim()
+  }
+  return fallback
+}
+
+const isAuthLikeError = (message) => {
+  if (typeof message !== 'string') {
+    return false
+  }
+  return /401|unauthorized|forbidden|auth/i.test(message)
+}
+
+const logSectionError = (sectionName, error) => {
+  console.error(`[SoberLivingDirectoryDiscovery] ${sectionName} failed`, {
+    message: safeErrorMessage(error),
+  })
+}
+
+const normalizeSchedulerStatus = (response) => {
+  const scheduler = isObject(response?.scheduler) ? response.scheduler : {}
+  const summary = isObject(scheduler.last_cycle_summary) ? scheduler.last_cycle_summary : {}
+  return {
+    ...defaultSchedulerStatus,
+    ...scheduler,
+    last_cycle_summary: {
+      ...defaultSchedulerStatus.last_cycle_summary,
+      ...summary,
+    },
+  }
+}
+
+const normalizeSources = (response) => uniqById(response?.sources, 'source_id')
+const normalizeJobs = (response) => uniqById(response?.jobs, 'job_id')
+const normalizeRuns = (response) => uniqById(response?.runs, 'run_id')
+const normalizeSchedulerPreview = (response) => uniqById(response?.jobs, 'job_id')
+
+export class DiscoveryPageErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, message: '' }
+  }
+
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      message: safeErrorMessage(error, 'The discovery page encountered an unexpected render error.'),
+    }
+  }
+
+  componentDidCatch(error) {
+    console.error('[SoberLivingDirectoryDiscovery] render boundary triggered', {
+      message: safeErrorMessage(error),
+    })
+  }
+
+  handleReload = () => {
+    window.location.reload()
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950 px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto max-w-4xl">
+            <section className="rounded-[2rem] border border-red-400/30 bg-red-500/10 p-8 text-red-50 shadow-2xl shadow-red-950/20">
+              <p className="text-sm uppercase tracking-[0.3em] text-red-200">Discovery Error</p>
+              <h1 className="mt-2 text-3xl font-bold text-white">Discovery page failed to render</h1>
+              <p className="mt-3 text-sm text-red-100">
+                {this.state.message || 'The discovery page encountered an unexpected render error.'}
+              </p>
+              <button
+                type="button"
+                onClick={this.handleReload}
+                className="mt-6 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50"
+              >
+                Reload
+              </button>
+            </section>
+          </div>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+
+function SoberLivingDirectoryDiscoveryContent() {
   const [sources, setSources] = useState([])
   const [jobs, setJobs] = useState([])
   const [runs, setRuns] = useState([])
   const [schedulerPreview, setSchedulerPreview] = useState([])
-  const [schedulerStatus, setSchedulerStatus] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
+  const [schedulerStatus, setSchedulerStatus] = useState(defaultSchedulerStatus)
+  const [sectionLoading, setSectionLoading] = useState(initialSectionLoading)
+  const [sectionErrors, setSectionErrors] = useState(initialSectionErrors)
   const [creatingSource, setCreatingSource] = useState(false)
   const [creatingJob, setCreatingJob] = useState(false)
   const [savingScheduleJobId, setSavingScheduleJobId] = useState('')
@@ -117,6 +251,7 @@ function SoberLivingDirectoryDiscovery() {
   const safeJobs = Array.isArray(jobs) ? jobs.filter(Boolean) : []
   const safeRuns = Array.isArray(runs) ? runs.filter(Boolean) : []
   const safeSchedulerPreview = Array.isArray(schedulerPreview) ? schedulerPreview.filter(Boolean) : []
+  const safeSchedulerStatus = normalizeSchedulerStatus({ scheduler: schedulerStatus })
 
   const sourceNames = useMemo(
     () => Object.fromEntries(safeSources.map((source) => [source.source_id, source.source_name])),
@@ -128,40 +263,93 @@ function SoberLivingDirectoryDiscovery() {
     [safeSchedulerPreview]
   )
 
+  const sectionErrorMessages = Object.values(sectionErrors).filter(Boolean)
+  const allRequestsCompleted = Object.values(sectionLoading).every((value) => value === false)
+  const allRequestsFailed = allRequestsCompleted && Object.values(sectionErrors).every((message) => Boolean(message))
+  const allAuthFailures = allRequestsFailed && sectionErrorMessages.length > 0 && sectionErrorMessages.every(isAuthLikeError)
+  const anySectionFailed = sectionErrorMessages.length > 0
+
   const loadDiscoveryData = async () => {
-    setLoading(true)
-    setError('')
-    try {
-      const [sourcesResponse, jobsResponse, runsResponse, previewResponse, statusResponse] = await Promise.all([
-        soberLivingDirectoryApi.listSources(),
-        soberLivingDirectoryApi.listDiscoveryJobs(),
-        soberLivingDirectoryApi.listDiscoveryRuns(),
-        soberLivingDirectoryApi.listSchedulerPreview(),
-        soberLivingDirectoryApi.getSchedulerStatus(),
-      ])
-      const loadedSources = uniqById(sourcesResponse.sources || [], 'source_id')
-      const loadedJobs = uniqById(jobsResponse.jobs || [], 'job_id')
-      setSources(loadedSources)
-      setJobs(loadedJobs)
-      setRuns(uniqById(runsResponse.runs || [], 'run_id'))
-      setSchedulerPreview(uniqById(previewResponse.jobs || [], 'job_id'))
-      setSchedulerStatus(statusResponse.scheduler || null)
-      setScheduleForms((current) => {
-        const next = { ...current }
-        loadedJobs.forEach((job) => {
-          next[job.job_id] = current[job.job_id] || buildScheduleForm(job)
-        })
-        return next
-      })
-      setJobForm((current) => ({
-        ...current,
-        source_id: current.source_id || loadedSources[0]?.source_id || '',
-      }))
-    } catch (err) {
-      setError(err.message || 'Failed to load discovery controls')
-    } finally {
-      setLoading(false)
+    setSectionLoading(initialSectionLoading)
+    setSectionErrors(initialSectionErrors)
+
+    const results = await Promise.allSettled([
+      soberLivingDirectoryApi.listSources(),
+      soberLivingDirectoryApi.listDiscoveryJobs(),
+      soberLivingDirectoryApi.listDiscoveryRuns(),
+      soberLivingDirectoryApi.listSchedulerPreview(),
+      soberLivingDirectoryApi.getSchedulerStatus(),
+    ])
+
+    const [sourcesResult, jobsResult, runsResult, previewResult, statusResult] = results
+    const nextErrors = { ...initialSectionErrors }
+    const nextLoading = {
+      sources: false,
+      jobs: false,
+      runs: false,
+      schedulerPreview: false,
+      schedulerStatus: false,
     }
+
+    let nextSources = []
+    let nextJobs = []
+    let nextRuns = []
+    let nextPreview = []
+    let nextStatus = defaultSchedulerStatus
+
+    if (sourcesResult.status === 'fulfilled') {
+      nextSources = normalizeSources(sourcesResult.value)
+    } else {
+      nextErrors.sources = safeErrorMessage(sourcesResult.reason, 'Failed to load discovery sources')
+      logSectionError('sources', sourcesResult.reason)
+    }
+
+    if (jobsResult.status === 'fulfilled') {
+      nextJobs = normalizeJobs(jobsResult.value)
+    } else {
+      nextErrors.jobs = safeErrorMessage(jobsResult.reason, 'Failed to load discovery jobs')
+      logSectionError('jobs', jobsResult.reason)
+    }
+
+    if (runsResult.status === 'fulfilled') {
+      nextRuns = normalizeRuns(runsResult.value)
+    } else {
+      nextErrors.runs = safeErrorMessage(runsResult.reason, 'Failed to load discovery runs')
+      logSectionError('runs', runsResult.reason)
+    }
+
+    if (previewResult.status === 'fulfilled') {
+      nextPreview = normalizeSchedulerPreview(previewResult.value)
+    } else {
+      nextErrors.schedulerPreview = safeErrorMessage(previewResult.reason, 'Failed to load scheduler preview')
+      logSectionError('schedulerPreview', previewResult.reason)
+    }
+
+    if (statusResult.status === 'fulfilled') {
+      nextStatus = normalizeSchedulerStatus(statusResult.value)
+    } else {
+      nextErrors.schedulerStatus = safeErrorMessage(statusResult.reason, 'Failed to load scheduler status')
+      logSectionError('schedulerStatus', statusResult.reason)
+    }
+
+    setSources(nextSources)
+    setJobs(nextJobs)
+    setRuns(nextRuns)
+    setSchedulerPreview(nextPreview)
+    setSchedulerStatus(nextStatus)
+    setSectionErrors(nextErrors)
+    setSectionLoading(nextLoading)
+    setScheduleForms((current) => {
+      const next = { ...current }
+      nextJobs.forEach((job) => {
+        next[job.job_id] = current[job.job_id] || buildScheduleForm(job)
+      })
+      return next
+    })
+    setJobForm((current) => ({
+      ...current,
+      source_id: current.source_id || nextSources[0]?.source_id || '',
+    }))
   }
 
   useEffect(() => {
@@ -184,12 +372,15 @@ function SoberLivingDirectoryDiscovery() {
       const createdSource = response.source
       toast.success('Discovery source created')
       setSourceForm(defaultSourceForm)
-      setSources((current) => [createdSource, ...current])
+      setSources((current) => uniqById([createdSource, ...current], 'source_id'))
       setJobForm((current) => ({
         ...current,
-        source_id: current.source_id || createdSource.source_id,
+        source_id: current.source_id || createdSource?.source_id || '',
       }))
     } catch (err) {
+      console.error('[SoberLivingDirectoryDiscovery] create source failed', {
+        message: safeErrorMessage(err),
+      })
       toast.error(err.message || 'Failed to create source')
     } finally {
       setCreatingSource(false)
@@ -216,7 +407,7 @@ function SoberLivingDirectoryDiscovery() {
         query: jobForm.query.trim() || null,
       })
       toast.success('Discovery job created')
-      setJobs((current) => [response.job, ...current])
+      setJobs((current) => uniqById([response.job, ...current], 'job_id'))
       setScheduleForms((current) => ({
         ...current,
         [response.job.job_id]: buildScheduleForm(response.job),
@@ -227,6 +418,9 @@ function SoberLivingDirectoryDiscovery() {
       }))
       await loadDiscoveryData()
     } catch (err) {
+      console.error('[SoberLivingDirectoryDiscovery] create job failed', {
+        message: safeErrorMessage(err),
+      })
       toast.error(err.message || 'Failed to create discovery job')
     } finally {
       setCreatingJob(false)
@@ -237,12 +431,16 @@ function SoberLivingDirectoryDiscovery() {
     setRunningJobId(jobId)
     try {
       const response = await soberLivingDirectoryApi.runDiscoveryJob(jobId)
-      const run = response.run
+      const run = isObject(response?.run) ? response.run : {}
       setRunSummaries((current) => ({ ...current, [jobId]: run }))
-      toast.success(`Discovery run completed with ${run.raw_records_created} raw record${run.raw_records_created === 1 ? '' : 's'}`)
+      toast.success(`Discovery run completed with ${run.raw_records_created ?? 0} raw record${run.raw_records_created === 1 ? '' : 's'}`)
       await loadDiscoveryData()
     } catch (err) {
       const message = err.message || 'Discovery run failed'
+      console.error('[SoberLivingDirectoryDiscovery] run discovery failed', {
+        jobId,
+        message,
+      })
       setRunSummaries((current) => ({
         ...current,
         [jobId]: {
@@ -277,9 +475,13 @@ function SoberLivingDirectoryDiscovery() {
           `Scheduler poll checked ${summary.checked_jobs ?? 0} jobs and executed ${summary.executed_jobs ?? 0}`
         )
       }
-      setSchedulerStatus(response.scheduler || null)
+      setSchedulerStatus(normalizeSchedulerStatus(response))
       await loadDiscoveryData()
     } catch (err) {
+      console.error('[SoberLivingDirectoryDiscovery] scheduler action failed', {
+        action,
+        message: safeErrorMessage(err),
+      })
       toast.error(err.message || 'Scheduler action failed')
     } finally {
       setSchedulerAction('')
@@ -290,14 +492,14 @@ function SoberLivingDirectoryDiscovery() {
     setScheduleForms((current) => ({
       ...current,
       [jobId]: {
-        ...(current[jobId] || buildScheduleForm(jobs.find((job) => job.job_id === jobId))),
+        ...(current[jobId] || buildScheduleForm(safeJobs.find((job) => job.job_id === jobId))),
         [field]: value,
       },
     }))
   }
 
   const handleSaveSchedule = async (jobId) => {
-    const form = scheduleForms[jobId] || buildScheduleForm(jobs.find((job) => job.job_id === jobId))
+    const form = scheduleForms[jobId] || buildScheduleForm(safeJobs.find((job) => job.job_id === jobId))
     if (form.schedule_frequency === 'custom_hours' && !Number(form.schedule_interval_hours)) {
       toast.error('Custom hours schedules require an interval greater than 0')
       return
@@ -315,6 +517,10 @@ function SoberLivingDirectoryDiscovery() {
       toast.success('Schedule settings saved')
       await loadDiscoveryData()
     } catch (err) {
+      console.error('[SoberLivingDirectoryDiscovery] save schedule failed', {
+        jobId,
+        message: safeErrorMessage(err),
+      })
       toast.error(err.message || 'Failed to save schedule settings')
     } finally {
       setSavingScheduleJobId('')
@@ -354,7 +560,7 @@ function SoberLivingDirectoryDiscovery() {
           <p className="text-sm uppercase tracking-[0.3em] text-amber-200">Scheduling Foundation</p>
           <h2 className="mt-2 text-2xl font-bold text-white">Controlled Worker</h2>
           <p className="mt-2 text-sm">
-            Scheduling remains disabled by default. Starting the worker here enables bounded polling for due jobs, but all discovery results still stay in raw review and nothing is auto-published or auto-merged.
+            Scheduling is configured here but no autonomous runner is active yet. Jobs will not run automatically until the scheduler worker is implemented.
           </p>
         </section>
 
@@ -381,400 +587,477 @@ function SoberLivingDirectoryDiscovery() {
           </div>
         </section>
 
-        {loading ? (
-          <section className="rounded-[2rem] border border-white/10 bg-white/5 p-10 text-center text-slate-300">Loading discovery controls...</section>
-        ) : error ? (
-          <section className="rounded-[2rem] border border-red-400/30 bg-red-500/10 p-10 text-center text-red-100">
-            Failed to load discovery controls: {error}
-          </section>
-        ) : (
-          <>
-            <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.3em] text-fuchsia-300">Scheduler Worker</p>
-                  <h2 className="mt-2 text-2xl font-bold text-white">Runtime Controls</h2>
-                  <p className="mt-2 text-sm text-slate-300">
-                    The worker is off by default. Use these controls to start or stop bounded polling, or run one scheduler cycle without leaving the page.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="button"
-                    onClick={() => handleSchedulerAction('start')}
-                    disabled={schedulerAction !== '' || schedulerStatus?.running}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <Play className="h-4 w-4" />
-                    {schedulerAction === 'start' ? 'Starting...' : 'Start Worker'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSchedulerAction('stop')}
-                    disabled={schedulerAction !== '' || !schedulerStatus?.running}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-red-400/30 bg-red-500/15 px-4 py-3 text-sm font-semibold text-red-100 transition hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <PauseCircle className="h-4 w-4" />
-                    {schedulerAction === 'stop' ? 'Stopping...' : 'Stop Worker'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleSchedulerAction('tick')}
-                    disabled={schedulerAction !== ''}
-                    className="inline-flex items-center gap-2 rounded-2xl border border-cyan-400/30 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <TimerReset className="h-4 w-4" />
-                    {schedulerAction === 'tick' ? 'Polling...' : 'Poll Once'}
-                  </button>
-                </div>
-              </div>
+        {allAuthFailures ? (
+          <AlertPanel
+            title="Discovery data could not load due to authentication or API access failure"
+            message="The page rendered, but every discovery endpoint returned an auth or access error. Re-authenticate or verify backend auth access."
+            tone="error"
+          />
+        ) : allRequestsFailed ? (
+          <AlertPanel
+            title="Discovery services are unavailable"
+            message="The page rendered, but every discovery endpoint failed. Discovery remains review-gated and nothing was auto-published."
+            tone="error"
+          />
+        ) : anySectionFailed ? (
+          <AlertPanel
+            title="Some discovery sections could not load"
+            message="The page is still usable. Review the section-level error cards below to see which discovery APIs failed."
+            tone="warning"
+          />
+        ) : null}
 
-              <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-                <article className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-lg font-semibold text-white">Worker Status</h3>
-                    <Pill color={schedulerStatus?.running ? 'emerald' : 'slate'}>
-                      {schedulerStatus?.running ? 'running' : 'stopped'}
-                    </Pill>
-                    <Pill color={schedulerStatus?.autostart_enabled ? 'amber' : 'slate'}>
-                      {schedulerStatus?.autostart_enabled ? 'autostart enabled' : 'autostart disabled'}
-                    </Pill>
-                  </div>
-                  <div className="mt-4 grid gap-3 md:grid-cols-2 text-sm text-slate-300">
-                    <p>Poll interval: {schedulerStatus?.poll_interval_seconds ?? 'Unknown'} seconds</p>
-                    <p>Max jobs per cycle: {schedulerStatus?.max_jobs_per_cycle ?? 'Unknown'}</p>
-                    <p>Started: {schedulerStatus?.started_at || 'Never'}</p>
-                    <p>Stopped: {schedulerStatus?.stopped_at || 'Not stopped yet'}</p>
-                    <p>Last poll: {schedulerStatus?.last_poll_at || 'Never'}</p>
-                    <p>Active job: {schedulerStatus?.current_job_name || 'None'}</p>
-                  </div>
-                  <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-                    {schedulerStatus?.warning || 'Scheduler worker is controlled manually from this page.'}
-                  </div>
-                </article>
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-fuchsia-300">Scheduler Worker</p>
+              <h2 className="mt-2 text-2xl font-bold text-white">Runtime Controls</h2>
+              <p className="mt-2 text-sm text-slate-300">
+                The worker is off by default. Use these controls to start or stop bounded polling, or run one scheduler cycle without leaving the page.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => handleSchedulerAction('start')}
+                disabled={schedulerAction !== '' || safeSchedulerStatus.running}
+                className="inline-flex items-center gap-2 rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Play className="h-4 w-4" />
+                {schedulerAction === 'start' ? 'Starting...' : 'Start Worker'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSchedulerAction('stop')}
+                disabled={schedulerAction !== '' || !safeSchedulerStatus.running}
+                className="inline-flex items-center gap-2 rounded-2xl border border-red-400/30 bg-red-500/15 px-4 py-3 text-sm font-semibold text-red-100 transition hover:bg-red-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <PauseCircle className="h-4 w-4" />
+                {schedulerAction === 'stop' ? 'Stopping...' : 'Stop Worker'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSchedulerAction('tick')}
+                disabled={schedulerAction !== ''}
+                className="inline-flex items-center gap-2 rounded-2xl border border-cyan-400/30 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <TimerReset className="h-4 w-4" />
+                {schedulerAction === 'tick' ? 'Polling...' : 'Poll Once'}
+              </button>
+            </div>
+          </div>
 
-                <article className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
-                  <h3 className="text-lg font-semibold text-white">Last Cycle Summary</h3>
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <StatCard label="Checked" value={schedulerStatus?.last_cycle_summary?.checked_jobs ?? 0} />
-                    <StatCard label="Due" value={schedulerStatus?.last_cycle_summary?.due_jobs ?? 0} />
-                    <StatCard label="Executed" value={schedulerStatus?.last_cycle_summary?.executed_jobs ?? 0} />
-                    <StatCard label="Failed" value={schedulerStatus?.last_cycle_summary?.failed_jobs ?? 0} danger={Boolean(schedulerStatus?.last_cycle_summary?.failed_jobs)} />
-                  </div>
-                  <div className="mt-4 space-y-1 text-sm text-slate-300">
-                    <p>Trigger: {schedulerStatus?.last_cycle_summary?.trigger || 'None yet'}</p>
-                    <p>Cycle started: {schedulerStatus?.last_cycle_started_at || 'Never'}</p>
-                    <p>Cycle finished: {schedulerStatus?.last_cycle_finished_at || 'Never'}</p>
-                  </div>
-                </article>
-              </div>
-            </section>
+          {sectionLoading.schedulerStatus ? (
+            <SectionLoadingState message="Loading scheduler runtime status..." />
+          ) : sectionErrors.schedulerStatus ? (
+            <SectionErrorCard title="Scheduler controls unavailable" message={sectionErrors.schedulerStatus} />
+          ) : (
+            <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_1fr]">
+              <article className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="text-lg font-semibold text-white">Worker Status</h3>
+                  <Pill color={safeSchedulerStatus.running ? 'emerald' : 'slate'}>
+                    {safeSchedulerStatus.running ? 'running' : 'stopped'}
+                  </Pill>
+                  <Pill color={safeSchedulerStatus.autostart_enabled ? 'amber' : 'slate'}>
+                    {safeSchedulerStatus.autostart_enabled ? 'autostart enabled' : 'autostart disabled'}
+                  </Pill>
+                </div>
+                <div className="mt-4 grid gap-3 text-sm text-slate-300 md:grid-cols-2">
+                  <p>Poll interval: {safeSchedulerStatus.poll_interval_seconds ?? 'Unknown'} seconds</p>
+                  <p>Max jobs per cycle: {safeSchedulerStatus.max_jobs_per_cycle ?? 'Unknown'}</p>
+                  <p>Started: {safeSchedulerStatus.started_at || 'Never'}</p>
+                  <p>Stopped: {safeSchedulerStatus.stopped_at || 'Not stopped yet'}</p>
+                  <p>Last poll: {safeSchedulerStatus.last_poll_at || 'Never'}</p>
+                  <p>Active job: {safeSchedulerStatus.current_job_name || 'None'}</p>
+                </div>
+                <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                  {safeSchedulerStatus.warning}
+                </div>
+              </article>
 
-            <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">Source Registry</p>
-                  <h2 className="mt-2 text-2xl font-bold text-white">Discovery Sources</h2>
+              <article className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
+                <h3 className="text-lg font-semibold text-white">Last Cycle Summary</h3>
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <StatCard label="Checked" value={safeSchedulerStatus.last_cycle_summary?.checked_jobs ?? 0} />
+                  <StatCard label="Due" value={safeSchedulerStatus.last_cycle_summary?.due_jobs ?? 0} />
+                  <StatCard label="Executed" value={safeSchedulerStatus.last_cycle_summary?.executed_jobs ?? 0} />
+                  <StatCard
+                    label="Failed"
+                    value={safeSchedulerStatus.last_cycle_summary?.failed_jobs ?? 0}
+                    danger={Boolean(safeSchedulerStatus.last_cycle_summary?.failed_jobs)}
+                  />
                 </div>
-                <div className="rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white">
-                  {safeSources.length} source{safeSources.length === 1 ? '' : 's'}
+                <div className="mt-4 space-y-1 text-sm text-slate-300">
+                  <p>Trigger: {safeSchedulerStatus.last_cycle_summary?.trigger || 'None yet'}</p>
+                  <p>Cycle started: {safeSchedulerStatus.last_cycle_started_at || 'Never'}</p>
+                  <p>Cycle finished: {safeSchedulerStatus.last_cycle_finished_at || 'Never'}</p>
                 </div>
-              </div>
+              </article>
+            </div>
+          )}
+        </section>
 
-              <form className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleCreateSource}>
-                <Input label="Source Name" value={sourceForm.source_name} onChange={(value) => setSourceForm((current) => ({ ...current, source_name: value }))} />
-                <Select label="Source Type" value={sourceForm.source_type} onChange={(value) => setSourceForm((current) => ({ ...current, source_type: value }))} options={allowedSourceTypes} />
-                <Input label="Base URL" value={sourceForm.base_url} onChange={(value) => setSourceForm((current) => ({ ...current, base_url: value }))} />
-                <Select label="Trust Level" value={sourceForm.trust_level} onChange={(value) => setSourceForm((current) => ({ ...current, trust_level: value }))} options={['high', 'medium', 'low']} />
-                <Toggle label="Supports API" checked={sourceForm.supports_api} onChange={(value) => setSourceForm((current) => ({ ...current, supports_api: value }))} />
-                <Toggle label="Supports Scraping" checked={sourceForm.supports_scraping} onChange={(value) => setSourceForm((current) => ({ ...current, supports_scraping: value }))} />
-                <Toggle label="Requires Manual Review" checked={sourceForm.requires_manual_review} onChange={(value) => setSourceForm((current) => ({ ...current, requires_manual_review: value }))} />
-                <Toggle label="Active" checked={sourceForm.is_active} onChange={(value) => setSourceForm((current) => ({ ...current, is_active: value }))} />
-                <div className="md:col-span-2 xl:col-span-4 flex justify-end">
-                  <button type="submit" disabled={creatingSource} className="inline-flex items-center gap-2 rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60">
-                    <Plus className="h-4 w-4" />
-                    {creatingSource ? 'Creating Source...' : 'Create Source'}
-                  </button>
-                </div>
-              </form>
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">Source Registry</p>
+              <h2 className="mt-2 text-2xl font-bold text-white">Discovery Sources</h2>
+            </div>
+            <div className="rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white">
+              {safeSources.length} source{safeSources.length === 1 ? '' : 's'}
+            </div>
+          </div>
 
-              {safeSources.length === 0 ? (
-                <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
-                  No discovery sources configured yet.
-                </div>
-              ) : (
-                <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                  {safeSources.map((source) => (
-                    <article key={source.source_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-lg font-semibold text-white">{source.source_name}</h3>
-                            <Pill color={source.is_active ? 'emerald' : 'slate'}>{source.is_active ? 'active' : 'inactive'}</Pill>
-                            <Pill color={source.trust_level === 'high' ? 'cyan' : source.trust_level === 'medium' ? 'amber' : 'slate'}>
-                              {source.trust_level} trust
-                            </Pill>
-                          </div>
-                          <p className="mt-2 text-sm text-slate-300">{humanizeToken(source.source_type)}</p>
-                          <p className="mt-1 break-all text-xs text-slate-400">{source.base_url || 'No base URL configured'}</p>
-                          <p className="mt-2 text-xs text-slate-500">Last checked: {source.last_checked_at || 'Never'}</p>
-                        </div>
-                        <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
-                          <p>API: {source.supports_api ? 'Yes' : 'No'}</p>
-                          <p>Scraping: {source.supports_scraping ? 'Yes' : 'No'}</p>
-                          <p>Manual review: {source.requires_manual_review ? 'Yes' : 'No'}</p>
-                        </div>
-                      </div>
-                      {(source.source_type === 'certification_directory' || source.source_name?.toLowerCase().includes('oxford')) ? (
-                        <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-                          <p>Manual run only. Results are stored as raw review records and are not published automatically.</p>
-                          <p className="mt-2">Connector parses visible public search-page cards only; results may be incomplete.</p>
-                        </div>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
+          <form className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleCreateSource}>
+            <Input label="Source Name" value={sourceForm.source_name} onChange={(value) => setSourceForm((current) => ({ ...current, source_name: value }))} />
+            <Select label="Source Type" value={sourceForm.source_type} onChange={(value) => setSourceForm((current) => ({ ...current, source_type: value }))} options={allowedSourceTypes} />
+            <Input label="Base URL" value={sourceForm.base_url} onChange={(value) => setSourceForm((current) => ({ ...current, base_url: value }))} />
+            <Select label="Trust Level" value={sourceForm.trust_level} onChange={(value) => setSourceForm((current) => ({ ...current, trust_level: value }))} options={['high', 'medium', 'low']} />
+            <Toggle label="Supports API" checked={sourceForm.supports_api} onChange={(value) => setSourceForm((current) => ({ ...current, supports_api: value }))} />
+            <Toggle label="Supports Scraping" checked={sourceForm.supports_scraping} onChange={(value) => setSourceForm((current) => ({ ...current, supports_scraping: value }))} />
+            <Toggle label="Requires Manual Review" checked={sourceForm.requires_manual_review} onChange={(value) => setSourceForm((current) => ({ ...current, requires_manual_review: value }))} />
+            <Toggle label="Active" checked={sourceForm.is_active} onChange={(value) => setSourceForm((current) => ({ ...current, is_active: value }))} />
+            <div className="flex justify-end md:col-span-2 xl:col-span-4">
+              <button type="submit" disabled={creatingSource} className="inline-flex items-center gap-2 rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60">
+                <Plus className="h-4 w-4" />
+                {creatingSource ? 'Creating Source...' : 'Create Source'}
+              </button>
+            </div>
+          </form>
 
-            <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.3em] text-violet-300">Scheduler Preview</p>
-                  <h2 className="mt-2 text-2xl font-bold text-white">Scheduling Eligibility Preview</h2>
-                  <p className="mt-2 text-sm text-slate-300">
-                    This preview evaluates which jobs would be due or blocked if a scheduler worker existed. It does not execute anything.
-                  </p>
-                </div>
-                <div className="rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white">
-                  {safeSchedulerPreview.length} preview item{safeSchedulerPreview.length === 1 ? '' : 's'}
-                </div>
-              </div>
-
-              {safeSchedulerPreview.length === 0 ? (
-                <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
-                  No discovery jobs are available for scheduler preview yet.
-                </div>
-              ) : (
-                <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                  {safeSchedulerPreview.map((preview) => (
-                    <article key={preview.job_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
+          {sectionLoading.sources ? (
+            <SectionLoadingState message="Loading discovery sources..." />
+          ) : sectionErrors.sources ? (
+            <SectionErrorCard title="Source registry unavailable" message={sectionErrors.sources} />
+          ) : safeSources.length === 0 ? (
+            <SectionEmptyState>No discovery sources configured yet.</SectionEmptyState>
+          ) : (
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              {safeSources.map((source) => (
+                <article key={source.source_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-lg font-semibold text-white">{preview.job_name}</h3>
-                        <Pill color={preview.schedule_enabled ? 'emerald' : 'slate'}>
-                          {preview.schedule_enabled ? 'schedule enabled' : 'schedule disabled'}
-                        </Pill>
-                        <Pill color={preview.due ? 'amber' : 'slate'}>
-                          {preview.due ? 'due' : 'not due'}
-                        </Pill>
-                        <Pill color={preview.can_run ? 'emerald' : 'red'}>
-                          {preview.can_run ? 'can run' : 'blocked'}
+                        <h3 className="text-lg font-semibold text-white">{source.source_name}</h3>
+                        <Pill color={source.is_active ? 'emerald' : 'slate'}>{source.is_active ? 'active' : 'inactive'}</Pill>
+                        <Pill color={source.trust_level === 'high' ? 'cyan' : source.trust_level === 'medium' ? 'amber' : 'slate'}>
+                          {source.trust_level} trust
                         </Pill>
                       </div>
-                      <div className="mt-3 space-y-1 text-sm text-slate-300">
-                        <p>Source: {preview.source_name || sourceNames[preview.source_id] || 'Unknown source'}</p>
-                        <p>Frequency: {humanizeToken(preview.schedule_frequency || 'manual_only')}</p>
-                        <p>Next scheduled run: {preview.next_scheduled_run_at || 'Not scheduled'}</p>
-                        <p>Last scheduled run: {preview.last_scheduled_run_at || 'Never'}</p>
-                        <p>Last run status: {preview.last_run_status || 'None'}</p>
-                        <p>Consecutive failures: {preview.consecutive_failures ?? 0}</p>
+                      <p className="mt-2 text-sm text-slate-300">{humanizeToken(source.source_type)}</p>
+                      <p className="mt-1 break-all text-xs text-slate-400">{source.base_url || 'No base URL configured'}</p>
+                      <p className="mt-2 text-xs text-slate-500">Last checked: {source.last_checked_at || 'Never'}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-xs text-slate-300">
+                      <p>API: {source.supports_api ? 'Yes' : 'No'}</p>
+                      <p>Scraping: {source.supports_scraping ? 'Yes' : 'No'}</p>
+                      <p>Manual review: {source.requires_manual_review ? 'Yes' : 'No'}</p>
+                    </div>
+                  </div>
+                  {(source.source_type === 'certification_directory' || source.source_name?.toLowerCase().includes('oxford')) ? (
+                    <div className="mt-4 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                      <p>Manual run only. Results are stored as raw review records and are not published automatically.</p>
+                      <p className="mt-2">Connector parses visible public search-page cards only; results may be incomplete.</p>
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-violet-300">Scheduler Preview</p>
+              <h2 className="mt-2 text-2xl font-bold text-white">Scheduling Eligibility Preview</h2>
+              <p className="mt-2 text-sm text-slate-300">
+                This preview evaluates which jobs would be due or blocked if a scheduler worker existed. It does not execute anything.
+              </p>
+            </div>
+            <div className="rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white">
+              {safeSchedulerPreview.length} preview item{safeSchedulerPreview.length === 1 ? '' : 's'}
+            </div>
+          </div>
+
+          {sectionLoading.schedulerPreview ? (
+            <SectionLoadingState message="Loading scheduler preview..." />
+          ) : sectionErrors.schedulerPreview ? (
+            <SectionErrorCard title="Scheduler preview unavailable" message={sectionErrors.schedulerPreview} />
+          ) : safeSchedulerPreview.length === 0 ? (
+            <SectionEmptyState>No discovery jobs are available for scheduler preview yet.</SectionEmptyState>
+          ) : (
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              {safeSchedulerPreview.map((preview) => (
+                <article key={preview.job_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-lg font-semibold text-white">{preview.job_name}</h3>
+                    <Pill color={preview.schedule_enabled ? 'emerald' : 'slate'}>
+                      {preview.schedule_enabled ? 'schedule enabled' : 'schedule disabled'}
+                    </Pill>
+                    <Pill color={preview.due ? 'amber' : 'slate'}>
+                      {preview.due ? 'due' : 'not due'}
+                    </Pill>
+                    <Pill color={preview.can_run ? 'emerald' : 'red'}>
+                      {preview.can_run ? 'can run' : 'blocked'}
+                    </Pill>
+                  </div>
+                  <div className="mt-3 space-y-1 text-sm text-slate-300">
+                    <p>Source: {preview.source_name || sourceNames[preview.source_id] || 'Unknown source'}</p>
+                    <p>Frequency: {humanizeToken(preview.schedule_frequency || 'manual_only')}</p>
+                    <p>Next scheduled run: {preview.next_scheduled_run_at || 'Not scheduled'}</p>
+                    <p>Last scheduled run: {preview.last_scheduled_run_at || 'Never'}</p>
+                    <p>Last run status: {preview.last_run_status || 'None'}</p>
+                    <p>Consecutive failures: {preview.consecutive_failures ?? 0}</p>
+                  </div>
+                  {!preview.can_run ? (
+                    <div className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">
+                      {blockedReasonLabels[preview.blocked_reason] || preview.blocked_reason || 'Blocked'}
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-emerald-300">Discovery Jobs</p>
+              <h2 className="mt-2 text-2xl font-bold text-white">Manual Discovery Runs</h2>
+            </div>
+            <div className="rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white">
+              {safeJobs.length} job{safeJobs.length === 1 ? '' : 's'}
+            </div>
+          </div>
+
+          <form className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleCreateJob}>
+            <Select
+              label="Source"
+              value={jobForm.source_id}
+              onChange={(value) => setJobForm((current) => ({ ...current, source_id: value }))}
+              options={safeSources.map((source) => ({ value: source.source_id, label: source.source_name }))}
+            />
+            <Input label="Job Name" value={jobForm.job_name} onChange={(value) => setJobForm((current) => ({ ...current, job_name: value }))} />
+            <Select label="Job Type" value={jobForm.job_type} onChange={(value) => setJobForm((current) => ({ ...current, job_type: value }))} options={allowedJobTypes} />
+            <Input label="Query" value={jobForm.query} onChange={(value) => setJobForm((current) => ({ ...current, query: value }))} />
+            <Input label="Target City" value={jobForm.target_city} onChange={(value) => setJobForm((current) => ({ ...current, target_city: value }))} />
+            <Input label="Target State" value={jobForm.target_state} onChange={(value) => setJobForm((current) => ({ ...current, target_state: value }))} />
+            <Toggle label="Active" checked={jobForm.is_active} onChange={(value) => setJobForm((current) => ({ ...current, is_active: value }))} />
+            <div className="flex items-end">
+              <button type="submit" disabled={creatingJob} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60">
+                <Plus className="h-4 w-4" />
+                {creatingJob ? 'Creating Job...' : 'Create Job'}
+              </button>
+            </div>
+          </form>
+
+          {sectionLoading.jobs ? (
+            <SectionLoadingState message="Loading discovery jobs..." />
+          ) : sectionErrors.jobs ? (
+            <SectionErrorCard title="Discovery jobs unavailable" message={sectionErrors.jobs} />
+          ) : safeJobs.length === 0 ? (
+            <SectionEmptyState>No discovery jobs configured yet.</SectionEmptyState>
+          ) : (
+            <div className="mt-5 space-y-4">
+              {safeJobs.map((job) => {
+                const summary = runSummaries[job.job_id]
+                const sourceName = job.source_name || sourceNames[job.source_id] || 'Unknown source'
+                const preview = previewByJobId[job.job_id]
+                const scheduleForm = scheduleForms[job.job_id] || buildScheduleForm(job)
+                return (
+                  <article key={job.job_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-lg font-semibold text-white">{job.job_name}</h3>
+                          <Pill color={job.is_active ? 'emerald' : 'slate'}>{job.is_active ? 'active' : 'inactive'}</Pill>
+                          <Pill color={scheduleForm.schedule_enabled ? 'cyan' : 'slate'}>
+                            {scheduleForm.schedule_enabled ? 'schedule enabled' : 'manual only'}
+                          </Pill>
+                        </div>
+                        <p className="text-sm text-slate-300">{sourceName} | {humanizeToken(job.job_type)}</p>
+                        <p className="text-sm text-slate-400">
+                          Target: {job.target_city || 'Any city'}, {job.target_state || 'Any state'} | Query: {job.query || 'None'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Last run: {job.last_run_at || 'Never'} | Last scheduled run: {job.last_scheduled_run_at || 'Never'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Next scheduled run: {job.next_scheduled_run_at || 'Not scheduled'} | Failures: {job.consecutive_failures ?? 0}
+                        </p>
                       </div>
-                      {!preview.can_run ? (
-                        <div className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">
-                          {blockedReasonLabels[preview.blocked_reason] || preview.blocked_reason || 'Blocked'}
+                      <div className="flex flex-wrap gap-3">
+                        <button type="button" onClick={() => handleRunDiscovery(job.job_id)} disabled={runningJobId === job.job_id} className="inline-flex items-center gap-2 rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60">
+                          <Play className="h-4 w-4" />
+                          {runningJobId === job.job_id ? 'Running...' : 'Run Discovery'}
+                        </button>
+                        <Link to="/sober-living-directory/review" className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-3 text-sm font-medium text-white hover:bg-white/10">
+                          <Workflow className="h-4 w-4" />
+                          Review Queue
+                        </Link>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]">
+                      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Schedule Controls</p>
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <Toggle label="Enable Schedule" checked={Boolean(scheduleForm.schedule_enabled)} onChange={(value) => updateScheduleForm(job.job_id, 'schedule_enabled', value)} />
+                          <Select label="Frequency" value={scheduleForm.schedule_frequency} onChange={(value) => updateScheduleForm(job.job_id, 'schedule_frequency', value)} options={allowedScheduleFrequencies} />
+                          <Input label="Interval Hours" type="number" value={scheduleForm.schedule_interval_hours} onChange={(value) => updateScheduleForm(job.job_id, 'schedule_interval_hours', value)} />
+                          <Input label="Max Runs / Day" type="number" value={scheduleForm.max_runs_per_day} onChange={(value) => updateScheduleForm(job.job_id, 'max_runs_per_day', value)} />
+                          <Input label="Timezone" value={scheduleForm.schedule_timezone} onChange={(value) => updateScheduleForm(job.job_id, 'schedule_timezone', value)} />
+                          <Input label="Auto Disable After Failures" type="number" value={scheduleForm.auto_disable_after_failures} onChange={(value) => updateScheduleForm(job.job_id, 'auto_disable_after_failures', value)} />
                         </div>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.3em] text-emerald-300">Discovery Jobs</p>
-                  <h2 className="mt-2 text-2xl font-bold text-white">Manual Discovery Runs</h2>
-                </div>
-                <div className="rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white">
-                  {safeJobs.length} job{safeJobs.length === 1 ? '' : 's'}
-                </div>
-              </div>
-
-              <form className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleCreateJob}>
-                <Select label="Source" value={jobForm.source_id} onChange={(value) => setJobForm((current) => ({ ...current, source_id: value }))} options={safeSources.map((source) => ({ value: source.source_id, label: source.source_name }))} />
-                <Input label="Job Name" value={jobForm.job_name} onChange={(value) => setJobForm((current) => ({ ...current, job_name: value }))} />
-                <Select label="Job Type" value={jobForm.job_type} onChange={(value) => setJobForm((current) => ({ ...current, job_type: value }))} options={allowedJobTypes} />
-                <Input label="Query" value={jobForm.query} onChange={(value) => setJobForm((current) => ({ ...current, query: value }))} />
-                <Input label="Target City" value={jobForm.target_city} onChange={(value) => setJobForm((current) => ({ ...current, target_city: value }))} />
-                <Input label="Target State" value={jobForm.target_state} onChange={(value) => setJobForm((current) => ({ ...current, target_state: value }))} />
-                <Toggle label="Active" checked={jobForm.is_active} onChange={(value) => setJobForm((current) => ({ ...current, is_active: value }))} />
-                <div className="flex items-end">
-                  <button type="submit" disabled={creatingJob} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60">
-                    <Plus className="h-4 w-4" />
-                    {creatingJob ? 'Creating Job...' : 'Create Job'}
-                  </button>
-                </div>
-              </form>
-
-              {safeJobs.length === 0 ? (
-                <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
-                  No discovery jobs configured yet.
-                </div>
-              ) : (
-                <div className="mt-5 space-y-4">
-                  {safeJobs.map((job) => {
-                    const summary = runSummaries[job.job_id]
-                    const sourceName = job.source_name || sourceNames[job.source_id] || 'Unknown source'
-                    const preview = previewByJobId[job.job_id]
-                    const scheduleForm = scheduleForms[job.job_id] || buildScheduleForm(job)
-                    return (
-                      <article key={job.job_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
-                        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                          <div className="space-y-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="text-lg font-semibold text-white">{job.job_name}</h3>
-                              <Pill color={job.is_active ? 'emerald' : 'slate'}>{job.is_active ? 'active' : 'inactive'}</Pill>
-                              <Pill color={scheduleForm.schedule_enabled ? 'cyan' : 'slate'}>
-                                {scheduleForm.schedule_enabled ? 'schedule enabled' : 'manual only'}
-                              </Pill>
-                            </div>
-                            <p className="text-sm text-slate-300">{sourceName} | {humanizeToken(job.job_type)}</p>
-                            <p className="text-sm text-slate-400">
-                              Target: {job.target_city || 'Any city'}, {job.target_state || 'Any state'} | Query: {job.query || 'None'}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              Last run: {job.last_run_at || 'Never'} | Last scheduled run: {job.last_scheduled_run_at || 'Never'}
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              Next scheduled run: {job.next_scheduled_run_at || 'Not scheduled'} | Failures: {job.consecutive_failures ?? 0}
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-3">
-                            <button type="button" onClick={() => handleRunDiscovery(job.job_id)} disabled={runningJobId === job.job_id} className="inline-flex items-center gap-2 rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60">
-                              <Play className="h-4 w-4" />
-                              {runningJobId === job.job_id ? 'Running...' : 'Run Discovery'}
-                            </button>
-                            <Link to="/sober-living-directory/review" className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-3 text-sm font-medium text-white hover:bg-white/10">
-                              <Workflow className="h-4 w-4" />
-                              Review Queue
-                            </Link>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]">
-                          <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Schedule Controls</p>
-                            <div className="mt-4 grid gap-4 md:grid-cols-2">
-                              <Toggle label="Enable Schedule" checked={Boolean(scheduleForm.schedule_enabled)} onChange={(value) => updateScheduleForm(job.job_id, 'schedule_enabled', value)} />
-                              <Select label="Frequency" value={scheduleForm.schedule_frequency} onChange={(value) => updateScheduleForm(job.job_id, 'schedule_frequency', value)} options={allowedScheduleFrequencies} />
-                              <Input label="Interval Hours" type="number" value={scheduleForm.schedule_interval_hours} onChange={(value) => updateScheduleForm(job.job_id, 'schedule_interval_hours', value)} />
-                              <Input label="Max Runs / Day" type="number" value={scheduleForm.max_runs_per_day} onChange={(value) => updateScheduleForm(job.job_id, 'max_runs_per_day', value)} />
-                              <Input label="Timezone" value={scheduleForm.schedule_timezone} onChange={(value) => updateScheduleForm(job.job_id, 'schedule_timezone', value)} />
-                              <Input label="Auto Disable After Failures" type="number" value={scheduleForm.auto_disable_after_failures} onChange={(value) => updateScheduleForm(job.job_id, 'auto_disable_after_failures', value)} />
-                            </div>
-                            <div className="mt-4 flex justify-end">
-                              <button type="button" onClick={() => handleSaveSchedule(job.job_id)} disabled={savingScheduleJobId === job.job_id} className="rounded-2xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-60">
-                                {savingScheduleJobId === job.job_id ? 'Saving Schedule...' : 'Save Schedule Settings'}
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
-                            <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Scheduler Preview</p>
-                            <div className="mt-3 space-y-2 text-sm text-slate-200">
-                              <p>Due: {preview?.due ? 'Yes' : 'No'}</p>
-                              <p>Can run: {preview?.can_run ? 'Yes' : 'No'}</p>
-                              <p>Reason: {preview?.can_run ? 'Eligible' : (blockedReasonLabels[preview?.blocked_reason] || preview?.blocked_reason || 'Blocked')}</p>
-                              <p>Max runs / day: {preview?.max_runs_per_day ?? job.max_runs_per_day ?? 1}</p>
-                              <p>Scheduled runs today: {preview?.scheduled_runs_today ?? 0}</p>
-                              <p>Last run status: {preview?.last_run_status || 'None'}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {summary ? (
-                          <div className={`mt-4 rounded-2xl border p-4 text-sm ${summary.status === 'failed' ? 'border-red-400/30 bg-red-500/10 text-red-100' : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'}`}>
-                            <div className="flex flex-wrap gap-4">
-                              <span>Records found: {summary.records_found ?? 0}</span>
-                              <span>Raw created: {summary.raw_records_created ?? 0}</span>
-                              <span>Duplicates: {summary.duplicates_detected ?? 0}</span>
-                              <span>Errors: {summary.errors_count ?? 0}</span>
-                            </div>
-                            {summary.error_message ? <p className="mt-2">{summary.error_message}</p> : null}
-                          </div>
-                        ) : null}
-                      </article>
-                    )
-                  })}
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm uppercase tracking-[0.3em] text-amber-300">Run History</p>
-                  <h2 className="mt-2 text-2xl font-bold text-white">Recent Discovery Runs</h2>
-                </div>
-                <button type="button" onClick={loadDiscoveryData} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-3 text-sm font-medium text-white hover:bg-white/10">
-                  <RefreshCw className="h-4 w-4" />
-                  Refresh
-                </button>
-              </div>
-
-              {safeRuns.length === 0 ? (
-                <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
-                  No discovery runs have been recorded yet.
-                </div>
-              ) : (
-                <div className="mt-5 space-y-4">
-                  {safeRuns.map((run) => (
-                    <article key={run.run_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
-                      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-lg font-semibold text-white">{run.job_name || 'Unknown job'}</h3>
-                            <Pill color={run.status === 'completed' ? 'emerald' : run.status === 'failed' ? 'red' : 'amber'}>
-                              {run.status}
-                            </Pill>
-                            <Pill color={run.trigger_type === 'scheduled' ? 'violet' : 'slate'}>
-                              {run.trigger_type || 'manual'}
-                            </Pill>
-                          </div>
-                          <p className="text-sm text-slate-300">Run ID: {run.run_id}</p>
-                          <p className="text-sm text-slate-400">
-                            Source: {run.source_name || sourceNames[run.source_id] || 'Unknown source'}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            Started: {run.started_at || 'Unknown'} | Finished: {run.finished_at || 'In progress'}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                          <StatCard label="Found" value={run.records_found ?? 0} />
-                          <StatCard label="Raw" value={run.raw_records_created ?? 0} />
-                          <StatCard label="Duplicates" value={run.duplicates_detected ?? 0} />
-                          <StatCard label="Errors" value={run.errors_count ?? 0} danger={Boolean(run.errors_count)} />
+                        <div className="mt-4 flex justify-end">
+                          <button type="button" onClick={() => handleSaveSchedule(job.job_id)} disabled={savingScheduleJobId === job.job_id} className="rounded-2xl bg-violet-500 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-400 disabled:cursor-not-allowed disabled:opacity-60">
+                            {savingScheduleJobId === job.job_id ? 'Saving Schedule...' : 'Save Schedule Settings'}
+                          </button>
                         </div>
                       </div>
-                      {run.error_message ? (
-                        <div className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">
-                          Error: {run.error_message}
+
+                      <div className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+                        <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Scheduler Preview</p>
+                        {sectionErrors.schedulerPreview ? (
+                          <div className="mt-3 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-100">
+                            {sectionErrors.schedulerPreview}
+                          </div>
+                        ) : (
+                          <div className="mt-3 space-y-2 text-sm text-slate-200">
+                            <p>Due: {preview?.due ? 'Yes' : 'No'}</p>
+                            <p>Can run: {preview?.can_run ? 'Yes' : 'No'}</p>
+                            <p>Reason: {preview?.can_run ? 'Eligible' : (blockedReasonLabels[preview?.blocked_reason] || preview?.blocked_reason || 'Blocked')}</p>
+                            <p>Max runs / day: {preview?.max_runs_per_day ?? job.max_runs_per_day ?? 1}</p>
+                            <p>Scheduled runs today: {preview?.scheduled_runs_today ?? 0}</p>
+                            <p>Last run status: {preview?.last_run_status || 'None'}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {summary ? (
+                      <div className={`mt-4 rounded-2xl border p-4 text-sm ${summary.status === 'failed' ? 'border-red-400/30 bg-red-500/10 text-red-100' : 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'}`}>
+                        <div className="flex flex-wrap gap-4">
+                          <span>Records found: {summary.records_found ?? 0}</span>
+                          <span>Raw created: {summary.raw_records_created ?? 0}</span>
+                          <span>Duplicates: {summary.duplicates_detected ?? 0}</span>
+                          <span>Errors: {summary.errors_count ?? 0}</span>
                         </div>
-                      ) : null}
-                      {run.notes ? (
-                        <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
-                          {run.notes}
-                        </div>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-          </>
-        )}
+                        {summary.error_message ? <p className="mt-2">{summary.error_message}</p> : null}
+                      </div>
+                    ) : null}
+                  </article>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-amber-300">Run History</p>
+              <h2 className="mt-2 text-2xl font-bold text-white">Recent Discovery Runs</h2>
+            </div>
+            <button type="button" onClick={loadDiscoveryData} className="inline-flex items-center gap-2 rounded-2xl border border-white/15 px-4 py-3 text-sm font-medium text-white hover:bg-white/10">
+              <RefreshCw className="h-4 w-4" />
+              Refresh
+            </button>
+          </div>
+
+          {sectionLoading.runs ? (
+            <SectionLoadingState message="Loading run history..." />
+          ) : sectionErrors.runs ? (
+            <SectionErrorCard title="Run history unavailable" message={sectionErrors.runs} />
+          ) : safeRuns.length === 0 ? (
+            <SectionEmptyState>No discovery runs have been recorded yet.</SectionEmptyState>
+          ) : (
+            <div className="mt-5 space-y-4">
+              {safeRuns.map((run) => (
+                <article key={run.run_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-lg font-semibold text-white">{run.job_name || 'Unknown job'}</h3>
+                        <Pill color={run.status === 'completed' ? 'emerald' : run.status === 'failed' ? 'red' : 'amber'}>
+                          {run.status}
+                        </Pill>
+                        <Pill color={run.trigger_type === 'scheduled' ? 'violet' : 'slate'}>
+                          {run.trigger_type || 'manual'}
+                        </Pill>
+                      </div>
+                      <p className="text-sm text-slate-300">Run ID: {run.run_id}</p>
+                      <p className="text-sm text-slate-400">
+                        Source: {run.source_name || sourceNames[run.source_id] || 'Unknown source'}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Started: {run.started_at || 'Unknown'} | Finished: {run.finished_at || 'In progress'}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                      <StatCard label="Found" value={run.records_found ?? 0} />
+                      <StatCard label="Raw" value={run.raw_records_created ?? 0} />
+                      <StatCard label="Duplicates" value={run.duplicates_detected ?? 0} />
+                      <StatCard label="Errors" value={run.errors_count ?? 0} danger={Boolean(run.errors_count)} />
+                    </div>
+                  </div>
+                  {run.error_message ? (
+                    <div className="mt-4 rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-sm text-red-100">
+                      Error: {run.error_message}
+                    </div>
+                  ) : null}
+                  {run.notes ? (
+                    <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">
+                      {run.notes}
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
+    </div>
+  )
+}
+
+function AlertPanel({ title, message, tone = 'warning' }) {
+  const styles = tone === 'error'
+    ? 'border-red-400/30 bg-red-500/10 text-red-100'
+    : 'border-amber-400/30 bg-amber-500/10 text-amber-100'
+
+  return (
+    <section className={`rounded-[2rem] border p-6 ${styles}`}>
+      <h2 className="text-lg font-semibold text-white">{title}</h2>
+      <p className="mt-2 text-sm">{message}</p>
+    </section>
+  )
+}
+
+function SectionLoadingState({ message }) {
+  return (
+    <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
+      {message}
+    </div>
+  )
+}
+
+function SectionEmptyState({ children }) {
+  return (
+    <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
+      {children}
+    </div>
+  )
+}
+
+function SectionErrorCard({ title, message }) {
+  return (
+    <div className="mt-5 rounded-2xl border border-red-400/30 bg-red-500/10 p-6">
+      <h3 className="text-lg font-semibold text-white">{title}</h3>
+      <p className="mt-2 text-sm text-red-100">{message}</p>
     </div>
   )
 }
@@ -805,7 +1088,7 @@ function Select({ label, value, onChange, options = [] }) {
         <option value="">Select...</option>
         {options.map((option) => {
           const valueToUse = typeof option === 'string' ? option : option.value
-          const labelToUse = typeof option === 'string' ? option.replaceAll('_', ' ') : option.label
+          const labelToUse = typeof option === 'string' ? humanizeToken(option, option) : option.label
           return (
             <option key={valueToUse} value={valueToUse}>
               {labelToUse}
@@ -853,6 +1136,14 @@ function Pill({ children, color = 'slate' }) {
     <span className={`rounded-full border px-3 py-1 text-xs uppercase tracking-[0.18em] ${colorMap[color] || colorMap.slate}`}>
       {children}
     </span>
+  )
+}
+
+function SoberLivingDirectoryDiscovery() {
+  return (
+    <DiscoveryPageErrorBoundary>
+      <SoberLivingDirectoryDiscoveryContent />
+    </DiscoveryPageErrorBoundary>
   )
 }
 
