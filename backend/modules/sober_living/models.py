@@ -388,6 +388,7 @@ class CurfewCheckUpsert(BaseModel):
     resident_id: str
     stay_id: str
     status: str
+    check_date: Optional[str] = None  # defaults to today UTC on server if omitted
     checked_by: Optional[str] = None
     method: Optional[str] = None
     notes: Optional[str] = None

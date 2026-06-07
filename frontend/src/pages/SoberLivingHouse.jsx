@@ -652,6 +652,7 @@ export default function SoberLivingHouse() {
         resident_id: resident.resident_id,
         stay_id:     resident.stay_id,
         status,
+        check_date:  curfewDate,
       })
       const data = await slApi.listCurfew(houseId, curfewDate)
       setCurfewChecks(Array.isArray(data) ? data : [])
@@ -2313,12 +2314,12 @@ function TabMeetings({ meetings, residents, onAdd, onStatusChange, onTakeAttenda
                         </button>
                       </>
                     )}
-                    {m.status === 'completed' && attendance.length === 0 && residents.length > 0 && (
+                    {m.status === 'completed' && residents.length > 0 && (
                       <button
                         onClick={() => onTakeAttendance(m)}
                         className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-700/50 hover:bg-slate-600 text-slate-400"
                       >
-                        Edit Attendance
+                        {attendance.length > 0 ? 'Edit Attendance' : 'Add Attendance'}
                       </button>
                     )}
                   </div>

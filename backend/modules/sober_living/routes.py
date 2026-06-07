@@ -396,9 +396,11 @@ def list_curfew(house_id: str, check_date: str):
 
 @router.put("/houses/{house_id}/curfew")
 def upsert_curfew(house_id: str, body: CurfewCheckUpsert):
+    import datetime as _dt
+    check_date = body.check_date or _dt.datetime.utcnow().strftime("%Y-%m-%d")
     return get_store().upsert_curfew_check(
         house_id=house_id,
-        check_date=__import__("datetime").datetime.utcnow().strftime("%Y-%m-%d"),
+        check_date=check_date,
         resident_id=body.resident_id,
         stay_id=body.stay_id,
         status=body.status,
