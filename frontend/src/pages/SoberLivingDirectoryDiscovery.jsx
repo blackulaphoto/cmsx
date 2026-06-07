@@ -71,8 +71,14 @@ const buildScheduleForm = (job = {}) => ({
 })
 
 const uniqById = (items = [], idKey) => {
+  if (!Array.isArray(items)) {
+    return []
+  }
   const seen = new Set()
   return items.filter((item) => {
+    if (!item || typeof item !== 'object') {
+      return false
+    }
     const id = item?.[idKey]
     if (!id || seen.has(id)) {
       return false
@@ -80,6 +86,13 @@ const uniqById = (items = [], idKey) => {
     seen.add(id)
     return true
   })
+}
+
+const humanizeToken = (value, fallback = 'Unknown') => {
+  if (typeof value !== 'string' || !value.trim()) {
+    return fallback
+  }
+  return value.replaceAll('_', ' ')
 }
 
 function SoberLivingDirectoryDiscovery() {
@@ -100,14 +113,19 @@ function SoberLivingDirectoryDiscovery() {
   const [schedulerAction, setSchedulerAction] = useState('')
   const [runSummaries, setRunSummaries] = useState({})
 
+  const safeSources = Array.isArray(sources) ? sources.filter(Boolean) : []
+  const safeJobs = Array.isArray(jobs) ? jobs.filter(Boolean) : []
+  const safeRuns = Array.isArray(runs) ? runs.filter(Boolean) : []
+  const safeSchedulerPreview = Array.isArray(schedulerPreview) ? schedulerPreview.filter(Boolean) : []
+
   const sourceNames = useMemo(
-    () => Object.fromEntries(sources.map((source) => [source.source_id, source.source_name])),
-    [sources]
+    () => Object.fromEntries(safeSources.map((source) => [source.source_id, source.source_name])),
+    [safeSources]
   )
 
   const previewByJobId = useMemo(
-    () => Object.fromEntries((schedulerPreview || []).map((item) => [item.job_id, item])),
-    [schedulerPreview]
+    () => Object.fromEntries(safeSchedulerPreview.map((item) => [item.job_id, item])),
+    [safeSchedulerPreview]
   )
 
   const loadDiscoveryData = async () => {
@@ -459,7 +477,7 @@ function SoberLivingDirectoryDiscovery() {
                   <h2 className="mt-2 text-2xl font-bold text-white">Discovery Sources</h2>
                 </div>
                 <div className="rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white">
-                  {sources.length} source{sources.length === 1 ? '' : 's'}
+                  {safeSources.length} source{safeSources.length === 1 ? '' : 's'}
                 </div>
               </div>
 
@@ -480,13 +498,13 @@ function SoberLivingDirectoryDiscovery() {
                 </div>
               </form>
 
-              {sources.length === 0 ? (
+              {safeSources.length === 0 ? (
                 <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
                   No discovery sources configured yet.
                 </div>
               ) : (
                 <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                  {sources.map((source) => (
+                  {safeSources.map((source) => (
                     <article key={source.source_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -497,7 +515,7 @@ function SoberLivingDirectoryDiscovery() {
                               {source.trust_level} trust
                             </Pill>
                           </div>
-                          <p className="mt-2 text-sm text-slate-300">{source.source_type.replaceAll('_', ' ')}</p>
+                          <p className="mt-2 text-sm text-slate-300">{humanizeToken(source.source_type)}</p>
                           <p className="mt-1 break-all text-xs text-slate-400">{source.base_url || 'No base URL configured'}</p>
                           <p className="mt-2 text-xs text-slate-500">Last checked: {source.last_checked_at || 'Never'}</p>
                         </div>
@@ -529,17 +547,17 @@ function SoberLivingDirectoryDiscovery() {
                   </p>
                 </div>
                 <div className="rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white">
-                  {schedulerPreview.length} preview item{schedulerPreview.length === 1 ? '' : 's'}
+                  {safeSchedulerPreview.length} preview item{safeSchedulerPreview.length === 1 ? '' : 's'}
                 </div>
               </div>
 
-              {schedulerPreview.length === 0 ? (
+              {safeSchedulerPreview.length === 0 ? (
                 <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
                   No discovery jobs are available for scheduler preview yet.
                 </div>
               ) : (
                 <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                  {schedulerPreview.map((preview) => (
+                  {safeSchedulerPreview.map((preview) => (
                     <article key={preview.job_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
                       <div className="flex flex-wrap items-center gap-2">
                         <h3 className="text-lg font-semibold text-white">{preview.job_name}</h3>
@@ -555,7 +573,7 @@ function SoberLivingDirectoryDiscovery() {
                       </div>
                       <div className="mt-3 space-y-1 text-sm text-slate-300">
                         <p>Source: {preview.source_name || sourceNames[preview.source_id] || 'Unknown source'}</p>
-                        <p>Frequency: {(preview.schedule_frequency || 'manual_only').replaceAll('_', ' ')}</p>
+                        <p>Frequency: {humanizeToken(preview.schedule_frequency || 'manual_only')}</p>
                         <p>Next scheduled run: {preview.next_scheduled_run_at || 'Not scheduled'}</p>
                         <p>Last scheduled run: {preview.last_scheduled_run_at || 'Never'}</p>
                         <p>Last run status: {preview.last_run_status || 'None'}</p>
@@ -579,12 +597,12 @@ function SoberLivingDirectoryDiscovery() {
                   <h2 className="mt-2 text-2xl font-bold text-white">Manual Discovery Runs</h2>
                 </div>
                 <div className="rounded-full border border-white/10 bg-slate-950/40 px-4 py-2 text-sm text-white">
-                  {jobs.length} job{jobs.length === 1 ? '' : 's'}
+                  {safeJobs.length} job{safeJobs.length === 1 ? '' : 's'}
                 </div>
               </div>
 
               <form className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4" onSubmit={handleCreateJob}>
-                <Select label="Source" value={jobForm.source_id} onChange={(value) => setJobForm((current) => ({ ...current, source_id: value }))} options={sources.map((source) => ({ value: source.source_id, label: source.source_name }))} />
+                <Select label="Source" value={jobForm.source_id} onChange={(value) => setJobForm((current) => ({ ...current, source_id: value }))} options={safeSources.map((source) => ({ value: source.source_id, label: source.source_name }))} />
                 <Input label="Job Name" value={jobForm.job_name} onChange={(value) => setJobForm((current) => ({ ...current, job_name: value }))} />
                 <Select label="Job Type" value={jobForm.job_type} onChange={(value) => setJobForm((current) => ({ ...current, job_type: value }))} options={allowedJobTypes} />
                 <Input label="Query" value={jobForm.query} onChange={(value) => setJobForm((current) => ({ ...current, query: value }))} />
@@ -599,13 +617,13 @@ function SoberLivingDirectoryDiscovery() {
                 </div>
               </form>
 
-              {jobs.length === 0 ? (
+              {safeJobs.length === 0 ? (
                 <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
                   No discovery jobs configured yet.
                 </div>
               ) : (
                 <div className="mt-5 space-y-4">
-                  {jobs.map((job) => {
+                  {safeJobs.map((job) => {
                     const summary = runSummaries[job.job_id]
                     const sourceName = job.source_name || sourceNames[job.source_id] || 'Unknown source'
                     const preview = previewByJobId[job.job_id]
@@ -621,7 +639,7 @@ function SoberLivingDirectoryDiscovery() {
                                 {scheduleForm.schedule_enabled ? 'schedule enabled' : 'manual only'}
                               </Pill>
                             </div>
-                            <p className="text-sm text-slate-300">{sourceName} | {job.job_type.replaceAll('_', ' ')}</p>
+                            <p className="text-sm text-slate-300">{sourceName} | {humanizeToken(job.job_type)}</p>
                             <p className="text-sm text-slate-400">
                               Target: {job.target_city || 'Any city'}, {job.target_state || 'Any state'} | Query: {job.query || 'None'}
                             </p>
@@ -705,13 +723,13 @@ function SoberLivingDirectoryDiscovery() {
                 </button>
               </div>
 
-              {runs.length === 0 ? (
+              {safeRuns.length === 0 ? (
                 <div className="mt-5 rounded-2xl border border-white/10 bg-slate-950/35 p-6 text-center text-slate-300">
                   No discovery runs have been recorded yet.
                 </div>
               ) : (
                 <div className="mt-5 space-y-4">
-                  {runs.map((run) => (
+                  {safeRuns.map((run) => (
                     <article key={run.run_id} className="rounded-[1.5rem] border border-white/10 bg-slate-950/35 p-5">
                       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                         <div className="space-y-2">
