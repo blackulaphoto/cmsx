@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -23,6 +24,28 @@ class SoberLivingDiscoveryService:
     MAX_CCAPP_RESULTS = 25
     MAX_OXFORD_RESULTS = 100
     REMOTE_USER_AGENT = "CaseManagerSuite/1.0 (+https://github.com/blackulaphoto/cmsx)"
+    LIVE_SOURCE_TEMPLATES = {
+        "ccapp": {
+            "source_name": "CCAPP Recovery Residences",
+            "source_type": "certification_directory",
+            "base_url": "https://ccapprecoveryresidences.org/search/",
+            "trust_level": "high",
+            "supports_api": False,
+            "supports_scraping": True,
+            "requires_manual_review": True,
+            "is_active": True,
+        },
+        "oxford": {
+            "source_name": "Oxford House",
+            "source_type": "public_directory",
+            "base_url": "https://www.oxfordvacancies.com/",
+            "trust_level": "high",
+            "supports_api": False,
+            "supports_scraping": True,
+            "requires_manual_review": True,
+            "is_active": True,
+        },
+    }
 
     def __init__(self, db: SoberLivingDirectoryDatabase):
         self.db = db
@@ -63,6 +86,54 @@ class SoberLivingDiscoveryService:
             trigger_type=trigger_type,
             notes=notes,
         )
+
+    def search_live_results(
+        self,
+        *,
+        query: str | None = None,
+        city: str | None = None,
+        state: str | None = None,
+        zip_code: str | None = None,
+        sources: List[str] | None = None,
+    ) -> List[Dict[str, Any]]:
+        selected_sources = sources or ["ccapp", "oxford"]
+        target_city = (city or "").strip() or None
+        target_state = (state or "").strip().upper() or "CA"
+        search_query = (query or zip_code or city or "").strip() or None
+
+        results: List[Dict[str, Any]] = []
+        for source_key in selected_sources:
+            template = self.LIVE_SOURCE_TEMPLATES.get(source_key)
+            if not template:
+                continue
+
+            job_scope = {
+                "target_city": target_city,
+                "target_state": target_state,
+                "query": search_query,
+            }
+
+            if source_key == "ccapp":
+                records = self._load_ccapp_directory_records(template, job_scope)
+                source_label = "CCAPP Result"
+            elif source_key == "oxford":
+                records = self._load_oxford_directory_records(template, job_scope)
+                source_label = "Oxford Result"
+            else:
+                records = []
+                source_label = "External Web Result"
+
+            results.extend(
+                self._format_live_search_record(
+                    source_key=source_key,
+                    source_template=template,
+                    source_label=source_label,
+                    record=record,
+                )
+                for record in records
+            )
+
+        return results
 
     def _build_run_notes(self, *, source: Dict[str, Any], job: Dict[str, Any], records: List[Dict[str, Any]]) -> str:
         connector_name = self._connector_name(source)
@@ -391,6 +462,76 @@ class SoberLivingDiscoveryService:
                 break
 
         return records
+
+    def _format_live_search_record(
+        self,
+        *,
+        source_key: str,
+        source_template: Dict[str, Any],
+        source_label: str,
+        record: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        url_candidates = [url for url in (record.get("source_urls_json") or []) if url]
+        if record.get("website"):
+            url_candidates.insert(0, record["website"])
+        if record.get("source_url"):
+            url_candidates.insert(0, record["source_url"])
+
+        unique_urls: List[str] = []
+        for url in url_candidates:
+            if url not in unique_urls:
+                unique_urls.append(url)
+
+        base_note = (record.get("notes") or "").strip()
+        result_id_seed = "|".join(
+            [
+                source_key,
+                record.get("name") or "",
+                record.get("city") or "",
+                record.get("state") or "",
+                record.get("phone") or "",
+                unique_urls[0] if unique_urls else "",
+            ]
+        )
+        result_id = f"live_{source_key}_{hashlib.md5(result_id_seed.encode('utf-8')).hexdigest()[:12]}"
+
+        return {
+            "result_id": result_id,
+            "result_type": source_key,
+            "source_key": source_key,
+            "source_label": source_label,
+            "source_name": source_template.get("source_name"),
+            "name": record.get("name"),
+            "operator_name": record.get("operator_name"),
+            "website": record.get("website"),
+            "phone": record.get("phone"),
+            "email": record.get("email"),
+            "address": record.get("address"),
+            "city": record.get("city"),
+            "state": record.get("state"),
+            "zip_code": record.get("zip_code"),
+            "latitude": record.get("latitude"),
+            "longitude": record.get("longitude"),
+            "neighborhood": record.get("neighborhood"),
+            "population_served": record.get("population_served"),
+            "house_type": record.get("house_type"),
+            "certification_status": record.get("certification_status"),
+            "certification_body": record.get("certification_body"),
+            "monthly_rent_min": record.get("monthly_rent_min"),
+            "monthly_rent_max": record.get("monthly_rent_max"),
+            "deposit_required": record.get("deposit_required"),
+            "accepts_insurance": record.get("accepts_insurance"),
+            "accepts_mat": record.get("accepts_mat"),
+            "accepts_probation_parole": record.get("accepts_probation_parole"),
+            "pets_allowed": record.get("pets_allowed"),
+            "bed_availability_status": record.get("bed_availability_status"),
+            "verification_method": record.get("verification_method") or "external_search",
+            "notes": base_note or None,
+            "snippet": base_note[:260] if base_note else None,
+            "source_url": record.get("source_url") or source_template.get("base_url"),
+            "source_urls_json": unique_urls,
+            "risk_flags_json": record.get("risk_flags_json") or [],
+        }
 
     def _filter_records_for_job(self, *, records: List[Dict[str, Any]], job: Dict[str, Any]) -> List[Dict[str, Any]]:
         target_city = (job.get("target_city") or "").strip().lower()

@@ -17,6 +17,7 @@ from .models import (
     DiscoveryJobUpdate,
     DuplicateResolutionRequest,
     ListingVerifyRequest,
+    LiveDirectorySearchRequest,
     RawRecordApproveRequest,
     RawRecordMarkErrorRequest,
     RawRecordRejectRequest,
@@ -103,6 +104,28 @@ async def create_listing(payload: SoberLivingDirectoryListingCreate):
         return {"success": True, "listing": listing}
     except Exception as exc:
         logger.error("Failed to create sober living directory listing: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/search/live")
+async def search_live_directory(payload: LiveDirectorySearchRequest):
+    try:
+        external_results = get_discovery_service().search_live_results(
+            query=payload.query,
+            city=payload.city,
+            state=payload.state,
+            zip_code=payload.zip_code,
+            sources=payload.sources,
+        )
+        return {
+            "success": True,
+            "external_results": external_results,
+            "total_count": len(external_results),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Failed to search live sober living sources: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
 
 

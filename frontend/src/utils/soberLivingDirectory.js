@@ -23,6 +23,12 @@ export const soberLivingDirectoryApi = {
       body: JSON.stringify(payload),
     }),
 
+  searchLive: (payload) =>
+    apiCall('/api/sober-living-directory/search/live', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
   updateListing: (listingId, payload) =>
     apiCall(`/api/sober-living-directory/listings/${encodeURIComponent(listingId)}`, {
       method: 'PUT',

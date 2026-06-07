@@ -17,6 +17,7 @@ vi.mock('react-hot-toast', () => ({
 
 const api = vi.hoisted(() => ({
   listListings: vi.fn(),
+  searchLive: vi.fn(),
   getReviewQueue: vi.fn(),
   createListing: vi.fn(),
   getListing: vi.fn(),
@@ -66,7 +67,7 @@ describe('Sober living directory pages', () => {
     cleanup()
   })
 
-  it('renders a search-first directory page, filters results, and supports manual creation', async () => {
+  it('renders a search-first directory page, shows saved results, and supports manual creation', async () => {
     api.listListings.mockResolvedValue({
       listings: [
         {
@@ -115,12 +116,11 @@ describe('Sober living directory pages', () => {
       </MemoryRouter>
     )
 
-    expect(screen.getByText(/Loading sober living directory/i)).toBeTruthy()
     expect(await screen.findByText('Oak Recovery House')).toBeTruthy()
-    expect(screen.getByText('Find sober living options near the client')).toBeTruthy()
-    expect(screen.getByRole('link', { name: /Advanced Discovery/i }).getAttribute('href')).toBe('/sober-living-directory/discovery')
-    expect(screen.getByRole('button', { name: /Search Web for More/i })).toBeTruthy()
-    expect(screen.getByLabelText('City, ZIP, or location')).toBeTruthy()
+    expect(screen.getByText('Search sober livings like a live research tool')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Admin \/ Advanced/i }).getAttribute('href')).toBe('/sober-living-directory/discovery')
+    expect(screen.getByRole('button', { name: /Search Directory \+ Web/i })).toBeTruthy()
+    expect(screen.getByLabelText('City or location')).toBeTruthy()
     expect(screen.getByLabelText('Verification status')).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('Population'), { target: { value: 'Women' } })
@@ -130,8 +130,8 @@ describe('Sober living directory pages', () => {
     fireEvent.change(screen.getByLabelText('Funding'), { target: { value: 'no_deposit' } })
     expect(screen.getByText('Beacon Women House')).toBeTruthy()
 
-    fireEvent.change(screen.getByLabelText('Minimum trust score'), { target: { value: '80' } })
-    expect(await screen.findByText(/No sober living listings match these location and verification filters/i)).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Verification status'), { target: { value: 'use_caution' } })
+    expect(await screen.findByText(/No saved directory listings match this search yet/i)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /Add Listing/i }))
     const createHeading = screen.getByText('Add a sober living listing')
@@ -146,33 +146,67 @@ describe('Sober living directory pages', () => {
     })
   })
 
-  it('runs a controlled web discovery search from the main directory page and routes users to review', async () => {
-    api.listListings.mockResolvedValue({ listings: [] })
-    api.listSources.mockResolvedValue({ sources: [] })
-    api.createSource.mockResolvedValue({
-      source: {
-        source_id: 'src_ccapp',
-        source_name: 'CCAPP Recovery Residences',
-        source_type: 'certification_directory',
-        base_url: 'https://ccapprecoveryresidences.org/search/',
-      },
+  it('shows live external results immediately and lets a case manager save one to the directory', async () => {
+    api.listListings
+      .mockResolvedValueOnce({ listings: [] })
+      .mockResolvedValueOnce({
+        listings: [
+          {
+            listing_id: 'sld_saved_ccapp',
+            name: 'CCAPP Recovery Residence Alpha',
+            city: 'Los Angeles',
+            state: 'CA',
+            phone: '555-900-1212',
+            website: 'https://ccapp.example.com/alpha',
+            status: 'pending_review',
+            trust_score: 55,
+            accepts_mat: true,
+            accepts_insurance: false,
+            deposit_required: true,
+            certification_body: 'CCAPP',
+            certification_status: 'Certified',
+            notes: 'Saved from live search',
+          },
+        ],
+      })
+    api.searchLive.mockResolvedValue({
+      external_results: [
+        {
+          result_id: 'live_ccapp_alpha',
+          source_key: 'ccapp',
+          source_label: 'CCAPP Result',
+          source_name: 'CCAPP Recovery Residences',
+          name: 'CCAPP Recovery Residence Alpha',
+          city: 'Los Angeles',
+          state: 'CA',
+          phone: '555-900-1212',
+          website: 'https://ccapp.example.com/alpha',
+          source_url: 'https://ccapp.example.com/alpha',
+          snippet: 'Certified recovery residence in Los Angeles.',
+          certification_body: 'CCAPP',
+          certification_status: 'Certified',
+          verification_method: 'certification_directory',
+          source_urls_json: ['https://ccapp.example.com/alpha'],
+        },
+        {
+          result_id: 'live_oxford_beta',
+          source_key: 'oxford',
+          source_label: 'Oxford Result',
+          source_name: 'Oxford House',
+          name: 'Oxford House - Beta',
+          city: 'Los Angeles',
+          state: 'CA',
+          phone: '555-777-3333',
+          website: null,
+          source_url: 'https://www.oxfordvacancies.com/',
+          snippet: 'Public recovery housing listing with open vacancies.',
+          verification_method: 'public_directory',
+          source_urls_json: ['https://www.oxfordvacancies.com/'],
+        },
+      ],
     })
-    api.listDiscoveryJobs.mockResolvedValue({ jobs: [] })
-    api.createDiscoveryJob.mockResolvedValue({
-      job: {
-        job_id: 'job_ccapp_la',
-        source_id: 'src_ccapp',
-        source_name: 'CCAPP Recovery Residences',
-        job_name: 'CCAPP Los Angeles CA',
-      },
-    })
-    api.runDiscoveryJob.mockResolvedValue({
-      run: {
-        records_found: 4,
-        raw_records_created: 4,
-        duplicates_detected: 1,
-        errors_count: 0,
-      },
+    api.createListing.mockResolvedValue({
+      listing: { listing_id: 'sld_saved_ccapp' },
     })
 
     render(
@@ -181,28 +215,40 @@ describe('Sober living directory pages', () => {
       </MemoryRouter>
     )
 
-    expect(await screen.findByText(/No sober living listings match these location and verification filters/i)).toBeTruthy()
+    expect(await screen.findByText('Run a search to pull live external results onto this page.')).toBeTruthy()
 
-    fireEvent.change(screen.getByLabelText('City, ZIP, or location'), { target: { value: 'Los Angeles' } })
-    fireEvent.change(screen.getByLabelText('Connector'), { target: { value: 'ccapp' } })
-    fireEvent.click(screen.getByRole('button', { name: /Search Web for More/i }))
+    fireEvent.change(screen.getByLabelText('City or location'), { target: { value: 'Los Angeles, CA' } })
+    fireEvent.click(screen.getByRole('button', { name: /Search Directory \+ Web/i }))
 
     await waitFor(() => {
-      expect(api.createSource).toHaveBeenCalled()
+      expect(api.searchLive).toHaveBeenCalledWith({
+        query: 'Los Angeles, CA',
+        city: 'Los Angeles',
+        state: 'CA',
+        zip_code: '',
+        sources: ['ccapp', 'oxford'],
+      })
     })
+    expect(await screen.findByText('CCAPP Recovery Residence Alpha')).toBeTruthy()
+    expect(screen.getByText('Oxford House - Beta')).toBeTruthy()
+    expect(screen.getAllByText(/CCAPP Result/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Oxford Result/i).length).toBeGreaterThan(0)
+
+    const externalCards = screen.getAllByText('CCAPP Recovery Residence Alpha')
+    const externalCard = externalCards[externalCards.length - 1].closest('article')
+    fireEvent.click(within(externalCard).getByRole('button', { name: /Add Note/i }))
+    fireEvent.change(within(externalCard).getByPlaceholderText(/Case manager note/i), { target: { value: 'Called and got a callback.' } })
+    fireEvent.click(within(externalCard).getByRole('button', { name: /Save to Directory/i }))
+
     await waitFor(() => {
-      expect(api.createDiscoveryJob).toHaveBeenCalledWith(expect.objectContaining({
-        source_id: 'src_ccapp',
-        target_city: 'Los Angeles',
-        target_state: 'CA',
+      expect(api.createListing).toHaveBeenCalledWith(expect.objectContaining({
+        name: 'CCAPP Recovery Residence Alpha',
+        city: 'Los Angeles',
+        state: 'CA',
+        notes: expect.stringContaining('Called and got a callback.'),
       }))
     })
-    await waitFor(() => {
-      expect(api.runDiscoveryJob).toHaveBeenCalledWith('job_ccapp_la')
-    })
-
-    expect(await screen.findByText(/CCAPP Recovery Residences completed/i)).toBeTruthy()
-    expect(screen.getByRole('link', { name: /Open Review Queue/i }).getAttribute('href')).toBe('/sober-living-directory/review')
+    expect((await screen.findAllByText('CCAPP Recovery Residence Alpha')).length).toBeGreaterThan(0)
   })
 
   it('loads listing detail, saves edits, verifies, creates tasks, and updates task status', async () => {

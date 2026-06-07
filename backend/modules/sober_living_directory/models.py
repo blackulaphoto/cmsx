@@ -52,6 +52,7 @@ ALLOWED_RAW_REVIEW_STATUSES = {
     "approved",
     "merged",
 }
+ALLOWED_LIVE_SEARCH_SOURCES = {"ccapp", "oxford"}
 
 
 class SoberLivingDirectoryListingBase(BaseModel):
@@ -505,6 +506,31 @@ class ReviewSummary(BaseModel):
     is_stale: bool
     last_verified_date: Optional[str] = None
     updated_at: str
+
+
+class LiveDirectorySearchRequest(BaseModel):
+    query: Optional[str] = None
+    city: Optional[str] = None
+    state: str = Field(default="CA", min_length=2, max_length=2)
+    zip_code: Optional[str] = None
+    sources: List[str] = Field(default_factory=lambda: ["ccapp", "oxford"])
+
+    @field_validator("state")
+    @classmethod
+    def normalize_state(cls, value: str) -> str:
+        return (value or "CA").upper()
+
+    @field_validator("sources")
+    @classmethod
+    def validate_sources(cls, value: List[str]) -> List[str]:
+        normalized = []
+        for item in value or []:
+            token = str(item).strip().lower()
+            if token not in ALLOWED_LIVE_SEARCH_SOURCES:
+                raise ValueError(f"Invalid live search source: {item}")
+            if token not in normalized:
+                normalized.append(token)
+        return normalized or ["ccapp", "oxford"]
 
 
 def utcnow_iso() -> str:
