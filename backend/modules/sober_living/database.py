@@ -144,12 +144,21 @@ _DDL = [
         zip_code                  TEXT,
         house_type                TEXT DEFAULT 'any',
         certification_level       TEXT,
+        certification_notes       TEXT,
         total_beds                INTEGER DEFAULT 0,
         monthly_rent              REAL,
         house_rules_version       TEXT,
         affiliated_clinical_program TEXT,
         notes                     TEXT,
         is_active                 INTEGER DEFAULT 1,
+        payment_type              TEXT DEFAULT 'unknown',
+        accepts_insurance         TEXT DEFAULT 'unknown',
+        insurance_plans_accepted  TEXT,
+        funding_notes             TEXT,
+        requires_clinical_program INTEGER DEFAULT 0,
+        billing_contact_name      TEXT,
+        billing_contact_phone     TEXT,
+        billing_contact_email     TEXT,
         created_at                TEXT NOT NULL,
         updated_at                TEXT NOT NULL
     )""",
@@ -549,6 +558,15 @@ def _migrate_legacy() -> None:
         ("sober_living_houses", "affiliated_clinical_program", "TEXT"),
         ("sober_living_houses", "notes",                     "TEXT"),
         ("sober_living_houses", "is_active",                 "INTEGER DEFAULT 1"),
+        ("sober_living_houses", "certification_notes",       "TEXT"),
+        ("sober_living_houses", "payment_type",              "TEXT DEFAULT 'unknown'"),
+        ("sober_living_houses", "accepts_insurance",         "TEXT DEFAULT 'unknown'"),
+        ("sober_living_houses", "insurance_plans_accepted",  "TEXT"),
+        ("sober_living_houses", "funding_notes",             "TEXT"),
+        ("sober_living_houses", "requires_clinical_program", "INTEGER DEFAULT 0"),
+        ("sober_living_houses", "billing_contact_name",      "TEXT"),
+        ("sober_living_houses", "billing_contact_phone",     "TEXT"),
+        ("sober_living_houses", "billing_contact_email",     "TEXT"),
         # sober_living_rooms
         ("sober_living_rooms",  "floor",                     "TEXT"),
         ("sober_living_rooms",  "room_type",                 "TEXT"),
@@ -702,8 +720,9 @@ class SoberLivingStore:
                     "SELECT COUNT(*) as c FROM sober_living_houses WHERE CAST(is_active AS TEXT) = '1'")
                 houses_count = int(houses_row["c"]) if houses_row and houses_row.get("c") is not None else 0
 
+                # configured_beds = actual bed records (not total_beds field)
                 beds_row = _fetchone(conn, "SELECT COUNT(*) as c FROM sober_living_beds")
-                total_beds = int(beds_row["c"]) if beds_row else 0
+                configured_beds = int(beds_row["c"]) if beds_row else 0
 
                 occ_row = _fetchone(conn,
                     "SELECT COUNT(*) as c FROM sober_living_beds WHERE bed_status = 'occupied'")
@@ -721,21 +740,29 @@ class SoberLivingStore:
                     "SELECT COUNT(*) as c FROM sober_living_stays WHERE resident_status = 'active'")
                 active_stays = int(stays_row["c"]) if stays_row else 0
 
-            rate = round((occupied / total_beds * 100), 1) if total_beds else 0.0
+                planned_row = _fetchone(conn,
+                    "SELECT COALESCE(SUM(total_beds),0) as c FROM sober_living_houses WHERE CAST(is_active AS TEXT) = '1'")
+                planned_capacity = int(planned_row["c"]) if planned_row else 0
+
+            rate = round((occupied / configured_beds * 100), 1) if configured_beds else 0.0
             return {
-                "total_houses":   houses_count,
-                "total_beds":     total_beds,
-                "occupied_beds":  occupied,
-                "available_beds": available,
-                "reserved_beds":  reserved,
-                "active_stays":   active_stays,
-                "occupancy_rate": rate,
+                "total_houses":     houses_count,
+                "total_beds":       configured_beds,
+                "configured_beds":  configured_beds,
+                "planned_capacity": planned_capacity,
+                "occupied_beds":    occupied,
+                "available_beds":   available,
+                "reserved_beds":    reserved,
+                "active_stays":     active_stays,
+                "occupancy_rate":   rate,
             }
         except Exception as e:
             log.error(f"[sober_living] get_summary error: {e}")
             return {
                 "total_houses": 0,
                 "total_beds": 0,
+                "configured_beds": 0,
+                "planned_capacity": 0,
                 "occupied_beds": 0,
                 "available_beds": 0,
                 "reserved_beds": 0,
@@ -747,17 +774,23 @@ class SoberLivingStore:
     # Houses
     # ------------------------------------------------------------------
 
-    def _bed_counts(self, conn, house_id: str) -> Dict:
+    def _bed_counts(self, conn, house_id: str, planned_capacity: int = 0) -> Dict:
         rows = _fetchall(conn,
             "SELECT bed_status, COUNT(*) as cnt FROM sober_living_beds WHERE house_id = %s GROUP BY bed_status",
             (house_id,))
         counts = {r["bed_status"]: int(r["cnt"]) for r in rows}
+        configured = sum(counts.values())
+        occupied   = counts.get("occupied", 0)
         return {
-            "total":       sum(counts.values()),
-            "available":   counts.get("available", 0),
-            "occupied":    counts.get("occupied", 0),
-            "reserved":    counts.get("reserved", 0),
-            "maintenance": counts.get("maintenance", 0),
+            "total":            configured,
+            "configured":       configured,
+            "available":        counts.get("available", 0),
+            "occupied":         occupied,
+            "reserved":         counts.get("reserved", 0),
+            "maintenance":      counts.get("maintenance", 0),
+            "planned_capacity": planned_capacity,
+            "setup_incomplete": planned_capacity > configured,
+            "beds_to_configure": max(0, planned_capacity - configured),
         }
 
     def list_houses(self) -> List[Dict]:
@@ -766,7 +799,8 @@ class SoberLivingStore:
                 rows = _fetchall(conn,
                     "SELECT * FROM sober_living_houses WHERE CAST(is_active AS TEXT) = '1' ORDER BY house_name")
                 for h in rows:
-                    h["bed_counts"] = self._bed_counts(conn, h["house_id"])
+                    planned = int(h.get("total_beds") or 0)
+                    h["bed_counts"] = self._bed_counts(conn, h["house_id"], planned)
                     h["is_active"] = bool(h.get("is_active", 1))
             return rows
         except Exception as e:
@@ -778,7 +812,8 @@ class SoberLivingStore:
             h = _fetchone(conn,
                 "SELECT * FROM sober_living_houses WHERE house_id = %s", (house_id,))
             if h:
-                h["bed_counts"] = self._bed_counts(conn, house_id)
+                planned = int(h.get("total_beds") or 0)
+                h["bed_counts"] = self._bed_counts(conn, house_id, planned)
                 h["is_active"] = bool(h.get("is_active", 1))
         return h
 
@@ -790,10 +825,12 @@ class SoberLivingStore:
                 INSERT INTO sober_living_houses
                 (house_id, house_name, house_manager_name, house_manager_phone,
                  house_manager_email, address, city, state, zip_code,
-                 house_type, certification_level, total_beds, monthly_rent,
-                 house_rules_version, affiliated_clinical_program,
-                 notes, is_active, created_at, updated_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                 house_type, certification_level, certification_notes, total_beds, monthly_rent,
+                 house_rules_version, affiliated_clinical_program, notes, is_active,
+                 payment_type, accepts_insurance, insurance_plans_accepted, funding_notes,
+                 requires_clinical_program, billing_contact_name, billing_contact_phone, billing_contact_email,
+                 created_at, updated_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (house_id,
                  data["house_name"],
                  data.get("house_manager_name"),
@@ -805,12 +842,21 @@ class SoberLivingStore:
                  data.get("zip_code"),
                  data.get("house_type", "any"),
                  data.get("certification_level"),
+                 data.get("certification_notes"),
                  data.get("total_beds", 0),
                  data.get("monthly_rent"),
                  data.get("house_rules_version"),
                  data.get("affiliated_clinical_program"),
                  data.get("notes"),
                  1,
+                 data.get("payment_type", "unknown"),
+                 data.get("accepts_insurance", "unknown"),
+                 data.get("insurance_plans_accepted"),
+                 data.get("funding_notes"),
+                 int(data.get("requires_clinical_program") or 0),
+                 data.get("billing_contact_name"),
+                 data.get("billing_contact_phone"),
+                 data.get("billing_contact_email"),
                  now, now))
         return self.get_house(house_id)
 
@@ -818,8 +864,10 @@ class SoberLivingStore:
         updatable = [
             "house_name", "house_manager_name", "house_manager_phone",
             "house_manager_email", "address", "city", "state", "zip_code",
-            "house_type", "certification_level", "total_beds", "monthly_rent",
+            "house_type", "certification_level", "certification_notes", "total_beds", "monthly_rent",
             "house_rules_version", "affiliated_clinical_program", "notes", "is_active",
+            "payment_type", "accepts_insurance", "insurance_plans_accepted", "funding_notes",
+            "requires_clinical_program", "billing_contact_name", "billing_contact_phone", "billing_contact_email",
         ]
         pairs = [f"{f} = %s" for f in updatable if f in data]
         vals  = [data[f]     for f in updatable if f in data]
@@ -925,6 +973,40 @@ class SoberLivingStore:
                 f"UPDATE sober_living_beds SET {', '.join(pairs)}, updated_at = %s WHERE bed_id = %s",
                 vals + [_now(), bed_id])
         return self.get_bed(bed_id)
+
+    def bulk_create_beds(self, house_id: str, data: Dict) -> List[Dict]:
+        room_id      = data["room_id"]
+        quantity     = int(data.get("quantity", 1))
+        label_prefix = data.get("label_prefix", "").strip()
+        start_number = int(data.get("start_number", 1))
+        bed_status   = data.get("bed_status", "available")
+
+        with _db() as conn:
+            # Fetch room name to use as fallback prefix
+            room = _fetchone(conn,
+                "SELECT room_name FROM sober_living_rooms WHERE room_id = %s", (room_id,))
+            prefix = label_prefix or (room["room_name"] if room else "Bed")
+
+            created = []
+            for i in range(quantity):
+                n        = start_number + i
+                label    = f"{prefix} {n}" if prefix else f"Bed {n}"
+                bed_id   = _uid()
+                now      = _now()
+                _exec(conn, """
+                    INSERT INTO sober_living_beds
+                        (bed_id, house_id, room_id, bed_label, bed_status, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """, (bed_id, house_id, room_id, label, bed_status, now, now))
+                created.append({
+                    "bed_id":     bed_id,
+                    "house_id":   house_id,
+                    "room_id":    room_id,
+                    "bed_label":  label,
+                    "bed_status": bed_status,
+                    "created_at": now,
+                })
+        return created
 
     def _set_bed_status(self, conn, bed_id: str, status: str, resident_id: Optional[str] = None) -> None:
         if resident_id is not None:

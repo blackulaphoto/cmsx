@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 
 from .database import get_store, _use_postgres, _pg_conn, _database_url
 from .models import (
-    BedCreate, BedTransfer, BedUpdate,
+    BedCreate, BedTransfer, BedUpdate, BulkBedCreate,
     HouseCreate, HouseUpdate,
     ResidentCreate, ResidentUpdate,
     RoomCreate, RoomUpdate,
@@ -156,6 +156,13 @@ def update_bed(bed_id: str, body: BedUpdate):
     if not bed:
         raise HTTPException(404, "Bed not found")
     return bed
+
+
+@router.post("/houses/{house_id}/beds/bulk", status_code=201)
+def bulk_create_beds(house_id: str, body: BulkBedCreate):
+    data = body.dict()
+    data["house_id"] = house_id
+    return get_store().bulk_create_beds(house_id, data)
 
 
 # ---------------------------------------------------------------------------

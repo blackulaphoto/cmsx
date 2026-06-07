@@ -21,11 +21,20 @@ class HouseCreate(BaseModel):
     zip_code: Optional[str] = None
     house_type: Optional[str] = "any"
     certification_level: Optional[str] = None
+    certification_notes: Optional[str] = None
     total_beds: Optional[int] = 0
     monthly_rent: Optional[float] = None
     house_rules_version: Optional[str] = None
     affiliated_clinical_program: Optional[str] = None
     notes: Optional[str] = None
+    payment_type: Optional[str] = "unknown"
+    accepts_insurance: Optional[str] = "unknown"
+    insurance_plans_accepted: Optional[str] = None
+    funding_notes: Optional[str] = None
+    requires_clinical_program: Optional[int] = 0
+    billing_contact_name: Optional[str] = None
+    billing_contact_phone: Optional[str] = None
+    billing_contact_email: Optional[str] = None
 
 
 class HouseUpdate(BaseModel):
@@ -39,12 +48,21 @@ class HouseUpdate(BaseModel):
     zip_code: Optional[str] = None
     house_type: Optional[str] = None
     certification_level: Optional[str] = None
+    certification_notes: Optional[str] = None
     total_beds: Optional[int] = None
     monthly_rent: Optional[float] = None
     house_rules_version: Optional[str] = None
     affiliated_clinical_program: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[int] = None
+    payment_type: Optional[str] = None
+    accepts_insurance: Optional[str] = None
+    insurance_plans_accepted: Optional[str] = None
+    funding_notes: Optional[str] = None
+    requires_clinical_program: Optional[int] = None
+    billing_contact_name: Optional[str] = None
+    billing_contact_phone: Optional[str] = None
+    billing_contact_email: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -392,3 +410,15 @@ class CurfewCheckUpsert(BaseModel):
     checked_by: Optional[str] = None
     method: Optional[str] = None
     notes: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Bulk bed creation
+# ---------------------------------------------------------------------------
+
+class BulkBedCreate(BaseModel):
+    room_id: str
+    quantity: int
+    label_prefix: Optional[str] = ""
+    start_number: Optional[int] = 1
+    bed_status: Optional[str] = "available"

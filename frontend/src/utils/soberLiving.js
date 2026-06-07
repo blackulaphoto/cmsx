@@ -4,6 +4,31 @@ import { apiFetch } from '../api/config'
 // Bed status display helpers
 // ---------------------------------------------------------------------------
 
+export const CERTIFICATION_OPTIONS = [
+  { value: 'unknown',                  label: 'Unknown / Not specified' },
+  { value: 'ccapp_certified',          label: 'CCAPP Certified' },
+  { value: 'narr_affiliate',           label: 'NARR Affiliate' },
+  { value: 'oxford_house',             label: 'Oxford House' },
+  { value: 'licensed_program_housing', label: 'Licensed Program Housing' },
+  { value: 'uncertified',              label: 'Uncertified' },
+  { value: 'other',                    label: 'Other' },
+]
+
+export const PAYMENT_TYPE_OPTIONS = [
+  { value: 'unknown',    label: 'Unknown' },
+  { value: 'self_pay',   label: 'Self Pay' },
+  { value: 'insurance',  label: 'Insurance' },
+  { value: 'voucher',    label: 'Voucher / Grant' },
+  { value: 'mixed',      label: 'Mixed' },
+]
+
+export const ACCEPTS_INSURANCE_OPTIONS = [
+  { value: 'unknown', label: 'Unknown' },
+  { value: 'yes',     label: 'Yes' },
+  { value: 'no',      label: 'No' },
+  { value: 'some',    label: 'Some Plans' },
+]
+
 export const BED_STATUS_COLORS = {
   available:   { bg: 'bg-emerald-500/20', text: 'text-emerald-300', border: 'border-emerald-500/30', dot: 'bg-emerald-400' },
   occupied:    { bg: 'bg-rose-500/20',    text: 'text-rose-300',    border: 'border-rose-500/30',    dot: 'bg-rose-400'    },
@@ -99,9 +124,10 @@ export const slApi = {
   updateRoom: (roomId, data)   => sl(`${BASE}/rooms/${roomId}`, { method: 'PUT', body: JSON.stringify(data) }),
 
   // Beds
-  listBeds:  (houseId)       => sl(`${BASE}/houses/${houseId}/beds`),
-  createBed: (houseId, data) => sl(`${BASE}/houses/${houseId}/beds`, { method: 'POST', body: JSON.stringify(data) }),
-  updateBed: (bedId, data)   => sl(`${BASE}/beds/${bedId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  listBeds:       (houseId)       => sl(`${BASE}/houses/${houseId}/beds`),
+  createBed:      (houseId, data) => sl(`${BASE}/houses/${houseId}/beds`, { method: 'POST', body: JSON.stringify(data) }),
+  updateBed:      (bedId, data)   => sl(`${BASE}/beds/${bedId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  bulkCreateBeds: (houseId, data) => sl(`${BASE}/houses/${houseId}/beds/bulk`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Residents
   listAllResidents: ()             => sl(`${BASE}/residents`),

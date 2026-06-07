@@ -15,6 +15,7 @@ import {
   slApi,
   BED_STATUS_COLORS, BED_STATUS_LABELS, BED_STATUS_OPTIONS,
   DISCHARGE_REASON_OPTIONS, INCIDENT_TYPES, PAYMENT_METHODS,
+  CERTIFICATION_OPTIONS, PAYMENT_TYPE_OPTIONS,
   formatDate, formatCurrency,
 } from '../utils/soberLiving'
 
@@ -132,6 +133,10 @@ export default function SoberLivingHouse() {
   // Pass return form (separate, opened from pass row)
   const [selectedPass, setSelectedPass] = useState(null)
   const [returnForm, setReturnForm] = useState({ actual_return_date: todayStr(), actual_return_time: '' })
+
+  // Quick Add Beds form
+  const [quickBedForm, setQuickBedForm] = useState({ room_id: '', quantity: 1, label_prefix: '', start_number: 1, bed_status: 'available' })
+  const [quickBedSaving, setQuickBedSaving] = useState(false)
 
   // Meeting attendance editing
   const [attendanceModal, setAttendanceModal] = useState(null) // meeting object
@@ -292,6 +297,27 @@ export default function SoberLivingHouse() {
       load()
     } catch (err) { toast.error(err.message || 'Failed to add bed') }
     finally { setSaving(false) }
+  }
+
+  const handleQuickAddBeds = async (e) => {
+    e.preventDefault()
+    if (!quickBedForm.room_id) return toast.error('Select a room')
+    if (!quickBedForm.quantity || quickBedForm.quantity < 1) return toast.error('Quantity must be at least 1')
+    setQuickBedSaving(true)
+    try {
+      await slApi.bulkCreateBeds(houseId, {
+        room_id:      quickBedForm.room_id,
+        quantity:     parseInt(quickBedForm.quantity) || 1,
+        label_prefix: quickBedForm.label_prefix || '',
+        start_number: parseInt(quickBedForm.start_number) || 1,
+        bed_status:   quickBedForm.bed_status,
+      })
+      toast.success(`${quickBedForm.quantity} bed${quickBedForm.quantity > 1 ? 's' : ''} created`)
+      setModal(null)
+      setQuickBedForm({ room_id: '', quantity: 1, label_prefix: '', start_number: 1, bed_status: 'available' })
+      load()
+    } catch (err) { toast.error(err.message || 'Failed to create beds') }
+    finally { setQuickBedSaving(false) }
   }
 
   const handleAddResident = async (e) => {
@@ -689,7 +715,11 @@ export default function SoberLivingHouse() {
     )
   }
 
-  const counts = house.bed_counts || {}
+  const counts     = house.bed_counts || {}
+  const configured = counts.configured ?? counts.total ?? 0
+  const planned    = counts.planned_capacity ?? 0
+  const incomplete = counts.setup_incomplete ?? (planned > configured)
+  const toConfig   = counts.beds_to_configure ?? Math.max(0, planned - configured)
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
@@ -738,7 +768,7 @@ export default function SoberLivingHouse() {
       </div>
 
       {/* Bed count summary bar */}
-      <div className="flex gap-5 mb-6 flex-wrap">
+      <div className="flex items-center gap-5 mb-2 flex-wrap">
         {[
           { key: 'available',   label: 'Available',   color: 'text-emerald-300' },
           { key: 'occupied',    label: 'Occupied',    color: 'text-rose-300'    },
@@ -750,9 +780,27 @@ export default function SoberLivingHouse() {
           </div>
         ))}
         <div className="text-sm text-slate-500">
-          <span className="font-bold">{counts.total ?? 0}</span> Total Beds
+          <span className="font-bold text-slate-300">{configured}</span> Configured
+          {planned > 0 && <span> · <span className="font-bold">{planned}</span> Planned</span>}
         </div>
       </div>
+
+      {/* Setup incomplete banner */}
+      {incomplete && toConfig > 0 && (
+        <div className="flex items-center justify-between gap-3 mb-4 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5">
+          <div className="flex items-center gap-2 text-sm text-amber-300">
+            <AlertTriangle size={14} className="shrink-0" />
+            <span>{toConfig} of {planned} planned beds not yet configured as records</span>
+          </div>
+          <button
+            onClick={() => { if (rooms.length === 0) return toast.error('Add a room first'); setModal('quick-add-beds') }}
+            className="flex items-center gap-1 px-3 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 text-xs font-medium shrink-0"
+          >
+            <Plus size={11} /> Generate Missing Beds
+          </button>
+        </div>
+      )}
+      {!incomplete && <div className="mb-4" />}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-slate-800/40 border border-slate-700/50 rounded-xl p-1 overflow-x-auto">
@@ -782,7 +830,15 @@ export default function SoberLivingHouse() {
           onAddChore={() => setModal('add-chore')}
         />
       )}
-      {tab === 'overview'   && <TabOverview house={house} counts={counts} residents={residents} />}
+      {tab === 'overview'   && (
+        <TabOverview
+          house={house}
+          counts={counts}
+          residents={residents}
+          rooms={rooms}
+          onGenerateBeds={() => { if (rooms.length === 0) return toast.error('Add a room first'); setModal('quick-add-beds') }}
+        />
+      )}
       {tab === 'bedmap'     && <TabBedMap beds={beds} onBedClick={handleBedClick} />}
       {tab === 'residents'  && (
         <TabResidents
@@ -1402,6 +1458,48 @@ export default function SoberLivingHouse() {
           onClose={() => setAttendanceModal(null)}
         />
       )}
+
+      {modal === 'quick-add-beds' && (
+        <Modal title="Generate Beds" onClose={() => setModal(null)}>
+          <form onSubmit={handleQuickAddBeds} className="space-y-4">
+            <Field label="Room *">
+              <TSelect value={quickBedForm.room_id} onChange={(e) => setQuickBedForm({ ...quickBedForm, room_id: e.target.value })}>
+                <option value="">Select room...</option>
+                {rooms.map((r) => (
+                  <option key={r.room_id} value={r.room_id}>
+                    {r.room_name}{r.floor ? ` (${r.floor})` : ''}
+                  </option>
+                ))}
+              </TSelect>
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Quantity *">
+                <TInput type="number" min="1" max="50" value={quickBedForm.quantity} onChange={(e) => setQuickBedForm({ ...quickBedForm, quantity: e.target.value })} />
+              </Field>
+              <Field label="Start Number">
+                <TInput type="number" min="1" value={quickBedForm.start_number} onChange={(e) => setQuickBedForm({ ...quickBedForm, start_number: e.target.value })} />
+              </Field>
+              <Field label="Label Prefix">
+                <TInput value={quickBedForm.label_prefix} onChange={(e) => setQuickBedForm({ ...quickBedForm, label_prefix: e.target.value })} placeholder="Room name used if blank" />
+              </Field>
+              <Field label="Initial Status">
+                <TSelect value={quickBedForm.bed_status} onChange={(e) => setQuickBedForm({ ...quickBedForm, bed_status: e.target.value })}>
+                  {BED_STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </TSelect>
+              </Field>
+            </div>
+            {quickBedForm.room_id && quickBedForm.quantity > 0 && (
+              <div className="text-xs text-slate-400 bg-slate-700/30 rounded-lg px-3 py-2">
+                Will create beds labeled: <span className="text-white">
+                  {(quickBedForm.label_prefix || rooms.find(r => r.room_id === quickBedForm.room_id)?.room_name || 'Bed')} {quickBedForm.start_number || 1}
+                  {quickBedForm.quantity > 1 ? ` … ${(quickBedForm.label_prefix || rooms.find(r => r.room_id === quickBedForm.room_id)?.room_name || 'Bed')} ${(parseInt(quickBedForm.start_number) || 1) + parseInt(quickBedForm.quantity) - 1}` : ''}
+                </span>
+              </div>
+            )}
+            <MFooter onCancel={() => setModal(null)} saving={quickBedSaving} label={`Create ${quickBedForm.quantity || 1} Bed${quickBedForm.quantity > 1 ? 's' : ''}`} />
+          </form>
+        </Modal>
+      )}
     </div>
   )
 }
@@ -1410,24 +1508,46 @@ export default function SoberLivingHouse() {
 // Tab panels
 // ---------------------------------------------------------------------------
 
-function TabOverview({ house, counts, residents }) {
+function TabOverview({ house, counts, residents, rooms, onGenerateBeds }) {
+  const configured  = counts.configured ?? counts.total ?? 0
+  const planned     = counts.planned_capacity ?? 0
+  const incomplete  = counts.setup_incomplete ?? (planned > configured)
+  const toConfig    = counts.beds_to_configure ?? Math.max(0, planned - configured)
+
+  const certLabel = CERTIFICATION_OPTIONS.find(o => o.value === house.certification_level)?.label
+  const payLabel  = PAYMENT_TYPE_OPTIONS.find(o => o.value === house.payment_type)?.label
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* House Details */}
       <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
         <h3 className="font-semibold text-white mb-4">House Details</h3>
         <dl className="space-y-2 text-sm">
           {[
             ['Type', house.house_type],
-            ['Certification', house.certification_level],
+            ['Certification', certLabel || house.certification_level],
+            ['Certification Notes', house.certification_notes],
+            ['Payment Type', payLabel || house.payment_type !== 'unknown' ? payLabel : null],
+            ['Accepts Insurance', house.accepts_insurance !== 'unknown' ? house.accepts_insurance : null],
+            ['Insurance Plans', house.insurance_plans_accepted],
+            ['Requires Clinical Program', house.requires_clinical_program ? 'Yes' : null],
             ['Affiliated Program', house.affiliated_clinical_program],
             ['Monthly Rent', house.monthly_rent ? `$${Number(house.monthly_rent).toLocaleString()}` : null],
             ['House Rules Version', house.house_rules_version],
           ].filter(([, v]) => v).map(([k, v]) => (
-            <div key={k} className="flex justify-between">
-              <dt className="text-slate-400">{k}</dt>
+            <div key={k} className="flex justify-between gap-4">
+              <dt className="text-slate-400 shrink-0">{k}</dt>
               <dd className="text-white text-right">{v}</dd>
             </div>
           ))}
+          {house.billing_contact_name && (
+            <div className="pt-2 border-t border-slate-700/50">
+              <dt className="text-slate-400 mb-1 text-xs">Billing Contact</dt>
+              <dd className="text-white text-sm">{house.billing_contact_name}</dd>
+              {house.billing_contact_phone && <dd className="text-slate-400 text-xs">{house.billing_contact_phone}</dd>}
+              {house.billing_contact_email && <dd className="text-slate-400 text-xs">{house.billing_contact_email}</dd>}
+            </div>
+          )}
           {house.notes && (
             <div className="pt-2 border-t border-slate-700/50">
               <dt className="text-slate-400 mb-1">Notes</dt>
@@ -1437,20 +1557,41 @@ function TabOverview({ house, counts, residents }) {
         </dl>
       </div>
 
+      {/* Capacity */}
       <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-5">
         <h3 className="font-semibold text-white mb-4">Capacity</h3>
+
+        {/* Setup incomplete alert */}
+        {incomplete && toConfig > 0 && (
+          <div className="flex items-center justify-between gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 mb-4">
+            <div className="flex items-center gap-2 text-xs text-amber-300">
+              <AlertTriangle size={12} className="shrink-0" />
+              <span>{toConfig} bed{toConfig !== 1 ? 's' : ''} not yet configured ({configured} of {planned} planned)</span>
+            </div>
+            {rooms.length > 0 && (
+              <button
+                onClick={onGenerateBeds}
+                className="flex items-center gap-1 px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium shrink-0"
+              >
+                <Plus size={10} /> Generate
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
           {[
-            { label: 'Total Beds',   value: counts.total ?? 0,       color: 'text-white'        },
-            { label: 'Available',    value: counts.available ?? 0,   color: 'text-emerald-300'  },
-            { label: 'Occupied',     value: counts.occupied ?? 0,    color: 'text-rose-300'     },
-            { label: 'Reserved',     value: counts.reserved ?? 0,    color: 'text-amber-300'    },
-            { label: 'Maintenance',  value: counts.maintenance ?? 0, color: 'text-slate-400'    },
-            { label: 'Active Stays', value: residents.length,        color: 'text-indigo-300'   },
-          ].map(({ label, value, color }) => (
+            { label: 'Planned Capacity', value: planned || configured,  color: 'text-slate-300',   sub: 'from house settings'    },
+            { label: 'Configured Beds',  value: configured,             color: 'text-white',        sub: 'actual bed records'     },
+            { label: 'Available',        value: counts.available ?? 0,  color: 'text-emerald-300',  sub: null                     },
+            { label: 'Occupied',         value: counts.occupied ?? 0,   color: 'text-rose-300',     sub: null                     },
+            { label: 'Reserved',         value: counts.reserved ?? 0,   color: 'text-amber-300',    sub: null                     },
+            { label: 'Active Stays',     value: residents.length,       color: 'text-indigo-300',   sub: null                     },
+          ].map(({ label, value, color, sub }) => (
             <div key={label} className="bg-slate-700/30 rounded-lg p-3">
               <div className={`text-2xl font-bold ${color}`}>{value}</div>
               <div className="text-xs text-slate-400 mt-1">{label}</div>
+              {sub && <div className="text-xs text-slate-600 mt-0.5">{sub}</div>}
             </div>
           ))}
         </div>
