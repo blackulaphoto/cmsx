@@ -66,47 +66,47 @@ describe('Sober living directory pages', () => {
     cleanup()
   })
 
-  it('renders populated and filtered directory states and supports manual creation', async () => {
-    api.listListings
-      .mockResolvedValueOnce({
-        listings: [
-          {
-            listing_id: 'sld_1',
-            name: 'Oak Recovery House',
-            city: 'Los Angeles',
-            state: 'CA',
-            phone: '555-111-2222',
-            population_served: 'Men',
-            certification_status: 'Certified',
-            certification_body: 'CCAPP',
-            last_verified_date: null,
-            status: 'pending_review',
-            trust_score: 50,
-            accepts_mat: true,
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        listings: [],
-      })
-      .mockResolvedValueOnce({
-        listings: [
-          {
-            listing_id: 'sld_2',
-            name: 'Beacon Women House',
-            city: 'Long Beach',
-            state: 'CA',
-            phone: '555-333-4444',
-            population_served: 'Women',
-            certification_status: 'Listed',
-            certification_body: 'Sober Living Network',
-            last_verified_date: null,
-            status: 'approved',
-            trust_score: 35,
-            accepts_mat: false,
-          },
-        ],
-      })
+  it('renders a search-first directory page, filters results, and supports manual creation', async () => {
+    api.listListings.mockResolvedValue({
+      listings: [
+        {
+          listing_id: 'sld_1',
+          name: 'Oak Recovery House',
+          city: 'Los Angeles',
+          state: 'CA',
+          zip_code: '90012',
+          phone: '555-111-2222',
+          website: 'https://oak.example.com',
+          population_served: 'Men',
+          certification_status: 'Certified',
+          certification_body: 'CCAPP',
+          last_verified_date: null,
+          status: 'pending_review',
+          trust_score: 50,
+          accepts_mat: true,
+          accepts_insurance: true,
+          deposit_required: true,
+        },
+        {
+          listing_id: 'sld_2',
+          name: 'Beacon Women House',
+          city: 'Long Beach',
+          state: 'CA',
+          zip_code: '90802',
+          phone: '555-333-4444',
+          website: 'https://beacon.example.com',
+          population_served: 'Women',
+          certification_status: 'Listed',
+          certification_body: 'Sober Living Network',
+          last_verified_date: '2030-01-01T00:00:00',
+          status: 'approved',
+          trust_score: 70,
+          accepts_mat: false,
+          accepts_insurance: false,
+          deposit_required: false,
+        },
+      ],
+    })
     api.createListing.mockResolvedValue({ success: true, listing: { listing_id: 'sld_2' } })
 
     render(
@@ -117,19 +117,24 @@ describe('Sober living directory pages', () => {
 
     expect(screen.getByText(/Loading sober living directory/i)).toBeTruthy()
     expect(await screen.findByText('Oak Recovery House')).toBeTruthy()
-    expect(screen.getByRole('link', { name: /Open Review Queue/i }).getAttribute('href')).toBe('/sober-living-directory/review')
-    expect(screen.getByText('CCAPP Recovery Residences')).toBeTruthy()
-    expect(screen.getByText('Oxford House')).toBeTruthy()
-    expect(screen.getByRole('link', { name: /Open Discovery Controls/i }).getAttribute('href')).toBe('/sober-living-directory/discovery')
+    expect(screen.getByText('Find sober living options near the client')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Advanced Discovery/i }).getAttribute('href')).toBe('/sober-living-directory/discovery')
+    expect(screen.getByRole('button', { name: /Search Web for More/i })).toBeTruthy()
+    expect(screen.getByLabelText('City, ZIP, or location')).toBeTruthy()
+    expect(screen.getByLabelText('Verification status')).toBeTruthy()
 
-    fireEvent.change(screen.getByLabelText('City'), { target: { value: 'Los Angeles' } })
-    fireEvent.click(screen.getByRole('button', { name: /Apply Filters/i }))
+    fireEvent.change(screen.getByLabelText('Population'), { target: { value: 'Women' } })
+    expect(await screen.findByText('Beacon Women House')).toBeTruthy()
+    expect(screen.queryByText('Oak Recovery House')).toBeNull()
 
-    await screen.findByText(/No sober living listings match the current filters/i)
-    expect(api.listListings).toHaveBeenLastCalledWith(expect.objectContaining({ city: 'Los Angeles' }))
+    fireEvent.change(screen.getByLabelText('Funding'), { target: { value: 'no_deposit' } })
+    expect(screen.getByText('Beacon Women House')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Minimum trust score'), { target: { value: '80' } })
+    expect(await screen.findByText(/No sober living listings match these location and verification filters/i)).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: /Add Listing/i }))
-    const createHeading = screen.getByText('New Sober Living Listing')
+    const createHeading = screen.getByText('Add a sober living listing')
     const createSection = createHeading.closest('section')
     const createForm = createHeading.closest('section')?.querySelector('form')
     fireEvent.change(within(createSection).getByLabelText('Name'), { target: { value: 'Beacon Women House' } })
@@ -139,7 +144,65 @@ describe('Sober living directory pages', () => {
     await waitFor(() => {
       expect(api.createListing).toHaveBeenCalled()
     })
-    await screen.findByText('Beacon Women House')
+  })
+
+  it('runs a controlled web discovery search from the main directory page and routes users to review', async () => {
+    api.listListings.mockResolvedValue({ listings: [] })
+    api.listSources.mockResolvedValue({ sources: [] })
+    api.createSource.mockResolvedValue({
+      source: {
+        source_id: 'src_ccapp',
+        source_name: 'CCAPP Recovery Residences',
+        source_type: 'certification_directory',
+        base_url: 'https://ccapprecoveryresidences.org/search/',
+      },
+    })
+    api.listDiscoveryJobs.mockResolvedValue({ jobs: [] })
+    api.createDiscoveryJob.mockResolvedValue({
+      job: {
+        job_id: 'job_ccapp_la',
+        source_id: 'src_ccapp',
+        source_name: 'CCAPP Recovery Residences',
+        job_name: 'CCAPP Los Angeles CA',
+      },
+    })
+    api.runDiscoveryJob.mockResolvedValue({
+      run: {
+        records_found: 4,
+        raw_records_created: 4,
+        duplicates_detected: 1,
+        errors_count: 0,
+      },
+    })
+
+    render(
+      <MemoryRouter>
+        <SoberLivingDirectory />
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText(/No sober living listings match these location and verification filters/i)).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('City, ZIP, or location'), { target: { value: 'Los Angeles' } })
+    fireEvent.change(screen.getByLabelText('Connector'), { target: { value: 'ccapp' } })
+    fireEvent.click(screen.getByRole('button', { name: /Search Web for More/i }))
+
+    await waitFor(() => {
+      expect(api.createSource).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(api.createDiscoveryJob).toHaveBeenCalledWith(expect.objectContaining({
+        source_id: 'src_ccapp',
+        target_city: 'Los Angeles',
+        target_state: 'CA',
+      }))
+    })
+    await waitFor(() => {
+      expect(api.runDiscoveryJob).toHaveBeenCalledWith('job_ccapp_la')
+    })
+
+    expect(await screen.findByText(/CCAPP Recovery Residences completed/i)).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Open Review Queue/i }).getAttribute('href')).toBe('/sober-living-directory/review')
   })
 
   it('loads listing detail, saves edits, verifies, creates tasks, and updates task status', async () => {
@@ -814,7 +877,7 @@ describe('Sober living directory pages', () => {
       </MemoryRouter>
     )
 
-    expect(await screen.findByText('Sober Living Discovery')).toBeTruthy()
+    expect(await screen.findByText('Sober Living Discovery Controls')).toBeTruthy()
     expect(await screen.findByText('No discovery sources configured yet.')).toBeTruthy()
     expect(screen.getByText('No discovery jobs configured yet.')).toBeTruthy()
     expect(screen.getByText('No discovery runs have been recorded yet.')).toBeTruthy()
@@ -843,7 +906,7 @@ describe('Sober living directory pages', () => {
       </MemoryRouter>
     )
 
-    expect(await screen.findByText('Sober Living Discovery')).toBeTruthy()
+    expect(await screen.findByText('Sober Living Discovery Controls')).toBeTruthy()
     expect(await screen.findByText('Some discovery sections could not load')).toBeTruthy()
     expect(screen.getByText('Run history unavailable')).toBeTruthy()
     expect(screen.getByText('HTTP 500')).toBeTruthy()
@@ -865,7 +928,7 @@ describe('Sober living directory pages', () => {
       </MemoryRouter>
     )
 
-    expect(await screen.findByText('Sober Living Discovery')).toBeTruthy()
+    expect(await screen.findByText('Sober Living Discovery Controls')).toBeTruthy()
     expect(await screen.findByText(/authentication or API access failure/i)).toBeTruthy()
     expect(screen.getByText('Source registry unavailable')).toBeTruthy()
     expect(screen.getByText('Discovery jobs unavailable')).toBeTruthy()

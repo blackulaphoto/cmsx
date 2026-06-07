@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { MapPin, Phone, ShieldCheck, CalendarClock } from 'lucide-react'
+import { CalendarClock, CreditCard, Globe, MapPin, Phone, ShieldCheck } from 'lucide-react'
 import TrustScoreBadge from './TrustScoreBadge'
 
 const statusClasses = {
@@ -12,6 +12,10 @@ const statusClasses = {
 }
 
 function DirectoryListingCard({ listing }) {
+  const websiteLabel = listing.website
+    ? listing.website.replace(/^https?:\/\//, '').replace(/\/$/, '')
+    : 'No website'
+
   return (
     <Link
       to={`/sober-living-directory/${listing.listing_id}`}
@@ -29,12 +33,16 @@ function DirectoryListingCard({ listing }) {
               <Phone className="h-4 w-4 text-cyan-300" />
               {listing.phone || 'No phone'}
             </span>
+            <span className="inline-flex items-center gap-1">
+              <Globe className="h-4 w-4 text-cyan-300" />
+              {websiteLabel}
+            </span>
           </div>
         </div>
         <TrustScoreBadge score={listing.trust_score} status={listing.status} />
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-3">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Population Served</p>
           <p className="mt-2 text-sm text-white">{listing.population_served || 'Not specified'}</p>
@@ -50,6 +58,17 @@ function DirectoryListingCard({ listing }) {
             {listing.last_verified_date ? new Date(listing.last_verified_date).toLocaleDateString() : 'Not verified'}
           </p>
         </div>
+        <div className="rounded-2xl border border-white/10 bg-slate-950/30 p-3">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Funding</p>
+          <p className="mt-2 inline-flex items-center gap-1 text-sm text-white">
+            <CreditCard className="h-4 w-4 text-cyan-300" />
+            {listing.accepts_insurance
+              ? 'Insurance accepted'
+              : listing.deposit_required
+                ? 'Deposit required'
+                : 'Funding not confirmed'}
+          </p>
+        </div>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -59,11 +78,20 @@ function DirectoryListingCard({ listing }) {
         {listing.accepts_mat ? (
           <span className="rounded-full border border-emerald-400/30 bg-emerald-500/15 px-3 py-1 text-xs text-emerald-200">MAT accepted</span>
         ) : null}
+        {listing.accepts_insurance ? (
+          <span className="rounded-full border border-cyan-400/30 bg-cyan-500/15 px-3 py-1 text-xs text-cyan-100">Insurance</span>
+        ) : null}
+        {listing.deposit_required === false ? (
+          <span className="rounded-full border border-violet-400/30 bg-violet-500/15 px-3 py-1 text-xs text-violet-100">No deposit noted</span>
+        ) : null}
         {listing.certification_body ? (
           <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/30 bg-cyan-500/15 px-3 py-1 text-xs text-cyan-200">
             <ShieldCheck className="h-3.5 w-3.5" />
             {listing.certification_body}
           </span>
+        ) : null}
+        {listing.distance_label ? (
+          <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs text-slate-100">{listing.distance_label} away</span>
         ) : null}
       </div>
     </Link>
@@ -71,4 +99,3 @@ function DirectoryListingCard({ listing }) {
 }
 
 export default DirectoryListingCard
-

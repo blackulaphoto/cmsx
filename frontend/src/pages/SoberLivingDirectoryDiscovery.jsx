@@ -533,10 +533,10 @@ function SoberLivingDirectoryDiscoveryContent() {
         <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-2xl shadow-slate-950/40">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-sm uppercase tracking-[0.3em] text-fuchsia-300">Discovery Control</p>
-              <h1 className="mt-2 text-3xl font-bold text-white">Sober Living Discovery</h1>
+              <p className="text-sm uppercase tracking-[0.3em] text-fuchsia-300">Advanced Discovery</p>
+              <h1 className="mt-2 text-3xl font-bold text-white">Sober Living Discovery Controls</h1>
               <p className="mt-2 max-w-3xl text-sm text-slate-300">
-                Manage discovery sources, define manual discovery jobs, configure future-safe scheduling, and route all results into the existing review workflow.
+                Admin workspace for discovery sources, manual jobs, scheduling controls, and run history. All results still route into the existing review workflow before they can become trusted listings.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
