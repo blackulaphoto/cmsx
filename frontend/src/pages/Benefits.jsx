@@ -6,6 +6,13 @@ import ClientSelector from '../components/ClientSelector'
 import BenefitsAssessmentModal from '../components/BenefitsAssessmentModal'
 import AssessmentResults from '../components/AssessmentResults'
 import { apiFetch } from '../api/config'
+import {
+  fetchClientWithOperationalContext,
+  getIntakeContext,
+  getNeedKeys,
+  mergeUnique,
+  splitContextText,
+} from '../utils/clientOperationalContext'
 import toast from 'react-hot-toast'
 
 const BENEFIT_APPLICATION_LINKS = {
@@ -137,17 +144,33 @@ function Benefits() {
   useEffect(() => {
     const selectedClientId = selectedClient?.client_id || ''
     const selectedClientAge = calculateAgeFromDateOfBirth(selectedClient?.date_of_birth)
+    const intake = getIntakeContext(selectedClient)
+    const needKeys = getNeedKeys(selectedClient)
+    const medicalContext = splitContextText(
+      [intake.medical_conditions, intake.special_needs, intake.mental_health_status]
+        .filter(Boolean)
+        .join('; ')
+    )
+    const housingStatus = String(intake.housing_status || selectedClient?.housing_status || '').toLowerCase()
+    const employmentStatus = String(intake.employment_status || selectedClient?.employment_status || '').toLowerCase()
 
     setAssessmentData((prev) => ({
       ...prev,
       client_id: selectedClientId,
-      age: selectedClientAge ?? prev.age
+      age: selectedClientAge ?? prev.age,
+      medical_conditions: mergeUnique(prev.medical_conditions, medicalContext),
+      expected_duration_12_months: prev.expected_duration_12_months || needKeys.has('disability'),
+      needs_help_daily_activities: prev.needs_help_daily_activities || needKeys.has('disability'),
     }))
 
     setEligibilityData((prev) => ({
       ...prev,
       client_id: selectedClientId,
-      age: selectedClientAge ?? prev.age
+      age: selectedClientAge ?? prev.age,
+      is_disabled: prev.is_disabled || needKeys.has('disability'),
+      needs_healthcare: prev.needs_healthcare || Boolean(intake.medical_conditions || intake.special_needs || needKeys.has('primary_care') || needKeys.has('dental')),
+      housing_unstable: prev.housing_unstable || ['unknown', 'unstable', 'homeless', 'transitional', 'needs housing'].includes(housingStatus),
+      unemployed: prev.unemployed || ['unknown', 'unemployed', 'seeking', 'not employed'].includes(employmentStatus),
     }))
   }, [selectedClient])
 
@@ -155,14 +178,8 @@ function Benefits() {
   useEffect(() => {
     const clientId = searchParams.get('client')
     if (clientId && !selectedClient) {
-      apiFetch(`/api/clients/${encodeURIComponent(clientId)}?module=case_management`)
-        .then((response) => {
-          if (!response.ok) throw new Error('Client not found')
-          return response.json()
-        })
-        .then((data) => {
-          if (data?.client) setSelectedClient(data.client)
-        })
+      fetchClientWithOperationalContext(apiFetch, clientId)
+        .then(setSelectedClient)
         .catch((error) => {
           console.error('Failed to load client from URL:', error)
         })
@@ -620,6 +637,7 @@ function Benefits() {
             </h2>
             <ClientSelector 
               onClientSelect={setSelectedClient}
+              includeOperationalContext
               placeholder="Select a client to manage benefits for..."
               className="max-w-md relative z-30"
             />

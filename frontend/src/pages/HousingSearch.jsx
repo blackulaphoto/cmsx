@@ -20,6 +20,11 @@ import ClientSelector from '../components/ClientSelector'
 import LocationSelector from '../components/LocationSelector'
 import HousingSitesIframe from '../components/HousingSitesIframe'
 import { apiFetch } from '../api/config'
+import {
+  clientLocation,
+  fetchClientWithOperationalContext,
+  getNeedKeys,
+} from '../utils/clientOperationalContext'
 
 const CRAIGSLIST_REGIONS = [
   { match: ['los angeles', 'hollywood', 'van nuys', 'panorama city', 'north hollywood', 'burbank', 'glendale', 'pasadena', 'santa monica', 'venice', 'culver city', 'inglewood', 'compton', 'downey', 'whittier'], base: 'https://losangeles.craigslist.org' },
@@ -55,19 +60,31 @@ function HousingSearch() {
   useEffect(() => {
     const clientId = urlSearchParams.get('client')
     if (clientId && !selectedClient) {
-      apiFetch(`/api/clients/${encodeURIComponent(clientId)}?module=case_management`)
-        .then((response) => {
-          if (!response.ok) throw new Error('Client not found')
-          return response.json()
-        })
-        .then((data) => {
-          if (data?.client) setSelectedClient(data.client)
-        })
+      fetchClientWithOperationalContext(apiFetch, clientId)
+        .then(setSelectedClient)
         .catch((error) => {
           console.error('Failed to load housing client from URL:', error)
         })
     }
   }, [urlSearchParams, selectedClient])
+
+  useEffect(() => {
+    if (!selectedClient?.client_id) return
+
+    const needKeys = getNeedKeys(selectedClient)
+    setSearchParams((prev) => ({
+      ...prev,
+      location: prev.location || clientLocation(selectedClient, ''),
+      backgroundFriendly: prev.backgroundFriendly || Boolean(selectedClient.prior_convictions),
+    }))
+    setResourceFilters((prev) => ({
+      ...prev,
+      programKeywords: prev.programKeywords || (needKeys.has('sober_living_aftercare') ? 'sober living aftercare' : prev.programKeywords),
+    }))
+    if (needKeys.has('sober_living_aftercare')) {
+      setResourceMode('sober_living')
+    }
+  }, [selectedClient?.client_id])
 
   const resolveCraigslistBase = (locationValue) => {
     const normalized = (locationValue || '').toLowerCase()
@@ -367,6 +384,7 @@ function HousingSearch() {
             </h2>
             <ClientSelector 
               onClientSelect={setSelectedClient}
+              includeOperationalContext
               placeholder={viewMode === 'sites' 
                 ? "Select a client to use case manager tools..." 
                 : viewMode === 'resources'

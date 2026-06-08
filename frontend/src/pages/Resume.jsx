@@ -22,6 +22,11 @@ import TemplateSelector from '../components/TemplateSelector'
 import ResumeModal from '../components/ResumeModal'
 import DebugPanel from '../components/DebugPanel'
 import { apiFetch } from '../api/config'
+import {
+  getIntakeContext,
+  getTreatmentPlanContext,
+  mergeUnique,
+} from '../utils/clientOperationalContext'
 
 // Import CSS for layout fixes
 import '../styles/ResumeBuilder.css'
@@ -679,6 +684,22 @@ function Resume() {
   // Enhanced client selection handler
   const handleClientSelection = (client) => {
     setSelectedClient(client)
+    const intake = getIntakeContext(client)
+    const treatmentPlan = getTreatmentPlanContext(client)
+    const treatmentGoals = Array.isArray(treatmentPlan.goals)
+      ? treatmentPlan.goals.map((goal) => typeof goal === 'string' ? goal : goal?.description).filter(Boolean)
+      : []
+    const objective = mergeUnique(treatmentGoals, [intake.goals]).join(' ')
+    setEmploymentProfile((prev) => ({
+      ...prev,
+      career_objective: prev.career_objective || objective,
+      preferred_industries: mergeUnique(
+        prev.preferred_industries,
+        intake.employment_status && String(intake.employment_status).toLowerCase() !== 'unknown'
+          ? [intake.employment_status]
+          : []
+      ),
+    }))
     toast.success(`Selected ${client.first_name} ${client.last_name}`)
   }
 
@@ -843,6 +864,7 @@ function Resume() {
               <ClientSelector
                 selectedClientId={selectedClient?.client_id || null}
                 onClientSelect={handleClientSelection}
+                includeOperationalContext
                 showCreateNew={false}
                 showViewDashboard={false}
                 placeholder="Search and select client..."

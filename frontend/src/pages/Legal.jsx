@@ -5,6 +5,11 @@ import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
+import {
+  fetchClientWithOperationalContext,
+  formatNeedSummary,
+  getIntakeContext,
+} from '../utils/clientOperationalContext'
 
 function Legal() {
   const [searchParams] = useSearchParams()
@@ -55,14 +60,8 @@ function Legal() {
   useEffect(() => {
     const clientId = searchParams.get('client')
     if (clientId && !selectedClient) {
-      apiFetch(`/api/clients/${encodeURIComponent(clientId)}?module=case_management`)
-        .then((response) => {
-          if (!response.ok) throw new Error('Client not found')
-          return response.json()
-        })
-        .then((data) => {
-          if (data?.client) setSelectedClient(data.client)
-        })
+      fetchClientWithOperationalContext(apiFetch, clientId)
+        .then(setSelectedClient)
         .catch((error) => {
           console.error('Failed to load legal client from URL:', error)
         })
@@ -87,6 +86,26 @@ function Legal() {
       case_id: prev.case_id || cases[0]?.case_id || ''
     }))
   }, [selectedClient?.client_id, cases])
+
+  useEffect(() => {
+    if (!selectedClient?.client_id) return
+
+    const intake = getIntakeContext(selectedClient)
+    const legalNeedSummary = formatNeedSummary(selectedClient, 'legal')
+    setCaseForm((prev) => ({
+      ...prev,
+      case_type: prev.case_type === 'General Legal' && intake.legal_status && intake.legal_status !== 'No Active Cases'
+        ? intake.legal_status
+        : prev.case_type,
+      charges: prev.charges || intake.prior_convictions || '',
+    }))
+    setDocumentForm((prev) => ({
+      ...prev,
+      document_title: prev.document_title || (legalNeedSummary ? 'Legal follow-up documentation' : prev.document_title),
+      document_purpose: prev.document_purpose || legalNeedSummary || intake.legal_status || '',
+      urgency_level: prev.urgency_level === 'Medium' && legalNeedSummary ? 'High' : prev.urgency_level,
+    }))
+  }, [selectedClient?.client_id])
 
   const fetchLegalData = async () => {
     setLoading(true)
@@ -465,6 +484,7 @@ function Legal() {
             </h2>
             <ClientSelector 
               onClientSelect={setSelectedClient}
+              includeOperationalContext
               placeholder="Select a client to manage legal matters for..."
               className="max-w-md relative z-30"
             />

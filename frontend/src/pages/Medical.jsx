@@ -22,6 +22,13 @@ import toast from 'react-hot-toast'
 import ClientSelector from '../components/ClientSelector'
 import LocationSelector from '../components/LocationSelector'
 import { apiFetch } from '../api/config'
+import {
+  clientLocation,
+  fetchClientWithOperationalContext,
+  formatNeedSummary,
+  getIntakeContext,
+  getNeedKeys,
+} from '../utils/clientOperationalContext'
 
 const MEDICAL_PATHS = [
   {
@@ -92,9 +99,7 @@ function Medical() {
 
     const loadClient = async () => {
       try {
-        const response = await apiFetch(`/api/clients/${clientId}`)
-        if (!response.ok) return
-        const client = await response.json()
+        const client = await fetchClientWithOperationalContext(apiFetch, clientId)
         setSelectedClient(client)
       } catch (error) {
         console.error('Medical client preload failed:', error)
@@ -115,6 +120,36 @@ function Medical() {
     } else {
       setAppointments([])
       setReferrals([])
+    }
+  }, [selectedClient?.client_id])
+
+  useEffect(() => {
+    if (!selectedClient?.client_id) return
+
+    const intake = getIntakeContext(selectedClient)
+    const needKeys = getNeedKeys(selectedClient, 'medical')
+    const nextLocation = clientLocation(selectedClient, city)
+    if (nextLocation && city === 'Los Angeles') {
+      setCity(nextLocation)
+    }
+
+    if (needKeys.has('dental') && activePath === 'medi-cal') {
+      setActivePath('dental-urgent')
+    } else if (needKeys.has('behavioral_health') && activePath === 'medi-cal') {
+      setActivePath('treatment-centers')
+    }
+
+    const needSummary = formatNeedSummary(selectedClient, 'medical')
+    const notes = [
+      intake.medical_conditions && `Medical conditions: ${intake.medical_conditions}`,
+      intake.special_needs && `Special needs: ${intake.special_needs}`,
+      needSummary && `Open needs: ${needSummary}`,
+    ].filter(Boolean).join('\n')
+    if (notes) {
+      setAppointmentForm((prev) => ({
+        ...prev,
+        notes: prev.notes || notes,
+      }))
     }
   }, [selectedClient?.client_id])
 
@@ -349,6 +384,7 @@ function Medical() {
             </h2>
             <ClientSelector
               onClientSelect={setSelectedClient}
+              includeOperationalContext
               placeholder="Select a client to coordinate healthcare for..."
               className="max-w-md relative z-30"
             />

@@ -4,6 +4,11 @@ import toast from 'react-hot-toast'
 import ClientSelector from '../components/ClientSelector'
 import LocationSelector from '../components/LocationSelector'
 import { apiFetch } from '../api/config'
+import {
+  clientLocation,
+  getActiveNeeds,
+  mergeUnique,
+} from '../utils/clientOperationalContext'
 
 function CaseManagerHousing() {
   const [selectedClient, setSelectedClient] = useState(null)
@@ -206,6 +211,21 @@ function CaseManagerHousing() {
     loadDashboard()
   }, [selectedClient])
 
+  useEffect(() => {
+    if (!selectedClient?.client_id) return
+
+    const housingNeeds = getActiveNeeds(selectedClient)
+      .filter((need) => ['housing', 'sober_living'].includes(need.domain))
+      .map((need) => need.need_key)
+      .filter(Boolean)
+    setSearchParams((prev) => ({
+      ...prev,
+      location: prev.location === 'Los Angeles, CA' ? clientLocation(selectedClient, prev.location) : prev.location,
+      backgroundFriendly: prev.backgroundFriendly || Boolean(selectedClient.prior_convictions),
+      clientNeeds: mergeUnique(prev.clientNeeds, housingNeeds),
+    }))
+  }, [selectedClient?.client_id])
+
   // Auto-search when client is selected
   useEffect(() => {
     if (selectedClient) {
@@ -251,6 +271,7 @@ function CaseManagerHousing() {
             </h2>
             <ClientSelector 
               onClientSelect={setSelectedClient}
+              includeOperationalContext
               placeholder="Select a client to search housing for..."
               className="max-w-md relative z-30"
             />

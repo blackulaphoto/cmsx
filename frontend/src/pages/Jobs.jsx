@@ -7,6 +7,13 @@ import LocationSelector from '../components/LocationSelector'
 import Pagination from '../components/Pagination'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
+import {
+  clientLocation,
+  fetchClientWithOperationalContext,
+  getIntakeContext,
+  getNeedKeys,
+  getTreatmentPlanContext,
+} from '../utils/clientOperationalContext'
 
 const CRAIGSLIST_JOB_REGIONS = [
   { match: ['los angeles', 'hollywood', 'van nuys', 'panorama city', 'north hollywood', 'burbank', 'glendale', 'pasadena', 'santa monica', 'venice', 'culver city', 'inglewood', 'compton', 'downey', 'whittier', 'long beach', 'torrance', 'gardena', 'hawthorne'], base: 'https://losangeles.craigslist.org' },
@@ -61,6 +68,17 @@ function Jobs() {
   })
 
   useEffect(() => {
+    const clientId = searchParams.get('client')
+    if (!clientId || selectedClient?.client_id === clientId) return
+
+    fetchClientWithOperationalContext(apiFetch, clientId)
+      .then(setSelectedClient)
+      .catch((error) => {
+        console.error('Failed to load jobs client from URL:', error)
+      })
+  }, [searchParams, selectedClient?.client_id])
+
+  useEffect(() => {
     if (selectedClient?.client_id) {
       fetchClientResumes(selectedClient.client_id)
       fetchSavedJobs(selectedClient.client_id)
@@ -69,6 +87,37 @@ function Jobs() {
       setSelectedResumeId('')
       setSavedJobs([])
     }
+  }, [selectedClient?.client_id])
+
+  useEffect(() => {
+    if (!selectedClient?.client_id) return
+
+    const intake = getIntakeContext(selectedClient)
+    const treatmentPlan = getTreatmentPlanContext(selectedClient)
+    const needKeys = getNeedKeys(selectedClient)
+    const goalText = [
+      ...(Array.isArray(treatmentPlan.goals) ? treatmentPlan.goals : []),
+      intake.goals,
+    ]
+      .map((goal) => typeof goal === 'string' ? goal : goal?.description)
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+
+    const suggestedKeywords = goalText.includes('warehouse')
+      ? 'warehouse'
+      : goalText.includes('office') || goalText.includes('administrative')
+        ? 'office assistant'
+        : goalText.includes('food') || goalText.includes('restaurant')
+          ? 'food service'
+          : 'background friendly entry level'
+
+    setSearchForm((prev) => ({
+      ...prev,
+      keywords: prev.keywords || (needKeys.has('job_search') ? suggestedKeywords : prev.keywords),
+      location: prev.location === 'Los Angeles' ? clientLocation(selectedClient, prev.location) : prev.location,
+      backgroundFriendly: prev.backgroundFriendly || Boolean(intake.prior_convictions || needKeys.has('job_search')),
+    }))
   }, [selectedClient?.client_id])
 
   const resolveCraigslistJobsBase = (locationValue) => {
@@ -475,6 +524,7 @@ function Jobs() {
             </h2>
             <ClientSelector 
               onClientSelect={setSelectedClient}
+              includeOperationalContext
               placeholder="Select a client to search jobs for..."
               className="max-w-md relative z-30"
             />
