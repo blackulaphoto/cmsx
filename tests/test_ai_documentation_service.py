@@ -108,6 +108,46 @@ class DocumentationAIServiceTests(unittest.TestCase):
         self.assertIn("Group note is missing attendance details.", review["warnings"])
         self.assertIn("Group note is missing participation level.", review["warnings"])
 
+    def test_template_quality_review_passes_when_selected_template_anchors_exist(self):
+        review = self.service.compliance_review(
+            {
+                "note_kind": "progress_note",
+                "content": (
+                    "Template: Weekly CM Note\n\n"
+                    "GOAL:\nTo discuss and plan a comprehensive discharge from treatment.\n\n"
+                    "INTERVENTION:\nCM reviewed housing and probation follow-up.\n\n"
+                    "RESPONSE:\nClient stated, \"I want to stay on track.\"\n\n"
+                    "PLAN:\nCM will verify outpatient appointment and housing documentation."
+                ),
+                "context": {"template_label": "Weekly CM Note"},
+            }
+        )
+
+        quality = review["quality_review"]
+        self.assertEqual("pass", quality["status"])
+        self.assertGreaterEqual(quality["score"], 90)
+        self.assertEqual([], quality["missing_template_anchors"])
+
+    def test_template_quality_review_flags_missing_residence_data(self):
+        review = self.service.compliance_review(
+            {
+                "note_kind": "referral_summary",
+                "content": (
+                    "# Proof of Residence Template\n\n"
+                    "### RE: Proof of Residency for Taylor Jones\n\n"
+                    "This letter is to verify Taylor Jones is currently a resident of our program located at:\n\n"
+                    "[RESIDENCE ADDRESS]\n\n"
+                    "Taylor Jones has been residing at this address since June 08, 2026."
+                ),
+                "context": {"template_label": "Proof of Residence Template"},
+            }
+        )
+
+        quality = review["quality_review"]
+        self.assertEqual("needs_review", quality["status"])
+        self.assertIn("Residence address is missing.", quality["data_warnings"])
+        self.assertIn("RESIDENCE ADDRESS", quality["unresolved_placeholders"])
+
     def test_template_reference_context_exposes_internal_templates(self):
         context = self.service.get_template_reference_context("Do you have access to treatment plan templates?")
         self.assertIsNotNone(context)

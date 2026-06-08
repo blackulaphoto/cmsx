@@ -257,6 +257,7 @@ async def generate_note_draft(payload: NoteDraftRequest, request: Request):
                 "source": "route_fallback",
                 "template_excerpt": (payload.current_text or "").strip(),
                 "compliance_preview": review,
+                "quality_review": review.get("quality_review"),
                 "suggested_tasks": documentation_ai_service._build_suggested_tasks(  # noqa: SLF001
                     payload.model_dump(),
                     fallback_draft,

@@ -105,6 +105,108 @@ TEMPLATE_QUERY_HINTS = {
     "progress_note": ["progress note", "case note", "documentation", "template", "templates", "note format"],
 }
 
+TEMPLATE_QUALITY_ANCHORS = {
+    "Completion Letter Template": [
+        r"successfully completed treatment",
+        r"total of .*days of programming",
+        r"sincerely",
+    ],
+    "Letter of Presence Template": [
+        r"letter of presence",
+        r"currently enrolled in treatment",
+        r"presence in treatment",
+    ],
+    "Progress Report Template": [
+        r"progress report template",
+        r"treatment has primarily focused on",
+        r"continues to benefit from treatment",
+    ],
+    "Proof of Residence Template": [
+        r"proof of residency",
+        r"currently a resident",
+        r"residing at this address|residence address",
+    ],
+    "Initial CM Note": [
+        r"^goal:",
+        r"^intervention:",
+        r"^response:",
+        r"^medical:",
+        r"^plan:",
+    ],
+    "Weekly CM Note": [
+        r"^goal:",
+        r"^intervention:",
+        r"^response:",
+        r"discharge from treatment",
+        r"^plan:",
+    ],
+    "Treatment Plan Review": [
+        r"treatment plan review",
+        r"problem 1: goal",
+        r"problem 1: objective",
+        r"problem 1: plan",
+    ],
+    "Group Note": [
+        r"location of client",
+        r"attended the group",
+        r"displayed active listening",
+    ],
+    "Discharge Summary": [
+        r"discharge summary",
+        r"date of admission",
+        r"aftercare appointments",
+        r"client took all personal belongings",
+    ],
+    "Referral Summary": [
+        r"^referral need:",
+        r"^action taken:",
+        r"^client response:",
+        r"^next step:",
+    ],
+    "Court / Probation Letter": [
+        r"to whom it may concern",
+        r"current status:",
+        r"clinically relevant context:",
+    ],
+    "FMLA Correspondence": [
+        r"contact method:",
+        r"contacted party:",
+        r"summary:",
+        r"outcome:",
+        r"follow-up:",
+    ],
+    "LOC Transition Note": [
+        r"current loc:",
+        r"new loc / transition plan:",
+        r"rationale:",
+        r"coordination completed:",
+        r"next step:",
+    ],
+}
+
+NOTE_KIND_QUALITY_ANCHORS = {
+    "progress_note": TEMPLATE_QUALITY_ANCHORS["Weekly CM Note"],
+    "initial_note": TEMPLATE_QUALITY_ANCHORS["Initial CM Note"],
+    "group_note": TEMPLATE_QUALITY_ANCHORS["Group Note"],
+    "treatment_plan": TEMPLATE_QUALITY_ANCHORS["Treatment Plan Review"],
+    "referral_summary": TEMPLATE_QUALITY_ANCHORS["Referral Summary"],
+    "discharge_summary": TEMPLATE_QUALITY_ANCHORS["Discharge Summary"],
+    "fmla_correspondence": TEMPLATE_QUALITY_ANCHORS["FMLA Correspondence"],
+}
+
+DATA_PLACEHOLDER_WARNINGS = {
+    "CLIENT DOB": "Client date of birth is missing.",
+    "CLIENT RECORD NUMBER": "Client record number is missing.",
+    "ORGANIZATION ADDRESS": "Organization address is missing.",
+    "RESIDENCE ADDRESS": "Residence address is missing.",
+}
+
+ALLOWED_PLACEHOLDER_TERMS = (
+    "VERBATIM",
+    "CLIENT QUOTE",
+    "QUOTE",
+)
+
 
 class DocumentationAIService:
     def __init__(self) -> None:
@@ -839,12 +941,78 @@ class DocumentationAIService:
             })
         return tasks[:3]
 
+    @staticmethod
+    def _extract_unresolved_placeholders(text: str) -> List[str]:
+        seen = set()
+        placeholders: List[str] = []
+        for raw_placeholder in re.findall(r"\[([^\]]+)\]", text or ""):
+            placeholder = re.sub(r"\s+", " ", raw_placeholder).strip()
+            if not placeholder or placeholder in seen:
+                continue
+            seen.add(placeholder)
+            placeholders.append(placeholder)
+        return placeholders
+
+    def _build_template_quality_review(self, text: str, note_kind: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        template_label = (context or {}).get("template_label") or ""
+        anchors = TEMPLATE_QUALITY_ANCHORS.get(template_label) or NOTE_KIND_QUALITY_ANCHORS.get(note_kind, [])
+        missing_anchors = [
+            pattern
+            for pattern in anchors
+            if not re.search(pattern, text or "", flags=re.IGNORECASE | re.MULTILINE)
+        ]
+
+        unresolved_placeholders = self._extract_unresolved_placeholders(text)
+        data_warnings = []
+        for placeholder in unresolved_placeholders:
+            upper_placeholder = placeholder.upper()
+            for key, message in DATA_PLACEHOLDER_WARNINGS.items():
+                if key in upper_placeholder and message not in data_warnings:
+                    data_warnings.append(message)
+
+        non_verbatim_placeholders = [
+            placeholder
+            for placeholder in unresolved_placeholders
+            if not any(allowed in placeholder.upper() for allowed in ALLOWED_PLACEHOLDER_TERMS)
+        ]
+
+        score = 100
+        score -= len(missing_anchors) * 12
+        score -= len(non_verbatim_placeholders) * 6
+        score -= len(data_warnings) * 4
+        score = max(0, min(100, score))
+
+        if missing_anchors or score < 70:
+            status = "needs_revision"
+        elif data_warnings or non_verbatim_placeholders or score < 90:
+            status = "needs_review"
+        else:
+            status = "pass"
+
+        warnings = []
+        if missing_anchors:
+            warnings.append("Draft may not be following the selected template structure.")
+        if non_verbatim_placeholders:
+            warnings.append("Draft still contains unresolved placeholders that need review.")
+        warnings.extend(data_warnings)
+
+        return {
+            "template_label": template_label or note_kind.replace("_", " ").title(),
+            "score": score,
+            "status": status,
+            "missing_template_anchors": missing_anchors,
+            "unresolved_placeholders": unresolved_placeholders,
+            "data_warnings": data_warnings,
+            "warnings": warnings,
+        }
+
     def compliance_review(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         text = (payload.get("content") or payload.get("draft") or "").strip()
         lowered = text.lower()
         note_kind = payload.get("note_kind", "progress_note")
         context = payload.get("context") or {}
         warnings: List[str] = []
+        quality_review = self._build_template_quality_review(text, note_kind, context)
 
         missing_intervention = "intervention" not in lowered and "action taken" not in lowered
         missing_response = "response" not in lowered and "client response" not in lowered and "status / response" not in lowered
@@ -885,6 +1053,7 @@ class DocumentationAIService:
             "missing_response": missing_response,
             "missing_next_step": missing_next_step,
             "is_complete": len(warnings) == 0,
+            "quality_review": quality_review,
             }
 
     def generate_treatment_plan_suggestions(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1059,6 +1228,7 @@ class DocumentationAIService:
                 "source": "template_fallback",
                 "template_excerpt": template_excerpt,
                 "compliance_preview": review,
+                "quality_review": review.get("quality_review"),
                 "suggested_tasks": self._build_suggested_tasks(payload, fallback_draft, review),
             }
 
@@ -1215,6 +1385,7 @@ class DocumentationAIService:
                 "source": "openai",
                 "template_excerpt": template_excerpt,
                 "compliance_preview": review,
+                "quality_review": review.get("quality_review"),
                 "suggested_tasks": self._build_suggested_tasks(payload, draft, review),
             }
         except Exception as exc:
@@ -1224,6 +1395,7 @@ class DocumentationAIService:
                 "source": "template_fallback",
                 "template_excerpt": template_excerpt,
                 "compliance_preview": review,
+                "quality_review": review.get("quality_review"),
                 "suggested_tasks": self._build_suggested_tasks(payload, fallback_draft, review),
             }
 

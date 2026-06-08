@@ -105,9 +105,9 @@ const TEMPLATE_EXPECTATIONS = {
 
 const PDF_EXPECTATIONS = {
   'Completion Letter Template': [/successfully completed treatment/i],
-  'Letter of Presence Template': [/Letter of Presence/i, /currently enrolled in treatment/i],
+  'Letter of Presence Template': [/Letter of Presence/i, /currently[\s\S]{0,120}enrolled in treatment/i],
   'Progress Report Template': [/treatment has primarily focused on/i],
-  'Proof of Residence Template': [/Proof of Residency/i, /currently a resident/i],
+  'Proof of Residence Template': [/Proof of Residency/i, /currently a[\s\S]{0,80}resident/i],
   'Treatment Plan Review': [/TREATMENT PLAN REVIEW/i, /Problem 1: Goal/i],
   'Discharge Summary': [/DISCHARGE SUMMARY/i, /Aftercare Appointments/i],
   'Referral Summary': [/REFERRAL NEED/i, /ACTION TAKEN/i],
@@ -163,10 +163,16 @@ async function generateDraft(page, label) {
   const payload = await response.json()
   expect(payload.success).toBe(true)
   expect(payload.draft).toBeTruthy()
+  expect(payload.quality_review).toBeTruthy()
+  expect(payload.quality_review.score).toBeGreaterThan(0)
 
   const finalDraft = page.getByPlaceholder('Your generated or hand-written final draft appears here.')
   await expect(finalDraft).toHaveValue(/./)
-  return { brief, unique, finalDraft }
+  await expect(page.getByText('Draft Quality Guardrails')).toBeVisible()
+  if (label === 'Proof of Residence Template') {
+    await expect(page.getByText('Residence address is missing.')).toBeVisible()
+  }
+  return { brief, unique, finalDraft, payload }
 }
 
 async function saveCurrentDraft(page, label, isNote) {

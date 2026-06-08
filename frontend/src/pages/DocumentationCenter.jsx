@@ -19,6 +19,7 @@ import {
   Clock,
   Wand2,
   ArrowRight,
+  AlertTriangle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -270,6 +271,7 @@ function DocumentationCenter() {
   const [searchTerm, setSearchTerm] = useState('')
   const [roughNotes, setRoughNotes] = useState('')
   const [generatingDraft, setGeneratingDraft] = useState(false)
+  const [draftQuality, setDraftQuality] = useState(null)
   const [brandResources, setBrandResources] = useState([])
   const [loadingBrandResources, setLoadingBrandResources] = useState(false)
   const [uploadingBrandResource, setUploadingBrandResource] = useState(false)
@@ -391,6 +393,7 @@ function DocumentationCenter() {
     setEditingItem(null)
     setRoughNotes('')
     setInputMode('type')
+    setDraftQuality(null)
     setComposer({
       ...EMPTY_COMPOSER,
       noteType: selectedTemplate?.noteType || 'Progress',
@@ -416,6 +419,7 @@ function DocumentationCenter() {
       noteType: 'Progress',
       body: draft,
     }))
+    setDraftQuality(null)
     if (!roughNotes.trim()) {
       setRoughNotes(transcript)
     }
@@ -467,17 +471,20 @@ function DocumentationCenter() {
 
       const data = await response.json().catch(() => ({}))
       if (response.ok && data.draft) {
+        setDraftQuality(data.quality_review || data.compliance_preview?.quality_review || null)
         applyDraftToComposer(data.draft)
         return
       }
 
       if (!selectedClient?.client_id) {
+        setDraftQuality(null)
         applyDraftToComposer(transcript)
         toast.error(data.detail || 'Template draft failed. Loaded transcript for manual review.')
         return
       }
     } catch (error) {
       if (!selectedClient?.client_id) {
+        setDraftQuality(null)
         applyDraftToComposer(transcript)
         toast.error('Template draft failed. Loaded transcript for manual review.')
         return
@@ -501,6 +508,7 @@ function DocumentationCenter() {
     }
 
     applyDraftToComposer(fallbackData.draft || transcript)
+    setDraftQuality(null)
   }
 
   const applyTemplate = (template) => {
@@ -510,6 +518,7 @@ function DocumentationCenter() {
     setInputMode('type')
     setEditingItem(null)
     setRoughNotes('')
+    setDraftQuality(null)
     setComposer((prev) => ({
       ...prev,
       title: prev.title && prev.title.trim() ? prev.title : `${template.label}${clientLabel}`,
@@ -525,6 +534,7 @@ function DocumentationCenter() {
     setInputMode('type')
     setEditingItem(null)
     setRoughNotes('')
+    setDraftQuality(null)
     setComposer({
       ...EMPTY_COMPOSER,
       title: '',
@@ -575,6 +585,7 @@ function DocumentationCenter() {
       }
 
       const data = await response.json()
+      setDraftQuality(data.quality_review || data.compliance_preview?.quality_review || null)
       setComposer((prev) => ({
         ...prev,
         title:
@@ -658,6 +669,7 @@ function DocumentationCenter() {
 
   const loadItemIntoEditor = (item, source) => {
     setEditingItem({ ...item, source })
+    setDraftQuality(null)
     if (source === 'note') {
       setMode('note')
       setRoughNotes('')
@@ -1111,6 +1123,8 @@ function DocumentationCenter() {
               </p>
             )}
 
+            {draftQuality && <DraftQualityCard quality={draftQuality} />}
+
             {hasDraft && (
               <div className="space-y-5 border-t border-white/10 pt-6">
                 <p className="text-sm font-medium text-slate-400">Draft review tools</p>
@@ -1248,6 +1262,58 @@ const SelectedTemplateBadge = ({ template, onClear }) => (
     </div>
   </section>
 )
+
+const DraftQualityCard = ({ quality }) => {
+  const warnings = [
+    ...(quality.warnings || []),
+    ...(quality.data_warnings || []),
+  ].filter(Boolean)
+  const uniqueWarnings = [...new Set(warnings)]
+  const unresolvedPlaceholders = quality.unresolved_placeholders || []
+  const isPass = quality.status === 'pass'
+
+  return (
+    <section className={`rounded-[24px] border p-5 ${
+      isPass
+        ? 'border-emerald-400/25 bg-emerald-500/10'
+        : 'border-amber-400/30 bg-amber-500/10'
+    }`}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className={`rounded-2xl p-3 ${isPass ? 'bg-emerald-400/15 text-emerald-100' : 'bg-amber-400/15 text-amber-100'}`}>
+            {isPass ? <CheckCircle2 className="h-5 w-5" /> : <AlertTriangle className="h-5 w-5" />}
+          </div>
+          <div>
+            <h3 className="text-base font-semibold text-white">Draft Quality Guardrails</h3>
+            <p className="mt-1 text-sm text-slate-300">
+              {isPass
+                ? 'Template structure passed the automated review.'
+                : 'Review these items before saving or sending this document.'}
+            </p>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-3 text-right">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-400">Quality Score</p>
+          <p className="mt-1 text-2xl font-bold text-white">{quality.score ?? 'N/A'}</p>
+        </div>
+      </div>
+
+      {uniqueWarnings.length > 0 && (
+        <ul className="mt-4 space-y-2 text-sm text-amber-100">
+          {uniqueWarnings.map((warning) => (
+            <li key={warning}>- {warning}</li>
+          ))}
+        </ul>
+      )}
+
+      {unresolvedPlaceholders.length > 0 && (
+        <p className="mt-4 text-xs text-slate-300">
+          Unresolved placeholders: {unresolvedPlaceholders.join(', ')}
+        </p>
+      )}
+    </section>
+  )
+}
 
 const EmptyState = ({ icon: Icon, title, body }) => (
   <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/20 p-8 text-center">
