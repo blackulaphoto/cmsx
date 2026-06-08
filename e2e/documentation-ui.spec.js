@@ -24,6 +24,85 @@ const NOTE_TEMPLATES = new Set([
   'LOC Transition Note'
 ])
 
+const TEMPLATE_EXPECTATIONS = {
+  'Completion Letter Template': [
+    /successfully completed treatment/i,
+    /total of .*days of programming/i,
+    /Sincerely/i
+  ],
+  'Letter of Presence Template': [
+    /Letter of Presence/i,
+    /currently enrolled in treatment/i,
+    /presence in treatment/i
+  ],
+  'Progress Report Template': [
+    /Progress Report Template/i,
+    /treatment has primarily focused on/i,
+    /continues to benefit from treatment/i
+  ],
+  'Proof of Residence Template': [
+    /Proof of Residency/i,
+    /currently a resident/i,
+    /RESIDENCE ADDRESS|residing at this address/i
+  ],
+  'Initial CM Note': [
+    /^GOAL:/m,
+    /^INTERVENTION:/m,
+    /^RESPONSE:/m,
+    /^MEDICAL:/m,
+    /^PLAN:/m
+  ],
+  'Weekly CM Note': [
+    /^GOAL:/m,
+    /^INTERVENTION:/m,
+    /^RESPONSE:/m,
+    /discharge from treatment/i,
+    /^PLAN:/m
+  ],
+  'Treatment Plan Review': [
+    /TREATMENT PLAN REVIEW/i,
+    /Problem 1: Goal/i,
+    /Problem 1: Objective/i,
+    /Problem 1: Plan/i
+  ],
+  'Group Note': [
+    /Location of Client/i,
+    /attended the group/i,
+    /displayed active listening/i
+  ],
+  'Discharge Summary': [
+    /DISCHARGE SUMMARY/i,
+    /Date of Admission/i,
+    /Aftercare Appointments/i,
+    /Client took all personal belongings/i
+  ],
+  'Referral Summary': [
+    /^REFERRAL NEED:/m,
+    /^ACTION TAKEN:/m,
+    /^CLIENT RESPONSE:/m,
+    /^NEXT STEP:/m
+  ],
+  'Court / Probation Letter': [
+    /TO WHOM IT MAY CONCERN/i,
+    /CURRENT STATUS:/i,
+    /CLINICALLY RELEVANT CONTEXT:/i
+  ],
+  'FMLA Correspondence': [
+    /CONTACT METHOD:/i,
+    /CONTACTED PARTY:/i,
+    /SUMMARY:/i,
+    /OUTCOME:/i,
+    /FOLLOW-UP:/i
+  ],
+  'LOC Transition Note': [
+    /CURRENT LOC:/i,
+    /NEW LOC \/ TRANSITION PLAN:/i,
+    /RATIONALE:/i,
+    /COORDINATION COMPLETED:/i,
+    /NEXT STEP:/i
+  ]
+}
+
 const timestamp = () => Date.now()
 
 async function selectFirstClient(page) {
@@ -145,10 +224,13 @@ test('documentation template generation transforms rough notes into structured d
     const { brief, finalDraft } = await generateDraft(page, label)
     const generatedText = await finalDraft.inputValue()
     expect.soft(generatedText, `${label} should not copy the rough brief verbatim`).not.toBe(brief)
-    expect.soft(
-      generatedText,
-      `${label} should contain structured template language`
-    ).toMatch(new RegExp(label.includes('FMLA') ? 'CONTACT|SUMMARY|FOLLOW-UP' : 'CLIENT|PLAN|NEXT|GOAL|REFERRAL|DISCHARGE|INTERVENTION'))
+    expect.soft(generatedText, `${label} should identify the selected template`).toContain(`Template: ${label}`)
+    for (const expectedPattern of TEMPLATE_EXPECTATIONS[label] || []) {
+      expect.soft(
+        generatedText,
+        `${label} should preserve template anchor ${expectedPattern}`
+      ).toMatch(expectedPattern)
+    }
   }
 
   expect.soft(browserErrors).toEqual([])
