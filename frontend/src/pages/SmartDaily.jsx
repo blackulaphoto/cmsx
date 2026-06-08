@@ -45,6 +45,14 @@ const BUCKET_META = {
     badge: 'bg-blue-500/20 text-blue-200 border border-blue-500/30',
     dot: 'bg-blue-400',
   },
+  treatment_plan: {
+    label: 'Treatment Plan Needs',
+    icon: Brain,
+    color: 'from-emerald-600/20 to-cyan-500/10',
+    border: 'border-emerald-500/30',
+    badge: 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/30',
+    dot: 'bg-emerald-400',
+  },
   high_priority_no_date: {
     label: 'High Priority — No Due Date',
     icon: Star,
@@ -64,6 +72,11 @@ function TaskCard({ task, onComplete, onStart }) {
   }
 
   const isCompleted = String(task.status).toLowerCase() === 'completed'
+  const contextTags = [...new Set([
+    task.source_label,
+    task.module ? String(task.module).replaceAll('_', ' ') : '',
+    task.need_key ? String(task.need_key).replaceAll('_', ' ') : '',
+  ].filter(Boolean))]
 
   return (
     <div className={`group flex items-center gap-4 p-5 border rounded-xl transition-all duration-200 hover:scale-[1.01] ${
@@ -91,6 +104,24 @@ function TaskCard({ task, onComplete, onStart }) {
         </p>
         {task.description && task.description !== task.title && (
           <p className="text-xs text-gray-500 mt-1 italic truncate">{task.description}</p>
+        )}
+        {task.priority_reason && (
+          <p className="mt-2 flex items-start gap-1.5 text-xs text-cyan-100/80">
+            <Sparkles size={12} className="mt-0.5 flex-shrink-0 text-cyan-300" />
+            <span>{task.priority_reason}</span>
+          </p>
+        )}
+        {contextTags.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {contextTags.map(tag => (
+              <span
+                key={tag}
+                className="rounded-full border border-white/10 bg-white/8 px-2 py-0.5 text-[11px] capitalize text-slate-300"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
         )}
       </div>
 
@@ -319,6 +350,7 @@ function CreateTaskModal({ onClose, onCreated }) {
             <ClientSelector
               selectedClientId={form.client?.client_id || null}
               onClientSelect={c => set('client', c)}
+              includeOperationalContext
               showCreateNew={false}
               showViewDashboard={false}
               placeholder="Search and select client…"
@@ -511,6 +543,7 @@ function SmartDaily() {
 
     if (cat.includes('legal') || title.includes('court') || title.includes('probation')) return `/legal${clientQuery}`
     if (cat.includes('housing') || title.includes('housing') || title.includes('sober living')) return `/housing${clientQuery}`
+    if (cat.includes('medical') || cat.includes('health') || title.includes('dental') || title.includes('doctor') || title.includes('medical')) return `/medical${clientQuery}`
     if (cat.includes('benefit') || title.includes('snap') || title.includes('calfresh') || title.includes('medi-cal')) return `/benefits${clientQuery}`
     if (cat.includes('employment') || cat.includes('job') || title.includes('resume')) return `/jobs${clientQuery}`
     if (cat.includes('fmla') || title.includes('fmla')) return `/fmla${clientQuery}`
@@ -539,7 +572,7 @@ function SmartDaily() {
     setCompletedCount(c => c + 1)
     setTotalActive(a => Math.max(0, a - 1))
 
-    if (source === 'intelligent_task' && taskId) {
+    if ((source === 'intelligent_task' || source === 'workspace_task') && taskId) {
       try {
         const res = await apiFetch(`/api/reminders/tasks/${encodeURIComponent(taskId)}/complete`, { method: 'POST' })
         if (!res.ok) throw new Error('Server error')
@@ -566,7 +599,10 @@ function SmartDaily() {
           String(task.client_name || '').toLowerCase().includes(searchTerm.toLowerCase())
         const matchFilter = selectedFilter === 'all' ||
           String(task.priority || '').toLowerCase() === selectedFilter ||
-          String(task.task_type || '').toLowerCase().includes(selectedFilter)
+          String(task.task_type || '').toLowerCase().includes(selectedFilter) ||
+          String(task.module || '').toLowerCase().includes(selectedFilter) ||
+          String(task.need_key || '').toLowerCase().includes(selectedFilter) ||
+          String(task.task_source || task.source || '').toLowerCase().includes(selectedFilter)
         return matchSearch && matchFilter
       })
     }
@@ -679,6 +715,8 @@ function SmartDaily() {
                   <option value="disability" className="bg-gray-800">Disability</option>
                   <option value="employment" className="bg-gray-800">Employment</option>
                   <option value="benefits" className="bg-gray-800">Benefits</option>
+                  <option value="medical" className="bg-gray-800">Medical</option>
+                  <option value="treatment_plan" className="bg-gray-800">Treatment Plan</option>
                 </select>
               </div>
             </div>
@@ -717,6 +755,14 @@ function SmartDaily() {
               <BucketSection
                 bucketKey="next_3_days"
                 tasks={activeBuckets.next_3_days || []}
+                onComplete={handleComplete}
+                onStart={handleStart}
+                defaultOpen
+              />
+              {/* Treatment plan needs - expanded */}
+              <BucketSection
+                bucketKey="treatment_plan"
+                tasks={activeBuckets.treatment_plan || []}
                 onComplete={handleComplete}
                 onStart={handleStart}
                 defaultOpen

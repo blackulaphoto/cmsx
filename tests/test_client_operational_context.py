@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from backend.api import clients as clients_api
 from backend.auth.service import FirebaseAuthService
 from backend.modules.ai_documentation.service import documentation_ai_service
+from backend.modules.reminders import repository as reminders_repository
+from backend.modules.reminders import routes as reminders_routes
 from backend.shared.database.workspace_store import workspace_store
 
 
@@ -303,6 +305,73 @@ def test_documentation_context_uses_current_treatment_plan(tmp_path):
 
         assert "maintain sober living placement" in context["treatment_plan_summary"]
         assert "Sober living plus outpatient aftercare" in context["aftercare_plan_summary"]
+    finally:
+        workspace_store.db_path = original_workspace_db
+        workspace_store._initialize()
+
+
+def test_smart_daily_includes_and_completes_treatment_plan_tasks(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    original_workspace_db = _use_temp_workspace_store(tmp_path)
+    client_id = _seed_core_client("client-smart-daily")
+
+    try:
+        plan = workspace_store.create_treatment_plan_draft(
+            client_id,
+            created_by="cm_test",
+            plan_data={
+                "source": "test",
+                "goals": [{"description": "Client will resolve dental pain and medical follow-up."}],
+                "operational_needs": [
+                    {
+                        "need_key": "dental",
+                        "domain": "medical",
+                        "module": "medical",
+                        "priority": "high",
+                        "status": "open",
+                        "reason": "Dental pain was confirmed in the approved treatment plan.",
+                    }
+                ],
+            },
+        )
+        approved = workspace_store.approve_treatment_plan(plan["plan_id"], approved_by="cm_test")
+        needs = workspace_store.upsert_operational_needs(
+            client_id,
+            approved["operational_needs"],
+            source="treatment_plan",
+            source_id=plan["plan_id"],
+            source_plan_id=plan["plan_id"],
+        )
+        created_tasks = workspace_store.create_tasks_from_operational_needs(
+            client_id,
+            needs,
+            source="treatment_plan",
+            source_id=plan["plan_id"],
+            assigned_to="cm_test",
+        )
+
+        result = reminders_repository.get_prioritized_tasks("cm_test")
+        treatment_plan_tasks = result["buckets"]["treatment_plan"]
+
+        assert result["counts"]["treatment_plan"] == 1
+        assert treatment_plan_tasks[0]["task_id"] == created_tasks[0]["task_id"]
+        assert treatment_plan_tasks[0]["source"] == "workspace_task"
+        assert treatment_plan_tasks[0]["task_source"] == "treatment_plan"
+        assert treatment_plan_tasks[0]["module"] == "medical"
+        assert treatment_plan_tasks[0]["need_key"] == "dental"
+        assert "Approved treatment plan need: dental." in treatment_plan_tasks[0]["priority_reason"]
+        assert result["total_active"] >= 1
+
+        app = FastAPI()
+        app.include_router(reminders_routes.router, prefix="/api/reminders")
+        complete_response = TestClient(app).post(f"/api/reminders/tasks/{created_tasks[0]['task_id']}/complete")
+
+        assert complete_response.status_code == 200
+        assert complete_response.json()["source"] == "workspace_task"
+        stored_task = workspace_store.get_client_task(created_tasks[0]["task_id"])
+        assert stored_task["status"] == "completed"
+        assert stored_task["completed_at"]
     finally:
         workspace_store.db_path = original_workspace_db
         workspace_store._initialize()

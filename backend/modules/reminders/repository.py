@@ -23,6 +23,8 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
+from backend.shared.database.workspace_store import workspace_store
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -286,6 +288,148 @@ def _priority_color(priority: Optional[str]) -> str:
     return mapping.get(str(priority or "").lower(), "#888888")
 
 
+def _normalise_status(status: Any) -> str:
+    return str(status or "").strip().lower()
+
+
+def _parse_due_date(value: Any) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value)).date()
+    except ValueError:
+        try:
+            return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+
+
+def _is_treatment_plan_task(task: Dict[str, Any]) -> bool:
+    task_source = str(task.get("task_source") or task.get("source") or "").lower()
+    task_type = str(task.get("task_type") or "").lower()
+    return task_source == "treatment_plan" or task_type == "treatment_plan_need"
+
+
+def _module_urgency_bonus(module: Any, need_key: Any, title: Any) -> int:
+    haystack = " ".join(
+        str(part or "").lower()
+        for part in (module, need_key, title)
+    )
+    if any(term in haystack for term in ("crisis", "court", "legal", "medical", "dental", "medication")):
+        return 18
+    if any(term in haystack for term in ("benefits", "disability", "housing", "sober_living")):
+        return 12
+    if any(term in haystack for term in ("job", "resume", "transportation")):
+        return 6
+    return 0
+
+
+def _task_priority_score(task: Dict[str, Any], today: date) -> int:
+    priority_weight = {
+        "critical": 120,
+        "urgent": 110,
+        "high": 90,
+        "medium": 60,
+        "low": 30,
+    }.get(str(task.get("priority") or "").lower(), 40)
+    score = priority_weight
+
+    due = _parse_due_date(task.get("due_date"))
+    if due:
+        days_until_due = (due - today).days
+        if days_until_due < 0:
+            score += 60
+        elif days_until_due == 0:
+            score += 45
+        elif days_until_due <= 3:
+            score += 30
+        elif days_until_due <= 7:
+            score += 15
+
+    if _is_treatment_plan_task(task):
+        score += 25
+    score += _module_urgency_bonus(task.get("module"), task.get("need_key"), task.get("title"))
+    return score
+
+
+def _priority_reason(task: Dict[str, Any], today: date) -> str:
+    pieces: List[str] = []
+    if _is_treatment_plan_task(task):
+        need_label = str(task.get("need_key") or "").replace("_", " ").strip()
+        if need_label:
+            pieces.append(f"Approved treatment plan need: {need_label}.")
+        else:
+            pieces.append("Approved treatment plan task.")
+
+    module = str(task.get("module") or "").replace("_", " ").strip()
+    if module:
+        pieces.append(f"Routes to {module}.")
+
+    due = _parse_due_date(task.get("due_date"))
+    if due:
+        days_until_due = (due - today).days
+        if days_until_due < 0:
+            pieces.append(f"Overdue by {abs(days_until_due)} day{'s' if abs(days_until_due) != 1 else ''}.")
+        elif days_until_due == 0:
+            pieces.append("Due today.")
+        elif days_until_due <= 3:
+            pieces.append(f"Due in {days_until_due} day{'s' if days_until_due != 1 else ''}.")
+
+    if not pieces:
+        priority = str(task.get("priority") or "medium").lower()
+        pieces.append(f"Shown because it is an open {priority}-priority task.")
+    return " ".join(pieces)
+
+
+def _sort_bucket(tasks: List[Dict[str, Any]], today: date) -> List[Dict[str, Any]]:
+    for task in tasks:
+        task["priority_score"] = _task_priority_score(task, today)
+        task.setdefault("priority_reason", _priority_reason(task, today))
+    return sorted(
+        tasks,
+        key=lambda task: (
+            -int(task.get("priority_score") or 0),
+            _parse_due_date(task.get("due_date")) or date.max,
+            str(task.get("created_at") or ""),
+        ),
+    )
+
+
+def _workspace_task_to_task_dict(task: Dict[str, Any], name_map: Dict[str, str], today: date) -> Dict[str, Any]:
+    converted = dict(task)
+    converted["task_id"] = task.get("task_id") or task.get("id") or ""
+    converted["id"] = converted["task_id"]
+    converted["source"] = "workspace_task"
+    converted["task_source"] = task.get("source")
+    converted["source_label"] = "Treatment Plan" if task.get("source") == "treatment_plan" else "Client Task"
+    converted["client_name"] = name_map.get(task.get("client_id", ""), "Unknown Client")
+    converted["urgency_color"] = _priority_color(task.get("priority"))
+    converted["estimated_minutes"] = task.get("estimated_minutes") or 30
+    converted["is_treatment_plan_task"] = _is_treatment_plan_task(converted)
+    converted["priority_score"] = _task_priority_score(converted, today)
+    converted["priority_reason"] = _priority_reason(converted, today)
+    return converted
+
+
+def list_workspace_tasks_for_case_manager(case_manager_id: str) -> List[Dict[str, Any]]:
+    """Return open workspace client_tasks for this case manager's clients."""
+    client_ids, name_map = get_clients_for_case_manager(case_manager_id)
+    if not client_ids:
+        return []
+
+    today = date.today()
+    tasks: List[Dict[str, Any]] = []
+    for client_id in client_ids:
+        try:
+            for task in workspace_store.list_client_tasks(client_id):
+                if _normalise_status(task.get("status")) in {"completed", "done", "cancelled", "canceled"}:
+                    continue
+                tasks.append(_workspace_task_to_task_dict(task, name_map, today))
+        except Exception as exc:
+            logger.warning("Workspace task lookup failed for client %s: %s", client_id, exc)
+    return tasks
+
+
 def list_tasks_for_client(client_id: str) -> List[Dict[str, Any]]:
     """Return all non-completed intelligent_tasks for a single client."""
     if use_postgres():
@@ -331,6 +475,8 @@ def list_tasks_for_case_manager(case_manager_id: str) -> List[Dict[str, Any]]:
     if not client_ids:
         return []
 
+    tasks: List[Dict[str, Any]] = []
+
     if use_postgres():
         try:
             from sqlalchemy import text
@@ -350,35 +496,39 @@ def list_tasks_for_case_manager(case_manager_id: str) -> List[Dict[str, Any]]:
                     """),
                     params,
                 ).fetchall()
-            tasks = []
             for r in rows:
                 t = _row_to_task_dict(r)
                 t["client_name"] = name_map.get(t.get("client_id", ""), "Unknown Client")
                 tasks.append(t)
+            tasks.extend(list_workspace_tasks_for_case_manager(case_manager_id))
             return tasks
         except Exception as exc:
             logger.warning("Postgres list_tasks_for_case_manager failed (%s), using SQLite", exc)
 
     placeholders = ",".join("?" * len(client_ids))
-    with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
-        cur = conn.execute(
-            f"""
-            SELECT id, client_id, task_type, title, description, priority,
-                   status, estimated_minutes, due_date, completed_at, created_at, is_demo
-            FROM intelligent_tasks
-            WHERE client_id IN ({placeholders}) AND status != 'completed'
-            ORDER BY
-                CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-                due_date ASC
-            """,
-            client_ids,
-        )
-        tasks = []
-        for r in cur.fetchall():
-            t = _row_to_task_dict(r)
-            t["client_name"] = name_map.get(t.get("client_id", ""), "Unknown Client")
-            tasks.append(t)
-        return tasks
+    try:
+        with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+            cur = conn.execute(
+                f"""
+                SELECT id, client_id, task_type, title, description, priority,
+                       status, estimated_minutes, due_date, completed_at, created_at, is_demo
+                FROM intelligent_tasks
+                WHERE client_id IN ({placeholders}) AND status != 'completed'
+                ORDER BY
+                    CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+                    due_date ASC
+                """,
+                client_ids,
+            )
+            for r in cur.fetchall():
+                t = _row_to_task_dict(r)
+                t["client_name"] = name_map.get(t.get("client_id", ""), "Unknown Client")
+                tasks.append(t)
+    except sqlite3.OperationalError as exc:
+        logger.warning("SQLite intelligent_tasks lookup failed (%s); continuing with workspace tasks", exc)
+
+    tasks.extend(list_workspace_tasks_for_case_manager(case_manager_id))
+    return tasks
 
 
 def get_today_tasks(case_manager_id: str) -> List[Dict[str, Any]]:
@@ -452,7 +602,7 @@ def get_today_tasks(case_manager_id: str) -> List[Dict[str, Any]]:
 def get_prioritized_tasks(case_manager_id: str) -> Dict[str, Any]:
     """
     Return tasks bucketed into overdue / today / next_3_days / this_week /
-    high_priority_no_date / later, plus an AI summary string.
+    treatment_plan / high_priority_no_date / later, plus an AI summary string.
     """
     all_tasks = list_tasks_for_case_manager(case_manager_id)
 
@@ -465,24 +615,20 @@ def get_prioritized_tasks(case_manager_id: str) -> Dict[str, Any]:
         "today": [],
         "next_3_days": [],
         "this_week": [],
+        "treatment_plan": [],
         "high_priority_no_date": [],
         "later": [],
     }
 
     for task in all_tasks:
-        raw_due = task.get("due_date")
-        due: Optional[date] = None
-        if raw_due:
-            try:
-                due = datetime.fromisoformat(str(raw_due)).date()
-            except ValueError:
-                try:
-                    due = datetime.strptime(str(raw_due)[:10], "%Y-%m-%d").date()
-                except ValueError:
-                    due = None
+        due = _parse_due_date(task.get("due_date"))
+        task["priority_score"] = _task_priority_score(task, today)
+        task.setdefault("priority_reason", _priority_reason(task, today))
 
         if due is None:
-            if str(task.get("priority", "")).lower() in {"high", "critical"}:
+            if _is_treatment_plan_task(task):
+                buckets["treatment_plan"].append(task)
+            elif str(task.get("priority", "")).lower() in {"high", "critical"}:
                 buckets["high_priority_no_date"].append(task)
         elif due < today:
             buckets["overdue"].append(task)
@@ -499,19 +645,12 @@ def get_prioritized_tasks(case_manager_id: str) -> Dict[str, Any]:
     active_reminders = get_active_reminders_for_case_manager(case_manager_id)
     _, name_map = get_clients_for_case_manager(case_manager_id)
     for r in active_reminders:
-        raw_due = r.get("due_date")
-        due = None
-        if raw_due:
-            try:
-                due = datetime.fromisoformat(str(raw_due)).date()
-            except ValueError:
-                try:
-                    due = datetime.strptime(str(raw_due)[:10], "%Y-%m-%d").date()
-                except ValueError:
-                    due = None
+        due = _parse_due_date(r.get("due_date"))
         r.setdefault("client_name", name_map.get(r.get("client_id", ""), "Unknown"))
         r.setdefault("source", "active_reminder")
         r.setdefault("title", r.get("message", ""))
+        r["priority_score"] = _task_priority_score(r, today)
+        r.setdefault("priority_reason", _priority_reason(r, today))
 
         if due is None:
             if str(r.get("priority", "")).lower() in {"high", "critical"}:
@@ -527,9 +666,13 @@ def get_prioritized_tasks(case_manager_id: str) -> Dict[str, Any]:
         else:
             buckets["later"].append(r)
 
+    for bucket_key, bucket_tasks in buckets.items():
+        buckets[bucket_key] = _sort_bucket(bucket_tasks, today)
+
     overdue_n = len(buckets["overdue"])
     today_n = len(buckets["today"])
     next3_n = len(buckets["next_3_days"])
+    treatment_plan_n = len(buckets["treatment_plan"])
     total_active = sum(len(v) for k, v in buckets.items() if k != "later")
 
     ai_summary: Optional[str] = None
@@ -545,7 +688,14 @@ def get_prioritized_tasks(case_manager_id: str) -> Dict[str, Any]:
             parts.append(f"{today_n} due today")
         if next3_n:
             parts.append(f"{next3_n} coming up in the next 3 days")
+        if treatment_plan_n:
+            parts.append(f"{treatment_plan_n} treatment-plan item{'s' if treatment_plan_n > 1 else ''} need scheduling")
         ai_summary = "You have " + ", ".join(parts) + "."
+    elif treatment_plan_n:
+        ai_summary = (
+            f"You have {treatment_plan_n} treatment-plan item{'s' if treatment_plan_n > 1 else ''} "
+            "without due dates. Start by scheduling the highest-risk need."
+        )
     elif buckets["high_priority_no_date"]:
         n = len(buckets["high_priority_no_date"])
         ai_summary = f"You have {n} high-priority item{'s' if n > 1 else ''} without due dates. Consider scheduling them."
@@ -562,6 +712,7 @@ def get_prioritized_tasks(case_manager_id: str) -> Dict[str, Any]:
             "today": today_n,
             "next_3_days": next3_n,
             "this_week": len(buckets["this_week"]),
+            "treatment_plan": treatment_plan_n,
             "high_priority_no_date": len(buckets["high_priority_no_date"]),
             "later": len(buckets["later"]),
         },
@@ -597,23 +748,27 @@ def get_active_reminders_for_case_manager(case_manager_id: str) -> List[Dict[str
         except Exception as exc:
             logger.warning("Postgres get_active_reminders failed (%s), using SQLite", exc)
 
-    with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
-        cur = conn.execute(
-            """
-            SELECT reminder_id, client_id, case_manager_id, reminder_type,
-                   message, priority, due_date, status, created_at
-            FROM active_reminders
-            WHERE case_manager_id = ? AND status = 'Active'
-            ORDER BY
-                CASE priority
-                    WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
-                    WHEN 'Medium' THEN 3 ELSE 4
-                END,
-                due_date ASC
-            """,
-            (case_manager_id,),
-        )
-        return [dict(r) for r in cur.fetchall()]
+    try:
+        with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+            cur = conn.execute(
+                """
+                SELECT reminder_id, client_id, case_manager_id, reminder_type,
+                       message, priority, due_date, status, created_at
+                FROM active_reminders
+                WHERE case_manager_id = ? AND status = 'Active'
+                ORDER BY
+                    CASE priority
+                        WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
+                        WHEN 'Medium' THEN 3 ELSE 4
+                    END,
+                    due_date ASC
+                """,
+                (case_manager_id,),
+            )
+            return [dict(r) for r in cur.fetchall()]
+    except sqlite3.OperationalError as exc:
+        logger.warning("SQLite active_reminders lookup failed (%s); returning none", exc)
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -777,12 +932,16 @@ def update_task_status(
         except Exception as exc:
             logger.warning("Postgres update_task_status failed (%s), using SQLite", exc)
 
-    with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
-        cur = conn.execute(
-            "UPDATE intelligent_tasks SET status = ?, completed_at = ? WHERE id = ?",
-            (status, completed_ts, task_id),
-        )
-        return cur.rowcount > 0
+    try:
+        with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+            cur = conn.execute(
+                "UPDATE intelligent_tasks SET status = ?, completed_at = ? WHERE id = ?",
+                (status, completed_ts, task_id),
+            )
+            return cur.rowcount > 0
+    except sqlite3.OperationalError as exc:
+        logger.warning("SQLite intelligent_tasks update failed (%s); task may be workspace-backed", exc)
+        return False
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ from pathlib import Path
 from .intelligent_processor import IntelligentTaskProcessor
 from .data_integration import RealDataIntegrator
 from . import repository as _repo
+from backend.shared.database.workspace_store import workspace_store
 
 # Note: Authentication dependencies would be imported here when auth module is implemented
 # from auth.dependencies import get_current_active_user, require_case_manager, require_supervisor
@@ -862,14 +863,28 @@ def _time_or_default(date_value: Optional[str]) -> str:
 
 @router.post("/tasks/{task_id}/complete")
 async def complete_task(task_id: str):
-    """Mark an intelligent task as completed."""
+    """Mark an intelligent task or workspace client task as completed."""
     try:
         completed_at = datetime.now().isoformat()
         updated = _repo.update_task_status(task_id, "completed", completed_at=completed_at)
+        source = "intelligent_task"
+        if not updated:
+            workspace_task = workspace_store.update_client_task(
+                task_id,
+                {"status": "completed", "completed_at": completed_at},
+            )
+            updated = bool(workspace_task)
+            source = "workspace_task"
         if not updated:
             raise HTTPException(status_code=404, detail="Task not found")
         logger.info(f"Task {task_id} marked as completed")
-        return {"success": True, "task_id": task_id, "status": "completed", "updated_at": completed_at}
+        return {
+            "success": True,
+            "task_id": task_id,
+            "status": "completed",
+            "source": source,
+            "updated_at": completed_at,
+        }
     except HTTPException:
         raise
     except Exception as e:
