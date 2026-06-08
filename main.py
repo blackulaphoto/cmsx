@@ -296,6 +296,15 @@ except Exception as e:
     loaded_modules["jobs"] = f"error: {e}"
     logger.warning(f"Jobs module not loaded: {e}")
 
+try:
+    from backend.modules.groups.routes import router as groups_router
+    app.include_router(groups_router, prefix="/api", tags=["groups"])
+    loaded_modules["groups"] = "loaded"
+    logger.info("Groups facilitation module loaded successfully")
+except Exception as e:
+    loaded_modules["groups"] = f"error: {e}"
+    logger.warning(f"Groups facilitation module not loaded: {e}")
+
 @app.on_event("startup")
 async def initialize_reminders_db():
     """Ensure reminders DB is initialized"""
@@ -429,7 +438,8 @@ async def root():
             "services": "/api/services",
             "jobs": "/api/jobs",
             "reminders": "/api/reminders",
-            "search": "/api/search"
+            "search": "/api/search",
+            "groups": "/api/groups"
         },
         "documentation": {
             "swagger": "/docs",
