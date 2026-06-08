@@ -145,3 +145,52 @@ class AIGroupNoteRequest(BaseModel):
     attendance_status: Optional[str] = "present"
     participation_level: Optional[str] = "moderate"
     context: Optional[Dict[str, Any]] = None
+
+
+class ScheduleCreate(BaseModel):
+    title: str = Field(..., min_length=1)
+    group_type: str = "psychoeducation"
+    topic_id: Optional[str] = None
+    curriculum_pack_id: Optional[str] = None
+    day_of_week: int = 0
+    start_time: str = "10:00"
+    duration_minutes: int = 60
+    location: str = ""
+    facilitator: str = ""
+    recurrence: str = "weekly"
+    is_active: bool = True
+
+
+class ScheduleUpdate(BaseModel):
+    title: Optional[str] = None
+    group_type: Optional[str] = None
+    topic_id: Optional[str] = None
+    curriculum_pack_id: Optional[str] = None
+    day_of_week: Optional[int] = None
+    start_time: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    location: Optional[str] = None
+    facilitator: Optional[str] = None
+    recurrence: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class GenerateSessionsRequest(BaseModel):
+    start_date: str
+    num_sessions: int = 8
+
+
+class CurriculumPackCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    description: str = ""
+    target_population: str = ""
+    level_of_care: str = ""
+    topic_ids: List[str] = Field(default_factory=list)
+
+
+class CurriculumPackUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    target_population: Optional[str] = None
+    level_of_care: Optional[str] = None
+    topic_ids: Optional[List[str]] = None

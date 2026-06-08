@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+from datetime import date, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -16,10 +17,15 @@ from .models import (
     AttendanceUpsert,
     AttendeeNoteSpec,
     BulkGenerateRequest,
+    CurriculumPackCreate,
+    CurriculumPackUpdate,
+    GenerateSessionsRequest,
     NoteCreate,
     NoteUpdate,
     PlaylistCreate,
     PlaylistUpdate,
+    ScheduleCreate,
+    ScheduleUpdate,
     SessionCreate,
     SessionUpdate,
     TopicCreate,
@@ -720,3 +726,197 @@ async def bulk_generate_notes(request: Request, session_id: str, payload: BulkGe
         "total": len(payload.attendees),
         "results": results,
     }
+
+
+# ── Schedules ──────────────────────────────────────────────────────────────────
+
+@router.get("/schedules")
+async def list_schedules(request: Request):
+    require_authenticated_user(request)
+    schedules = groups_db.list_schedules()
+    return {"schedules": schedules, "count": len(schedules)}
+
+
+@router.post("/schedules", status_code=201)
+async def create_schedule(request: Request, payload: ScheduleCreate):
+    current_user = require_authenticated_user(request)
+    schedule = groups_db.create_schedule({**payload.model_dump(), "created_by": current_user.case_manager_id})
+    return schedule
+
+
+@router.put("/schedules/{schedule_id}")
+async def update_schedule(request: Request, schedule_id: str, payload: ScheduleUpdate):
+    require_authenticated_user(request)
+    if not groups_db.get_schedule(schedule_id):
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    return groups_db.update_schedule(schedule_id, payload.model_dump(exclude_none=True))
+
+
+@router.get("/schedules/{schedule_id}/instances")
+async def list_instances(request: Request, schedule_id: str):
+    require_authenticated_user(request)
+    if not groups_db.get_schedule(schedule_id):
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    instances = groups_db.list_instances(schedule_id)
+    return {"instances": instances, "count": len(instances)}
+
+
+@router.post("/schedules/{schedule_id}/generate-sessions")
+async def generate_sessions(request: Request, schedule_id: str, payload: GenerateSessionsRequest):
+    current_user = require_authenticated_user(request)
+    schedule = groups_db.get_schedule(schedule_id)
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    num = min(max(1, payload.num_sessions), 52)
+
+    # Determine topic rotation
+    pack_topic_ids = []
+    if schedule.get("curriculum_pack_id"):
+        pack = groups_db.get_pack(schedule["curriculum_pack_id"])
+        if pack:
+            pack_topic_ids = pack.get("topic_ids") or []
+
+    # Walk forward from start_date finding matching weekday
+    try:
+        start = date.fromisoformat(payload.start_date)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid start_date format, use YYYY-MM-DD")
+
+    target_dow = schedule["day_of_week"]  # 0=Mon ... 6=Sun
+    # Find first occurrence on or after start_date
+    days_ahead = (target_dow - start.weekday()) % 7
+    current = start + timedelta(days=days_ahead)
+
+    recurrence = schedule.get("recurrence", "weekly")
+    if recurrence == "biweekly":
+        step = timedelta(weeks=2)
+    elif recurrence == "monthly":
+        step = timedelta(weeks=4)
+    else:
+        step = timedelta(weeks=1)
+
+    created = []
+    for i in range(num):
+        date_str = current.isoformat()
+
+        # Pick topic for this session
+        if schedule.get("topic_id"):
+            topic_id = schedule["topic_id"]
+        elif pack_topic_ids:
+            topic_id = pack_topic_ids[i % len(pack_topic_ids)]
+        else:
+            topic_id = None
+
+        session = groups_db.create_session({
+            "title": schedule["title"],
+            "topic_id": topic_id,
+            "scheduled_date": date_str,
+            "scheduled_time": schedule.get("start_time", "10:00"),
+            "location": schedule.get("location", ""),
+            "group_type": schedule.get("group_type", "psychoeducation"),
+            "facilitator_notes": "",
+            "case_manager_id": current_user.case_manager_id,
+        })
+        instance = groups_db.create_instance({
+            "schedule_id": schedule_id,
+            "session_id": session["session_id"],
+            "scheduled_date": date_str,
+            "status": "planned",
+        })
+        created.append({"session": session, "instance": instance})
+        current += step
+
+    return {
+        "created": len(created),
+        "sessions": [c["session"] for c in created],
+        "instances": [c["instance"] for c in created],
+    }
+
+
+# ── Curriculum Packs ───────────────────────────────────────────────────────────
+
+@router.get("/curriculum-packs")
+async def list_curriculum_packs(request: Request):
+    require_authenticated_user(request)
+    packs = groups_db.list_packs()
+    return {"packs": packs, "count": len(packs)}
+
+
+@router.post("/curriculum-packs", status_code=201)
+async def create_curriculum_pack(request: Request, payload: CurriculumPackCreate):
+    current_user = require_authenticated_user(request)
+    pack = groups_db.create_pack({**payload.model_dump(), "created_by": current_user.case_manager_id})
+    return pack
+
+
+@router.get("/curriculum-packs/{pack_id}")
+async def get_curriculum_pack(request: Request, pack_id: str):
+    require_authenticated_user(request)
+    pack = groups_db.get_pack(pack_id)
+    if not pack:
+        raise HTTPException(status_code=404, detail="Pack not found")
+    # Enrich with topic details
+    topic_ids = pack.get("topic_ids") or []
+    topics = []
+    for tid in topic_ids:
+        t = groups_db.get_topic(tid)
+        if t:
+            topics.append(t)
+    pack["topics"] = topics
+    return pack
+
+
+@router.put("/curriculum-packs/{pack_id}")
+async def update_curriculum_pack(request: Request, pack_id: str, payload: CurriculumPackUpdate):
+    require_authenticated_user(request)
+    if not groups_db.get_pack(pack_id):
+        raise HTTPException(status_code=404, detail="Pack not found")
+    return groups_db.update_pack(pack_id, payload.model_dump(exclude_none=True))
+
+
+# ── Reports ────────────────────────────────────────────────────────────────────
+
+@router.get("/reports/attendance")
+async def report_attendance(
+    request: Request,
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+    facilitator: str = Query(""),
+    topic_id: str = Query(""),
+):
+    require_authenticated_user(request)
+    rows = groups_db.report_attendance(start_date, end_date, facilitator, topic_id)
+    total_sessions = len(rows)
+    total_present = sum(r.get("present_count") or 0 for r in rows)
+    total_absent = sum(r.get("absent_count") or 0 for r in rows)
+    total_late = sum(r.get("late_count") or 0 for r in rows)
+    return {
+        "sessions": rows,
+        "summary": {
+            "total_sessions": total_sessions,
+            "total_present": total_present,
+            "total_absent": total_absent,
+            "total_late": total_late,
+        },
+    }
+
+
+@router.get("/reports/topics")
+async def report_topics(
+    request: Request,
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+):
+    require_authenticated_user(request)
+    topics = groups_db.report_topics(start_date, end_date)
+    return {"topics": topics, "count": len(topics)}
+
+
+@router.get("/reports/notes")
+async def report_notes(
+    request: Request,
+    start_date: str = Query(...),
+    end_date: str = Query(...),
+):
+    require_authenticated_user(request)
+    return groups_db.report_notes(start_date, end_date)

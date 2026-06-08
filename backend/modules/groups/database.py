@@ -1,6 +1,7 @@
 import json
 import logging
 import sqlite3
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -122,6 +123,46 @@ class GroupsDatabase:
                     created_by TEXT NOT NULL DEFAULT 'system',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS group_schedules (
+                    schedule_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    group_type TEXT NOT NULL DEFAULT 'psychoeducation',
+                    topic_id TEXT,
+                    curriculum_pack_id TEXT,
+                    day_of_week INTEGER NOT NULL DEFAULT 0,
+                    start_time TEXT NOT NULL DEFAULT '10:00',
+                    duration_minutes INTEGER NOT NULL DEFAULT 60,
+                    location TEXT NOT NULL DEFAULT '',
+                    facilitator TEXT NOT NULL DEFAULT '',
+                    recurrence TEXT NOT NULL DEFAULT 'weekly',
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_by TEXT NOT NULL DEFAULT 'system',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS group_curriculum_packs (
+                    pack_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    target_population TEXT NOT NULL DEFAULT '',
+                    level_of_care TEXT NOT NULL DEFAULT '',
+                    topic_ids_json TEXT NOT NULL DEFAULT '[]',
+                    total_sessions INTEGER NOT NULL DEFAULT 0,
+                    created_by TEXT NOT NULL DEFAULT 'system',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS group_schedule_instances (
+                    instance_id TEXT PRIMARY KEY,
+                    schedule_id TEXT NOT NULL,
+                    session_id TEXT,
+                    scheduled_date TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'planned',
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
             """)
             conn.commit()
@@ -658,6 +699,222 @@ class GroupsDatabase:
                     (session_id, note_type),
                 ).fetchone()
         return dict(row) if row else None
+
+    # ── Schedules ──────────────────────────────────────────────────────────────
+
+    def list_schedules(self) -> List[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM group_schedules ORDER BY day_of_week, start_time").fetchall()
+            return [dict(r) for r in rows]
+
+    def create_schedule(self, data: dict) -> dict:
+        schedule_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat()
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO group_schedules
+                (schedule_id, title, group_type, topic_id, curriculum_pack_id,
+                 day_of_week, start_time, duration_minutes, location, facilitator,
+                 recurrence, is_active, created_by, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (schedule_id, data["title"], data.get("group_type", "psychoeducation"),
+                  data.get("topic_id"), data.get("curriculum_pack_id"),
+                  data.get("day_of_week", 0), data.get("start_time", "10:00"),
+                  data.get("duration_minutes", 60), data.get("location", ""),
+                  data.get("facilitator", ""), data.get("recurrence", "weekly"),
+                  1 if data.get("is_active", True) else 0,
+                  data.get("created_by", "system"), now, now))
+            conn.commit()
+        return self.get_schedule(schedule_id)
+
+    def get_schedule(self, schedule_id: str) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM group_schedules WHERE schedule_id=?", (schedule_id,)).fetchone()
+            return dict(row) if row else None
+
+    def update_schedule(self, schedule_id: str, data: dict) -> Optional[dict]:
+        now = datetime.utcnow().isoformat()
+        allowed = {"title", "group_type", "topic_id", "curriculum_pack_id", "day_of_week",
+                   "start_time", "duration_minutes", "location", "facilitator", "recurrence", "is_active"}
+        sets, vals = [], []
+        for k, v in data.items():
+            if k in allowed:
+                sets.append(f"{k}=?")
+                vals.append(1 if (k == "is_active" and isinstance(v, bool) and v) else
+                            0 if (k == "is_active" and isinstance(v, bool) and not v) else v)
+        if not sets:
+            return self.get_schedule(schedule_id)
+        sets.append("updated_at=?")
+        vals.append(now)
+        vals.append(schedule_id)
+        with self._connect() as conn:
+            conn.execute(f"UPDATE group_schedules SET {', '.join(sets)} WHERE schedule_id=?", vals)
+            conn.commit()
+        return self.get_schedule(schedule_id)
+
+    def list_instances(self, schedule_id: str) -> List[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM group_schedule_instances WHERE schedule_id=? ORDER BY scheduled_date",
+                (schedule_id,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def create_instance(self, data: dict) -> dict:
+        instance_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat()
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO group_schedule_instances (instance_id, schedule_id, session_id, scheduled_date, status, created_at)
+                VALUES (?,?,?,?,?,?)
+            """, (instance_id, data["schedule_id"], data.get("session_id"),
+                  data["scheduled_date"], data.get("status", "planned"), now))
+            conn.commit()
+            row = conn.execute("SELECT * FROM group_schedule_instances WHERE instance_id=?", (instance_id,)).fetchone()
+            return dict(row)
+
+    def update_instance(self, instance_id: str, data: dict) -> Optional[dict]:
+        allowed = {"session_id", "status"}
+        sets, vals = [], []
+        for k, v in data.items():
+            if k in allowed:
+                sets.append(f"{k}=?")
+                vals.append(v)
+        if not sets:
+            with self._connect() as conn:
+                row = conn.execute("SELECT * FROM group_schedule_instances WHERE instance_id=?", (instance_id,)).fetchone()
+                return dict(row) if row else None
+        vals.append(instance_id)
+        with self._connect() as conn:
+            conn.execute(f"UPDATE group_schedule_instances SET {', '.join(sets)} WHERE instance_id=?", vals)
+            conn.commit()
+            row = conn.execute("SELECT * FROM group_schedule_instances WHERE instance_id=?", (instance_id,)).fetchone()
+            return dict(row) if row else None
+
+    # ── Curriculum Packs ───────────────────────────────────────────────────────
+
+    def list_packs(self) -> List[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM group_curriculum_packs ORDER BY name").fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d["topic_ids"] = json.loads(d.get("topic_ids_json", "[]"))
+                except Exception:
+                    d["topic_ids"] = []
+                result.append(d)
+            return result
+
+    def create_pack(self, data: dict) -> dict:
+        pack_id = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat()
+        topic_ids = data.get("topic_ids", [])
+        topic_ids_json = json.dumps(topic_ids)
+        total = len(topic_ids)
+        with self._connect() as conn:
+            conn.execute("""
+                INSERT INTO group_curriculum_packs
+                (pack_id, name, description, target_population, level_of_care,
+                 topic_ids_json, total_sessions, created_by, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, (pack_id, data["name"], data.get("description", ""),
+                  data.get("target_population", ""), data.get("level_of_care", ""),
+                  topic_ids_json, total, data.get("created_by", "system"), now, now))
+            conn.commit()
+        return self.get_pack(pack_id)
+
+    def get_pack(self, pack_id: str) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM group_curriculum_packs WHERE pack_id=?", (pack_id,)).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            try:
+                d["topic_ids"] = json.loads(d.get("topic_ids_json", "[]"))
+            except Exception:
+                d["topic_ids"] = []
+            return d
+
+    def update_pack(self, pack_id: str, data: dict) -> Optional[dict]:
+        now = datetime.utcnow().isoformat()
+        allowed = {"name", "description", "target_population", "level_of_care", "topic_ids"}
+        sets, vals = [], []
+        for k, v in data.items():
+            if k == "topic_ids":
+                sets.append("topic_ids_json=?")
+                vals.append(json.dumps(v if isinstance(v, list) else []))
+                sets.append("total_sessions=?")
+                vals.append(len(v) if isinstance(v, list) else 0)
+            elif k in allowed:
+                sets.append(f"{k}=?")
+                vals.append(v)
+        if not sets:
+            return self.get_pack(pack_id)
+        sets.append("updated_at=?")
+        vals.append(now)
+        vals.append(pack_id)
+        with self._connect() as conn:
+            conn.execute(f"UPDATE group_curriculum_packs SET {', '.join(sets)} WHERE pack_id=?", vals)
+            conn.commit()
+        return self.get_pack(pack_id)
+
+    # ── Reports ────────────────────────────────────────────────────────────────
+
+    def report_attendance(self, start_date: str, end_date: str, facilitator: str = "", topic_id: str = "") -> List[dict]:
+        with self._connect() as conn:
+            query = """
+                SELECT s.session_id, s.title, s.scheduled_date, s.facilitator_notes,
+                       COUNT(a.attendance_id) as total_attendees,
+                       SUM(CASE WHEN a.status='present' THEN 1 ELSE 0 END) as present_count,
+                       SUM(CASE WHEN a.status='absent' THEN 1 ELSE 0 END) as absent_count,
+                       SUM(CASE WHEN a.status='late' THEN 1 ELSE 0 END) as late_count,
+                       SUM(CASE WHEN a.status='excused' THEN 1 ELSE 0 END) as excused_count
+                FROM group_sessions s
+                LEFT JOIN group_attendance a ON a.session_id = s.session_id
+                WHERE s.scheduled_date >= ? AND s.scheduled_date <= ?
+            """
+            params = [start_date, end_date]
+            if topic_id:
+                query += " AND s.topic_id = ?"
+                params.append(topic_id)
+            query += " GROUP BY s.session_id ORDER BY s.scheduled_date"
+            rows = conn.execute(query, params).fetchall()
+            return [dict(r) for r in rows]
+
+    def report_topics(self, start_date: str, end_date: str) -> List[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT t.topic_id, t.title, t.category,
+                       COUNT(s.session_id) as session_count
+                FROM group_topics t
+                JOIN group_sessions s ON s.topic_id = t.topic_id
+                WHERE s.scheduled_date >= ? AND s.scheduled_date <= ?
+                GROUP BY t.topic_id
+                ORDER BY session_count DESC
+            """, (start_date, end_date)).fetchall()
+            return [dict(r) for r in rows]
+
+    def report_notes(self, start_date: str, end_date: str) -> dict:
+        with self._connect() as conn:
+            rows = conn.execute("""
+                SELECT n.note_id, n.reviewed, n.finalized, n.ai_generated,
+                       s.scheduled_date
+                FROM group_notes n
+                JOIN group_sessions s ON s.session_id = n.session_id
+                WHERE s.scheduled_date >= ? AND s.scheduled_date <= ?
+            """, (start_date, end_date)).fetchall()
+            total = len(rows)
+            reviewed = sum(1 for r in rows if r["reviewed"])
+            finalized = sum(1 for r in rows if r["finalized"])
+            ai_drafted = sum(1 for r in rows if r["ai_generated"])
+            return {
+                "total": total,
+                "drafted": total - reviewed - finalized,
+                "reviewed": reviewed,
+                "finalized": finalized,
+                "ai_drafted": ai_drafted,
+            }
 
 
 # Module-level singleton

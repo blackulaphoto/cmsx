@@ -252,3 +252,57 @@ export function formatDate(dateStr) {
     return dateStr
   }
 }
+
+// ── Schedules ─────────────────────────────────────────────────────────────────
+
+export const schedulesAPI = {
+  list: () => apiCall('/api/groups/schedules'),
+
+  create: (data) =>
+    apiCall('/api/groups/schedules', { method: 'POST', body: JSON.stringify(data) }),
+
+  update: (scheduleId, data) =>
+    apiCall(`/api/groups/schedules/${scheduleId}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  instances: (scheduleId) => apiCall(`/api/groups/schedules/${scheduleId}/instances`),
+
+  generateSessions: (scheduleId, data) =>
+    apiCall(`/api/groups/schedules/${scheduleId}/generate-sessions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+}
+
+// ── Curriculum Packs ──────────────────────────────────────────────────────────
+
+export const curriculumPacksAPI = {
+  list: () => apiCall('/api/groups/curriculum-packs'),
+
+  create: (data) =>
+    apiCall('/api/groups/curriculum-packs', { method: 'POST', body: JSON.stringify(data) }),
+
+  get: (packId) => apiCall(`/api/groups/curriculum-packs/${packId}`),
+
+  update: (packId, data) =>
+    apiCall(`/api/groups/curriculum-packs/${packId}`, { method: 'PUT', body: JSON.stringify(data) }),
+}
+
+// ── Reports ───────────────────────────────────────────────────────────────────
+
+export const reportsAPI = {
+  attendance: (params) => {
+    const qs = new URLSearchParams(params).toString()
+    return apiCall(`/api/groups/reports/attendance?${qs}`)
+  },
+  topics: (params) => {
+    const qs = new URLSearchParams(params).toString()
+    return apiCall(`/api/groups/reports/topics?${qs}`)
+  },
+  notes: (params) => {
+    const qs = new URLSearchParams(params).toString()
+    return apiCall(`/api/groups/reports/notes?${qs}`)
+  },
+}
+
+export const DAYS_OF_WEEK = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+export const RECURRENCE_OPTIONS = ['weekly', 'biweekly', 'monthly']

@@ -514,5 +514,248 @@ class GroupsAPITests(unittest.TestCase):
         self.assertEqual(data["videos"][0]["video_id"], v["video_id"])
 
 
+class GroupsPhase3Tests(unittest.TestCase):
+    """Phase 3: scheduling, curriculum packs, and reports."""
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(self.temp_dir.name) / "groups_phase3_test.db"
+        self.db = GroupsDatabase(db_path=db_path)
+
+        # Patch the module-level groups_db singleton used by routes
+        self.original_db = groups_routes.groups_db
+        groups_routes.groups_db = self.db
+
+        app = FastAPI()
+        add_test_auth_middleware(app)
+        app.include_router(groups_routes.router, prefix="/api")
+        self.client = TestClient(app)
+
+    def tearDown(self):
+        groups_routes.groups_db = self.original_db
+        import gc
+        gc.collect()
+        try:
+            self.temp_dir.cleanup()
+        except PermissionError:
+            pass  # WAL files may still be held briefly on Windows
+
+    def _create_topic(self, title="Test Topic", category="General"):
+        return self.db.create_topic({
+            "title": title,
+            "category": category,
+            "source": "custom",
+            "created_by": "cm_001",
+        })
+
+    # ── Schedules ─────────────────────────────────────────────────────────────
+
+    def test_create_schedule(self):
+        payload = {
+            "title": "Monday Morning Group",
+            "group_type": "psychoeducation",
+            "day_of_week": 0,
+            "start_time": "10:00",
+            "duration_minutes": 60,
+            "location": "Room A",
+            "facilitator": "Jane Smith",
+            "recurrence": "weekly",
+        }
+        resp = self.client.post("/api/groups/schedules", json=payload)
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertIn("schedule_id", data)
+        self.assertEqual(data["title"], "Monday Morning Group")
+        self.assertEqual(data["day_of_week"], 0)
+        self.assertEqual(data["recurrence"], "weekly")
+
+    def test_list_schedules(self):
+        self.db.create_schedule({"title": "Sched A", "day_of_week": 1, "created_by": "cm_001"})
+        self.db.create_schedule({"title": "Sched B", "day_of_week": 3, "created_by": "cm_001"})
+        resp = self.client.get("/api/groups/schedules")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("schedules", data)
+        self.assertEqual(data["count"], 2)
+
+    def test_generate_sessions_from_schedule(self):
+        topic = self._create_topic("Fixed Topic")
+        schedule = self.db.create_schedule({
+            "title": "Wed Group",
+            "day_of_week": 2,  # Wednesday
+            "start_time": "14:00",
+            "topic_id": topic["topic_id"],
+            "recurrence": "weekly",
+            "created_by": "cm_001",
+        })
+        resp = self.client.post(
+            f"/api/groups/schedules/{schedule['schedule_id']}/generate-sessions",
+            json={"start_date": "2026-07-01", "num_sessions": 4},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["created"], 4)
+        self.assertEqual(len(data["sessions"]), 4)
+        self.assertEqual(len(data["instances"]), 4)
+        # All sessions should use the fixed topic
+        for sess in data["sessions"]:
+            self.assertEqual(sess["topic_id"], topic["topic_id"])
+
+    def test_generate_sessions_curriculum_pack_rotates_topics(self):
+        t1 = self._create_topic("Topic 1")
+        t2 = self._create_topic("Topic 2")
+        t3 = self._create_topic("Topic 3")
+        pack = self.db.create_pack({
+            "name": "3-Week Pack",
+            "topic_ids": [t1["topic_id"], t2["topic_id"], t3["topic_id"]],
+            "created_by": "cm_001",
+        })
+        schedule = self.db.create_schedule({
+            "title": "Pack Group",
+            "day_of_week": 0,  # Monday
+            "curriculum_pack_id": pack["pack_id"],
+            "recurrence": "weekly",
+            "created_by": "cm_001",
+        })
+        resp = self.client.post(
+            f"/api/groups/schedules/{schedule['schedule_id']}/generate-sessions",
+            json={"start_date": "2026-07-06", "num_sessions": 6},
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        sessions = data["sessions"]
+        self.assertEqual(len(sessions), 6)
+        # Session 0 and session 3 should have the same topic (rotation)
+        self.assertEqual(sessions[0]["topic_id"], t1["topic_id"])
+        self.assertEqual(sessions[1]["topic_id"], t2["topic_id"])
+        self.assertEqual(sessions[2]["topic_id"], t3["topic_id"])
+        self.assertEqual(sessions[3]["topic_id"], t1["topic_id"])
+
+    # ── Curriculum Packs ──────────────────────────────────────────────────────
+
+    def test_create_curriculum_pack(self):
+        t1 = self._create_topic("T1")
+        t2 = self._create_topic("T2")
+        payload = {
+            "name": "8-Week SUD Pack",
+            "description": "A starter curriculum",
+            "target_population": "Adults in SUD treatment",
+            "level_of_care": "IOP",
+            "topic_ids": [t1["topic_id"], t2["topic_id"]],
+        }
+        resp = self.client.post("/api/groups/curriculum-packs", json=payload)
+        self.assertEqual(resp.status_code, 201)
+        data = resp.json()
+        self.assertIn("pack_id", data)
+        self.assertEqual(data["name"], "8-Week SUD Pack")
+        self.assertEqual(data["total_sessions"], 2)
+        self.assertIn("topic_ids", data)
+        self.assertEqual(len(data["topic_ids"]), 2)
+
+    def test_get_curriculum_pack(self):
+        t1 = self._create_topic("Topic Alpha")
+        pack = self.db.create_pack({
+            "name": "Alpha Pack",
+            "topic_ids": [t1["topic_id"]],
+            "created_by": "cm_001",
+        })
+        resp = self.client.get(f"/api/groups/curriculum-packs/{pack['pack_id']}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["name"], "Alpha Pack")
+        self.assertIn("topics", data)
+        self.assertEqual(len(data["topics"]), 1)
+        self.assertEqual(data["topics"][0]["title"], "Topic Alpha")
+
+    # ── Reports ───────────────────────────────────────────────────────────────
+
+    def test_attendance_report(self):
+        topic = self._create_topic("Report Topic")
+        sess = self.db.create_session({
+            "title": "Report Session",
+            "topic_id": topic["topic_id"],
+            "scheduled_date": "2026-06-01",
+            "case_manager_id": "cm_001",
+            "playlist_ids": [],
+            "video_ids": [],
+        })
+        self.db.upsert_attendance({
+            "session_id": sess["session_id"],
+            "client_id": "c1",
+            "status": "present",
+            "participation_level": "active",
+            "added_by": "cm_001",
+        })
+        self.db.upsert_attendance({
+            "session_id": sess["session_id"],
+            "client_id": "c2",
+            "status": "absent",
+            "participation_level": "none",
+            "added_by": "cm_001",
+        })
+        resp = self.client.get("/api/groups/reports/attendance?start_date=2026-06-01&end_date=2026-06-30")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("sessions", data)
+        self.assertIn("summary", data)
+        self.assertEqual(data["summary"]["total_sessions"], 1)
+        self.assertEqual(data["summary"]["total_present"], 1)
+        self.assertEqual(data["summary"]["total_absent"], 1)
+
+    def test_topics_report(self):
+        topic = self._create_topic("Relapse Prevention 101", "Relapse Prevention")
+        self.db.create_session({
+            "title": "RP Session",
+            "topic_id": topic["topic_id"],
+            "scheduled_date": "2026-06-05",
+            "case_manager_id": "cm_001",
+            "playlist_ids": [],
+            "video_ids": [],
+        })
+        resp = self.client.get("/api/groups/reports/topics?start_date=2026-06-01&end_date=2026-06-30")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("topics", data)
+        self.assertGreaterEqual(len(data["topics"]), 1)
+        found = next((t for t in data["topics"] if t["topic_id"] == topic["topic_id"]), None)
+        self.assertIsNotNone(found)
+        self.assertEqual(found["session_count"], 1)
+
+    def test_notes_report(self):
+        sess = self.db.create_session({
+            "title": "Notes Session",
+            "topic_id": None,
+            "scheduled_date": "2026-06-10",
+            "case_manager_id": "cm_001",
+            "playlist_ids": [],
+            "video_ids": [],
+        })
+        self.db.create_note({
+            "session_id": sess["session_id"],
+            "note_type": "group",
+            "content": "Group went well.",
+            "ai_generated": True,
+            "reviewed": False,
+            "finalized": False,
+            "created_by": "cm_001",
+        })
+        self.db.create_note({
+            "session_id": sess["session_id"],
+            "note_type": "individual",
+            "content": "Individual note.",
+            "ai_generated": False,
+            "reviewed": True,
+            "finalized": False,
+            "created_by": "cm_001",
+        })
+        resp = self.client.get("/api/groups/reports/notes?start_date=2026-06-01&end_date=2026-06-30")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIn("total", data)
+        self.assertEqual(data["total"], 2)
+        self.assertEqual(data["ai_drafted"], 1)
+        self.assertEqual(data["reviewed"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
