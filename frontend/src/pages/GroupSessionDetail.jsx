@@ -339,7 +339,8 @@ function AddClientModal({ sessionId, existingClientIds, onClose, onAdded }) {
   const [clients, setClients] = useState([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
-  const [adding, setAdding] = useState(null)
+  const [selected, setSelected] = useState(new Set())
+  const [adding, setAdding] = useState(false)
 
   useEffect(() => {
     apiFetch('/api/clients?limit=200')
@@ -357,57 +358,127 @@ function AddClientModal({ sessionId, existingClientIds, onClose, onAdded }) {
     return !search || name.includes(search.toLowerCase())
   })
 
-  const handleAdd = async (client) => {
-    const cid = client.client_id || client.id
-    setAdding(cid)
-    try {
-      await attendanceAPI.upsert(sessionId, { client_id: cid, status: 'present', participation_level: 'moderate' })
-      toast.success(`${client.first_name} added`)
-      onAdded()
-    } catch (err) {
-      toast.error(err?.message || 'Failed to add client')
-    } finally {
-      setAdding(null)
+  const filteredIds = filtered.map((c) => c.client_id || c.id)
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((id) => selected.has(id))
+
+  const toggleOne = (id) => setSelected((s) => {
+    const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n
+  })
+
+  const toggleAllFiltered = () => {
+    if (allFilteredSelected) {
+      setSelected((s) => { const n = new Set(s); filteredIds.forEach((id) => n.delete(id)); return n })
+    } else {
+      setSelected((s) => { const n = new Set(s); filteredIds.forEach((id) => n.add(id)); return n })
     }
+  }
+
+  const handleAddSelected = async () => {
+    if (selected.size === 0) return
+    setAdding(true)
+    const toAdd = clients.filter((c) => selected.has(c.client_id || c.id))
+    let succeeded = 0
+    let failed = 0
+    await Promise.all(
+      toAdd.map(async (c) => {
+        try {
+          await attendanceAPI.upsert(sessionId, {
+            client_id: c.client_id || c.id,
+            status: 'present',
+            participation_level: 'moderate',
+          })
+          succeeded++
+        } catch {
+          failed++
+        }
+      })
+    )
+    setAdding(false)
+    if (succeeded > 0) toast.success(`Added ${succeeded} client${succeeded !== 1 ? 's' : ''}`)
+    if (failed > 0) toast.error(`${failed} failed to add`)
+    onAdded()
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="bg-slate-900 border border-white/15 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="flex items-center justify-between p-5 border-b border-white/10">
-          <h3 className="font-semibold text-white text-base">Add Client to Session</h3>
+          <h3 className="font-semibold text-white text-base">Add Clients to Session</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
-        <div className="p-3 border-b border-white/10">
-          <input className="input-field w-full" placeholder="Search clients…" value={search} onChange={(e) => setSearch(e.target.value)} autoFocus />
+
+        <div className="p-3 border-b border-white/10 space-y-2">
+          <input
+            className="input-field w-full"
+            placeholder="Search clients…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoFocus
+          />
+          {!loading && filtered.length > 0 && (
+            <div className="flex items-center justify-between px-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  onChange={toggleAllFiltered}
+                  className="rounded border-gray-600 accent-purple-500"
+                />
+                <span className="text-xs text-gray-400">
+                  {allFilteredSelected ? 'Deselect all' : `Select all${search ? ' matching' : ''} (${filtered.length})`}
+                </span>
+              </label>
+              {selected.size > 0 && (
+                <span className="text-xs text-purple-300">{selected.size} selected</span>
+              )}
+            </div>
+          )}
         </div>
+
         <div className="overflow-y-auto flex-1 p-3">
           {loading ? (
             <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 text-purple-400 animate-spin" /></div>
           ) : filtered.length === 0 ? (
             <p className="text-sm text-gray-500 text-center py-6">No clients found.</p>
           ) : (
-            <div className="space-y-1">
+            <div className="space-y-0.5">
               {filtered.map((c) => {
                 const cid = c.client_id || c.id
+                const isSelected = selected.has(cid)
                 return (
-                  <div key={cid} className="flex items-center justify-between p-2 rounded-lg hover:bg-white/5">
-                    <div>
+                  <label
+                    key={cid}
+                    className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${
+                      isSelected ? 'bg-purple-500/10 border border-purple-500/20' : 'hover:bg-white/5 border border-transparent'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleOne(cid)}
+                      className="rounded border-gray-600 accent-purple-500 flex-shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-200">{c.first_name} {c.last_name}</p>
-                      {c.program && <p className="text-xs text-gray-500">{c.program}</p>}
+                      {c.program && <p className="text-xs text-gray-500 truncate">{c.program}</p>}
                     </div>
-                    <button onClick={() => handleAdd(c)} disabled={adding === cid} className="btn-primary text-xs py-1 px-3 flex items-center gap-1">
-                      {adding === cid ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
-                      Add
-                    </button>
-                  </div>
+                  </label>
                 )
               })}
             </div>
           )}
         </div>
-        <div className="flex justify-end p-4 border-t border-white/10">
-          <button onClick={onClose} className="btn-secondary">Done</button>
+
+        <div className="flex items-center justify-between gap-2 p-4 border-t border-white/10">
+          <button onClick={onClose} className="btn-secondary">Cancel</button>
+          <button
+            onClick={handleAddSelected}
+            disabled={selected.size === 0 || adding}
+            className="btn-primary flex items-center gap-2"
+          >
+            {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            Add {selected.size > 0 ? `${selected.size} Client${selected.size !== 1 ? 's' : ''}` : 'Selected'}
+          </button>
         </div>
       </div>
     </div>
