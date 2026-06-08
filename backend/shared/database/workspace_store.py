@@ -442,6 +442,11 @@ class WorkspaceStore:
             row = conn.execute("SELECT * FROM dashboard_docs WHERE id = ?", (doc_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
+    def get_dashboard_doc(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM dashboard_docs WHERE id = ?", (doc_id,)).fetchone()
+        return self._row_to_dict(row) if row else None
+
     def create_dashboard_bookmark(self, case_manager_id: str, title: str, url: str, description: Optional[str], favicon: Optional[str]) -> Dict[str, Any]:
         item = {
             "id": uuid4().hex,

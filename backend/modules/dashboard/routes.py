@@ -4,10 +4,12 @@ Handles Notes, Docs, Bookmarks, and Resources
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from typing import Optional, Dict, List, Any
+import html
 import os
+import re
 import uuid
 import logging
 import sqlite3
@@ -58,6 +60,122 @@ UPLOADS_DIR = "uploads/dashboard"
 # Ensure directories exist
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 DEFAULT_CASE_MANAGER_ID = "cm_001"
+
+
+def _safe_download_name(title: str, extension: str) -> str:
+    base = re.sub(r"[^A-Za-z0-9._-]+", "_", (title or "document").strip()).strip("._")
+    return f"{base or 'document'}.{extension}"
+
+
+def _plain_document_text(doc: Dict[str, Any]) -> str:
+    parts = [
+        doc.get("title") or "Untitled Document",
+        "",
+        doc.get("content") or "",
+    ]
+    if doc.get("url"):
+        parts.extend(["", f"Reference URL: {doc['url']}"])
+    return "\n".join(parts).strip() + "\n"
+
+
+def _html_document_text(doc: Dict[str, Any]) -> str:
+    title = html.escape(doc.get("title") or "Untitled Document")
+    content = html.escape(doc.get("content") or "").replace("\n", "<br>\n")
+    url_block = ""
+    if doc.get("url"):
+        url = html.escape(doc["url"])
+        url_block = f'<p class="reference">Reference URL: <a href="{url}">{url}</a></p>'
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>{title}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; line-height: 1.5; margin: 48px; color: #111827; }}
+    h1 {{ font-size: 24px; margin-bottom: 24px; }}
+    .content {{ white-space: normal; }}
+    .reference {{ margin-top: 32px; color: #4b5563; }}
+  </style>
+</head>
+<body>
+  <h1>{title}</h1>
+  <div class="content">{content}</div>
+  {url_block}
+</body>
+</html>
+"""
+
+
+def _pdf_escape(text: str) -> str:
+    return (
+        (text or "")
+        .replace("\\", "\\\\")
+        .replace("(", "\\(")
+        .replace(")", "\\)")
+    )
+
+
+def _wrap_text(text: str, width: int = 92) -> List[str]:
+    lines: List[str] = []
+    for raw_line in (text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
+            lines.append("")
+            continue
+        while len(line) > width:
+            split_at = line.rfind(" ", 0, width)
+            if split_at <= 0:
+                split_at = width
+            lines.append(line[:split_at].strip())
+            line = line[split_at:].strip()
+        lines.append(line)
+    return lines or [""]
+
+
+def _render_pdf_bytes(doc: Dict[str, Any]) -> bytes:
+    lines = _wrap_text(_plain_document_text(doc))
+    pages = [lines[index:index + 46] for index in range(0, len(lines), 46)] or [[]]
+    objects: List[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"",
+    ]
+    page_object_ids: List[int] = []
+
+    for page_lines in pages:
+        page_id = len(objects) + 1
+        content_id = page_id + 1
+        page_object_ids.append(page_id)
+        text_commands = ["BT", "/F1 10 Tf", "50 760 Td", "14 TL"]
+        for line in page_lines:
+            text_commands.append(f"({_pdf_escape(line)}) Tj")
+            text_commands.append("T*")
+        text_commands.append("ET")
+        content = "\n".join(text_commands).encode("latin-1", errors="replace")
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>".encode()
+        )
+        objects.append(b"<< /Length " + str(len(content)).encode() + b" >>\nstream\n" + content + b"\nendstream")
+
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
+    objects[1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode()
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+
+    output = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for object_id, body in enumerate(objects, start=1):
+        offsets.append(len(output))
+        output.extend(f"{object_id} 0 obj\n".encode())
+        output.extend(body)
+        output.extend(b"\nendobj\n")
+    xref_offset = len(output)
+    output.extend(f"xref\n0 {len(objects) + 1}\n".encode())
+    output.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        output.extend(f"{offset:010d} 00000 n \n".encode())
+    output.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode()
+    )
+    return bytes(output)
 
 
 def _current_scope(request: Request) -> str:
@@ -336,6 +454,49 @@ async def update_doc(doc_id: str, doc: Doc, request: Request):
         raise
     except Exception as e:
         logger.error(f"Error updating doc: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/dashboard/docs/{doc_id}/download")
+async def download_doc(doc_id: str, request: Request, format: str = Query("pdf")):
+    """Download a saved document as PDF, text, markdown, or print-ready HTML."""
+    try:
+        current_user = require_authenticated_user(request)
+        doc = workspace_store.get_dashboard_doc(doc_id)
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+        if doc.get("case_manager_id") != current_user.case_manager_id and not current_user.is_admin:
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        normalized_format = (format or "pdf").strip().lower()
+        if normalized_format not in {"pdf", "txt", "md", "html"}:
+            raise HTTPException(status_code=400, detail="Unsupported document format")
+
+        if normalized_format == "html":
+            filename = _safe_download_name(doc.get("title") or "document", "html")
+            return Response(
+                content=_html_document_text(doc),
+                media_type="text/html; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+
+        if normalized_format in {"txt", "md"}:
+            filename = _safe_download_name(doc.get("title") or "document", normalized_format)
+            return Response(
+                content=_plain_document_text(doc),
+                media_type="text/plain; charset=utf-8",
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+
+        filename = _safe_download_name(doc.get("title") or "document", "pdf")
+        return Response(
+            content=_render_pdf_bytes(doc),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading document: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/dashboard/docs/{doc_id}")

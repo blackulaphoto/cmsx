@@ -711,6 +711,31 @@ function DocumentationCenter() {
     }
   }
 
+  const downloadDocument = async (item) => {
+    try {
+      const response = await apiFetch(`/api/dashboard/docs/${item.id}/download?format=pdf`)
+      if (!response.ok) throw new Error('Failed to download document')
+
+      const blob = await response.blob()
+      const disposition = response.headers.get('content-disposition') || ''
+      const filenameMatch = disposition.match(/filename="([^"]+)"/i)
+      const fallbackName = `${(item.title || 'document').replace(/[^a-z0-9._-]+/gi, '_')}.pdf`
+      const filename = filenameMatch?.[1] || fallbackName
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      toast.success('Document download started')
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || 'Failed to download document')
+    }
+  }
+
   const uploadBrandResource = async () => {
     if (!brandUpload.file) {
       toast.error('Choose a file to upload')
@@ -1158,6 +1183,15 @@ function DocumentationCenter() {
                   <div className="mt-4 flex items-center justify-between gap-3 text-xs text-slate-400">
                     <span>{formatSavedDate(item.updated_at || item.created_at)}</span>
                     <div className="flex items-center gap-2">
+                      {mode === 'document' && (
+                        <button
+                          onClick={() => downloadDocument(item)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-100 transition hover:bg-emerald-500/20"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Download PDF
+                        </button>
+                      )}
                       <button
                         onClick={() => loadItemIntoEditor(item, mode === 'note' ? 'note' : 'doc')}
                         className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"

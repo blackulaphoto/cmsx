@@ -1,4 +1,5 @@
 const { expect, test } = require('@playwright/test')
+const fs = require('node:fs')
 
 const TEMPLATE_LABELS = [
   'Completion Letter Template',
@@ -101,6 +102,20 @@ async function deleteSavedItem(page, title) {
   await expect(page.getByText(title)).toBeHidden()
 }
 
+async function downloadSavedDocument(page, title) {
+  const item = page.locator('div.rounded-2xl').filter({ hasText: title }).filter({ hasText: 'Download PDF' }).first()
+  await expect(item).toBeVisible()
+  const downloadPromise = page.waitForEvent('download')
+  await item.getByRole('button', { name: 'Download PDF' }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toMatch(/\.pdf$/)
+  const path = await download.path()
+  expect(path).toBeTruthy()
+  const fileContent = fs.readFileSync(path, 'latin1')
+  expect(fileContent).toContain('PROOF OF RESIDENCY')
+  expect(fileContent).toContain('E2E document verifies the client residence workflow')
+}
+
 async function showSavedList(page, isNote) {
   await page.getByRole('button', { name: isNote ? 'Client Notes' : 'Documents' }).click()
   if (isNote) {
@@ -175,6 +190,7 @@ test('documentation manual note and document saves persist after reload and clea
   await expect(page.getByRole('heading', { name: 'Notes and Documents Command Center' })).toBeVisible()
   await showSavedList(page, false)
   await expect(page.getByText(docTitle)).toBeVisible()
+  await downloadSavedDocument(page, docTitle)
 
   for (const { title, isNote } of savedItems.reverse()) {
     await showSavedList(page, isNote)
