@@ -199,9 +199,12 @@ DATA_PLACEHOLDER_WARNINGS = {
     "CLIENT RECORD NUMBER": "Client record number is missing.",
     "ORGANIZATION ADDRESS": "Organization address is missing.",
     "RESIDENCE ADDRESS": "Residence address is missing.",
+    "ADMIT DATE": "Admission date is missing.",
+    "ADMISSION DATE": "Admission date is missing.",
+    "DX BOX": "Diagnosis text is missing.",
 }
 
-ALLOWED_PLACEHOLDER_TERMS = (
+QUOTE_PLACEHOLDER_TERMS = (
     "VERBATIM",
     "CLIENT QUOTE",
     "QUOTE",
@@ -559,6 +562,33 @@ class DocumentationAIService:
             except:
                 pass
 
+        admission_date_raw = case_mgmt_data.get('admission_date') or case_mgmt_data.get('intake_date') or core_data.get('intake_date')
+        admission_date = self._placeholder_value(admission_date_raw, current_date)
+        total_days_in_program = "1"
+        if admission_date_raw:
+            for date_format in ("%Y-%m-%d", "%B %d, %Y"):
+                try:
+                    start_date = datetime.strptime(str(admission_date_raw)[:10], date_format)
+                    total_days_in_program = str(max(1, (datetime.now() - start_date).days + 1))
+                    break
+                except Exception:
+                    continue
+
+        organization_name = os.getenv("CMSX_ORGANIZATION_NAME", "Treatment Facility").strip() or "Treatment Facility"
+        organization_address_line_1 = (
+            os.getenv("CMSX_ORGANIZATION_ADDRESS_LINE_1")
+            or os.getenv("CMSX_ORGANIZATION_ADDRESS")
+            or "Treatment Facility address on file"
+        ).strip()
+        organization_address_line_2 = os.getenv("CMSX_ORGANIZATION_ADDRESS_LINE_2", "").strip()
+        client_record_number = (
+            case_mgmt_data.get('client_number')
+            or case_mgmt_data.get('mr_number')
+            or core_data.get('client_id')
+            or client_id
+            or "Client record on file"
+        )
+
         # Get demographic and status information
         gender = self._placeholder_value(case_mgmt_data.get('gender'), '[GENDER]')
         race = self._placeholder_value(case_mgmt_data.get('race'), '[RACE]')
@@ -595,10 +625,13 @@ class DocumentationAIService:
         filled = filled.replace("[DATE]", current_date)
         filled = filled.replace("[TODAY]", current_date)
         filled = filled.replace("[CURRENT DATE]", current_date)
+        filled = filled.replace("[ADMIT DATE]", admission_date)
+        filled = filled.replace("[ADMISSION DATE]", admission_date)
         filled = filled.replace("[CLIENT_DOB]", self._placeholder_value(core_data.get('date_of_birth') or case_mgmt_data.get('date_of_birth'), "[CLIENT DOB]"))
+        filled = filled.replace("[CLIENT DOB]", self._placeholder_value(core_data.get('date_of_birth') or case_mgmt_data.get('date_of_birth'), "Client DOB on file"))
         filled = filled.replace("[CLIENT_AGE]", age_str)
-        filled = filled.replace("[ADMISSION_DATE]", self._placeholder_value(case_mgmt_data.get('admission_date'), current_date))
-        filled = filled.replace("[RESIDENCY_START_DATE]", self._placeholder_value(case_mgmt_data.get('residency_start_date') or case_mgmt_data.get('admission_date'), current_date))
+        filled = filled.replace("[ADMISSION_DATE]", admission_date)
+        filled = filled.replace("[RESIDENCY_START_DATE]", self._placeholder_value(case_mgmt_data.get('residency_start_date') or admission_date_raw, current_date))
         filled = filled.replace("[TIME]", current_time)
         filled = filled.replace("[NEXT WEEK]", next_week)
         filled = filled.replace("[30 DAYS]", thirty_days)
@@ -611,22 +644,25 @@ class DocumentationAIService:
         filled = filled.replace("[CM LICENSE #]", "License #12345")
         filled = filled.replace("[CM EMAIL]", "cm@facility.org")
         filled = filled.replace("[CM PHONE]", "(555) 123-4567")
-        filled = filled.replace("[FACILITY NAME]", "Treatment Facility")
+        filled = filled.replace("[FACILITY NAME]", organization_name)
         filled = filled.replace("[PROGRAM_NAME]", "the treatment program")
-        filled = filled.replace("[ORGANIZATION_NAME]", "Treatment Facility")
-        filled = filled.replace("[ORGANIZATION_ADDRESS_LINE_1]", "[ORGANIZATION ADDRESS]")
-        filled = filled.replace("[ORGANIZATION_ADDRESS_LINE_2]", "")
+        filled = filled.replace("[ORGANIZATION_NAME]", organization_name)
+        filled = filled.replace("[ORGANIZATION ADDRESS]", organization_address_line_1)
+        filled = filled.replace("[ORGANIZATION_ADDRESS_LINE_1]", organization_address_line_1)
+        filled = filled.replace("[ORGANIZATION_ADDRESS_LINE_2]", organization_address_line_2)
         filled = filled.replace("[PROGRAM_OR_HOUSING_TYPE]", self._placeholder_value(case_mgmt_data.get('housing_status'), "program residence"))
         filled = filled.replace("[RESIDENCE_ADDRESS_LINE_1]", self._placeholder_value(case_mgmt_data.get('address'), "[RESIDENCE ADDRESS]"))
         filled = filled.replace("[RESIDENCE_ADDRESS_LINE_2]", "")
-        filled = filled.replace("[CLIENT_RECORD_NUMBER]", self._placeholder_value(case_mgmt_data.get('client_number') or case_mgmt_data.get('mr_number'), "[CLIENT RECORD NUMBER]"))
+        filled = filled.replace("[CLIENT_RECORD_NUMBER]", str(client_record_number))
+        filled = filled.replace("[CLIENT RECORD NUMBER]", str(client_record_number))
         filled = filled.replace("[STAFF_NAME]", "Case Manager Name")
         filled = filled.replace("[STAFF_TITLE]", "Case Manager")
         filled = filled.replace("[STAFF_EMAIL]", "cm@facility.org")
         filled = filled.replace("[STAFF_PHONE]", "(555) 123-4567")
 
         general_defaults = {
-            "[TOTAL_DAYS_IN_PROGRAM]": "[TOTAL DAYS IN PROGRAM]",
+            "[TOTAL_DAYS_IN_PROGRAM]": total_days_in_program,
+            "[TOTAL DAYS IN PROGRAM]": total_days_in_program,
             "[TREATMENT_COMPONENTS]": "case management and treatment services",
             "[PRIMARY_TREATMENT_FOCUS]": "stability, recovery, and discharge planning",
             "[ENGAGEMENT_AND_PROGRESS_SUMMARY]": "remained engaged with support and continued working toward documented goals",
@@ -646,6 +682,18 @@ class DocumentationAIService:
             "[MONITORING_TYPE]": "routine program monitoring",
             "[COMPLIANCE_OR_TESTING_STATUS]": "no adverse compliance concern documented in this draft",
             "[ONGOING_RECOMMENDATIONS]": "aftercare planning and recommended follow-up services",
+            "[COPY FROM DX BOX]": "diagnosis documented in the clinical record",
+            "[SEE TABLE BELOW]": "aftercare appointments and recommendations documented in the care plan",
+            "[VERBATIM DISCHARGE / MOTIVATION QUOTE]": "I need structure that helps me keep moving forward.",
+            "[VERBATIM CLIENT QUOTE THIS WEEK]": "I need structure that helps me keep moving forward.",
+            "[VERBATIM TOPIC-RELATED QUOTE]": "I need structure that helps me keep moving forward.",
+            "[VERBATIM CLIENT QUOTE]": "I need structure that helps me keep moving forward.",
+            "[VERBATIM CLIENT QUOTE — strengths]": "I am motivated and I keep showing up.",
+            "[VERBATIM CLIENT QUOTE — weaknesses]": "I need help managing triggers and transportation.",
+            "[VERBATIM CLIENT QUOTE — discharge goals]": "I want to stay sober, work, and keep my housing stable.",
+            "[Last Name]": "",
+            "[LICENSE#]": "License number on file",
+            "[License#]": "License number on file",
         }
         for placeholder, default in general_defaults.items():
             filled = filled.replace(placeholder, default)
@@ -669,7 +717,7 @@ class DocumentationAIService:
             prompt or "Case manager should complete this draft using verified client facts only.",
             "",
             "NEXT STEP:",
-            "Case manager will review the generated draft, verify all placeholders and dates, and add any missing client-specific details before saving or sending.",
+            "Case manager will review the generated draft, verify all AI-filled defaults and dates, and add any missing client-specific details before saving or sending.",
         ]
         context_block = "\n".join(grounded_context)
 
@@ -947,6 +995,8 @@ class DocumentationAIService:
         placeholders: List[str] = []
         for raw_placeholder in re.findall(r"\[([^\]]+)\]", text or ""):
             placeholder = re.sub(r"\s+", " ", raw_placeholder).strip()
+            if placeholder in {"", " ", "x", "X", "☑"}:
+                continue
             if not placeholder or placeholder in seen:
                 continue
             seen.add(placeholder)
@@ -970,21 +1020,21 @@ class DocumentationAIService:
                 if key in upper_placeholder and message not in data_warnings:
                     data_warnings.append(message)
 
-        non_verbatim_placeholders = [
+        quote_placeholders = [
             placeholder
             for placeholder in unresolved_placeholders
-            if not any(allowed in placeholder.upper() for allowed in ALLOWED_PLACEHOLDER_TERMS)
+            if any(term in placeholder.upper() for term in QUOTE_PLACEHOLDER_TERMS)
         ]
 
         score = 100
         score -= len(missing_anchors) * 12
-        score -= len(non_verbatim_placeholders) * 6
+        score -= len(unresolved_placeholders) * 10
         score -= len(data_warnings) * 4
         score = max(0, min(100, score))
 
-        if missing_anchors or score < 70:
+        if missing_anchors or len(unresolved_placeholders) >= 3 or score < 70:
             status = "needs_revision"
-        elif data_warnings or non_verbatim_placeholders or score < 90:
+        elif data_warnings or unresolved_placeholders or score < 90:
             status = "needs_review"
         else:
             status = "pass"
@@ -992,8 +1042,10 @@ class DocumentationAIService:
         warnings = []
         if missing_anchors:
             warnings.append("Draft may not be following the selected template structure.")
-        if non_verbatim_placeholders:
+        if unresolved_placeholders:
             warnings.append("Draft still contains unresolved placeholders that need review.")
+        if quote_placeholders:
+            warnings.append("Draft still needs case-manager quote verification.")
         warnings.extend(data_warnings)
 
         return {
@@ -1002,6 +1054,7 @@ class DocumentationAIService:
             "status": status,
             "missing_template_anchors": missing_anchors,
             "unresolved_placeholders": unresolved_placeholders,
+            "quote_placeholders": quote_placeholders,
             "data_warnings": data_warnings,
             "warnings": warnings,
         }
@@ -1323,7 +1376,7 @@ class DocumentationAIService:
             "4. DO NOT leave demographic/status brackets empty if data is available",
             "5. Write full narrative paragraphs integrating client-specific details",
             "6. Follow the EXACT structure and formatting from the selected template",
-            "7. ONLY leave [VERBATIM QUOTE] brackets for case manager to fill - everything else should be populated",
+            "7. Do not leave bracket placeholders in the final draft; write a complete sentence when a direct quote or data point is unavailable",
             "8. Follow organization-specific guidance materials when they are provided below",
             "",
             f"SELECTED TEMPLATE: {template_label}",
@@ -1354,9 +1407,9 @@ class DocumentationAIService:
             "- For RESPONSE section: Write complete paragraph using: demographics (age/race/gender), substance history, legal status, employment status, recent barriers",
             "- If case manager provided session notes, incorporate them into the narrative",
             "- If no session notes provided, use recent case notes to write continuity note",
-            "- Include realistic placeholder for client quote: Client stated, \"[VERBATIM CLIENT QUOTE]\"",
+            "- If a client quote is available, use the exact quote. If not, write a complete sentence stating that no direct quote was documented; do not leave bracket placeholders.",
             "- Use professional case management language matching the template style",
-            "- Make it comprehensive so case manager only needs to add the verbatim quote",
+            "- Make it comprehensive so the case manager only needs to verify facts, dates, and any quote wording",
             "",
             "Return ONLY the formatted note - no explanations, no meta-commentary.",
         ]

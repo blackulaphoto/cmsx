@@ -148,6 +148,85 @@ class DocumentationAIServiceTests(unittest.TestCase):
         self.assertIn("Residence address is missing.", quality["data_warnings"])
         self.assertIn("RESIDENCE ADDRESS", quality["unresolved_placeholders"])
 
+    def test_template_quality_review_fails_quote_placeholders(self):
+        review = self.service.compliance_review(
+            {
+                "note_kind": "group_note",
+                "content": (
+                    "Location of Client: Sober Living. The client attended the group virtually via Zoom. "
+                    "The client displayed active listening and self-awareness. "
+                    "The client participated in each group activity. "
+                    "The client stated, \"[VERBATIM TOPIC-RELATED QUOTE]\""
+                ),
+                "context": {"template_label": "Group Note"},
+            }
+        )
+
+        quality = review["quality_review"]
+        self.assertEqual("needs_review", quality["status"])
+        self.assertLess(quality["score"], 100)
+        self.assertIn("VERBATIM TOPIC-RELATED QUOTE", quality["unresolved_placeholders"])
+        self.assertIn("VERBATIM TOPIC-RELATED QUOTE", quality["quote_placeholders"])
+        self.assertIn("Draft still needs case-manager quote verification.", quality["warnings"])
+
+    def test_template_quality_review_ignores_checkbox_markers(self):
+        review = self.service.compliance_review(
+            {
+                "note_kind": "discharge_summary",
+                "content": (
+                    "DISCHARGE SUMMARY\n\n"
+                    "Date of Admission: June 01, 2026\n"
+                    "Date of Discharge: June 08, 2026\n"
+                    "Reason for Discharge: Completed treatment\n"
+                    "Initiated By: [☑] Mutual [ ] Patient [ ] Family [ ] Clinical\n\n"
+                    "NARRATIVE:\nClient completed treatment and transitioned to outpatient care.\n\n"
+                    "Aftercare Appointments & Recommendations: outpatient follow-up scheduled.\n"
+                    "Return to Independent Residence: 1840 Recovery Way, Los Angeles, CA 90015\n"
+                    "Patient Diagnosis: diagnosis documented in the clinical record"
+                ),
+                "context": {"template_label": "Discharge Summary"},
+            }
+        )
+
+        quality = review["quality_review"]
+        self.assertNotIn("☑", quality["unresolved_placeholders"])
+        self.assertNotIn(" ", quality["unresolved_placeholders"])
+
+    def test_auto_fill_replaces_step8_document_placeholders(self):
+        self.service._get_comprehensive_client_data = lambda _client_id: {
+            "core": {
+                "client_id": "client-123",
+                "first_name": "StepEight",
+                "last_name": "TemplateClient",
+                "date_of_birth": "1989-04-12",
+                "address": "1840 Recovery Way, Unit 12",
+                "intake_date": "2026-06-01",
+            },
+            "case_management": {
+                "housing_status": "Sober living",
+                "legal_status": "Probation",
+                "address": "1840 Recovery Way, Unit 12",
+            },
+        }
+        draft = self.service._auto_fill_placeholders(
+            (
+                "MR: [CLIENT_RECORD_NUMBER]\n"
+                "Days: [TOTAL_DAYS_IN_PROGRAM]\n"
+                "Org: [ORGANIZATION_ADDRESS_LINE_1]\n"
+                "Admit: [ADMIT DATE]\n"
+                "Dx: [COPY FROM DX BOX]\n"
+                "Quote: [VERBATIM CLIENT QUOTE THIS WEEK]"
+            ),
+            client_id="client-123",
+            client_name="StepEight TemplateClient",
+        )
+
+        self.assertNotRegex(draft, r"\[[^\]]+\]")
+        self.assertIn("client-123", draft)
+        self.assertIn("Treatment Facility address on file", draft)
+        self.assertIn("diagnosis documented in the clinical record", draft)
+        self.assertIn("I need structure that helps me keep moving forward.", draft)
+
     def test_template_reference_context_exposes_internal_templates(self):
         context = self.service.get_template_reference_context("Do you have access to treatment plan templates?")
         self.assertIsNotNone(context)

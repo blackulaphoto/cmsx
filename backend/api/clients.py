@@ -5,7 +5,7 @@ Fixes the missing client creation pipeline causing HTTP 405 errors
 """
 
 from fastapi import APIRouter, HTTPException, status, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
 import sqlite3
@@ -420,8 +420,8 @@ class ClientCreateRequest(BaseModel):
     intake_date: Optional[str] = None
     housing_status: Optional[str] = "unknown"
     employment_status: Optional[str] = "unknown"
-    benefits_needed: Optional[List[str]] = []
-    legal_issues: Optional[List[str]] = []
+    benefits_needed: Optional[List[str]] = Field(default_factory=list)
+    legal_issues: Optional[List[str]] = Field(default_factory=list)
     background_check: Optional[str] = "pending"
     # Extended fields from the new client form
     address: Optional[str] = None
@@ -442,6 +442,14 @@ class ClientCreateRequest(BaseModel):
     special_needs: Optional[str] = None
     benefits_status: Optional[str] = None
     legal_status: Optional[str] = None
+    goals: Optional[str] = None
+    barriers: Optional[str] = None
+    notes: Optional[str] = None
+    progress: Optional[int] = None
+    last_contact: Optional[str] = None
+    next_followup: Optional[str] = None
+    needs: Optional[List[str]] = Field(default_factory=list)
+    background: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 class ClientResponse(BaseModel):
     """Client response schema - cannot change per dependency maps"""
@@ -527,8 +535,10 @@ async def create_client(client_data: ClientCreateRequest, request: Request):
                     case_status, program_type, referral_source,
                     prior_convictions, substance_abuse_history, mental_health_status,
                     transportation, medical_conditions, special_needs,
-                    benefits_status, legal_status, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    benefits_status, legal_status, goals, barriers, notes,
+                    progress, last_contact, next_followup, needs, background,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 client_id, client_data.first_name, client_data.last_name,
                 client_data.email, client_data.phone, client_data.date_of_birth,
@@ -543,7 +553,12 @@ async def create_client(client_data: ClientCreateRequest, request: Request):
                 client_data.substance_abuse_history, client_data.mental_health_status,
                 client_data.transportation, client_data.medical_conditions,
                 client_data.special_needs, client_data.benefits_status,
-                client_data.legal_status, current_time
+                client_data.legal_status, client_data.goals, client_data.barriers,
+                client_data.notes, client_data.progress or 0, client_data.last_contact,
+                client_data.next_followup,
+                _serialize_json_field(client_data.needs or [], []),
+                _serialize_json_field(client_data.background or {}, {}),
+                current_time
             ))
             conn.commit()
         
