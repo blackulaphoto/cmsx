@@ -63,7 +63,9 @@ def test_documentation_draft_endpoint_works_with_test_auth_and_no_bearer_token(t
     payload = response.json()
     assert payload["success"] is True
     assert payload["draft"]
+    assert payload["source"] == "template_fallback"
     assert "GOAL:" in payload["draft"]
     assert "INTERVENTION:" in payload["draft"]
     assert "RESPONSE:" in payload["draft"]
     assert "PLAN:" in payload["draft"]
+    assert payload["draft"] != "Client discussed housing barriers and probation follow-up."

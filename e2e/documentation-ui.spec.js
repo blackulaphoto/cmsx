@@ -112,7 +112,6 @@ async function showSavedList(page, isNote) {
 
 test('documentation template generation transforms rough notes into structured drafts', async ({ page }) => {
   test.setTimeout(240_000)
-  test.fail(true, 'Known bug: Generate Draft currently copies the brief verbatim for at least file-backed letter templates.')
   const browserErrors = []
   page.on('console', (message) => {
     if (message.type() === 'error') browserErrors.push(message.text())

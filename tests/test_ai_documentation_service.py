@@ -34,6 +34,45 @@ class DocumentationAIServiceTests(unittest.TestCase):
         self.assertIn("RESPONSE:", result)
         self.assertIn("PLAN:", result)
 
+    def test_selected_template_fallback_uses_template_body_and_not_raw_prompt(self):
+        prompt = "Client reported stable mood, housing needs, probation documentation needs, and outpatient follow-up."
+        result = self.service._build_fallback_draft(
+            {
+                "note_kind": "discharge_summary",
+                "client_name": "Taylor Jones",
+                "user_prompt": prompt,
+                "current_text": "# Completion Letter Template\n\n**Date:** [DATE]\n\n**Client Name:** [CLIENT_NAME]\n\nTo Whom It May Concern,\n\nThis letter is to confirm that **[CLIENT_NAME] successfully completed treatment with [PROGRAM_NAME]**.\n\nSincerely,\n\n[STAFF_NAME]",
+                "context": {
+                    "template_label": "Completion Letter Template",
+                    "template_category": "letters",
+                },
+            },
+            [],
+        )
+
+        self.assertNotEqual(result, prompt)
+        self.assertIn("Completion Letter Template", result)
+        self.assertIn("Taylor Jones", result)
+        self.assertIn("CLIENT CONTEXT:", result)
+        self.assertIn("NEXT STEP:", result)
+
+    def test_fallback_handles_null_client_database_fields(self):
+        self.service._get_comprehensive_client_data = lambda _client_id: {
+            "case_management": {
+                "first_name": "Taylor",
+                "last_name": "Jones",
+                "prior_convictions": None,
+            }
+        }
+        result = self.service._auto_fill_placeholders(
+            "Client: [CLIENT_NAME]\nPrior convictions: [PRIOR CONVICTIONS]",
+            client_id="client-with-null-fields",
+            client_name="Taylor Jones",
+        )
+
+        self.assertIn("Taylor Jones", result)
+        self.assertIn("None documented", result)
+
     def test_compliance_review_flags_missing_sections(self):
         review = self.service.compliance_review({"content": "Client reported stress and asked for help."})
         self.assertFalse(review["is_complete"])

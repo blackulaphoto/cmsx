@@ -265,7 +265,27 @@ async def generate_note_draft(payload: NoteDraftRequest, request: Request):
             }
         except Exception as fallback_exc:
             logger.error("Documentation draft fallback also failed: %s", fallback_exc, exc_info=True)
-            raise HTTPException(status_code=500, detail="Failed to generate documentation draft") from exc
+            safe_prompt = (payload.user_prompt or "").strip()
+            template_text = (payload.current_text or "").strip()
+            emergency_draft = (
+                f"{template_text}\n\nCLIENT CONTEXT:\n{safe_prompt}\n\nNEXT STEP:\nReview and complete the draft using verified facts only."
+                if template_text
+                else safe_prompt or "Review the documentation request and complete the note using verified facts only."
+            )
+            return {
+                "success": True,
+                "draft": emergency_draft,
+                "source": "route_emergency_fallback",
+                "template_excerpt": (payload.current_text or "").strip(),
+                "compliance_preview": {
+                    "warnings": ["AI draft generation failed. Review and complete the draft manually before saving."],
+                    "missing_intervention": True,
+                    "missing_response": True,
+                    "missing_next_step": True,
+                    "is_complete": False,
+                },
+                "suggested_tasks": [],
+            }
 
 
 @router.post("/compliance-review")

@@ -115,6 +115,13 @@ class DocumentationAIService:
         normalized = re.sub(r"\s+", " ", (text or "")).strip()
         return normalized[:limit]
 
+    @staticmethod
+    def _placeholder_value(value: Any, default: str) -> str:
+        if value is None:
+            return default
+        text = str(value).strip()
+        return text if text else default
+
     def extract_brand_guidance_text(self, file_path: str, content_type: str) -> Dict[str, Any]:
         suffix = Path(file_path).suffix.lower()
 
@@ -373,19 +380,20 @@ class DocumentationAIService:
                 pass
 
         # Get demographic and status information
-        gender = case_mgmt_data.get('gender', '[GENDER]')
-        race = case_mgmt_data.get('race', '[RACE]')
-        housing_status = case_mgmt_data.get('housing_status', 'Unknown')
-        employment_status = case_mgmt_data.get('employment_status', 'Unemployed')
-        legal_status = case_mgmt_data.get('legal_status', 'No Active Cases')
-        substance_history = case_mgmt_data.get('substance_abuse_history', 'No documented history')
-        mental_health = case_mgmt_data.get('mental_health_status', 'Stable')
-        prior_convictions = case_mgmt_data.get('prior_convictions', 'None documented')
+        gender = self._placeholder_value(case_mgmt_data.get('gender'), '[GENDER]')
+        race = self._placeholder_value(case_mgmt_data.get('race'), '[RACE]')
+        housing_status = self._placeholder_value(case_mgmt_data.get('housing_status'), 'Unknown')
+        employment_status = self._placeholder_value(case_mgmt_data.get('employment_status'), 'Unemployed')
+        legal_status = self._placeholder_value(case_mgmt_data.get('legal_status'), 'No Active Cases')
+        substance_history = self._placeholder_value(case_mgmt_data.get('substance_abuse_history'), 'No documented history')
+        mental_health = self._placeholder_value(case_mgmt_data.get('mental_health_status'), 'Stable')
+        prior_convictions = self._placeholder_value(case_mgmt_data.get('prior_convictions'), 'None documented')
 
         # Replace all client name placeholders
         filled = filled.replace("[CT NAME]", full_name)
         filled = filled.replace("[Client Name]", full_name)
         filled = filled.replace("[CLIENT NAME]", full_name)
+        filled = filled.replace("[CLIENT_NAME]", full_name)
         filled = filled.replace("[CT FIRST NAME]", first_name)
         filled = filled.replace("[CT LAST NAME]", last_name)
 
@@ -407,6 +415,10 @@ class DocumentationAIService:
         filled = filled.replace("[DATE]", current_date)
         filled = filled.replace("[TODAY]", current_date)
         filled = filled.replace("[CURRENT DATE]", current_date)
+        filled = filled.replace("[CLIENT_DOB]", self._placeholder_value(core_data.get('date_of_birth') or case_mgmt_data.get('date_of_birth'), "[CLIENT DOB]"))
+        filled = filled.replace("[CLIENT_AGE]", age_str)
+        filled = filled.replace("[ADMISSION_DATE]", self._placeholder_value(case_mgmt_data.get('admission_date'), current_date))
+        filled = filled.replace("[RESIDENCY_START_DATE]", self._placeholder_value(case_mgmt_data.get('residency_start_date') or case_mgmt_data.get('admission_date'), current_date))
         filled = filled.replace("[TIME]", current_time)
         filled = filled.replace("[NEXT WEEK]", next_week)
         filled = filled.replace("[30 DAYS]", thirty_days)
@@ -420,8 +432,80 @@ class DocumentationAIService:
         filled = filled.replace("[CM EMAIL]", "cm@facility.org")
         filled = filled.replace("[CM PHONE]", "(555) 123-4567")
         filled = filled.replace("[FACILITY NAME]", "Treatment Facility")
+        filled = filled.replace("[PROGRAM_NAME]", "the treatment program")
+        filled = filled.replace("[ORGANIZATION_NAME]", "Treatment Facility")
+        filled = filled.replace("[ORGANIZATION_ADDRESS_LINE_1]", "[ORGANIZATION ADDRESS]")
+        filled = filled.replace("[ORGANIZATION_ADDRESS_LINE_2]", "")
+        filled = filled.replace("[PROGRAM_OR_HOUSING_TYPE]", self._placeholder_value(case_mgmt_data.get('housing_status'), "program residence"))
+        filled = filled.replace("[RESIDENCE_ADDRESS_LINE_1]", self._placeholder_value(case_mgmt_data.get('address'), "[RESIDENCE ADDRESS]"))
+        filled = filled.replace("[RESIDENCE_ADDRESS_LINE_2]", "")
+        filled = filled.replace("[CLIENT_RECORD_NUMBER]", self._placeholder_value(case_mgmt_data.get('client_number') or case_mgmt_data.get('mr_number'), "[CLIENT RECORD NUMBER]"))
+        filled = filled.replace("[STAFF_NAME]", "Case Manager Name")
+        filled = filled.replace("[STAFF_TITLE]", "Case Manager")
+        filled = filled.replace("[STAFF_EMAIL]", "cm@facility.org")
+        filled = filled.replace("[STAFF_PHONE]", "(555) 123-4567")
+
+        general_defaults = {
+            "[TOTAL_DAYS_IN_PROGRAM]": "[TOTAL DAYS IN PROGRAM]",
+            "[TREATMENT_COMPONENTS]": "case management and treatment services",
+            "[PRIMARY_TREATMENT_FOCUS]": "stability, recovery, and discharge planning",
+            "[ENGAGEMENT_AND_PROGRESS_SUMMARY]": "remained engaged with support and continued working toward documented goals",
+            "[AFTERCARE_OR_RECOVERY_SUPPORTS]": "recommended aftercare and recovery supports",
+            "[STANDING_AND_COMPLIANCE_SUMMARY]": "actively engaged and in good standing",
+            "[PROGRAM_SERVICE_SUMMARY]": "structured treatment and case management services",
+            "[SERVICE_LIST]": "individual support, care coordination, and recovery planning",
+            "[PURPOSE_OF_LETTER]": "verification requested by the client",
+            "[DETOX_OR_PREVIOUS_LEVEL_OF_CARE_SUMMARY]": "entered the current level of care for continued support",
+            "[ENGAGEMENT_AND_COMPLIANCE_SUMMARY]": "remained engaged in services",
+            "[FOCUS_AREA_1]": "Recovery stability",
+            "[FOCUS_AREA_2]": "Housing and aftercare planning",
+            "[FOCUS_AREA_3]": "Legal or probation follow-up as applicable",
+            "[FOCUS_AREA_4]": "Outpatient and community support linkage",
+            "[PARTICIPATION_AND_PROGRESS_SUMMARY]": "participated in services and continued working toward treatment goals",
+            "[CLINICAL_PROGRESS_STATEMENT]": "ongoing progress with continued support recommended",
+            "[MONITORING_TYPE]": "routine program monitoring",
+            "[COMPLIANCE_OR_TESTING_STATUS]": "no adverse compliance concern documented in this draft",
+            "[ONGOING_RECOMMENDATIONS]": "aftercare planning and recommended follow-up services",
+        }
+        for placeholder, default in general_defaults.items():
+            filled = filled.replace(placeholder, default)
 
         return filled
+
+    def _build_selected_template_fallback(self, payload: Dict[str, Any], current_text: str) -> str:
+        """Draft from the exact selected template body when OpenAI is unavailable."""
+        prompt = (payload.get("user_prompt") or "").strip()
+        if not current_text:
+            return ""
+
+        context = payload.get("context") or {}
+        template_label = context.get("template_label") or payload.get("note_kind", "Documentation").replace("_", " ").title()
+        current_date = datetime.now().strftime("%B %d, %Y")
+        draft = current_text.strip()
+        draft = self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
+
+        grounded_context = [
+            "CLIENT CONTEXT:",
+            prompt or "Case manager should complete this draft using verified client facts only.",
+            "",
+            "NEXT STEP:",
+            "Case manager will review the generated draft, verify all placeholders and dates, and add any missing client-specific details before saving or sending.",
+        ]
+        context_block = "\n".join(grounded_context)
+
+        if re.search(r"\n\s*Sincerely,?", draft, flags=re.IGNORECASE):
+            draft = re.sub(
+                r"\n\s*Sincerely,?",
+                f"\n\n{context_block}\n\nSincerely,",
+                draft,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        else:
+            draft = f"{draft}\n\n{context_block}"
+
+        header = f"Template: {template_label}\nDate generated: {current_date}\n\n"
+        return f"{header}{draft}".strip()
 
     def _build_fallback_draft(self, payload: Dict[str, Any], recent_notes: List[Dict[str, Any]]) -> str:
         """Build a complete template-style draft using bracket placeholders and real client data."""
@@ -429,6 +513,10 @@ class DocumentationAIService:
         sections = FALLBACK_SKELETONS.get(note_kind, FALLBACK_SKELETONS["progress_note"])
         prompt = (payload.get("user_prompt") or "").strip()
         current_text = (payload.get("current_text") or "").strip()
+        selected_template_draft = self._build_selected_template_fallback(payload, current_text)
+        if selected_template_draft:
+            return selected_template_draft
+
         context = payload.get("context") or {}
         direct_quotes = context.get("direct_quotes") or []
         observations = context.get("observations") or ""
