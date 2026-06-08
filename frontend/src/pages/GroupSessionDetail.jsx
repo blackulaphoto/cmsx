@@ -385,7 +385,7 @@ function AddClientModal({ sessionId, existingClientIds, onClose, onAdded }) {
           await attendanceAPI.upsert(sessionId, {
             client_id: c.client_id || c.id,
             status: 'present',
-            participation_level: 'moderate',
+            participation_level: 'active',
           })
           succeeded++
         } catch {
@@ -487,7 +487,7 @@ function AddClientModal({ sessionId, existingClientIds, onClose, onAdded }) {
 
 // ── Attendance row ────────────────────────────────────────────────────────────
 
-function AttendanceRow({ record, sessionId, onChanged }) {
+function AttendanceRow({ record, sessionId, onChanged, clientName }) {
   const [status, setStatus] = useState(record.status)
   const [participation, setParticipation] = useState(record.participation_level)
   const [removing, setRemoving] = useState(false)
@@ -533,7 +533,7 @@ function AttendanceRow({ record, sessionId, onChanged }) {
   return (
     <div className="flex flex-wrap items-center gap-3 py-2.5 border-b border-white/5 last:border-0">
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-gray-400 font-mono">{record.client_id}</p>
+        <p className="text-sm text-gray-200">{clientName || <span className="text-xs text-gray-500 font-mono">{record.client_id}</span>}</p>
       </div>
       <select
         value={status}
@@ -560,14 +560,25 @@ function AttendanceRow({ record, sessionId, onChanged }) {
 
 function AttendanceSection({ sessionId }) {
   const [attendance, setAttendance] = useState([])
+  const [clientNames, setClientNames] = useState({})
   const [loading, setLoading] = useState(true)
   const [showAddClient, setShowAddClient] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await attendanceAPI.list(sessionId)
-      setAttendance(data.attendance || [])
+      const [ad, cd] = await Promise.all([
+        attendanceAPI.list(sessionId),
+        apiFetch('/api/clients?limit=500').then((r) => r.json()).catch(() => ({})),
+      ])
+      setAttendance(ad.attendance || [])
+      const list = cd.clients || cd.data || []
+      const map = {}
+      list.forEach((c) => {
+        const id = c.client_id || c.id
+        if (id) map[id] = `${c.first_name || ''} ${c.last_name || ''}`.trim()
+      })
+      setClientNames(map)
     } catch { /* silently fail */ }
     finally { setLoading(false) }
   }, [sessionId])
@@ -609,7 +620,7 @@ function AttendanceSection({ sessionId }) {
               <span className="w-5" />
             </div>
             {attendance.map((record) => (
-              <AttendanceRow key={record.attendance_id} record={record} sessionId={sessionId} onChanged={load} />
+              <AttendanceRow key={record.attendance_id} record={record} sessionId={sessionId} onChanged={load} clientName={clientNames[record.client_id] || null} />
             ))}
           </div>
         )}
@@ -654,7 +665,7 @@ const ENGAGEMENT_PRESETS = [
   'resistant', 'distracted', 'camera off', 'late',
 ]
 
-function NoteCard({ note, sessionId, onUpdated }) {
+function NoteCard({ note, sessionId, onUpdated, clientName }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(note.content || '')
   const [saving, setSaving] = useState(false)
@@ -665,7 +676,7 @@ function NoteCard({ note, sessionId, onUpdated }) {
   const isFinalized = note.finalized === 1 || note.finalized === true
   const label = note.note_type === 'group'
     ? 'Group Summary Note'
-    : `Individual — ${note.client_id || 'Client'}`
+    : `Individual — ${clientName || note.client_id || 'Client'}`
 
   const handleSave = async () => {
     setSaving(true)
@@ -807,6 +818,7 @@ function NoteCard({ note, sessionId, onUpdated }) {
 function NotesSection({ sessionId, session }) {
   const [notes, setNotes] = useState([])
   const [attendance, setAttendance] = useState([])
+  const [clientNames, setClientNames] = useState({}) // clientId → "First Last"
   const [loading, setLoading] = useState(true)
   const [noteSetting, setNoteSetting] = useState('in-person')
   const [allowAiQuotes, setAllowAiQuotes] = useState(false)
@@ -816,12 +828,20 @@ function NotesSection({ sessionId, session }) {
   const loadNotes = useCallback(async () => {
     setLoading(true)
     try {
-      const [nd, ad] = await Promise.all([
+      const [nd, ad, cd] = await Promise.all([
         groupNotesAPI.list(sessionId),
         attendanceAPI.list(sessionId),
+        apiFetch('/api/clients?limit=500').then((r) => r.json()).catch(() => ({})),
       ])
       setNotes(nd.notes || [])
       setAttendance(ad.attendance || [])
+      const list = cd.clients || cd.data || []
+      const map = {}
+      list.forEach((c) => {
+        const id = c.client_id || c.id
+        if (id) map[id] = `${c.first_name || ''} ${c.last_name || ''}`.trim()
+      })
+      setClientNames(map)
     } catch { /* silently fail */ }
     finally { setLoading(false) }
   }, [sessionId])
@@ -983,7 +1003,13 @@ function NotesSection({ sessionId, session }) {
           ))}
           {/* Individual notes */}
           {notes.filter((n) => n.note_type === 'individual').map((note) => (
-            <NoteCard key={note.note_id} note={note} sessionId={sessionId} onUpdated={loadNotes} />
+            <NoteCard
+              key={note.note_id}
+              note={note}
+              sessionId={sessionId}
+              onUpdated={loadNotes}
+              clientName={clientNames[note.client_id] || null}
+            />
           ))}
         </div>
       )}
@@ -997,8 +1023,8 @@ function NotesSection({ sessionId, session }) {
             <p className="text-xs text-gray-500 mb-2">{missing.length} attendee{missing.length !== 1 ? 's' : ''} without notes</p>
             <div className="flex flex-wrap gap-1.5">
               {missing.map((a) => (
-                <span key={a.client_id} className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-gray-400 border border-white/10 font-mono">
-                  {a.client_id}
+                <span key={a.client_id} className="text-xs px-2 py-0.5 rounded-full bg-slate-700/60 text-gray-400 border border-white/10">
+                  {clientNames[a.client_id] || a.client_id}
                 </span>
               ))}
             </div>
