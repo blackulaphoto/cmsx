@@ -56,7 +56,13 @@ class WorkspaceStore:
                     assigned_to TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    completed_at TEXT
+                    completed_at TEXT,
+                    source TEXT,
+                    source_id TEXT,
+                    need_key TEXT,
+                    module TEXT,
+                    ai_generated INTEGER NOT NULL DEFAULT 0,
+                    requires_case_manager_approval INTEGER NOT NULL DEFAULT 0
                 );
 
                 CREATE TABLE IF NOT EXISTS dashboard_notes (
@@ -157,6 +163,30 @@ class WorkspaceStore:
 
                 CREATE INDEX IF NOT EXISTS idx_client_treatment_plans_client
                 ON client_treatment_plans (client_id, status, updated_at);
+
+                CREATE TABLE IF NOT EXISTS client_operational_needs (
+                    need_id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    need_key TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    module TEXT NOT NULL,
+                    priority TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    source_id TEXT,
+                    source_plan_id TEXT,
+                    reason TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    resolved_at TEXT,
+                    metadata_json TEXT NOT NULL DEFAULT '{}'
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_client_operational_needs_client
+                ON client_operational_needs (client_id, status, priority);
+
+                CREATE INDEX IF NOT EXISTS idx_client_operational_needs_dedupe
+                ON client_operational_needs (client_id, need_key, source, source_id);
                 """
             )
             note_columns = {
@@ -165,6 +195,22 @@ class WorkspaceStore:
             }
             if "title" not in note_columns:
                 conn.execute("ALTER TABLE client_notes ADD COLUMN title TEXT")
+
+            task_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(client_tasks)").fetchall()
+            }
+            task_column_definitions = {
+                "source": "TEXT",
+                "source_id": "TEXT",
+                "need_key": "TEXT",
+                "module": "TEXT",
+                "ai_generated": "INTEGER NOT NULL DEFAULT 0",
+                "requires_case_manager_approval": "INTEGER NOT NULL DEFAULT 0",
+            }
+            for column, definition in task_column_definitions.items():
+                if column not in task_columns:
+                    conn.execute(f"ALTER TABLE client_tasks ADD COLUMN {column} {definition}")
             conn.commit()
 
     @staticmethod
@@ -369,6 +415,204 @@ class WorkspaceStore:
             conn.commit()
         return self.get_treatment_plan(plan_id)
 
+    @staticmethod
+    def _module_for_need(domain: str, need_key: str) -> str:
+        if domain == "resume":
+            return "resume"
+        if domain == "employment":
+            return "jobs"
+        if domain == "sober_living":
+            return "sober_living"
+        if domain in {"housing", "medical", "benefits", "legal", "services"}:
+            return domain
+        if need_key in {"transportation"}:
+            return "services"
+        return "case_management"
+
+    def _need_row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
+        need = self._row_to_dict(row)
+        need["metadata"] = self._json_loads(need.pop("metadata_json", None), {})
+        return need
+
+    def list_client_operational_needs(self, client_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM client_operational_needs
+                WHERE client_id = ?
+                ORDER BY
+                    CASE priority
+                        WHEN 'urgent' THEN 0
+                        WHEN 'high' THEN 1
+                        WHEN 'medium' THEN 2
+                        ELSE 3
+                    END,
+                    updated_at DESC
+                """,
+                (client_id,),
+            ).fetchall()
+        return [self._need_row_to_dict(row) for row in rows]
+
+    def upsert_operational_need(
+        self,
+        client_id: str,
+        need: Dict[str, Any],
+        source: str,
+        source_id: Optional[str] = None,
+        source_plan_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        need_key = str(need.get("need_key") or "").strip().lower()
+        domain = str(need.get("domain") or "case_management").strip().lower()
+        source_id = source_id or source_plan_id or need.get("source_id") or ""
+        now = self._now()
+        with self._connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT *
+                FROM client_operational_needs
+                WHERE client_id = ? AND need_key = ? AND source = ? AND COALESCE(source_id, '') = ?
+                """,
+                (client_id, need_key, source, source_id),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    """
+                    UPDATE client_operational_needs
+                    SET domain = ?, module = ?, priority = ?, status = ?, source_plan_id = ?,
+                        reason = ?, updated_at = ?, metadata_json = ?
+                    WHERE need_id = ?
+                    """,
+                    (
+                        domain,
+                        need.get("module") or self._module_for_need(domain, need_key),
+                        need.get("priority") or "medium",
+                        need.get("status") or "active",
+                        source_plan_id,
+                        need.get("reason") or "",
+                        now,
+                        self._json_dumps(need.get("metadata") or {}, {}),
+                        existing["need_id"],
+                    ),
+                )
+                conn.commit()
+                row = conn.execute(
+                    "SELECT * FROM client_operational_needs WHERE need_id = ?",
+                    (existing["need_id"],),
+                ).fetchone()
+                return self._need_row_to_dict(row)
+
+            need_id = f"need_{uuid4().hex[:12]}"
+            conn.execute(
+                """
+                INSERT INTO client_operational_needs (
+                    need_id, client_id, need_key, domain, module, priority, status,
+                    source, source_id, source_plan_id, reason, created_at, updated_at,
+                    resolved_at, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    need_id,
+                    client_id,
+                    need_key,
+                    domain,
+                    need.get("module") or self._module_for_need(domain, need_key),
+                    need.get("priority") or "medium",
+                    need.get("status") or "active",
+                    source,
+                    source_id,
+                    source_plan_id,
+                    need.get("reason") or "",
+                    now,
+                    now,
+                    None,
+                    self._json_dumps(need.get("metadata") or {}, {}),
+                ),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM client_operational_needs WHERE need_id = ?", (need_id,)).fetchone()
+            return self._need_row_to_dict(row)
+
+    def upsert_operational_needs(
+        self,
+        client_id: str,
+        needs: List[Dict[str, Any]],
+        source: str,
+        source_id: Optional[str] = None,
+        source_plan_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return [
+            self.upsert_operational_need(client_id, need, source, source_id, source_plan_id)
+            for need in needs
+            if need.get("need_key")
+        ]
+
+    @staticmethod
+    def _task_title_for_need(need: Dict[str, Any]) -> str:
+        labels = {
+            "dental": "Book dental appointment",
+            "primary_care": "Schedule primary care follow-up",
+            "behavioral_health": "Coordinate behavioral health follow-up",
+            "disability": "Start disability benefits screening",
+            "benefits_screening": "Complete benefits eligibility screening",
+            "legal_follow_up": "Review legal follow-up needs",
+            "housing": "Review housing placement options",
+            "sober_living_aftercare": "Review sober living aftercare options",
+            "resume": "Create or update client resume",
+            "job_search": "Start background-friendly job search",
+            "transportation": "Arrange transportation support",
+        }
+        return labels.get(need.get("need_key"), f"Follow up on {str(need.get('need_key')).replace('_', ' ')}")
+
+    def create_tasks_from_operational_needs(
+        self,
+        client_id: str,
+        needs: List[Dict[str, Any]],
+        source: str,
+        source_id: str,
+        assigned_to: str,
+    ) -> List[Dict[str, Any]]:
+        created_tasks: List[Dict[str, Any]] = []
+        with self._connect() as conn:
+            for need in needs:
+                need_key = need.get("need_key")
+                if not need_key:
+                    continue
+                existing = conn.execute(
+                    """
+                    SELECT task_id
+                    FROM client_tasks
+                    WHERE client_id = ?
+                      AND need_key = ?
+                      AND COALESCE(source_id, '') = ?
+                      AND COALESCE(source, '') = ?
+                      AND LOWER(COALESCE(status, 'pending')) NOT IN ('completed', 'done', 'cancelled', 'canceled')
+                    LIMIT 1
+                    """,
+                    (client_id, need_key, source_id or "", source),
+                ).fetchone()
+                if existing:
+                    continue
+                task = self.create_client_task(
+                    client_id,
+                    {
+                        "title": self._task_title_for_need(need),
+                        "description": need.get("reason") or "Generated from approved treatment-plan need.",
+                        "priority": need.get("priority") or "medium",
+                        "status": "pending",
+                        "task_type": "treatment_plan_need",
+                        "assigned_to": assigned_to or "Case Manager",
+                        "source": source,
+                        "source_id": source_id,
+                        "need_key": need_key,
+                        "module": need.get("module") or self._module_for_need(need.get("domain", ""), need_key),
+                        "ai_generated": 1 if need.get("source") == "ai_suggestion" else 0,
+                        "requires_case_manager_approval": 0,
+                    },
+                )
+                created_tasks.append(task)
+        return created_tasks
+
     def list_client_notes(self, client_id: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -471,7 +715,8 @@ class WorkspaceStore:
             rows = conn.execute(
                 """
                 SELECT task_id, client_id, title, description, priority, status, task_type,
-                       due_date, assigned_to, created_at, updated_at, completed_at
+                       due_date, assigned_to, created_at, updated_at, completed_at,
+                       source, source_id, need_key, module, ai_generated, requires_case_manager_approval
                 FROM client_tasks
                 WHERE client_id = ?
                 ORDER BY COALESCE(due_date, '9999-12-31'), created_at DESC
@@ -494,14 +739,21 @@ class WorkspaceStore:
             "created_at": self._now(),
             "updated_at": self._now(),
             "completed_at": task_data.get("completed_at"),
+            "source": task_data.get("source"),
+            "source_id": task_data.get("source_id"),
+            "need_key": task_data.get("need_key"),
+            "module": task_data.get("module"),
+            "ai_generated": int(bool(task_data.get("ai_generated"))),
+            "requires_case_manager_approval": int(bool(task_data.get("requires_case_manager_approval"))),
         }
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO client_tasks (
                     task_id, client_id, title, description, priority, status, task_type,
-                    due_date, assigned_to, created_at, updated_at, completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    due_date, assigned_to, created_at, updated_at, completed_at,
+                    source, source_id, need_key, module, ai_generated, requires_case_manager_approval
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task["task_id"],
@@ -516,6 +768,12 @@ class WorkspaceStore:
                     task["created_at"],
                     task["updated_at"],
                     task["completed_at"],
+                    task["source"],
+                    task["source_id"],
+                    task["need_key"],
+                    task["module"],
+                    task["ai_generated"],
+                    task["requires_case_manager_approval"],
                 ),
             )
             conn.commit()

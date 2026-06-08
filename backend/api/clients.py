@@ -429,6 +429,29 @@ def build_client_operational_context(
     legal_summary = legal_summary or get_client_legal_summary(client["client_id"])
     services_summary = services_summary or get_client_services_summary(client["client_id"])
     operational_needs = derive_operational_needs(client)
+    try:
+        stored_needs = workspace_store.list_client_operational_needs(client["client_id"])
+    except Exception as exc:
+        logger.warning("Unable to load stored operational needs for %s: %s", client["client_id"], exc)
+        stored_needs = []
+    seen_need_keys = {need.get("need_key") for need in operational_needs}
+    for stored_need in stored_needs:
+        if stored_need.get("status") in {"resolved", "cancelled", "canceled"}:
+            continue
+        if stored_need.get("need_key") in seen_need_keys:
+            continue
+        operational_needs.append({
+            "need_key": stored_need.get("need_key"),
+            "domain": stored_need.get("domain"),
+            "module": stored_need.get("module"),
+            "source": stored_need.get("source"),
+            "source_id": stored_need.get("source_id"),
+            "source_plan_id": stored_need.get("source_plan_id"),
+            "priority": stored_need.get("priority"),
+            "status": stored_need.get("status"),
+            "reason": stored_need.get("reason"),
+        })
+        seen_need_keys.add(stored_need.get("need_key"))
     open_tasks = _open_task_context(overview_data, services_summary)
     treatment_plan_context = _get_active_treatment_plan_placeholder(client, operational_needs)
 
@@ -1451,10 +1474,27 @@ async def approve_client_treatment_plan(client_id: str, plan_id: str, request: R
             raise HTTPException(status_code=404, detail="Treatment plan not found")
 
         approved = workspace_store.approve_treatment_plan(plan_id, approved_by=current_user.case_manager_id)
+        operational_needs = workspace_store.upsert_operational_needs(
+            client_id,
+            approved.get("operational_needs") or [],
+            source="treatment_plan",
+            source_id=plan_id,
+            source_plan_id=plan_id,
+        )
+        created_tasks = workspace_store.create_tasks_from_operational_needs(
+            client_id,
+            operational_needs,
+            source="treatment_plan",
+            source_id=plan_id,
+            assigned_to=current_user.full_name,
+        )
         return {
             "success": True,
             "plan": approved,
-            "message": "Treatment plan approved. Task generation remains a separate review step.",
+            "operational_needs": operational_needs,
+            "created_tasks": created_tasks,
+            "created_task_count": len(created_tasks),
+            "message": "Treatment plan approved and linked operational tasks generated.",
         }
     except HTTPException:
         raise

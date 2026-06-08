@@ -239,9 +239,21 @@ def test_treatment_plan_draft_approve_and_context_readback(tmp_path, monkeypatch
         )
 
         assert approve_response.status_code == 200
-        approved_plan = approve_response.json()["plan"]
+        approve_payload = approve_response.json()
+        approved_plan = approve_payload["plan"]
         assert approved_plan["status"] == "active"
         assert approved_plan["approved_by"] == "cm_test"
+        assert approve_payload["created_task_count"] >= 2
+        task_need_keys = {task["need_key"] for task in approve_payload["created_tasks"]}
+        assert {"dental", "sober_living_aftercare"}.issubset(task_need_keys)
+
+        repeat_approve_response = client.post(
+            f"/api/clients/{client_id}/treatment-plan/{plan['plan_id']}/approve",
+            headers=headers,
+        )
+
+        assert repeat_approve_response.status_code == 200
+        assert repeat_approve_response.json()["created_task_count"] == 0
 
         context_response = client.get(
             f"/api/clients/{client_id}/operational-context",
@@ -253,6 +265,8 @@ def test_treatment_plan_draft_approve_and_context_readback(tmp_path, monkeypatch
         assert treatment_plan["plan_id"] == plan["plan_id"]
         assert treatment_plan["status"] == "active"
         assert treatment_plan["review_due_date"] == "2026-07-07"
+        stored_need_keys = {need["need_key"] for need in context_response.json()["operational_context"]["operational_needs"]}
+        assert {"dental", "sober_living_aftercare"}.issubset(stored_need_keys)
     finally:
         workspace_store.db_path = original_workspace_db
         workspace_store._initialize()
