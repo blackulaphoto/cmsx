@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { BellRing, ClipboardList, Plus, Save, ShieldAlert } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
 import { useAuth } from '../contexts/AuthContext'
+import ClientSelector from '../components/ClientSelector'
+import { getIntakeContext } from '../utils/clientOperationalContext'
 import {
   buildStatusBanner,
   COMMUNICATION_METHOD_OPTIONS,
@@ -141,6 +144,8 @@ const WorkflowCoach = ({ currentStep }) => (
 
 function UR() {
   const { profile } = useAuth()
+  const [searchParams] = useSearchParams()
+  const clientIdFromUrl = searchParams.get('client') || ''
   const defaultCaseManagerId = profile?.case_manager_id || ''
   const [summary, setSummary] = useState({})
   const [cases, setCases] = useState([])
@@ -201,7 +206,7 @@ function UR() {
       const data = await response.json()
       if (data.success) {
         setCases(data.cases || [])
-        if (!selectedCaseId && data.cases?.length && creatingNewCase) {
+        if (!clientIdFromUrl && !selectedCaseId && data.cases?.length && creatingNewCase) {
           loadCaseDetail(data.cases[0].case_id)
         }
       }
@@ -244,12 +249,37 @@ function UR() {
     setCaseForm((prev) => ({ ...prev, [key]: value }))
   }
 
+  const handleClientSelected = (client) => {
+    if (!client?.client_id) return
+    if (!creatingNewCase && caseForm.client_id === client.client_id) return
+
+    const intake = getIntakeContext(client)
+    setCreatingNewCase(true)
+    setSelectedCaseId(null)
+    setEvents([])
+    setCaseForm((prev) => ({
+      ...emptyCaseForm(),
+      ...(creatingNewCase ? prev : {}),
+      client_id: client.client_id || '',
+      client_name: `${client.first_name || ''} ${client.last_name || ''}`.trim(),
+      assigned_case_manager: client.case_manager_id || prev.assigned_case_manager || defaultCaseManagerId,
+      payer: client.insurance_provider || intake.insurance_provider || prev.payer,
+      member_id: client.insurance_member_id || intake.insurance_member_id || prev.member_id,
+      program: client.program_type || intake.program_type || prev.program,
+      admit_date: client.admission_date || client.intake_date || intake.admission_date || prev.admit_date,
+      diagnosis: client.diagnosis || intake.diagnosis || prev.diagnosis,
+      current_level_of_care: client.level_of_care || intake.level_of_care || prev.current_level_of_care
+    }))
+    setEventForm(emptyEventForm())
+  }
+
   const startNewCase = () => {
     setCreatingNewCase(true)
     setSelectedCaseId(null)
     setEvents([])
     setCaseForm({
       ...emptyCaseForm(),
+      client_id: clientIdFromUrl,
       assigned_case_manager: defaultCaseManagerId
     })
     setEventForm(emptyEventForm())
@@ -446,6 +476,23 @@ function UR() {
                   <Save className="h-4 w-4" />
                   {saving ? 'Saving…' : creatingNewCase ? 'Create UR Case' : 'Save UR Case'}
                 </button>
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4">
+                <p className="text-xs uppercase tracking-[0.25em] text-emerald-200">Case-management client</p>
+                <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,430px)] lg:items-center">
+                  <p className="text-sm text-emerald-50/80">
+                    Select the Case Management client before creating UR authorization records so intake identity, program, admission, insurance, and diagnosis data stay bound to this file.
+                  </p>
+                  <ClientSelector
+                    selectedClientId={caseForm.client_id || clientIdFromUrl || null}
+                    onClientSelect={handleClientSelected}
+                    includeOperationalContext
+                    showCreateNew={false}
+                    placeholder="Select a case-management client for UR..."
+                    className="w-full"
+                  />
+                </div>
               </div>
 
               <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">

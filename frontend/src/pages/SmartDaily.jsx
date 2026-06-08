@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Calendar, Clock, CheckCircle, AlertCircle, TrendingUp, Bell,
   Search, Filter, Sparkles, Zap, Brain, Star, PlusCircle, ArrowRight,
@@ -493,6 +493,8 @@ function EmptyState({ onCreateClick }) {
 
 function SmartDaily() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const clientIdFromUrl = searchParams.get('client') || ''
   const [buckets, setBuckets] = useState({})
   const [aiSummary, setAiSummary] = useState(null)
   const [counts, setCounts] = useState({})
@@ -501,6 +503,7 @@ function SmartDaily() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedFilter, setSelectedFilter] = useState('all')
+  const [selectedClient, setSelectedClient] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
 
   const fetchData = async () => {
@@ -587,13 +590,13 @@ function SmartDaily() {
 
   // Flatten all tasks for search/filter
   const allTasks = Object.values(buckets).flat()
+  const activeClientId = selectedClient?.client_id || clientIdFromUrl
 
   const filteredBuckets = () => {
-    if (!searchTerm && selectedFilter === 'all') return buckets
-
     const filtered = {}
     for (const [key, tasks] of Object.entries(buckets)) {
       filtered[key] = tasks.filter(task => {
+        const matchClient = !activeClientId || task.client_id === activeClientId
         const matchSearch = !searchTerm ||
           String(task.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
           String(task.client_name || '').toLowerCase().includes(searchTerm.toLowerCase())
@@ -603,7 +606,7 @@ function SmartDaily() {
           String(task.module || '').toLowerCase().includes(selectedFilter) ||
           String(task.need_key || '').toLowerCase().includes(selectedFilter) ||
           String(task.task_source || task.source || '').toLowerCase().includes(selectedFilter)
-        return matchSearch && matchFilter
+        return matchClient && matchSearch && matchFilter
       })
     }
     return filtered
@@ -611,12 +614,21 @@ function SmartDaily() {
 
   const activeBuckets = filteredBuckets()
   const hasAnyTask = Object.values(activeBuckets).some(arr => arr.length > 0)
+  const visibleTasks = Object.values(activeBuckets).flat()
+  const clientScopedCounts = activeClientId
+    ? {
+        today: activeBuckets.today?.length || 0,
+        overdue: activeBuckets.overdue?.length || 0,
+        totalActive: visibleTasks.filter((task) => String(task.status || '').toLowerCase() !== 'completed').length,
+        completed: visibleTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed').length,
+      }
+    : null
 
   const stats = [
-    { icon: Clock, label: "Today's Tasks", value: String(counts.today || 0), variant: 'primary' },
-    { icon: CheckCircle, label: 'Completed', value: String(completedCount), variant: 'success' },
-    { icon: AlertCircle, label: 'Overdue', value: String(counts.overdue || 0), variant: 'warning' },
-    { icon: TrendingUp, label: 'Total Active', value: String(totalActive), variant: 'secondary' },
+    { icon: Clock, label: "Today's Tasks", value: String(clientScopedCounts?.today ?? counts.today ?? 0), variant: 'primary' },
+    { icon: CheckCircle, label: 'Completed', value: String(clientScopedCounts?.completed ?? completedCount), variant: 'success' },
+    { icon: AlertCircle, label: 'Overdue', value: String(clientScopedCounts?.overdue ?? counts.overdue ?? 0), variant: 'warning' },
+    { icon: TrendingUp, label: 'Total Active', value: String(clientScopedCounts?.totalActive ?? totalActive), variant: 'secondary' },
   ]
 
   return (
@@ -652,6 +664,26 @@ function SmartDaily() {
         </div>
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+
+          <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-5">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,430px)] lg:items-center">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-cyan-200">Case-management client</p>
+                <h2 className="mt-2 text-xl font-bold text-white">Universal Smart Daily client binding</h2>
+                <p className="mt-1 text-sm text-cyan-50/80">
+                  Select a Case Management client to focus today&apos;s task board on that client&apos;s treatment-plan and intake-driven needs.
+                </p>
+              </div>
+              <ClientSelector
+                selectedClientId={activeClientId || null}
+                onClientSelect={setSelectedClient}
+                includeOperationalContext
+                showCreateNew={false}
+                placeholder="Select a case-management client for Smart Daily..."
+                className="w-full"
+              />
+            </div>
+          </div>
 
           {/* AI Summary Banner */}
           {!loading && aiSummary && (

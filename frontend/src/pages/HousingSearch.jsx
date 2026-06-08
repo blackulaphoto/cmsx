@@ -59,14 +59,14 @@ function HousingSearch() {
 
   useEffect(() => {
     const clientId = urlSearchParams.get('client')
-    if (clientId && !selectedClient) {
+    if (clientId && selectedClient?.client_id !== clientId) {
       fetchClientWithOperationalContext(apiFetch, clientId)
         .then(setSelectedClient)
         .catch((error) => {
           console.error('Failed to load housing client from URL:', error)
         })
     }
-  }, [urlSearchParams, selectedClient])
+  }, [urlSearchParams, selectedClient?.client_id])
 
   useEffect(() => {
     if (!selectedClient?.client_id) return
@@ -383,6 +383,7 @@ function HousingSearch() {
               {viewMode === 'sites' ? 'Select Client for Housing Sites' : viewMode === 'resources' ? 'Select Client for Housing Resources' : 'Select Client'}
             </h2>
             <ClientSelector 
+              selectedClientId={selectedClient?.client_id || urlSearchParams.get('client') || null}
               onClientSelect={setSelectedClient}
               includeOperationalContext
               placeholder={viewMode === 'sites' 

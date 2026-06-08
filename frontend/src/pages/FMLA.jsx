@@ -235,6 +235,7 @@ function FMLA() {
   const { profile } = useAuth()
   const defaultCaseManagerId = profile?.case_manager_id || ''
   const [searchParams, setSearchParams] = useSearchParams()
+  const clientIdFromUrl = searchParams.get('client') || ''
   const [summary, setSummary] = useState({
     total_active_cases: 0,
     deadlines_next_7_days: 0,
@@ -296,8 +297,10 @@ function FMLA() {
     Object.entries(filters).forEach(([key, value]) => {
       if (value) next.set(key, value)
     })
+    const activeClientId = caseForm.client_id || clientIdFromUrl
+    if (activeClientId) next.set('client', activeClientId)
     setSearchParams(next, { replace: true })
-  }, [filters])
+  }, [filters, clientIdFromUrl, caseForm.client_id])
 
   useEffect(() => {
     if (selectedCaseId) {
@@ -376,7 +379,10 @@ function FMLA() {
   }
 
   const handleClientSelected = (client) => {
-    if (!creatingNewCase) return
+    if (!client?.client_id) return
+    if (!creatingNewCase && selectedCase?.client_id === client.client_id) return
+    setCreatingNewCase(true)
+    setSelectedCaseId(null)
     setCaseForm((prev) => ({
       ...prev,
       client_id: client.client_id || '',
@@ -544,7 +550,11 @@ function FMLA() {
                   onClick={() => {
                     setCreatingNewCase(true)
                     setSelectedCaseId(null)
-                    setCaseForm(emptyCaseForm())
+                    setCaseForm({
+                      ...emptyCaseForm(),
+                      client_id: clientIdFromUrl,
+                      assigned_case_manager: defaultCaseManagerId
+                    })
                   }}
                   className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
                 >
@@ -618,6 +628,26 @@ function FMLA() {
                 </span>
               )
             })}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-cyan-500/20 bg-cyan-500/10 p-6">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)] lg:items-center">
+            <div>
+              <p className="text-xs uppercase tracking-[0.25em] text-cyan-200">Case-management client</p>
+              <h2 className="mt-2 text-xl font-semibold">Universal FMLA client binding</h2>
+              <p className="mt-1 text-sm text-cyan-50/80">
+                Select a client from Case Management to start or update the FMLA case file with the same client identity used across modules.
+              </p>
+            </div>
+            <ClientSelector
+              selectedClientId={caseForm.client_id || clientIdFromUrl || null}
+              onClientSelect={handleClientSelected}
+              includeOperationalContext
+              showCreateNew={false}
+              placeholder="Select a case-management client for FMLA..."
+              className="w-full"
+            />
           </div>
         </section>
 
@@ -793,7 +823,14 @@ function FMLA() {
 
               {creatingNewCase ? (
                 <div className="mb-6">
-                  <ClientSelector onClientSelect={handleClientSelected} placeholder="Link to an existing client" className="max-w-md" />
+                  <ClientSelector
+                    selectedClientId={caseForm.client_id || clientIdFromUrl || null}
+                    onClientSelect={handleClientSelected}
+                    includeOperationalContext
+                    showCreateNew={false}
+                    placeholder="Link to an existing client"
+                    className="max-w-md"
+                  />
                 </div>
               ) : null}
 

@@ -10,6 +10,7 @@
 // ================================================================
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { FileText, Download, Edit, Eye, User, Briefcase, MapPin, Phone, Mail, Star, Plus, Trash2, Save, Target, Search, Zap, Users, Building, Sparkles, Palette, Upload } from 'lucide-react'
 import toast from 'react-hot-toast'
 import PDFService from '../services/pdfService'
@@ -32,6 +33,9 @@ import {
 import '../styles/ResumeBuilder.css'
 
 function Resume() {
+  const [searchParams] = useSearchParams()
+  const clientIdFromUrl = searchParams.get('client')
+
   // Define templates array first, before using it in state initialization
   const templates = [
     {
@@ -862,7 +866,7 @@ function Resume() {
             ) : (
               /* Client Selection Dropdown */
               <ClientSelector
-                selectedClientId={selectedClient?.client_id || null}
+                selectedClientId={selectedClient?.client_id || clientIdFromUrl || null}
                 onClientSelect={handleClientSelection}
                 includeOperationalContext
                 showCreateNew={false}

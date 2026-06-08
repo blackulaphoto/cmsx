@@ -1,7 +1,9 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { MessageSquare, Send, Bot, User, Loader2, Sparkles, Zap, Brain, Stars, Save, BookOpen, StickyNote, Bookmark } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
+import ClientSelector from '../components/ClientSelector'
 
 const SESSION_KEY = 'ai_assistant_session_id'
 
@@ -14,11 +16,14 @@ const getSessionId = () => {
 }
 
 function AIChat() {
+  const [searchParams] = useSearchParams()
+  const clientIdFromUrl = searchParams.get('client')
   const [messages, setMessages] = useState([])
   const [inputMessage, setInputMessage] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [context, setContext] = useState({
-    client_id: null,
+    client_id: clientIdFromUrl || null,
+    client_name: null,
     user_id: null,
     session_id: null
   })
@@ -80,7 +85,10 @@ function AIChat() {
         },
         body: JSON.stringify({
           message: messageText,
-          case_manager_id: getSessionId()
+          case_manager_id: getSessionId(),
+          user_id: getSessionId(),
+          client_id: context.client_id,
+          context
         })
       })
 
@@ -183,6 +191,38 @@ function AIChat() {
         </div>
 
         <div className="max-w-7xl mx-auto px-6">
+          <div className="py-6 border-b border-white/10">
+            <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/10 p-5">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,430px)] lg:items-center">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.25em] text-cyan-200">Case-management client</p>
+                  <h2 className="mt-2 text-xl font-bold text-white">Universal AI client context</h2>
+                  <p className="mt-1 text-sm text-cyan-50/80">
+                    Select a Case Management client so AI requests include the same client ID used by tasks, documents, benefits, legal, medical, FMLA, UR, housing, and resume workflows.
+                  </p>
+                  {context.client_name ? (
+                    <p className="mt-2 text-sm font-semibold text-white">Current client: {context.client_name}</p>
+                  ) : null}
+                </div>
+                <ClientSelector
+                  selectedClientId={context.client_id || clientIdFromUrl || null}
+                  onClientSelect={(client) => {
+                    if (!client?.client_id) return
+                    setContext((prev) => ({
+                      ...prev,
+                      client_id: client.client_id,
+                      client_name: `${client.first_name || ''} ${client.last_name || ''}`.trim(),
+                    }))
+                  }}
+                  includeOperationalContext
+                  showCreateNew={false}
+                  placeholder="Select a case-management client for AI..."
+                  className="w-full"
+                />
+              </div>
+            </div>
+          </div>
+
           {/* Quick Actions - only show before conversation starts */}
           {messages.length === 0 && <div className="py-6 border-b border-white/10">
             <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
