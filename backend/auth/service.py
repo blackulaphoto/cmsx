@@ -369,12 +369,22 @@ class FirebaseAuthService:
         role = (request.headers.get("X-Test-Auth-Role") or ADMIN_ROLE).strip().lower()
         if role not in ALLOWED_ROLES:
             role = ADMIN_ROLE
+        case_manager_id = (
+            request.headers.get("X-Test-Auth-Case-Manager-Id")
+            or request.headers.get("X-Test-Auth-Case-Manager")
+            or "cm_001"
+        ).strip()
+        firebase_uid = (
+            request.headers.get("X-Test-Auth-Uid")
+            or request.headers.get("X-Test-Auth-User")
+            or "test-firebase-uid"
+        ).strip()
         return AuthenticatedUser(
-            firebase_uid=(request.headers.get("X-Test-Auth-Uid") or "test-firebase-uid").strip(),
+            firebase_uid=firebase_uid,
             email=(request.headers.get("X-Test-Auth-Email") or "case.manager@example.com").strip().lower(),
             full_name=(request.headers.get("X-Test-Auth-Name") or "Test Case Manager").strip(),
             role=role,
-            case_manager_id=(request.headers.get("X-Test-Auth-Case-Manager-Id") or "cm_001").strip(),
+            case_manager_id=case_manager_id,
             auth_provider="test",
             is_active=True,
         )

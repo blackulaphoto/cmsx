@@ -5,7 +5,7 @@ const testAuthHeaders = {
   'X-Test-Auth-Email': 'e2e.case.manager@example.com',
   'X-Test-Auth-Name': 'E2E Case Manager',
   'X-Test-Auth-Role': 'admin',
-  'X-Test-Auth-Case-Manager': 'cm_e2e'
+  'X-Test-Auth-Case-Manager-Id': 'cm_e2e'
 }
 
 test('creates, lists, persists, and updates a UR case through the UI', async ({ page, request }) => {

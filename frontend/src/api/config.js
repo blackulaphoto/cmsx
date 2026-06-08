@@ -25,7 +25,7 @@ const getTestAuthHeaders = () => {
     'X-Test-Auth-Email': import.meta.env.VITE_TEST_AUTH_EMAIL || 'e2e.case.manager@example.com',
     'X-Test-Auth-Name': import.meta.env.VITE_TEST_AUTH_NAME || 'E2E Case Manager',
     'X-Test-Auth-Role': import.meta.env.VITE_TEST_AUTH_ROLE || 'admin',
-    'X-Test-Auth-Case-Manager': import.meta.env.VITE_TEST_AUTH_CASE_MANAGER || 'cm_e2e'
+    'X-Test-Auth-Case-Manager-Id': import.meta.env.VITE_TEST_AUTH_CASE_MANAGER || 'cm_e2e'
   }
 }
 

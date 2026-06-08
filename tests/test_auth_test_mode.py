@@ -50,6 +50,21 @@ def test_test_user_from_request_uses_safe_defaults_and_headers(tmp_path):
     assert user.auth_provider == "test"
 
 
+def test_test_user_from_request_accepts_legacy_case_manager_header(tmp_path):
+    service = _service(tmp_path)
+    request = SimpleNamespace(
+        headers={
+            "X-Test-Auth-User": "uid-legacy",
+            "X-Test-Auth-Case-Manager": "cm_legacy",
+        }
+    )
+
+    user = service.test_user_from_request(request)
+
+    assert user.firebase_uid == "uid-legacy"
+    assert user.case_manager_id == "cm_legacy"
+
+
 def test_test_user_from_request_rejects_unknown_role_to_admin_default(tmp_path):
     service = _service(tmp_path)
     request = SimpleNamespace(headers={"X-Test-Auth-Role": "owner"})
