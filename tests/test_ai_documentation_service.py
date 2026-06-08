@@ -200,7 +200,16 @@ class DocumentationAIServiceTests(unittest.TestCase):
                 "last_name": "TemplateClient",
                 "date_of_birth": "1989-04-12",
                 "address": "1840 Recovery Way, Unit 12",
+                "city": "Los Angeles",
+                "state": "CA",
+                "zip_code": "90015",
                 "intake_date": "2026-06-01",
+                "program_type": "Residential SUD Treatment",
+                "medical_conditions": "hypertension",
+                "legal_status": "Probation",
+                "benefits_status": "Medi-Cal active",
+                "goals": "Complete treatment and transition to outpatient care",
+                "barriers": "transportation and probation documentation",
             },
             "case_management": {
                 "housing_status": "Sober living",
@@ -215,6 +224,9 @@ class DocumentationAIServiceTests(unittest.TestCase):
                 "Org: [ORGANIZATION_ADDRESS_LINE_1]\n"
                 "Admit: [ADMIT DATE]\n"
                 "Dx: [COPY FROM DX BOX]\n"
+                "Program: [PROGRAM_NAME]\n"
+                "Focus: [PRIMARY_TREATMENT_FOCUS]\n"
+                "Aftercare: [SEE TABLE BELOW]\n"
                 "Quote: [VERBATIM CLIENT QUOTE THIS WEEK]"
             ),
             client_id="client-123",
@@ -224,8 +236,42 @@ class DocumentationAIServiceTests(unittest.TestCase):
         self.assertNotRegex(draft, r"\[[^\]]+\]")
         self.assertIn("client-123", draft)
         self.assertIn("Treatment Facility address on file", draft)
-        self.assertIn("diagnosis documented in the clinical record", draft)
+        self.assertIn("Diagnosis is not documented in the intake/profile", draft)
+        self.assertIn("Residential SUD Treatment", draft)
+        self.assertIn("Complete treatment and transition to outpatient care", draft)
+        self.assertIn("transportation and probation documentation", draft)
         self.assertIn("I need structure that helps me keep moving forward.", draft)
+
+    def test_shared_intake_context_prefers_real_client_fields(self):
+        context = self.service._build_shared_intake_context(
+            {
+                "core": {
+                    "client_id": "client-456",
+                    "first_name": "Jordan",
+                    "last_name": "Rivera",
+                    "intake_date": "2026-06-02",
+                    "program_type": "Intensive Outpatient Program",
+                    "medical_conditions": "diabetes",
+                    "legal_status": "Pending court date",
+                    "benefits_status": "Needs Medi-Cal screening",
+                    "goals": "Stabilize medication and complete IOP",
+                    "barriers": "transportation",
+                    "background": {
+                        "diagnosis": "F10.20 Alcohol use disorder, severe",
+                        "aftercare_plan": "IOP step-down and recovery meetings",
+                    },
+                }
+            },
+            client_name="Jordan Rivera",
+        )
+
+        self.assertEqual("Jordan Rivera", context["full_name"])
+        self.assertEqual("Intensive Outpatient Program", context["program_type"])
+        self.assertEqual("diabetes", context["medical_conditions"])
+        self.assertEqual("Needs Medi-Cal screening", context["benefits_status"])
+        self.assertEqual("Pending court date", context["legal_status"])
+        self.assertEqual("F10.20 Alcohol use disorder, severe", context["diagnosis_summary"])
+        self.assertEqual("IOP step-down and recovery meetings", context["aftercare_plan_summary"])
 
     def test_template_reference_context_exposes_internal_templates(self):
         context = self.service.get_template_reference_context("Do you have access to treatment plan templates?")

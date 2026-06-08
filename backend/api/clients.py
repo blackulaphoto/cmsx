@@ -174,6 +174,18 @@ def normalize_client_record(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
+def build_client_sync_payload(client: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the shared intake payload propagated to module databases and Postgres."""
+    payload = dict(client)
+    first_name = payload.get("first_name") or ""
+    last_name = payload.get("last_name") or ""
+    payload["full_name"] = payload.get("full_name") or f"{first_name} {last_name}".strip()
+    payload["admission_date"] = payload.get("admission_date") or payload.get("intake_date")
+    payload["needs"] = _serialize_json_field(payload.get("needs"), [])
+    payload["background"] = _serialize_json_field(payload.get("background"), {})
+    return payload
+
+
 def get_client_benefits_summary(client_id: str) -> Dict[str, Any]:
     """Get benefits application summary for unified client view."""
     summary = {
@@ -523,6 +535,7 @@ async def create_client(client_data: ClientCreateRequest, request: Request):
         # Step 1: Create in core_clients.db (MASTER DATABASE)
         with get_database_connection("core_clients", "ADMIN") as conn:
             ensure_core_clients_schema(conn)
+            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
             cursor.execute("""
@@ -561,30 +574,19 @@ async def create_client(client_data: ClientCreateRequest, request: Request):
                 current_time
             ))
             conn.commit()
+
+            cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+            created = cursor.fetchone()
+
+        normalized_created = normalize_client_record(created)
+        client_sync_payload = build_client_sync_payload(normalized_created)
         
         # Step 2: Propagate to all module databases (synchronous to avoid blocking)
-        integration_results = propagate_client_to_modules(client_id, {
-            "first_name": client_data.first_name,
-            "last_name": client_data.last_name,
-            "email": client_data.email,
-            "case_manager_id": assigned_case_manager_id,
-            "intake_date": intake_date,
-            "risk_level": client_data.risk_level
-        })
+        integration_results = propagate_client_to_modules(client_id, client_sync_payload)
 
         # Step 3: Mirror write to Railway Postgres when configured
         railway_sync = upsert_client_to_postgres(
-            client_data={
-                "client_id": client_id,
-                "first_name": client_data.first_name,
-                "last_name": client_data.last_name,
-                "email": client_data.email,
-                "phone": client_data.phone,
-                "case_manager_id": assigned_case_manager_id,
-                "risk_level": client_data.risk_level,
-                "intake_date": intake_date,
-                "created_at": current_time,
-            },
+            client_data=client_sync_payload,
             integration_results=integration_results,
         )
         integration_results["railway_postgres"] = railway_sync
@@ -592,17 +594,7 @@ async def create_client(client_data: ClientCreateRequest, request: Request):
         # Return with success flag and proper format
         return {
             "success": True,
-            "client": {
-                "client_id": client_id,
-                "first_name": client_data.first_name,
-                "last_name": client_data.last_name,
-                "email": client_data.email,
-                "phone": client_data.phone,
-                "case_manager_id": assigned_case_manager_id,
-                "intake_date": intake_date,
-                "risk_level": client_data.risk_level,
-                "created_at": current_time
-            },
+            "client": normalized_created,
             "integration_results": integration_results
         }
         
@@ -735,9 +727,19 @@ async def update_client(client_id: str, client_data: ClientUpdateRequest, reques
             cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
             updated = cursor.fetchone()
 
+        normalized_updated = normalize_client_record(updated)
+        client_sync_payload = build_client_sync_payload(normalized_updated)
+        integration_results = propagate_client_to_modules(client_id, client_sync_payload)
+        railway_sync = upsert_client_to_postgres(
+            client_data=client_sync_payload,
+            integration_results=integration_results,
+        )
+        integration_results["railway_postgres"] = railway_sync
+
         return {
             "success": True,
-            "client": normalize_client_record(updated),
+            "client": normalized_updated,
+            "integration_results": integration_results,
             "message": "Client updated successfully",
         }
     except HTTPException:
@@ -966,12 +968,46 @@ def propagate_client_to_modules(client_id: str, client_data: Dict[str, Any]) -> 
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS clients (
                         client_id TEXT PRIMARY KEY,
+                        full_name TEXT,
                         first_name TEXT,
                         last_name TEXT,
+                        phone TEXT,
                         email TEXT,
+                        date_of_birth TEXT,
+                        address TEXT,
+                        city TEXT,
+                        state TEXT,
+                        zip_code TEXT,
+                        emergency_contact_name TEXT,
+                        emergency_contact_phone TEXT,
+                        emergency_contact_relationship TEXT,
                         case_manager_id TEXT,
+                        case_status TEXT,
                         intake_date TEXT,
+                        admission_date TEXT,
                         risk_level TEXT,
+                        housing_status TEXT,
+                        employment_status TEXT,
+                        benefits_status TEXT,
+                        legal_status TEXT,
+                        program_type TEXT,
+                        referral_source TEXT,
+                        prior_convictions TEXT,
+                        substance_abuse_history TEXT,
+                        mental_health_status TEXT,
+                        transportation TEXT,
+                        medical_conditions TEXT,
+                        special_needs TEXT,
+                        goals TEXT,
+                        barriers TEXT,
+                        notes TEXT,
+                        progress INTEGER,
+                        last_contact TEXT,
+                        next_followup TEXT,
+                        needs TEXT,
+                        background TEXT,
+                        created_at TEXT,
+                        updated_at TEXT,
                         synced_at TEXT
                     )
                 """)
@@ -980,12 +1016,46 @@ def propagate_client_to_modules(client_id: str, client_data: Dict[str, Any]) -> 
                 cursor.execute("PRAGMA table_info(clients)")
                 existing_columns = {row[1] for row in cursor.fetchall()}
                 expected_columns = {
+                    "full_name": "TEXT",
                     "first_name": "TEXT",
                     "last_name": "TEXT",
+                    "phone": "TEXT",
                     "email": "TEXT",
+                    "date_of_birth": "TEXT",
+                    "address": "TEXT",
+                    "city": "TEXT",
+                    "state": "TEXT",
+                    "zip_code": "TEXT",
+                    "emergency_contact_name": "TEXT",
+                    "emergency_contact_phone": "TEXT",
+                    "emergency_contact_relationship": "TEXT",
                     "case_manager_id": "TEXT",
+                    "case_status": "TEXT",
                     "intake_date": "TEXT",
+                    "admission_date": "TEXT",
                     "risk_level": "TEXT",
+                    "housing_status": "TEXT",
+                    "employment_status": "TEXT",
+                    "benefits_status": "TEXT",
+                    "legal_status": "TEXT",
+                    "program_type": "TEXT",
+                    "referral_source": "TEXT",
+                    "prior_convictions": "TEXT",
+                    "substance_abuse_history": "TEXT",
+                    "mental_health_status": "TEXT",
+                    "transportation": "TEXT",
+                    "medical_conditions": "TEXT",
+                    "special_needs": "TEXT",
+                    "goals": "TEXT",
+                    "barriers": "TEXT",
+                    "notes": "TEXT",
+                    "progress": "INTEGER",
+                    "last_contact": "TEXT",
+                    "next_followup": "TEXT",
+                    "needs": "TEXT",
+                    "background": "TEXT",
+                    "created_at": "TEXT",
+                    "updated_at": "TEXT",
                     "synced_at": "TEXT",
                 }
                 for col_name, col_type in expected_columns.items():
@@ -1003,12 +1073,46 @@ def propagate_client_to_modules(client_id: str, client_data: Dict[str, Any]) -> 
 
                 values_by_column = {
                     "client_id": client_id,
+                    "full_name": client_data.get("full_name"),
                     "first_name": client_data.get("first_name"),
                     "last_name": client_data.get("last_name"),
+                    "phone": client_data.get("phone"),
                     "email": client_data.get("email"),
+                    "date_of_birth": client_data.get("date_of_birth"),
+                    "address": client_data.get("address"),
+                    "city": client_data.get("city"),
+                    "state": client_data.get("state"),
+                    "zip_code": client_data.get("zip_code"),
+                    "emergency_contact_name": client_data.get("emergency_contact_name"),
+                    "emergency_contact_phone": client_data.get("emergency_contact_phone"),
+                    "emergency_contact_relationship": client_data.get("emergency_contact_relationship"),
                     "case_manager_id": client_data.get("case_manager_id"),
+                    "case_status": client_data.get("case_status"),
                     "intake_date": client_data.get("intake_date"),
+                    "admission_date": client_data.get("admission_date") or client_data.get("intake_date"),
                     "risk_level": client_data.get("risk_level"),
+                    "housing_status": client_data.get("housing_status"),
+                    "employment_status": client_data.get("employment_status"),
+                    "benefits_status": client_data.get("benefits_status"),
+                    "legal_status": client_data.get("legal_status"),
+                    "program_type": client_data.get("program_type"),
+                    "referral_source": client_data.get("referral_source"),
+                    "prior_convictions": client_data.get("prior_convictions"),
+                    "substance_abuse_history": client_data.get("substance_abuse_history"),
+                    "mental_health_status": client_data.get("mental_health_status"),
+                    "transportation": client_data.get("transportation"),
+                    "medical_conditions": client_data.get("medical_conditions"),
+                    "special_needs": client_data.get("special_needs"),
+                    "goals": client_data.get("goals"),
+                    "barriers": client_data.get("barriers"),
+                    "notes": client_data.get("notes"),
+                    "progress": client_data.get("progress"),
+                    "last_contact": client_data.get("last_contact"),
+                    "next_followup": client_data.get("next_followup"),
+                    "needs": _serialize_json_field(client_data.get("needs"), []),
+                    "background": _serialize_json_field(client_data.get("background"), {}),
+                    "created_at": client_data.get("created_at"),
+                    "updated_at": client_data.get("updated_at"),
                     "synced_at": datetime.now().isoformat(),
                 }
 
@@ -1020,14 +1124,26 @@ def propagate_client_to_modules(client_id: str, client_data: Dict[str, Any]) -> 
                 columns_sql = ", ".join(insert_columns)
                 values = [values_by_column[c] for c in insert_columns]
                 
-                # Insert client data
-                cursor.execute(
-                    f"""
-                    INSERT OR REPLACE INTO clients ({columns_sql})
-                    VALUES ({placeholders})
-                    """,
-                    values,
-                )
+                # Upsert shared intake fields without deleting module-owned columns.
+                update_columns = [c for c in insert_columns if c != "client_id"]
+                if update_columns:
+                    update_sql = ", ".join(f"{c} = excluded.{c}" for c in update_columns)
+                    cursor.execute(
+                        f"""
+                        INSERT INTO clients ({columns_sql})
+                        VALUES ({placeholders})
+                        ON CONFLICT(client_id) DO UPDATE SET {update_sql}
+                        """,
+                        values,
+                    )
+                else:
+                    cursor.execute(
+                        f"""
+                        INSERT OR IGNORE INTO clients ({columns_sql})
+                        VALUES ({placeholders})
+                        """,
+                        values,
+                    )
                 
                 conn.commit()
                 integration_results[module] = "success"

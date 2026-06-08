@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 import re
 import sqlite3
 from datetime import datetime, timedelta
@@ -230,6 +231,181 @@ class DocumentationAIService:
             return default
         text = str(value).strip()
         return text if text else default
+
+    @staticmethod
+    def _context_value(value: Any) -> str:
+        if value in (None, "", [], {}):
+            return ""
+        if isinstance(value, list):
+            return ", ".join(str(item).strip() for item in value if str(item).strip())
+        if isinstance(value, dict):
+            preferred = []
+            for key in (
+                "diagnosis",
+                "primary_diagnosis",
+                "treatment_plan",
+                "aftercare_plan",
+                "goals",
+                "barriers",
+                "notes",
+            ):
+                nested_value = value.get(key)
+                if nested_value:
+                    preferred.append(f"{key.replace('_', ' ')}: {nested_value}")
+            return "; ".join(preferred) if preferred else json.dumps(value, default=str)
+        return str(value).strip()
+
+    @classmethod
+    def _first_context_value(cls, *values: Any) -> str:
+        for value in values:
+            text = cls._context_value(value)
+            if text:
+                return text
+        return ""
+
+    def _build_shared_intake_context(
+        self,
+        comprehensive_data: Dict[str, Any],
+        client_name: Optional[str] = None,
+    ) -> Dict[str, str]:
+        """Merge core intake and module data into one documentation context."""
+        core = comprehensive_data.get("core", {}) or {}
+        case_mgmt = comprehensive_data.get("case_management", {}) or {}
+
+        def first(*keys: str, default: str = "") -> str:
+            values = []
+            for key in keys:
+                values.extend([core.get(key), case_mgmt.get(key)])
+            return self._first_context_value(*values) or default
+
+        first_name = first("first_name")
+        last_name = first("last_name")
+        full_name = self._first_context_value(
+            core.get("full_name"),
+            case_mgmt.get("full_name"),
+            f"{first_name} {last_name}".strip(),
+            client_name,
+        )
+        dob = first("date_of_birth")
+        address = first("address")
+        city = first("city")
+        state = first("state")
+        zip_code = first("zip_code")
+        residence_parts = [part for part in [address, city, state, zip_code] if part]
+        residence_address = ", ".join(residence_parts) if residence_parts else ""
+
+        background = {}
+        for source in (core.get("background"), case_mgmt.get("background")):
+            if isinstance(source, str):
+                try:
+                    source = json.loads(source)
+                except Exception:
+                    source = {}
+            if isinstance(source, dict):
+                background.update(source)
+
+        diagnosis = self._first_context_value(
+            first("diagnosis"),
+            first("primary_diagnosis"),
+            first("diagnoses"),
+            first("dx_box"),
+            background.get("diagnosis"),
+            background.get("primary_diagnosis"),
+            background.get("diagnoses"),
+        )
+        goals = first("goals")
+        barriers = first("barriers")
+        notes = first("notes")
+        needs = first("needs")
+        medical_conditions = first("medical_conditions")
+        legal_status = first("legal_status")
+        prior_convictions = first("prior_convictions")
+        substance_history = first("substance_abuse_history")
+        mental_health = first("mental_health_status")
+        program_type = first("program_type")
+        transportation = first("transportation")
+        special_needs = first("special_needs")
+
+        treatment_plan = self._first_context_value(
+            first("treatment_plan"),
+            first("treatment_plan_summary"),
+            first("current_treatment_plan"),
+            background.get("treatment_plan"),
+            background.get("treatment_plan_summary"),
+        )
+        aftercare_plan = self._first_context_value(
+            first("aftercare_plan"),
+            first("aftercare_plan_summary"),
+            first("discharge_plan"),
+            background.get("aftercare_plan"),
+            background.get("aftercare_plan_summary"),
+        )
+
+        focus_sources = [
+            value
+            for value in [goals, barriers, substance_history, mental_health, medical_conditions, legal_status]
+            if value and value.lower() not in {"unknown", "none documented", "no active cases"}
+        ]
+        primary_focus = "; ".join(focus_sources[:3]) or "stability, recovery, and discharge planning"
+
+        service_sources = [
+            value
+            for value in [program_type, needs, transportation, special_needs, legal_status]
+            if value and value.lower() not in {"unknown", "none documented"}
+        ]
+        service_list = "; ".join(service_sources) or "case management and care coordination"
+
+        verified_treatment_summary = (
+            treatment_plan
+            or (f"Treatment planning should be verified against the case management profile. Documented goals/barriers: {goals or barriers}"
+                if (goals or barriers)
+                else "Treatment plan is not documented in the intake/profile; verify before sending.")
+        )
+        verified_aftercare_summary = (
+            aftercare_plan
+            or (f"Aftercare should be built from documented goals/barriers and next follow-up. Goals/barriers: {goals or barriers}"
+                if (goals or barriers)
+                else "Aftercare plan is not documented in the intake/profile; add verified appointments before sending.")
+        )
+        diagnosis_summary = diagnosis or "Diagnosis is not documented in the intake/profile; verify clinical record before sending."
+
+        return {
+            "full_name": full_name,
+            "first_name": first_name,
+            "last_name": last_name,
+            "date_of_birth": dob,
+            "address": address,
+            "city": city,
+            "state": state,
+            "zip_code": zip_code,
+            "residence_address": residence_address,
+            "client_record_number": first("client_number", "mr_number", "record_number", "client_id") or "Client record on file",
+            "intake_date": first("intake_date"),
+            "admission_date": first("admission_date", "intake_date"),
+            "gender": first("gender", default="unknown gender"),
+            "race": first("race", default="unknown race"),
+            "housing_status": first("housing_status", default="Unknown"),
+            "employment_status": first("employment_status", default="Unknown"),
+            "benefits_status": first("benefits_status", default="Not Applied"),
+            "legal_status": legal_status or "No Active Cases",
+            "program_type": program_type,
+            "referral_source": first("referral_source"),
+            "prior_convictions": prior_convictions,
+            "substance_history": substance_history,
+            "mental_health": mental_health,
+            "medical_conditions": medical_conditions,
+            "special_needs": special_needs,
+            "transportation": transportation,
+            "goals": goals,
+            "barriers": barriers,
+            "notes": notes,
+            "needs": needs,
+            "treatment_plan_summary": verified_treatment_summary,
+            "aftercare_plan_summary": verified_aftercare_summary,
+            "diagnosis_summary": diagnosis_summary,
+            "primary_treatment_focus": primary_focus,
+            "service_list": service_list,
+        }
 
     def extract_brand_guidance_text(self, file_path: str, content_type: str) -> Dict[str, Any]:
         suffix = Path(file_path).suffix.lower()
@@ -535,12 +711,13 @@ class DocumentationAIService:
         comprehensive_data = self._get_comprehensive_client_data(client_id) if client_id else {}
         core_data = comprehensive_data.get('core', {})
         case_mgmt_data = comprehensive_data.get('case_management', {})
+        intake_context = self._build_shared_intake_context(comprehensive_data, client_name)
 
         # Auto-fill client name variations
-        if core_data or case_mgmt_data:
-            first_name = core_data.get('first_name') or case_mgmt_data.get('first_name', '[CLIENT FIRST NAME]')
-            last_name = core_data.get('last_name') or case_mgmt_data.get('last_name', '[CLIENT LAST NAME]')
-            full_name = f"{first_name} {last_name}".strip()
+        if intake_context.get("full_name"):
+            first_name = intake_context.get("first_name") or "[CLIENT FIRST NAME]"
+            last_name = intake_context.get("last_name") or "[CLIENT LAST NAME]"
+            full_name = intake_context["full_name"]
         elif client_name:
             full_name = client_name
             parts = client_name.split()
@@ -553,7 +730,7 @@ class DocumentationAIService:
 
         # Calculate age from date of birth
         age_str = "[AGE]"
-        dob = core_data.get('date_of_birth') or case_mgmt_data.get('date_of_birth')
+        dob = intake_context.get("date_of_birth")
         if dob:
             try:
                 dob_date = datetime.strptime(dob, '%Y-%m-%d')
@@ -562,7 +739,7 @@ class DocumentationAIService:
             except:
                 pass
 
-        admission_date_raw = case_mgmt_data.get('admission_date') or case_mgmt_data.get('intake_date') or core_data.get('intake_date')
+        admission_date_raw = intake_context.get("admission_date")
         admission_date = self._placeholder_value(admission_date_raw, current_date)
         total_days_in_program = "1"
         if admission_date_raw:
@@ -582,22 +759,20 @@ class DocumentationAIService:
         ).strip()
         organization_address_line_2 = os.getenv("CMSX_ORGANIZATION_ADDRESS_LINE_2", "").strip()
         client_record_number = (
-            case_mgmt_data.get('client_number')
-            or case_mgmt_data.get('mr_number')
-            or core_data.get('client_id')
+            intake_context.get("client_record_number")
             or client_id
             or "Client record on file"
         )
 
         # Get demographic and status information
-        gender = self._placeholder_value(case_mgmt_data.get('gender'), '[GENDER]')
-        race = self._placeholder_value(case_mgmt_data.get('race'), '[RACE]')
-        housing_status = self._placeholder_value(case_mgmt_data.get('housing_status'), 'Unknown')
-        employment_status = self._placeholder_value(case_mgmt_data.get('employment_status'), 'Unemployed')
-        legal_status = self._placeholder_value(case_mgmt_data.get('legal_status'), 'No Active Cases')
-        substance_history = self._placeholder_value(case_mgmt_data.get('substance_abuse_history'), 'No documented history')
-        mental_health = self._placeholder_value(case_mgmt_data.get('mental_health_status'), 'Stable')
-        prior_convictions = self._placeholder_value(case_mgmt_data.get('prior_convictions'), 'None documented')
+        gender = self._placeholder_value(intake_context.get("gender"), '[GENDER]')
+        race = self._placeholder_value(intake_context.get("race"), '[RACE]')
+        housing_status = self._placeholder_value(intake_context.get("housing_status"), 'Unknown')
+        employment_status = self._placeholder_value(intake_context.get("employment_status"), 'Unemployed')
+        legal_status = self._placeholder_value(intake_context.get("legal_status"), 'No Active Cases')
+        substance_history = self._placeholder_value(intake_context.get("substance_history"), 'No documented history')
+        mental_health = self._placeholder_value(intake_context.get("mental_health"), 'Stable')
+        prior_convictions = self._placeholder_value(intake_context.get("prior_convictions"), 'None documented')
 
         # Replace all client name placeholders
         filled = filled.replace("[CT NAME]", full_name)
@@ -627,8 +802,8 @@ class DocumentationAIService:
         filled = filled.replace("[CURRENT DATE]", current_date)
         filled = filled.replace("[ADMIT DATE]", admission_date)
         filled = filled.replace("[ADMISSION DATE]", admission_date)
-        filled = filled.replace("[CLIENT_DOB]", self._placeholder_value(core_data.get('date_of_birth') or case_mgmt_data.get('date_of_birth'), "[CLIENT DOB]"))
-        filled = filled.replace("[CLIENT DOB]", self._placeholder_value(core_data.get('date_of_birth') or case_mgmt_data.get('date_of_birth'), "Client DOB on file"))
+        filled = filled.replace("[CLIENT_DOB]", self._placeholder_value(intake_context.get("date_of_birth"), "[CLIENT DOB]"))
+        filled = filled.replace("[CLIENT DOB]", self._placeholder_value(intake_context.get("date_of_birth"), "Client DOB on file"))
         filled = filled.replace("[CLIENT_AGE]", age_str)
         filled = filled.replace("[ADMISSION_DATE]", admission_date)
         filled = filled.replace("[RESIDENCY_START_DATE]", self._placeholder_value(case_mgmt_data.get('residency_start_date') or admission_date_raw, current_date))
@@ -645,13 +820,13 @@ class DocumentationAIService:
         filled = filled.replace("[CM EMAIL]", "cm@facility.org")
         filled = filled.replace("[CM PHONE]", "(555) 123-4567")
         filled = filled.replace("[FACILITY NAME]", organization_name)
-        filled = filled.replace("[PROGRAM_NAME]", "the treatment program")
+        filled = filled.replace("[PROGRAM_NAME]", self._placeholder_value(intake_context.get("program_type"), "the treatment program"))
         filled = filled.replace("[ORGANIZATION_NAME]", organization_name)
         filled = filled.replace("[ORGANIZATION ADDRESS]", organization_address_line_1)
         filled = filled.replace("[ORGANIZATION_ADDRESS_LINE_1]", organization_address_line_1)
         filled = filled.replace("[ORGANIZATION_ADDRESS_LINE_2]", organization_address_line_2)
-        filled = filled.replace("[PROGRAM_OR_HOUSING_TYPE]", self._placeholder_value(case_mgmt_data.get('housing_status'), "program residence"))
-        filled = filled.replace("[RESIDENCE_ADDRESS_LINE_1]", self._placeholder_value(case_mgmt_data.get('address'), "[RESIDENCE ADDRESS]"))
+        filled = filled.replace("[PROGRAM_OR_HOUSING_TYPE]", self._placeholder_value(intake_context.get("program_type") or intake_context.get("housing_status"), "program residence"))
+        filled = filled.replace("[RESIDENCE_ADDRESS_LINE_1]", self._placeholder_value(intake_context.get("residence_address") or intake_context.get("address"), "[RESIDENCE ADDRESS]"))
         filled = filled.replace("[RESIDENCE_ADDRESS_LINE_2]", "")
         filled = filled.replace("[CLIENT_RECORD_NUMBER]", str(client_record_number))
         filled = filled.replace("[CLIENT RECORD NUMBER]", str(client_record_number))
@@ -663,27 +838,27 @@ class DocumentationAIService:
         general_defaults = {
             "[TOTAL_DAYS_IN_PROGRAM]": total_days_in_program,
             "[TOTAL DAYS IN PROGRAM]": total_days_in_program,
-            "[TREATMENT_COMPONENTS]": "case management and treatment services",
-            "[PRIMARY_TREATMENT_FOCUS]": "stability, recovery, and discharge planning",
-            "[ENGAGEMENT_AND_PROGRESS_SUMMARY]": "remained engaged with support and continued working toward documented goals",
-            "[AFTERCARE_OR_RECOVERY_SUPPORTS]": "recommended aftercare and recovery supports",
+            "[TREATMENT_COMPONENTS]": intake_context["service_list"],
+            "[PRIMARY_TREATMENT_FOCUS]": intake_context["primary_treatment_focus"],
+            "[ENGAGEMENT_AND_PROGRESS_SUMMARY]": intake_context["treatment_plan_summary"],
+            "[AFTERCARE_OR_RECOVERY_SUPPORTS]": intake_context["aftercare_plan_summary"],
             "[STANDING_AND_COMPLIANCE_SUMMARY]": "actively engaged and in good standing",
-            "[PROGRAM_SERVICE_SUMMARY]": "structured treatment and case management services",
-            "[SERVICE_LIST]": "individual support, care coordination, and recovery planning",
+            "[PROGRAM_SERVICE_SUMMARY]": intake_context["service_list"],
+            "[SERVICE_LIST]": intake_context["service_list"],
             "[PURPOSE_OF_LETTER]": "verification requested by the client",
             "[DETOX_OR_PREVIOUS_LEVEL_OF_CARE_SUMMARY]": "entered the current level of care for continued support",
             "[ENGAGEMENT_AND_COMPLIANCE_SUMMARY]": "remained engaged in services",
-            "[FOCUS_AREA_1]": "Recovery stability",
-            "[FOCUS_AREA_2]": "Housing and aftercare planning",
-            "[FOCUS_AREA_3]": "Legal or probation follow-up as applicable",
-            "[FOCUS_AREA_4]": "Outpatient and community support linkage",
-            "[PARTICIPATION_AND_PROGRESS_SUMMARY]": "participated in services and continued working toward treatment goals",
-            "[CLINICAL_PROGRESS_STATEMENT]": "ongoing progress with continued support recommended",
+            "[FOCUS_AREA_1]": intake_context["goals"] or "Recovery stability",
+            "[FOCUS_AREA_2]": intake_context["barriers"] or "Housing and aftercare planning",
+            "[FOCUS_AREA_3]": intake_context["legal_status"] or "Legal or probation follow-up as applicable",
+            "[FOCUS_AREA_4]": intake_context["aftercare_plan_summary"],
+            "[PARTICIPATION_AND_PROGRESS_SUMMARY]": intake_context["treatment_plan_summary"],
+            "[CLINICAL_PROGRESS_STATEMENT]": intake_context["diagnosis_summary"],
             "[MONITORING_TYPE]": "routine program monitoring",
             "[COMPLIANCE_OR_TESTING_STATUS]": "no adverse compliance concern documented in this draft",
-            "[ONGOING_RECOMMENDATIONS]": "aftercare planning and recommended follow-up services",
-            "[COPY FROM DX BOX]": "diagnosis documented in the clinical record",
-            "[SEE TABLE BELOW]": "aftercare appointments and recommendations documented in the care plan",
+            "[ONGOING_RECOMMENDATIONS]": intake_context["aftercare_plan_summary"],
+            "[COPY FROM DX BOX]": intake_context["diagnosis_summary"],
+            "[SEE TABLE BELOW]": intake_context["aftercare_plan_summary"],
             "[VERBATIM DISCHARGE / MOTIVATION QUOTE]": "I need structure that helps me keep moving forward.",
             "[VERBATIM CLIENT QUOTE THIS WEEK]": "I need structure that helps me keep moving forward.",
             "[VERBATIM TOPIC-RELATED QUOTE]": "I need structure that helps me keep moving forward.",
@@ -1290,6 +1465,7 @@ class DocumentationAIService:
         comprehensive_data = self._get_comprehensive_client_data(client_id) if client_id else {}
         core_data = comprehensive_data.get('core', {})
         case_mgmt_data = comprehensive_data.get('case_management', {})
+        intake_context = self._build_shared_intake_context(comprehensive_data, client_name=payload.get("client_name"))
         recent_case_notes = comprehensive_data.get('recent_notes', [])
 
         user_prompt = (payload.get("user_prompt") or "").strip()
@@ -1311,13 +1487,11 @@ class DocumentationAIService:
         # Build comprehensive client context for AI
         client_context_parts = []
         if core_data or case_mgmt_data:
-            first_name = core_data.get('first_name') or case_mgmt_data.get('first_name', '')
-            last_name = core_data.get('last_name') or case_mgmt_data.get('last_name', '')
-            full_name = f"{first_name} {last_name}".strip() or client_name
+            full_name = intake_context["full_name"] or client_name
 
             # Calculate age
             age_str = "unknown age"
-            dob = core_data.get('date_of_birth') or case_mgmt_data.get('date_of_birth')
+            dob = intake_context.get("date_of_birth")
             if dob:
                 try:
                     dob_date = datetime.strptime(dob, '%Y-%m-%d')
@@ -1327,15 +1501,15 @@ class DocumentationAIService:
                     pass
 
             # Gather all available client information
-            gender = case_mgmt_data.get('gender', 'unknown gender')
-            race = case_mgmt_data.get('race', 'unknown race')
-            housing_status = case_mgmt_data.get('housing_status', 'Unknown housing')
-            employment_status = case_mgmt_data.get('employment_status', 'Unknown employment')
-            legal_status = case_mgmt_data.get('legal_status', 'No documented legal status')
-            substance_history = case_mgmt_data.get('substance_abuse_history', 'No documented substance history')
-            mental_health = case_mgmt_data.get('mental_health_status', 'Unknown mental health status')
-            barriers = case_mgmt_data.get('barriers', 'No documented barriers')
-            goals = case_mgmt_data.get('goals', 'No documented goals')
+            gender = intake_context["gender"]
+            race = intake_context["race"]
+            housing_status = intake_context["housing_status"]
+            employment_status = intake_context["employment_status"]
+            legal_status = intake_context["legal_status"]
+            substance_history = intake_context["substance_history"] or "No documented substance history"
+            mental_health = intake_context["mental_health"] or "Unknown mental health status"
+            barriers = intake_context["barriers"] or "No documented barriers"
+            goals = intake_context["goals"] or "No documented goals"
 
             client_context_parts.append(f"CLIENT PROFILE (from database):")
             client_context_parts.append(f"• Name: {full_name}")
@@ -1347,6 +1521,19 @@ class DocumentationAIService:
             client_context_parts.append(f"• Mental Health: {mental_health}")
             client_context_parts.append(f"• Current Barriers: {barriers}")
             client_context_parts.append(f"• Goals: {goals}")
+            client_context_parts.append(f"- Record number: {intake_context['client_record_number']}")
+            client_context_parts.append(f"- Admission/intake date: {intake_context['admission_date'] or intake_context['intake_date'] or 'not documented'}")
+            client_context_parts.append(f"- Residence/address: {intake_context['residence_address'] or 'not documented'}")
+            client_context_parts.append(f"- Program type: {intake_context['program_type'] or 'not documented'}")
+            client_context_parts.append(f"- Benefits: {intake_context['benefits_status']}")
+            client_context_parts.append(f"- Prior convictions/legal intake: {intake_context['prior_convictions'] or 'none documented'}")
+            client_context_parts.append(f"- Medical conditions: {intake_context['medical_conditions'] or 'none documented'}")
+            client_context_parts.append(f"- Special needs: {intake_context['special_needs'] or 'none documented'}")
+            client_context_parts.append(f"- Transportation: {intake_context['transportation'] or 'not documented'}")
+            client_context_parts.append(f"- Treatment plan summary: {intake_context['treatment_plan_summary']}")
+            client_context_parts.append(f"- Aftercare plan summary: {intake_context['aftercare_plan_summary']}")
+            client_context_parts.append(f"- Diagnosis: {intake_context['diagnosis_summary']}")
+            client_context_parts.append(f"- Profile notes: {intake_context['notes'] or 'none documented'}")
         else:
             client_context_parts.append(f"CLIENT: {client_name} (limited data available)")
 
@@ -1404,6 +1591,8 @@ class DocumentationAIService:
             "- Copy the SELECTED TEMPLATE format EXACTLY as shown above",
             "- Do NOT switch to a treatment plan or CM note format unless the selected template is actually that format",
             "- Fill in ALL demographic/status fields using the CLIENT PROFILE data",
+            "- Use the shared intake context for admission date, program type, medical, legal, benefits, treatment plan, aftercare, and record number fields.",
+            "- If diagnosis, treatment plan, or aftercare is not documented in the profile, state that verification is needed instead of inventing facts.",
             "- For RESPONSE section: Write complete paragraph using: demographics (age/race/gender), substance history, legal status, employment status, recent barriers",
             "- If case manager provided session notes, incorporate them into the narrative",
             "- If no session notes provided, use recent case notes to write continuity note",
