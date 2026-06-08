@@ -455,13 +455,17 @@ class SoberLivingDirectoryDatabase:
         parsed = self._parse_iso_date(last_verified_date)
         if not parsed:
             return False
-        return parsed >= datetime.utcnow() - timedelta(days=30)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        parsed_aware = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        return parsed_aware >= cutoff
 
     def _is_stale(self, last_verified_date: Optional[str]) -> bool:
         parsed = self._parse_iso_date(last_verified_date)
         if not parsed:
             return True
-        return parsed < datetime.utcnow() - timedelta(days=30)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        parsed_aware = parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        return parsed_aware < cutoff
 
     def _missing_verification_fields(self, data: Dict[str, Any]) -> List[str]:
         missing = []
