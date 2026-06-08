@@ -392,19 +392,27 @@ def _build_individual_note_prompt(
 
     key_pts_text = "\n".join(f"- {p}" for p in key_points) if key_points else "(no key points provided)"
 
-    quote_instruction = ""
     if staff_quote and staff_quote.strip():
-        quote_instruction = f'Staff-entered client quote (use verbatim): "{staff_quote.strip()}"'
-    elif allow_ai_quotes and attendance_status not in ("absent",):
-        quote_instruction = (
-            "You MAY draft a realistic, clinically appropriate first-person client quote "
-            "consistent with the engagement level and topic. The quote should reflect "
-            "genuine insight or struggle, not a textbook answer. Introduce it with 'CT stated, \"...\"'"
+        quote_block = (
+            f'REQUIRED — CLIENT QUOTE: You MUST include the following verbatim staff-entered quote in the note. '
+            f'Introduce it exactly as: CT stated, "{staff_quote.strip()}" '
+            f'Do not paraphrase. Do not omit it.'
         )
+        quote_step = f'Include the verbatim client quote: CT stated, "{staff_quote.strip()}"'
+    elif allow_ai_quotes and attendance_status not in ("absent",):
+        quote_block = (
+            f"REQUIRED — CLIENT QUOTE: You MUST include a direct client quote in the note. "
+            f"Invent a realistic, clinically appropriate first-person statement that CT might have said "
+            f"during this group, consistent with the topic ({topic_title}) and their engagement level ({engagement_preset}). "
+            f"The quote should sound genuine — a real person's words, not a textbook answer. "
+            f"Introduce it as: CT stated, \"[your invented quote here]\" "
+            f"Do NOT skip this. The quote is mandatory."
+        )
+        quote_step = "Include the AI-drafted client quote using: CT stated, \"...\""
     else:
-        quote_instruction = "Do NOT include any client quote. Do not invent statements."
+        quote_block = "NO QUOTE: Do not include any client quote. Do not invent statements attributed to CT."
+        quote_step = "Do NOT include any client quote."
 
-    absent_instruction = ""
     if attendance_status == "absent":
         return (
             f"Write a brief group note for a client who was ABSENT from today's session.\n"
@@ -438,27 +446,29 @@ Session details:
 - Setting: {setting_label}
 - Attendance: {attendance_status}
 - Client engagement: {engagement_desc}
-- {quote_instruction}
 
-Note structure to follow:
-1. Start with: "{location_line}"
-{"2. Note that the client attended virtually via telehealth." if telehealth else "2. Note that the client attended in person."}
-3. Describe how CT presented (mood, posture, demeanor) — match the engagement level.
-4. State that CT participated in a psychoeducational group on [topic].
-5. Describe CT's engagement and behavior (verbally participated / remained quiet / etc.) — match engagement preset.
-{"6. Include the client quote as directed above." if (staff_quote or allow_ai_quotes) else "6. Do NOT include any quote."}
-7. Note that CT was receptive to (or appeared to receive) psychoeducation on the topic's key themes.
-8. Briefly summarize what CT identified or engaged with (or what the facilitator reviewed if CT was non-verbal).
+=== QUOTE INSTRUCTION — READ CAREFULLY ===
+{quote_block}
+==========================================
+
+Note structure (write as a single flowing paragraph — no numbers, no bullets):
+1. "{location_line}"
+2. CT attended {"virtually via telehealth" if telehealth else "in person"}.
+3. Describe how CT presented (mood, posture, demeanor) — match the engagement level above.
+4. CT participated in a psychoeducational group on {topic_title}.
+5. Describe CT's engagement and behavior — match the engagement preset exactly.
+6. {quote_step}
+7. CT was receptive to psychoeducation on the topic's key themes.
+8. Briefly summarize what CT identified or engaged with.
 9. Note any encouragement given.
 10. Close with whether CT remained for the full session.
 
-Rules:
+Hard rules:
 - Use "CT" throughout. Never invent a name.
-- Write in past tense, third person.
-- Do not include headers, bullet points, or labels — write in flowing paragraph form.
-- Do not include session date, therapist name, or signature lines.
-- Length: 4–7 sentences. Clinical but readable.
-- Output ONLY the note text. No preamble, no explanation.
+- Past tense, third person, flowing paragraph form.
+- No headers, no bullet points, no signature lines.
+- Length: 5–8 sentences.
+- Output ONLY the note text. Nothing else.
 """
     return prompt
 
@@ -505,17 +515,17 @@ Note structure:
 """
 
 
-async def _call_openai_for_note(prompt: str) -> str:
+async def _call_openai_for_note(prompt: str, temperature: float = 0.55) -> str:
     client = _get_openai()
     model = os.getenv("OPENAI_MODEL", "gpt-4o")
     response = await client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "You write clinical psychoeducational group notes. Return only the note text."},
+            {"role": "system", "content": "You are a licensed clinical social worker writing chart-ready group notes. Follow all instructions exactly. Never skip required elements."},
             {"role": "user", "content": prompt},
         ],
-        temperature=0.4,
-        max_tokens=600,
+        temperature=temperature,
+        max_tokens=700,
     )
     return response.choices[0].message.content.strip()
 
