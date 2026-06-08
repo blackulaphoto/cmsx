@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { FileText, Download, Edit, Eye, User, Briefcase, MapPin, Phone, Mail, Star, Plus, Trash2, Save, Target, Search, Zap, Users, Building } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 function Resume() {
   const [selectedClient, setSelectedClient] = useState(null)
@@ -85,7 +86,7 @@ function Resume() {
 
   const fetchAvailableClients = async () => {
     try {
-      const response = await fetch('/api/resume/clients')
+      const response = await apiFetch('/api/resume/clients')
       if (response.ok) {
         const data = await response.json()
         setAvailableClients(data.clients || [])
@@ -100,7 +101,7 @@ function Resume() {
     if (!selectedClient) return
     
     try {
-      const response = await fetch(`/api/resume/profile/${selectedClient.client_id}`)
+      const response = await apiFetch(`/api/resume/profile/${selectedClient.client_id}`)
       if (response.ok) {
         const data = await response.json()
         if (data.profile) {
@@ -116,7 +117,7 @@ function Resume() {
     if (!selectedClient) return
     
     try {
-      const response = await fetch(`/api/resume/list/${selectedClient.client_id}`)
+      const response = await apiFetch(`/api/resume/list/${selectedClient.client_id}`)
       if (response.ok) {
         const data = await response.json()
         setSavedResumes(data.resumes || [])
@@ -130,7 +131,7 @@ function Resume() {
     if (!selectedClient) return
     
     try {
-      const response = await fetch(`/api/resume/applications/${selectedClient.client_id}`)
+      const response = await apiFetch(`/api/resume/applications/${selectedClient.client_id}`)
       if (response.ok) {
         const data = await response.json()
         setJobApplications(data.applications || [])
@@ -148,7 +149,7 @@ function Resume() {
 
     setLoading(true)
     try {
-      const response = await fetch('/api/resume/profile', {
+      const response = await apiFetch('/api/resume/profile', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -187,7 +188,7 @@ function Resume() {
 
     setLoading(true)
     try {
-      const response = await fetch('/api/resume/create', {
+      const response = await apiFetch('/api/resume/create', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -218,7 +219,7 @@ function Resume() {
   const generatePDF = async (resumeId) => {
     setLoading(true)
     try {
-      const response = await fetch(`/api/resume/generate-pdf/${resumeId}`, {
+      const response = await apiFetch(`/api/resume/generate-pdf/${resumeId}`, {
         method: 'POST'
       })
 
@@ -227,7 +228,7 @@ function Resume() {
         toast.success('PDF generated successfully!')
         
         // Download the PDF
-        const downloadResponse = await fetch(`/api/resume/download/${resumeId}`)
+        const downloadResponse = await apiFetch(`/api/resume/download/${resumeId}`)
         if (downloadResponse.ok) {
           const blob = await downloadResponse.blob()
           const url = window.URL.createObjectURL(blob)
@@ -253,7 +254,7 @@ function Resume() {
   const optimizeResume = async (resumeId) => {
     setLoading(true)
     try {
-      const response = await fetch('/api/resume/optimize', {
+      const response = await apiFetch('/api/resume/optimize', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -24,6 +24,7 @@ const diffStatusStyles = {
 }
 
 const formatLabel = (value) => String(value || '').replaceAll('_', ' ')
+const inferredStateNoteFragment = 'State set from the manual discovery job target because the visible Oxford grid row does not expose a state column'
 
 const formatValue = (value) => {
   if (Array.isArray(value)) {
@@ -36,6 +37,14 @@ const formatValue = (value) => {
     return 'Missing'
   }
   return String(value)
+}
+
+const hasInferredStateNote = (recordOrDetail) => {
+  const notes = recordOrDetail?.normalized_preview?.notes
+    || recordOrDetail?.normalized_preview_fields?.notes
+    || recordOrDetail?.extracted_json?.notes
+    || ''
+  return notes.includes(inferredStateNoteFragment)
 }
 
 function SoberLivingDirectoryReview() {
@@ -211,11 +220,29 @@ function SoberLivingDirectoryReview() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-cyan-950 px-4 py-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl space-y-6">
         <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6">
-          <p className="text-sm uppercase tracking-[0.3em] text-amber-300">Review Workflow</p>
-          <h1 className="mt-2 text-3xl font-bold text-white">Sober Living Directory Review</h1>
-          <p className="mt-2 text-sm text-slate-300">
-            Review pending, stale, and cautionary listings before they become trusted referral options.
-          </p>
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-sm uppercase tracking-[0.3em] text-amber-300">Review Workflow</p>
+              <h1 className="mt-2 text-3xl font-bold text-white">Sober Living Directory Review</h1>
+              <p className="mt-2 text-sm text-slate-300">
+                Review pending, stale, and cautionary listings before they become trusted referral options.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                to="/sober-living-directory"
+                className="rounded-2xl border border-cyan-400/30 bg-cyan-500/15 px-4 py-3 text-sm font-medium text-cyan-100 transition hover:bg-cyan-500/25"
+              >
+                Directory
+              </Link>
+              <Link
+                to="/sober-living-directory/discovery"
+                className="rounded-2xl border border-fuchsia-400/30 bg-fuchsia-500/15 px-4 py-3 text-sm font-medium text-fuchsia-100 transition hover:bg-fuchsia-500/25"
+              >
+                Discovery
+              </Link>
+            </div>
+          </div>
         </section>
 
         {loading ? (
@@ -477,6 +504,7 @@ function SoberLivingDirectoryReview() {
                 const isExpanded = expandedRawRecordId === record.raw_id
                 const hasOpenDuplicate = (record.duplicate_candidate_count || 0) > 0
                 const approvedTarget = approvedRawTargets[record.raw_id]
+                const hasInferredState = hasInferredStateNote(record) || hasInferredStateNote(detail)
                 return (
                   <article key={record.raw_id} className="rounded-[2rem] border border-white/10 bg-slate-950/35 p-5">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -505,6 +533,11 @@ function SoberLivingDirectoryReview() {
                         {record.missing_required_fields?.length ? (
                           <p className="text-xs text-red-200">
                             Missing required fields: {record.missing_required_fields.join(', ')}
+                          </p>
+                        ) : null}
+                        {hasInferredState ? (
+                          <p className="text-xs text-amber-200">
+                            State shown here was inferred from the manual discovery job target, not extracted directly from the Oxford source row.
                           </p>
                         ) : null}
                         {approvedTarget ? (
@@ -607,6 +640,12 @@ function SoberLivingDirectoryReview() {
                         </div>
 
                         <div className="mt-4 flex flex-wrap gap-3">
+                          {hasInferredState ? (
+                            <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-2 text-xs text-amber-100">
+                              <Info className="h-3.5 w-3.5" />
+                              Source state was inferred from the manual job target because Oxford does not expose state in the visible grid row.
+                            </span>
+                          ) : null}
                           {detail.missing_required_fields?.length ? (
                             <span className="inline-flex items-center gap-2 rounded-full border border-red-400/30 bg-red-500/15 px-3 py-2 text-xs text-red-100">
                               <Info className="h-3.5 w-3.5" />

@@ -14,9 +14,9 @@ import {
   updateProfile,
 } from 'firebase/auth'
 import { auth, firebaseConfigError, googleProvider } from '../lib/firebase'
+import { apiCall, isFrontendTestAuthEnabled } from '../api/config'
 
 const AuthContext = createContext(null)
-const isFrontendTestAuthEnabled = import.meta.env.VITE_ENABLE_TEST_AUTH === 'true'
 const testAuthProfile = {
   firebase_uid: import.meta.env.VITE_TEST_AUTH_USER || 'uid-e2e',
   email: import.meta.env.VITE_TEST_AUTH_EMAIL || 'e2e.case.manager@example.com',
@@ -28,20 +28,11 @@ const testAuthProfile = {
 }
 
 async function fetchBackendProfile(firebaseUser, role = 'case_manager') {
-  const token = await firebaseUser.getIdToken()
-  const response = await fetch('/api/auth/register', {
+  const data = await apiCall('/api/auth/register', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
+    authUser: firebaseUser,
     body: JSON.stringify({ role }),
   })
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}))
-    throw new Error(error.detail || 'Failed to register user profile')
-  }
-  const data = await response.json()
   return data.user
 }
 
@@ -71,14 +62,7 @@ export function AuthProvider({ children }) {
         return
       }
       try {
-        const token = await nextUser.getIdToken()
-        const response = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-        if (!response.ok) {
-          throw new Error('Failed to load auth profile')
-        }
-        const data = await response.json()
+        const data = await apiCall('/api/auth/me', { authUser: nextUser })
         setProfile(data.user)
       } catch (error) {
         console.error(error)

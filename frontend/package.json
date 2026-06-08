@@ -9,6 +9,7 @@
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "check:api-client": "node ../scripts/check_frontend_api_client.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -15,8 +15,19 @@ const isVercelBrowserHost =
 const useSameOriginProxyOnVercel = isVercelBrowserHost && import.meta.env.VITE_FORCE_DIRECT_API !== '1'
 export const API_BASE_URL = useSameOriginProxyOnVercel ? '' : configuredApiBaseUrl
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 8000)
-export const apiUrl = (endpoint) => `${API_BASE_URL}${endpoint}`
-const isFrontendTestAuthEnabled = import.meta.env.VITE_ENABLE_TEST_AUTH === 'true'
+const isAbsoluteUrl = (endpoint) => /^https?:\/\//i.test(String(endpoint || ''))
+export const apiUrl = (endpoint) => isAbsoluteUrl(endpoint) ? endpoint : `${API_BASE_URL}${endpoint}`
+const frontendEnvironment = (
+  import.meta.env.VITE_APP_ENV ||
+  import.meta.env.VITE_ENVIRONMENT ||
+  import.meta.env.MODE ||
+  ''
+).toLowerCase()
+const isProductionLikeFrontend =
+  frontendEnvironment === 'production' ||
+  (typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname))
+export const isFrontendTestAuthEnabled =
+  import.meta.env.VITE_ENABLE_TEST_AUTH === 'true' && !isProductionLikeFrontend
 
 const getTestAuthHeaders = () => {
   if (!isFrontendTestAuthEnabled) return {}
@@ -47,8 +58,83 @@ const shouldRetryDirect = (response, method) => {
 }
 
 const buildFallbackUrl = (endpoint) => {
+  if (isAbsoluteUrl(endpoint)) return ''
   const base = getDirectFallbackBase()
   return base ? `${base}${endpoint}` : ''
+}
+
+export class ApiError extends Error {
+  constructor(message, { status = 0, endpoint = '', data = null } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.endpoint = endpoint
+    this.data = data
+  }
+}
+
+const shouldUseJsonContentType = (body, headers) => {
+  if (!body) return false
+  if (typeof FormData !== 'undefined' && body instanceof FormData) return false
+  if (typeof Blob !== 'undefined' && body instanceof Blob) return false
+  if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) return false
+  const headerKeys = Object.keys(headers || {}).map((key) => key.toLowerCase())
+  return !headerKeys.includes('content-type')
+}
+
+export const getFirebaseBearerToken = async ({ authUser = null, forceRefresh = false } = {}) => {
+  const user = authUser || auth?.currentUser
+  if (!user) return null
+  return user.getIdToken(forceRefresh)
+}
+
+const buildHeaders = async (options = {}) => {
+  const {
+    headers: providedHeaders = {},
+    authRequired = true,
+    authUser = null,
+    forceRefreshToken = false,
+    body,
+  } = options
+  const token = authRequired
+    ? await getFirebaseBearerToken({ authUser, forceRefresh: forceRefreshToken })
+    : null
+  if (authRequired && !token && !isFrontendTestAuthEnabled) {
+    throw new ApiError('No Firebase user is signed in; cannot call protected API without a bearer token', {
+      status: 401,
+    })
+  }
+  const headers = {
+    ...getTestAuthHeaders(),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...providedHeaders,
+  }
+  if (shouldUseJsonContentType(body, headers)) {
+    headers['Content-Type'] = 'application/json'
+  }
+  return headers
+}
+
+const parseResponseBody = async (response) => {
+  if (response.status === 204) return null
+  const contentType = response.headers.get('content-type') || ''
+  if (contentType.includes('application/json')) {
+    return response.json()
+  }
+  if (contentType.includes('application/pdf') || contentType.includes('application/octet-stream')) {
+    return response.blob()
+  }
+  const text = await response.text()
+  return text || null
+}
+
+const handleAuthFailure = (response, endpoint) => {
+  if (response.status !== 401 && response.status !== 403) return
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('cmsx:api-auth-error', {
+      detail: { status: response.status, endpoint }
+    }))
+  }
 }
 
 // API Endpoints for new 9-database architecture
@@ -117,63 +203,26 @@ export const API_ENDPOINTS = {
   }
 }
 
-// Helper function to make API calls
-export const apiCall = async (endpoint, options = {}) => {
-  const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null
-  const defaultOptions = {
-    headers: {
-      'Content-Type': 'application/json',
-      ...getTestAuthHeaders(),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers
-    }
-  }
-  
-  const config = { ...defaultOptions, ...options }
-  
-  const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS)
-  try {
-    const primaryUrl = apiUrl(endpoint)
-    let response = await fetch(primaryUrl, { ...config, signal: controller.signal })
-
-    if (shouldRetryDirect(response, config.method)) {
-      const fallbackUrl = buildFallbackUrl(endpoint)
-      if (fallbackUrl && fallbackUrl !== primaryUrl) {
-        response = await fetch(fallbackUrl, { ...config, signal: controller.signal })
-      }
-    }
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
-      throw new Error(errorData.detail || errorData.message || `HTTP ${response.status}`)
-    }
-    
-    return await response.json()
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      throw new Error(`Request timeout after ${API_TIMEOUT_MS}ms`)
-    }
-    console.error(`API call failed: ${endpoint}`, error)
-    throw error
-  } finally {
-    clearTimeout(timeoutId)
-  }
-}
-
 export const apiFetch = async (endpoint, options = {}) => {
-  const { timeoutMs, ...fetchOptions } = options
+  const {
+    timeoutMs,
+    authRequired,
+    authUser,
+    forceRefreshToken,
+    ...fetchOptions
+  } = options
   const effectiveTimeoutMs = Number(timeoutMs || API_TIMEOUT_MS)
-  const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs)
   try {
     const primaryUrl = apiUrl(endpoint)
-    const headers = {
-      ...getTestAuthHeaders(),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(fetchOptions.headers || {}),
-    }
+    const headers = await buildHeaders({
+      headers: fetchOptions.headers,
+      authRequired,
+      authUser,
+      forceRefreshToken,
+      body: fetchOptions.body,
+    })
     let response = await fetch(primaryUrl, { ...fetchOptions, headers, signal: controller.signal })
 
     if (shouldRetryDirect(response, fetchOptions.method)) {
@@ -183,16 +232,40 @@ export const apiFetch = async (endpoint, options = {}) => {
       }
     }
 
+    handleAuthFailure(response, endpoint)
     return response
   } catch (error) {
     if (error?.name === 'AbortError') {
-      throw new Error(`Request timeout after ${effectiveTimeoutMs}ms`)
+      throw new ApiError(`Request timeout after ${effectiveTimeoutMs}ms`, { endpoint })
     }
     throw error
   } finally {
     clearTimeout(timeoutId)
   }
 }
+
+// Helper function to make authenticated API calls and return parsed response bodies.
+export const apiCall = async (endpoint, options = {}) => {
+  try {
+    const response = await apiFetch(endpoint, options)
+    const data = await parseResponseBody(response)
+
+    if (!response.ok) {
+      const message = data?.detail || data?.message || data?.error || `HTTP ${response.status}`
+      throw new ApiError(message, { status: response.status, endpoint, data })
+    }
+
+    return data
+  } catch (error) {
+    if (error instanceof ApiError) {
+      throw error
+    }
+    console.error(`API call failed: ${endpoint}`, error)
+    throw new ApiError(error?.message || 'API request failed', { endpoint, data: error })
+  }
+}
+
+export const apiRequest = apiCall
 
 // Specific API functions for common operations
 export const clientsAPI = {

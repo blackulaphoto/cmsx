@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { AlertTriangle, CheckCircle, Database, RefreshCw, Server, Shield, Wrench, XCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { API_BASE_URL } from '../api/config'
+import { apiCall } from '../api/config'
 
 function SystemIntegrity() {
   const [loading, setLoading] = useState(true)
@@ -18,15 +18,9 @@ function SystemIntegrity() {
   const fetchIntegrityStatus = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`${API_BASE_URL}/api/system/integrity/status`)
-      
-      if (response.ok) {
-        const data = await response.json()
-        setIntegrityStatus(data.data)
-        fetchRecommendations()
-      } else {
-        toast.error('Failed to fetch integrity status')
-      }
+      const data = await apiCall('/api/system/integrity/status')
+      setIntegrityStatus(data.data)
+      fetchRecommendations()
     } catch (error) {
       console.error('Error fetching integrity status:', error)
       toast.error('Error fetching integrity status')
@@ -37,14 +31,8 @@ function SystemIntegrity() {
 
   const fetchRecommendations = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/system/integrity/recommendations`)
-      
-      if (response.ok) {
-        const data = await response.json()
-        setRecommendations(data.recommendations || [])
-      } else {
-        toast.error('Failed to fetch recommendations')
-      }
+      const data = await apiCall('/api/system/integrity/recommendations')
+      setRecommendations(data.recommendations || [])
     } catch (error) {
       console.error('Error fetching recommendations:', error)
     }
@@ -55,43 +43,37 @@ function SystemIntegrity() {
       setChecking(true)
       toast.loading('Running integrity check...')
       
-      const response = await fetch(`${API_BASE_URL}/api/system/integrity/check`, {
+      await apiCall('/api/system/integrity/check', {
         method: 'POST'
       })
+      toast.dismiss()
+      toast.success('Integrity check started')
       
-      if (response.ok) {
-        toast.dismiss()
-        toast.success('Integrity check started')
-        
-        // Poll for results
-        const pollInterval = setInterval(async () => {
-          const statusResponse = await fetch(`${API_BASE_URL}/api/system/integrity/status`)
-          if (statusResponse.ok) {
-            const data = await statusResponse.json()
-            if (data.last_check && (!integrityStatus || data.last_check !== integrityStatus.timestamp)) {
-              clearInterval(pollInterval)
-              setIntegrityStatus(data.data)
-              fetchRecommendations()
-              toast.success('Integrity check completed')
-              setChecking(false)
-            }
-          }
-        }, 2000)
-        
-        // Stop polling after 30 seconds
-        setTimeout(() => {
-          clearInterval(pollInterval)
-          if (checking) {
-            setChecking(false)
-            fetchIntegrityStatus()
+      // Poll for results
+      const pollInterval = setInterval(async () => {
+        try {
+          const data = await apiCall('/api/system/integrity/status')
+          if (data.last_check && (!integrityStatus || data.last_check !== integrityStatus.timestamp)) {
+            clearInterval(pollInterval)
+            setIntegrityStatus(data.data)
+            fetchRecommendations()
             toast.success('Integrity check completed')
+            setChecking(false)
           }
-        }, 30000)
-      } else {
-        toast.dismiss()
-        toast.error('Failed to start integrity check')
-        setChecking(false)
-      }
+        } catch (error) {
+          console.error('Error polling integrity status:', error)
+        }
+      }, 2000)
+      
+      // Stop polling after 30 seconds
+      setTimeout(() => {
+        clearInterval(pollInterval)
+        if (checking) {
+          setChecking(false)
+          fetchIntegrityStatus()
+          toast.success('Integrity check completed')
+        }
+      }, 30000)
     } catch (error) {
       console.error('Error running integrity check:', error)
       toast.dismiss()
@@ -105,25 +87,18 @@ function SystemIntegrity() {
       setRepairing(true)
       toast.loading('Repairing client synchronization...')
       
-      const response = await fetch(`${API_BASE_URL}/api/system/integrity/repair/sync`, {
+      await apiCall('/api/system/integrity/repair/sync', {
         method: 'POST'
       })
+      toast.dismiss()
+      toast.success('Repair started')
       
-      if (response.ok) {
-        toast.dismiss()
-        toast.success('Repair started')
-        
-        // Wait a bit and then refresh
-        setTimeout(() => {
-          fetchIntegrityStatus()
-          setRepairing(false)
-          toast.success('Repair completed')
-        }, 5000)
-      } else {
-        toast.dismiss()
-        toast.error('Failed to start repair')
+      // Wait a bit and then refresh
+      setTimeout(() => {
+        fetchIntegrityStatus()
         setRepairing(false)
-      }
+        toast.success('Repair completed')
+      }, 5000)
     } catch (error) {
       console.error('Error repairing synchronization:', error)
       toast.dismiss()

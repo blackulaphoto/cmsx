@@ -10,6 +10,7 @@
 // ================================================================
 
 import toast from 'react-hot-toast'
+import { apiFetch } from '../api/config'
 
 /**
  * CORRECTED PDF Service for handling resume PDF generation, download, and viewing
@@ -21,16 +22,16 @@ export class PDFService {
   // Enhanced error checking with detailed logging
   static async makeRequest(url, options = {}) {
     const fullUrl = url.startsWith('http') ? url : `${this.BASE_URL}${url}`
+    const { headers: providedHeaders = {}, ...requestOptions } = options
     
     try {
       console.log(`🌐 Making request to: ${fullUrl}`, options)
       
-      const response = await fetch(fullUrl, {
+      const response = await apiFetch(fullUrl, {
+        ...requestOptions,
         headers: {
-          'Content-Type': 'application/json',
-          ...options.headers
-        },
-        ...options
+          ...providedHeaders
+        }
       })
       
       console.log(`📡 Response status: ${response.status} ${response.statusText}`)
@@ -350,7 +351,7 @@ export class PDFService {
       
       // Download the generated file
       const downloadUrl = `/api/resume/download/${resumeId}`
-      const downloadResponse = await fetch(downloadUrl)
+      const downloadResponse = await apiFetch(downloadUrl)
       
       if (!downloadResponse.ok) {
         throw new Error(`Download failed: ${downloadResponse.status}`)

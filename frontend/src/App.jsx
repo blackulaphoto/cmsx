@@ -20,6 +20,7 @@ import HousingTest from './pages/HousingTest'
 import SoberLivingDirectory from './pages/SoberLivingDirectory'
 import SoberLivingDirectoryListing from './pages/SoberLivingDirectoryListing'
 import SoberLivingDirectoryReview from './pages/SoberLivingDirectoryReview'
+import SoberLivingDirectoryDiscovery from './pages/SoberLivingDirectoryDiscovery'
 import SoberLiving from './pages/SoberLiving'
 import SoberLivingHouse from './pages/SoberLivingHouse'
 import Benefits from './pages/Benefits'
@@ -75,6 +76,7 @@ function App() {
         <Route path="/housing/case-manager" element={<CaseManagerHousing />} />
         <Route path="/housing/test" element={<HousingTest />} />
         <Route path="/sober-living-directory" element={<SoberLivingDirectory />} />
+        <Route path="/sober-living-directory/discovery" element={<SoberLivingDirectoryDiscovery />} />
         <Route path="/sober-living-directory/review" element={<SoberLivingDirectoryReview />} />
         <Route path="/sober-living-directory/:listingId" element={<SoberLivingDirectoryListing />} />
         <Route path="/sober-living" element={<SoberLiving />} />

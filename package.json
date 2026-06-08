@@ -13,6 +13,7 @@
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "test:debug": "playwright test --debug",
+    "check:api-client": "node scripts/check_frontend_api_client.mjs",
     "typecheck": "npm --prefix frontend run typecheck"
   },
   "keywords": [],

@@ -629,6 +629,11 @@ class SaveJobRequest(BaseModel):
     job_id: str
     client_id: str
     notes: Optional[str] = ""
+    title: Optional[str] = ""
+    company: Optional[str] = ""
+    location: Optional[str] = ""
+    salary: Optional[str] = ""
+    url: Optional[str] = ""
 
 @router.post("/save")
 async def save_job(request: SaveJobRequest):
@@ -652,17 +657,47 @@ async def save_job(request: SaveJobRequest):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id TEXT NOT NULL,
                 client_id TEXT NOT NULL,
+                title TEXT,
+                company TEXT,
+                location TEXT,
+                salary TEXT,
+                url TEXT,
                 notes TEXT,
                 saved_date TEXT NOT NULL,
                 UNIQUE(job_id, client_id)
             )
         ''')
+
+        cursor.execute("PRAGMA table_info(saved_jobs)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        columns_to_add = {
+            "title": "TEXT",
+            "company": "TEXT",
+            "location": "TEXT",
+            "salary": "TEXT",
+            "url": "TEXT",
+        }
+        for column_name, column_type in columns_to_add.items():
+            if column_name not in existing_columns:
+                cursor.execute(f"ALTER TABLE saved_jobs ADD COLUMN {column_name} {column_type}")
         
         # Insert or update the saved job
         cursor.execute('''
-            INSERT OR REPLACE INTO saved_jobs (job_id, client_id, notes, saved_date)
-            VALUES (?, ?, ?, ?)
-        ''', (request.job_id, request.client_id, request.notes, datetime.now().isoformat()))
+            INSERT OR REPLACE INTO saved_jobs (
+                job_id, client_id, title, company, location, salary, url, notes, saved_date
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            request.job_id,
+            request.client_id,
+            request.title,
+            request.company,
+            request.location,
+            request.salary,
+            request.url,
+            request.notes,
+            datetime.now().isoformat()
+        ))
         
         conn.commit()
         conn.close()
@@ -702,7 +737,7 @@ async def get_saved_jobs(client_id: str):
         cursor = conn.cursor()
         
         cursor.execute('''
-            SELECT job_id, client_id, notes, saved_date
+            SELECT job_id, client_id, title, company, location, salary, url, notes, saved_date
             FROM saved_jobs
             WHERE client_id = ?
             ORDER BY saved_date DESC
@@ -716,8 +751,13 @@ async def get_saved_jobs(client_id: str):
             saved_jobs.append({
                 "job_id": row[0],
                 "client_id": row[1],
-                "notes": row[2],
-                "saved_date": row[3]
+                "title": row[2],
+                "company": row[3],
+                "location": row[4],
+                "salary": row[5],
+                "url": row[6],
+                "notes": row[7],
+                "saved_date": row[8]
             })
         
         return {
