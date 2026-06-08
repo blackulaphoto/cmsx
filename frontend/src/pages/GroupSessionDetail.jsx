@@ -214,20 +214,46 @@ function MediaPickerModal({ sessionId, currentVideoIds, currentPlaylistIds, onCl
 
 // ── Topic picker modal ────────────────────────────────────────────────────────
 
+const TOPIC_CATEGORIES = [
+  'General', 'Addiction Education', 'Coping Skills', 'Relapse Prevention',
+  'Emotional Skills', 'Relationships', 'Mental Health', 'Practical Life Skills',
+  'Identity & Recovery',
+]
+
 function TopicPickerModal({ sessionId, currentTopicId, onClose, onSaved }) {
+  const [tab, setTab] = useState('browse') // 'browse' | 'ai' | 'custom'
   const [topics, setTopics] = useState([])
+  const [search, setSearch] = useState('')
   const [selected, setSelected] = useState(currentTopicId || '')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
+  // AI generate state
+  const [aiTitle, setAiTitle] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiPreview, setAiPreview] = useState(null)
+
+  // Custom create state
+  const [customTitle, setCustomTitle] = useState('')
+  const [customCategory, setCustomCategory] = useState('General')
+  const [customDesc, setCustomDesc] = useState('')
+  const [customCreating, setCustomCreating] = useState(false)
+
+  const loadTopics = useCallback(() => {
+    setLoading(true)
     topicsAPI.list().then((d) => { setTopics(d.topics || []); setLoading(false) })
   }, [])
 
-  const handleSave = async () => {
+  useEffect(() => { loadTopics() }, [loadTopics])
+
+  const filtered = topics.filter((t) =>
+    !search || t.title.toLowerCase().includes(search.toLowerCase()) || (t.category || '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  const handleSelectAndSave = async (topicId) => {
     setSaving(true)
     try {
-      await sessionsAPI.update(sessionId, { topic_id: selected || null })
+      await sessionsAPI.update(sessionId, { topic_id: topicId || null })
       toast.success('Topic updated')
       onSaved()
     } catch (err) {
@@ -237,41 +263,273 @@ function TopicPickerModal({ sessionId, currentTopicId, onClose, onSaved }) {
     }
   }
 
+  const handleAiGenerate = async () => {
+    if (!aiTitle.trim()) { toast.error('Enter a topic title first'); return }
+    setAiGenerating(true)
+    setAiPreview(null)
+    try {
+      const data = await topicsAPI.aiGenerate({
+        title: aiTitle.trim(),
+        group_length_minutes: 60,
+        population: 'Adults in SUD/MH treatment',
+        tone: 'psychoeducational',
+      })
+      setAiPreview(data)
+    } catch (err) {
+      toast.error(err?.message || 'AI generation failed')
+    } finally {
+      setAiGenerating(false)
+    }
+  }
+
+  const handleSaveAiTopic = async () => {
+    if (!aiPreview) return
+    setSaving(true)
+    try {
+      const created = await topicsAPI.create({
+        title: aiPreview.title || aiTitle,
+        category: aiPreview.category || 'General',
+        description: aiPreview.description || '',
+        key_points: aiPreview.key_points || [],
+        discussion_questions: aiPreview.discussion_questions || [],
+        activity: aiPreview.activity || '',
+        writing_prompt: aiPreview.writing_prompt || '',
+        facilitator_tips: aiPreview.facilitator_tips || '',
+        source: 'ai',
+      })
+      await sessionsAPI.update(sessionId, { topic_id: created.topic_id })
+      toast.success('AI topic created and selected')
+      onSaved()
+    } catch (err) {
+      toast.error(err?.message || 'Failed to save topic')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCreateCustom = async () => {
+    if (!customTitle.trim()) { toast.error('Title is required'); return }
+    setCustomCreating(true)
+    try {
+      const created = await topicsAPI.create({
+        title: customTitle.trim(),
+        category: customCategory,
+        description: customDesc.trim(),
+        source: 'custom',
+      })
+      await sessionsAPI.update(sessionId, { topic_id: created.topic_id })
+      toast.success('Topic created and selected')
+      onSaved()
+    } catch (err) {
+      toast.error(err?.message || 'Failed to create topic')
+    } finally {
+      setCustomCreating(false)
+    }
+  }
+
+  const TABS = [
+    { id: 'browse', label: 'Browse' },
+    { id: 'ai', label: 'AI Generate' },
+    { id: 'custom', label: 'Create Custom' },
+  ]
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-slate-900 border border-white/15 rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] flex flex-col">
-        <div className="flex items-center justify-between p-5 border-b border-white/10">
-          <h3 className="font-semibold text-white text-base">Select Topic</h3>
+      <div className="bg-slate-900 border border-white/15 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-white/10">
+          <h3 className="font-semibold text-white text-base">Topic</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-white"><X className="h-5 w-5" /></button>
         </div>
-        <div className="overflow-y-auto flex-1 p-5">
-          {loading ? (
-            <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 text-purple-400 animate-spin" /></div>
-          ) : (
-            <div className="space-y-2">
-              <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-white/5">
-                <input type="radio" value="" checked={selected === ''} onChange={() => setSelected('')} />
-                <span className="text-sm text-gray-400 italic">No topic</span>
-              </label>
-              {topics.map((t) => (
-                <label key={t.topic_id} className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-white/5">
-                  <input type="radio" value={t.topic_id} checked={selected === t.topic_id} onChange={() => setSelected(t.topic_id)} className="mt-0.5" />
-                  <div>
-                    <p className="text-sm text-gray-300">{t.title}</p>
-                    <p className="text-xs text-gray-500">{t.category}</p>
-                  </div>
-                </label>
-              ))}
+
+        {/* Tab bar */}
+        <div className="flex gap-1 px-4 pt-3 pb-0">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`px-3 py-1.5 text-sm rounded-lg font-medium transition-colors ${
+                tab === t.id
+                  ? 'bg-purple-600/30 text-purple-200 border border-purple-500/30'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab: Browse */}
+        {tab === 'browse' && (
+          <>
+            <div className="px-4 pt-3 pb-2">
+              <input
+                className="input-field w-full text-sm"
+                placeholder="Search topics…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
             </div>
-          )}
-        </div>
-        <div className="flex justify-end gap-2 p-5 border-t border-white/10">
-          <button onClick={onClose} className="btn-secondary">Cancel</button>
-          <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2">
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Select Topic
-          </button>
-        </div>
+            <div className="overflow-y-auto flex-1 px-4 pb-4">
+              {loading ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-6 w-6 text-purple-400 animate-spin" /></div>
+              ) : (
+                <div className="space-y-1">
+                  <label className="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-white/5">
+                    <input type="radio" value="" checked={selected === ''} onChange={() => setSelected('')} />
+                    <span className="text-sm text-gray-400 italic">No topic</span>
+                  </label>
+                  {filtered.map((t) => (
+                    <label key={t.topic_id} className="flex items-start gap-3 cursor-pointer p-2 rounded-lg hover:bg-white/5">
+                      <input type="radio" value={t.topic_id} checked={selected === t.topic_id} onChange={() => setSelected(t.topic_id)} className="mt-0.5" />
+                      <div>
+                        <p className="text-sm text-gray-300">{t.title}</p>
+                        <p className="text-xs text-gray-500">{t.category}</p>
+                      </div>
+                    </label>
+                  ))}
+                  {filtered.length === 0 && !loading && (
+                    <p className="text-sm text-gray-500 italic text-center py-6">No topics found.</p>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t border-white/10">
+              <button onClick={onClose} className="btn-secondary">Cancel</button>
+              <button onClick={() => handleSelectAndSave(selected)} disabled={saving} className="btn-primary flex items-center gap-2">
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Select Topic
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Tab: AI Generate */}
+        {tab === 'ai' && (
+          <>
+            <div className="overflow-y-auto flex-1 p-4 space-y-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-1.5">Topic title or theme</p>
+                <div className="flex gap-2">
+                  <input
+                    className="input-field flex-1 text-sm"
+                    placeholder="e.g. Coping with Cravings, Relapse Prevention…"
+                    value={aiTitle}
+                    onChange={(e) => setAiTitle(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAiGenerate()}
+                  />
+                  <button
+                    onClick={handleAiGenerate}
+                    disabled={aiGenerating || !aiTitle.trim()}
+                    className="btn-primary flex items-center gap-2 whitespace-nowrap"
+                  >
+                    {aiGenerating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                    Generate
+                  </button>
+                </div>
+              </div>
+
+              {aiGenerating && (
+                <div className="flex items-center gap-2 text-sm text-gray-400 py-4">
+                  <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
+                  Generating full topic plan…
+                </div>
+              )}
+
+              {aiPreview && (
+                <div className="space-y-3 bg-slate-800/60 border border-white/10 rounded-xl p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h4 className="text-base font-semibold text-white">{aiPreview.title}</h4>
+                      <p className="text-xs text-purple-300 mt-0.5">{aiPreview.category}</p>
+                    </div>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 flex-shrink-0">AI</span>
+                  </div>
+                  {aiPreview.description && (
+                    <p className="text-sm text-gray-300 leading-relaxed">{aiPreview.description}</p>
+                  )}
+                  {aiPreview.key_points?.length > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Key Points</p>
+                      <ul className="space-y-1">
+                        {aiPreview.key_points.map((pt, i) => (
+                          <li key={i} className="text-sm text-gray-300 flex gap-2">
+                            <span className="text-purple-400 flex-shrink-0">•</span>{pt}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {aiPreview.activity && (
+                    <div>
+                      <p className="text-xs text-gray-500 uppercase tracking-wide mb-1">Activity</p>
+                      <p className="text-sm text-gray-300">{aiPreview.activity}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t border-white/10">
+              <button onClick={onClose} className="btn-secondary">Cancel</button>
+              <button
+                onClick={handleSaveAiTopic}
+                disabled={!aiPreview || saving}
+                className="btn-primary flex items-center gap-2"
+              >
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                Use This Topic
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Tab: Create Custom */}
+        {tab === 'custom' && (
+          <>
+            <div className="overflow-y-auto flex-1 p-4 space-y-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Title <span className="text-red-400">*</span></p>
+                <input
+                  className="input-field w-full text-sm"
+                  placeholder="Topic title…"
+                  value={customTitle}
+                  onChange={(e) => setCustomTitle(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Category</p>
+                <select
+                  className="input-field w-full text-sm"
+                  value={customCategory}
+                  onChange={(e) => setCustomCategory(e.target.value)}
+                >
+                  {TOPIC_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Description <span className="text-gray-600">(optional)</span></p>
+                <textarea
+                  className="input-field w-full h-24 resize-none text-sm"
+                  placeholder="Brief description of what the group will cover…"
+                  value={customDesc}
+                  onChange={(e) => setCustomDesc(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 p-4 border-t border-white/10">
+              <button onClick={onClose} className="btn-secondary">Cancel</button>
+              <button
+                onClick={handleCreateCustom}
+                disabled={!customTitle.trim() || customCreating}
+                className="btn-primary flex items-center gap-2"
+              >
+                {customCreating && <Loader2 className="h-4 w-4 animate-spin" />}
+                Create & Select
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
