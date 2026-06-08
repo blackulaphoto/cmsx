@@ -15,7 +15,6 @@ import {
   Bell,
   Flame,
   Sparkles,
-  Zap,
   Heart,
   BarChart3,
   Stethoscope,
@@ -39,8 +38,6 @@ const Layout = ({ children }) => {
     { path: '/housing', label: 'Housing', icon: Home, gradient: 'from-blue-500 to-cyan-500' },
     { path: '/sober-living', label: 'Sober Living', icon: Home, gradient: 'from-teal-500 to-emerald-500' },
     { path: '/sober-living-directory', label: 'Sober Directory', icon: Building2, gradient: 'from-teal-500 to-cyan-500' },
-    { path: '/sober-living-directory/review', label: 'Directory Review', icon: ClipboardList, gradient: 'from-amber-500 to-orange-500' },
-    { path: '/sober-living-directory/discovery', label: 'Discovery', icon: Zap, gradient: 'from-fuchsia-500 to-cyan-500' },
     { path: '/benefits', label: 'Benefits', icon: Heart, gradient: 'from-pink-500 to-rose-500' },
     { path: '/medical', label: 'Medical', icon: Stethoscope, gradient: 'from-teal-500 to-cyan-500' },
     { path: '/rolodex', label: 'Rolodex', icon: Contact, gradient: 'from-cyan-500 to-sky-500' },
@@ -52,8 +49,7 @@ const Layout = ({ children }) => {
     { path: '/supervisor-dashboard', label: 'Supervisor', icon: BarChart3, gradient: 'from-cyan-500 to-blue-500' },
     { path: '/services', label: 'Services', icon: Building2, gradient: 'from-orange-500 to-amber-500' },
     { path: '/ai-chat', label: 'AI Assistant', icon: MessageSquare, gradient: 'from-yellow-500 to-amber-500' },
-    { path: '/smart-dashboard', label: 'Smart Daily', icon: Calendar, gradient: 'from-purple-500 to-pink-500' },
-    { path: '/integration-audit', label: 'Integration Audit', icon: Zap, gradient: 'from-red-500 to-orange-500' }
+    { path: '/smart-dashboard', label: 'Smart Daily', icon: Calendar, gradient: 'from-purple-500 to-pink-500' }
   ];
   const visibleNavigationItems = navigationItems.filter((item) => canAccessSupervisorMode || item.path !== '/supervisor-dashboard');
   const primaryNavigationItems = visibleNavigationItems.slice(0, 6);

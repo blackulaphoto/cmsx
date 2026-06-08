@@ -10,6 +10,7 @@ import {
   RefreshCw,
   ArrowRight,
   CalendarClock,
+  Zap,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
@@ -94,6 +95,30 @@ function SupervisorDashboard() {
       value: overview.team_summary.active_legal_cases,
       icon: Scale,
       gradient: 'from-emerald-500 to-green-600',
+    },
+  ]
+
+  const adminTools = [
+    {
+      label: 'Directory Review',
+      description: 'Review raw or cautionary sober living directory records before they become trusted listings.',
+      path: '/sober-living-directory/review',
+      icon: ClipboardList,
+      gradient: 'from-amber-500 to-orange-600',
+    },
+    {
+      label: 'Discovery',
+      description: 'Manage advanced sober living discovery sources, runs, and review-gated imports.',
+      path: '/sober-living-directory/discovery',
+      icon: Zap,
+      gradient: 'from-fuchsia-500 to-cyan-600',
+    },
+    {
+      label: 'Integration Audit',
+      description: 'Inspect frontend integration wiring and module-level operational readiness.',
+      path: '/integration-audit',
+      icon: AlertTriangle,
+      gradient: 'from-red-500 to-orange-600',
     },
   ]
 
@@ -250,6 +275,27 @@ function SupervisorDashboard() {
                   <p>Review case managers with the highest overdue reminder counts first.</p>
                   <p>Use the Legal and Benefits modules to spot stalled applications or unresolved filings.</p>
                   <p>Use the client timeline to review barrier-heavy caseloads before staffing decisions.</p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
+                <h2 className="mb-4 text-xl font-bold text-white">Admin Tools</h2>
+                <div className="space-y-3">
+                  {adminTools.map((tool) => (
+                    <Link
+                      key={tool.path}
+                      to={tool.path}
+                      className="group flex items-start gap-3 rounded-2xl border border-white/10 bg-black/10 p-4 transition-all duration-300 hover:border-white/20 hover:bg-white/10"
+                    >
+                      <div className={`rounded-xl bg-gradient-to-r ${tool.gradient} p-2 shadow-lg`}>
+                        <tool.icon className="h-4 w-4 text-white" />
+                      </div>
+                      <div>
+                        <p className="font-semibold text-white group-hover:text-cyan-100">{tool.label}</p>
+                        <p className="mt-1 text-xs leading-5 text-gray-400">{tool.description}</p>
+                      </div>
+                    </Link>
+                  ))}
                 </div>
               </div>
             </div>
