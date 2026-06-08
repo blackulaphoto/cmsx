@@ -14,6 +14,8 @@ from .models import (
     AIGroupNoteRequest,
     AITopicGenerateRequest,
     AttendanceUpsert,
+    AttendeeNoteSpec,
+    BulkGenerateRequest,
     NoteCreate,
     NoteUpdate,
     PlaylistCreate,
@@ -363,6 +365,161 @@ async def remove_attendance(request: Request, session_id: str, client_id: str):
 
 # ── Group Notes ────────────────────────────────────────────────────────────────
 
+def _build_individual_note_prompt(
+    topic_title: str,
+    topic_description: str,
+    key_points: List[str],
+    attendance_status: str,
+    participation_level: str,
+    engagement_preset: str,
+    note_setting: str,
+    allow_ai_quotes: bool,
+    staff_quote: str,
+    session_location: str,
+) -> str:
+    setting_label = {
+        "telehealth": "Telehealth",
+        "in-person": "In-Person",
+        "mixed": "In-Person / Telehealth",
+    }.get(note_setting, "In-Person")
+
+    telehealth = note_setting == "telehealth"
+    location_line = (
+        "Location of Client: Sober Living. The client attended the group virtually via Google Meet."
+        if telehealth
+        else f"Location of Client: {session_location or 'In person'}."
+    )
+
+    key_pts_text = "\n".join(f"- {p}" for p in key_points) if key_points else "(no key points provided)"
+
+    quote_instruction = ""
+    if staff_quote and staff_quote.strip():
+        quote_instruction = f'Staff-entered client quote (use verbatim): "{staff_quote.strip()}"'
+    elif allow_ai_quotes and attendance_status not in ("absent",):
+        quote_instruction = (
+            "You MAY draft a realistic, clinically appropriate first-person client quote "
+            "consistent with the engagement level and topic. The quote should reflect "
+            "genuine insight or struggle, not a textbook answer. Introduce it with 'CT stated, \"...\"'"
+        )
+    else:
+        quote_instruction = "Do NOT include any client quote. Do not invent statements."
+
+    absent_instruction = ""
+    if attendance_status == "absent":
+        return (
+            f"Write a brief group note for a client who was ABSENT from today's session.\n"
+            f"Group topic: {topic_title}.\n"
+            f"Format: 'CT did not attend the scheduled psychoeducational group on [topic]. "
+            f"Attendance was marked absent. Staff will follow up with CT regarding missed group "
+            f"participation and encourage attendance at the next scheduled group.'\n"
+            f"Output only the note text. No headers. No preamble."
+        )
+
+    engagement_descriptions = {
+        "active": "alert, engaged, cooperative, verbally participated throughout, maintained appropriate eye contact",
+        "moderate": "attentive and cooperative, participated when prompted, appropriate demeanor",
+        "minimal": "minimally engaged, quiet, limited verbal participation",
+        "quiet/non-speaking": "quiet but attentive, remained seated, did not verbally participate, demonstrated nonverbal engagement (eye contact, nodding)",
+        "resistant": "guarded and resistant, limited verbal participation, appeared uncomfortable at times",
+        "distracted": "minimally engaged, appeared distracted at times, required redirection",
+        "camera off": "remained logged in with camera off, did not verbally participate, engagement difficult to fully assess",
+        "late": "arrived late, present for remainder of session, quiet but attentive after arrival",
+    }
+    engagement_desc = engagement_descriptions.get(engagement_preset, engagement_descriptions.get(participation_level, "attentive and cooperative"))
+
+    prompt = f"""You are a licensed clinical social worker writing chart-ready psychoeducational group notes.
+
+Write a professional, third-person group note for a single client using "CT" (not the client's name).
+
+Session details:
+- Group topic: {topic_title}
+- Topic description: {topic_description or '(not provided)'}
+- Key points covered: {key_pts_text}
+- Setting: {setting_label}
+- Attendance: {attendance_status}
+- Client engagement: {engagement_desc}
+- {quote_instruction}
+
+Note structure to follow:
+1. Start with: "{location_line}"
+{"2. Note that the client attended virtually via telehealth." if telehealth else "2. Note that the client attended in person."}
+3. Describe how CT presented (mood, posture, demeanor) — match the engagement level.
+4. State that CT participated in a psychoeducational group on [topic].
+5. Describe CT's engagement and behavior (verbally participated / remained quiet / etc.) — match engagement preset.
+{"6. Include the client quote as directed above." if (staff_quote or allow_ai_quotes) else "6. Do NOT include any quote."}
+7. Note that CT was receptive to (or appeared to receive) psychoeducation on the topic's key themes.
+8. Briefly summarize what CT identified or engaged with (or what the facilitator reviewed if CT was non-verbal).
+9. Note any encouragement given.
+10. Close with whether CT remained for the full session.
+
+Rules:
+- Use "CT" throughout. Never invent a name.
+- Write in past tense, third person.
+- Do not include headers, bullet points, or labels — write in flowing paragraph form.
+- Do not include session date, therapist name, or signature lines.
+- Length: 4–7 sentences. Clinical but readable.
+- Output ONLY the note text. No preamble, no explanation.
+"""
+    return prompt
+
+
+def _build_group_summary_prompt(
+    topic_title: str,
+    topic_description: str,
+    key_points: List[str],
+    discussion_questions: List[str],
+    activity: str,
+    present_count: int,
+    note_setting: str,
+) -> str:
+    key_pts_text = "\n".join(f"- {p}" for p in key_points) if key_points else "(not provided)"
+    dq_text = "\n".join(f"- {q}" for q in discussion_questions) if discussion_questions else "(not provided)"
+
+    return f"""You are a licensed clinical social worker writing a chart-ready group summary note.
+
+Write a professional group summary note documenting a psychoeducational group session.
+
+Session details:
+- Group topic: {topic_title}
+- Topic description: {topic_description or '(not provided)'}
+- Key points covered:
+{key_pts_text}
+- Discussion questions used:
+{dq_text}
+- In-group activity: {activity or '(not provided)'}
+- Attendance: approximately {present_count} participants
+- Setting: {note_setting}
+
+Note structure:
+1. Start with "Group Topic: {topic_title}" on its own line, then a blank line.
+2. Write 1–2 paragraphs describing:
+   - What the facilitator covered (education provided, key concepts)
+   - What participants were prompted to discuss or reflect on
+   - What coping strategies, skills, or tools were highlighted
+   - What participants were encouraged to practice or identify
+3. Do not reference specific clients by name or ID.
+4. Write in past tense, third person.
+5. Do not include headers beyond the topic line, bullet points, or signature lines.
+6. Length: 100–180 words total.
+7. Output ONLY the note text. No preamble.
+"""
+
+
+async def _call_openai_for_note(prompt: str) -> str:
+    client = _get_openai()
+    model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    response = await client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "You write clinical psychoeducational group notes. Return only the note text."},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.4,
+        max_tokens=600,
+    )
+    return response.choices[0].message.content.strip()
+
+
 @router.get("/sessions/{session_id}/notes")
 async def list_notes(request: Request, session_id: str):
     require_authenticated_user(request)
@@ -385,27 +542,43 @@ async def create_note(request: Request, session_id: str, payload: NoteCreate):
         "note_type": payload.note_type,
         "content": payload.content,
         "ai_generated": payload.ai_generated,
+        "quote_generated": payload.quote_generated,
+        "reviewed": payload.reviewed,
+        "finalized": payload.finalized,
+        "engagement_preset": payload.engagement_preset or "",
+        "note_setting": payload.note_setting,
+        "staff_quote": payload.staff_quote or "",
         "created_by": current_user.case_manager_id,
     })
     return note
 
 
 @router.put("/sessions/{session_id}/notes/{note_id}")
-async def update_note(request: Request, session_id: str, note_id: str, payload: NoteUpdate):
-    require_authenticated_user(request)
+async def update_session_note(request: Request, session_id: str, note_id: str, payload: NoteUpdate):
+    current_user = require_authenticated_user(request)
     existing = groups_db.get_note(note_id)
     if not existing or existing.get("session_id") != session_id:
         raise HTTPException(status_code=404, detail="Note not found")
     if existing.get("client_id"):
-        current_user = require_authenticated_user(request)
         assert_client_access(current_user, existing["client_id"])
     updated = groups_db.update_note(note_id, payload.model_dump(exclude_none=True))
     return updated
 
 
+@router.put("/notes/{note_id}")
+async def update_note_direct(request: Request, note_id: str, payload: NoteUpdate):
+    """Top-level note update — client PHI check enforced if note has client_id."""
+    current_user = require_authenticated_user(request)
+    existing = groups_db.get_note(note_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Note not found")
+    if existing.get("client_id"):
+        assert_client_access(current_user, existing["client_id"])
+    return groups_db.update_note(note_id, payload.model_dump(exclude_none=True))
+
+
 @router.post("/sessions/{session_id}/notes/ai-generate", status_code=201)
-async def ai_generate_group_note(request: Request, session_id: str, payload: AIGroupNoteRequest):
-    import httpx
+async def ai_generate_note(request: Request, session_id: str, payload: AIGroupNoteRequest):
     current_user = require_authenticated_user(request)
     session = groups_db.get_session(session_id)
     if not session:
@@ -413,53 +586,127 @@ async def ai_generate_group_note(request: Request, session_id: str, payload: AIG
     if payload.client_id:
         assert_client_access(current_user, payload.client_id)
 
-    # Gather context: topic name + attendance summary (no real names, client_id only)
-    topic_name = (session.get("topic") or {}).get("title", "group session")
-    attendance = groups_db.list_attendance(session_id)
-    present_count = sum(1 for a in attendance if a.get("status") == "present")
-    participation_summary = ", ".join(
-        f"{a['client_id']}:{a.get('participation_level','unknown')}"
-        for a in attendance
-        if a.get("status") == "present"
-    ) or "none recorded"
+    topic = session.get("topic") or {}
+    topic_title = topic.get("title", "group session")
+    topic_desc = topic.get("description", "")
+    key_points = topic.get("key_points_json") or []
+    discussion_questions = topic.get("discussion_questions_json") or []
+    activity = topic.get("activity", "")
+    session_location = session.get("location", "In person")
 
-    ai_context = {
-        "group_topic": topic_name,
-        "attendance": f"{present_count} present",
-        "participation_level": participation_summary,
-        **(payload.context or {}),
-    }
-
-    # Proxy to existing AI documentation group-note endpoint
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client_http:
-            # Build internal request – forward auth token
-            auth_header = request.headers.get("Authorization", "")
-            resp = await client_http.post(
-                "http://localhost:8000/api/ai-documentation/group-note",
-                json={
-                    "client_id": payload.client_id,
-                    "context": ai_context,
-                    "note_kind": "group_note",
-                },
-                headers={"Authorization": auth_header, "Content-Type": "application/json"},
+        if payload.note_type == "group":
+            attendance = groups_db.list_attendance(session_id)
+            present_count = sum(1 for a in attendance if a.get("status") in ("present", "late"))
+            prompt = _build_group_summary_prompt(
+                topic_title, topic_desc, key_points, discussion_questions,
+                activity, present_count, payload.note_setting,
             )
-        if resp.status_code != 200:
-            raise HTTPException(status_code=502, detail="AI documentation service unavailable")
-        ai_data = resp.json()
-        draft = ai_data.get("note_text") or ai_data.get("draft") or ""
-    except HTTPException:
-        raise
+        else:
+            prompt = _build_individual_note_prompt(
+                topic_title=topic_title,
+                topic_description=topic_desc,
+                key_points=key_points,
+                attendance_status=payload.attendance_status or "present",
+                participation_level=payload.participation_level or "moderate",
+                engagement_preset=payload.engagement_preset or "moderate",
+                note_setting=payload.note_setting,
+                allow_ai_quotes=payload.allow_ai_quotes,
+                staff_quote=payload.staff_quote or "",
+                session_location=session_location,
+            )
+
+        draft = await _call_openai_for_note(prompt)
     except Exception as exc:
-        logger.error(f"[GROUPS] AI group note proxy failed: {exc}")
-        raise HTTPException(status_code=502, detail="AI note generation failed")
+        logger.error(f"[GROUPS] Note AI generation failed: {exc}")
+        raise HTTPException(status_code=502, detail=f"AI note generation failed: {exc}")
 
     note = groups_db.create_note({
         "session_id": session_id,
         "client_id": payload.client_id,
-        "note_type": payload.note_type or "group",
+        "note_type": payload.note_type,
         "content": draft,
         "ai_generated": True,
+        "quote_generated": bool(payload.allow_ai_quotes and not payload.staff_quote),
+        "engagement_preset": payload.engagement_preset or "",
+        "note_setting": payload.note_setting,
+        "staff_quote": payload.staff_quote or "",
         "created_by": current_user.case_manager_id,
     })
     return note
+
+
+@router.post("/sessions/{session_id}/notes/bulk-generate")
+async def bulk_generate_notes(request: Request, session_id: str, payload: BulkGenerateRequest):
+    """Generate individual notes for up to 50 attendees in one request."""
+    current_user = require_authenticated_user(request)
+    session = groups_db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if len(payload.attendees) > 50:
+        raise HTTPException(status_code=422, detail="Maximum 50 attendees per bulk request")
+
+    topic = session.get("topic") or {}
+    topic_title = topic.get("title", "group session")
+    topic_desc = topic.get("description", "")
+    key_points = topic.get("key_points_json") or []
+    session_location = session.get("location", "In person")
+
+    results: List[Dict[str, Any]] = []
+    succeeded = 0
+    failed = 0
+
+    import asyncio
+    semaphore = asyncio.Semaphore(5)
+
+    async def _gen_one(spec: AttendeeNoteSpec) -> Dict[str, Any]:
+        nonlocal succeeded, failed
+        try:
+            assert_client_access(current_user, spec.client_id)
+        except Exception:
+            failed += 1
+            return {"client_id": spec.client_id, "error": "access denied", "note": None}
+
+        async with semaphore:
+            try:
+                prompt = _build_individual_note_prompt(
+                    topic_title=topic_title,
+                    topic_description=topic_desc,
+                    key_points=key_points,
+                    attendance_status=spec.attendance_status,
+                    participation_level=spec.participation_level,
+                    engagement_preset=spec.engagement_preset,
+                    note_setting=payload.note_setting,
+                    allow_ai_quotes=payload.allow_ai_quotes,
+                    staff_quote=spec.staff_quote or "",
+                    session_location=session_location,
+                )
+                draft = await _call_openai_for_note(prompt)
+                note = groups_db.create_note({
+                    "session_id": session_id,
+                    "client_id": spec.client_id,
+                    "note_type": "individual",
+                    "content": draft,
+                    "ai_generated": True,
+                    "quote_generated": bool(payload.allow_ai_quotes and not spec.staff_quote),
+                    "engagement_preset": spec.engagement_preset,
+                    "note_setting": payload.note_setting,
+                    "staff_quote": spec.staff_quote or "",
+                    "created_by": current_user.case_manager_id,
+                })
+                succeeded += 1
+                return {"client_id": spec.client_id, "error": None, "note": note}
+            except Exception as exc:
+                logger.error(f"[GROUPS] Bulk note failed for {spec.client_id}: {exc}")
+                failed += 1
+                return {"client_id": spec.client_id, "error": str(exc), "note": None}
+
+    tasks = [_gen_one(spec) for spec in payload.attendees]
+    results = await asyncio.gather(*tasks)
+
+    return {
+        "succeeded": succeeded,
+        "failed": failed,
+        "total": len(payload.attendees),
+        "results": results,
+    }

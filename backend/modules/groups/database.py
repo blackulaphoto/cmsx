@@ -113,11 +113,38 @@ class GroupsDatabase:
                     note_type TEXT NOT NULL DEFAULT 'group',
                     content TEXT NOT NULL DEFAULT '',
                     ai_generated INTEGER NOT NULL DEFAULT 0,
+                    quote_generated INTEGER NOT NULL DEFAULT 0,
+                    reviewed INTEGER NOT NULL DEFAULT 0,
+                    finalized INTEGER NOT NULL DEFAULT 0,
+                    engagement_preset TEXT DEFAULT '',
+                    note_setting TEXT NOT NULL DEFAULT 'in-person',
+                    staff_quote TEXT DEFAULT '',
                     created_by TEXT NOT NULL DEFAULT 'system',
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            conn.commit()
+        # Safe migration for existing DBs that predate new columns
+        self._migrate_notes_table()
+
+    def _migrate_notes_table(self) -> None:
+        new_cols = [
+            ("quote_generated", "INTEGER NOT NULL DEFAULT 0"),
+            ("reviewed", "INTEGER NOT NULL DEFAULT 0"),
+            ("finalized", "INTEGER NOT NULL DEFAULT 0"),
+            ("engagement_preset", "TEXT DEFAULT ''"),
+            ("note_setting", "TEXT NOT NULL DEFAULT 'in-person'"),
+            ("staff_quote", "TEXT DEFAULT ''"),
+        ]
+        with self._connect() as conn:
+            existing = {row[1] for row in conn.execute("PRAGMA table_info(group_notes)").fetchall()}
+            for col_name, col_def in new_cols:
+                if col_name not in existing:
+                    try:
+                        conn.execute(f"ALTER TABLE group_notes ADD COLUMN {col_name} {col_def}")
+                    except Exception:
+                        pass
             conn.commit()
 
     def _row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
@@ -554,8 +581,11 @@ class GroupsDatabase:
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO group_notes
-                   (note_id, session_id, client_id, note_type, content, ai_generated, created_by, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                   (note_id, session_id, client_id, note_type, content,
+                    ai_generated, quote_generated, reviewed, finalized,
+                    engagement_preset, note_setting, staff_quote,
+                    created_by, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     note_id,
                     data["session_id"],
@@ -563,6 +593,12 @@ class GroupsDatabase:
                     data.get("note_type", "group"),
                     data.get("content", ""),
                     1 if data.get("ai_generated") else 0,
+                    1 if data.get("quote_generated") else 0,
+                    1 if data.get("reviewed") else 0,
+                    1 if data.get("finalized") else 0,
+                    data.get("engagement_preset", ""),
+                    data.get("note_setting", "in-person"),
+                    data.get("staff_quote", ""),
                     data.get("created_by", "system"),
                     now,
                     now,
@@ -589,10 +625,14 @@ class GroupsDatabase:
     def update_note(self, note_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         fields = []
         params: List[Any] = []
-        for col in ("content", "note_type"):
+        for col in ("content", "note_type", "engagement_preset", "note_setting", "staff_quote"):
             if col in data and data[col] is not None:
                 fields.append(f"{col} = ?")
                 params.append(data[col])
+        for bool_col in ("reviewed", "finalized", "ai_generated", "quote_generated"):
+            if bool_col in data and data[bool_col] is not None:
+                fields.append(f"{bool_col} = ?")
+                params.append(1 if data[bool_col] else 0)
         if not fields:
             return self.get_note(note_id)
         fields.append("updated_at = ?")
@@ -604,6 +644,20 @@ class GroupsDatabase:
             )
             conn.commit()
         return self.get_note(note_id)
+
+    def get_note_by_session_client(self, session_id: str, client_id: Optional[str], note_type: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            if client_id:
+                row = conn.execute(
+                    "SELECT * FROM group_notes WHERE session_id=? AND client_id=? AND note_type=? ORDER BY created_at DESC LIMIT 1",
+                    (session_id, client_id, note_type),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM group_notes WHERE session_id=? AND client_id IS NULL AND note_type=? ORDER BY created_at DESC LIMIT 1",
+                    (session_id, note_type),
+                ).fetchone()
+        return dict(row) if row else None
 
 
 # Module-level singleton

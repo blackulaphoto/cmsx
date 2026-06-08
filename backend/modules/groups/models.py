@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
@@ -100,14 +100,48 @@ class NoteCreate(BaseModel):
     note_type: str = "group"
     content: str = ""
     ai_generated: bool = False
+    quote_generated: bool = False
+    reviewed: bool = False
+    finalized: bool = False
+    engagement_preset: Optional[str] = ""
+    note_setting: str = "in-person"
+    staff_quote: Optional[str] = ""
 
 
 class NoteUpdate(BaseModel):
     content: Optional[str] = None
     note_type: Optional[str] = None
+    reviewed: Optional[bool] = None
+    finalized: Optional[bool] = None
+    engagement_preset: Optional[str] = None
+    note_setting: Optional[str] = None
+    staff_quote: Optional[str] = None
+
+
+class AttendeeNoteSpec(BaseModel):
+    """Per-client note spec used in bulk generation."""
+    client_id: str
+    attendance_status: str = "present"
+    participation_level: str = "moderate"
+    engagement_preset: str = "moderate"
+    staff_quote: Optional[str] = ""
+
+
+class BulkGenerateRequest(BaseModel):
+    """Request body for bulk individual-note generation."""
+    note_setting: str = "in-person"
+    allow_ai_quotes: bool = False
+    attendees: List[AttendeeNoteSpec] = Field(default_factory=list)
 
 
 class AIGroupNoteRequest(BaseModel):
+    """Request for generating a single group summary or individual note."""
     note_type: str = "group"
     client_id: Optional[str] = None
-    context: Optional[dict] = None
+    note_setting: str = "in-person"
+    allow_ai_quotes: bool = False
+    engagement_preset: Optional[str] = "moderate"
+    staff_quote: Optional[str] = ""
+    attendance_status: Optional[str] = "present"
+    participation_level: Optional[str] = "moderate"
+    context: Optional[Dict[str, Any]] = None
