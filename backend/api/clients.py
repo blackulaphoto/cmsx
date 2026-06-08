@@ -186,6 +186,321 @@ def build_client_sync_payload(client: Dict[str, Any]) -> Dict[str, Any]:
     return payload
 
 
+def _normalize_need_key(value: Any) -> str:
+    return str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _add_need(needs: List[Dict[str, Any]], seen: set, need_key: str, domain: str, reason: str, priority: str = "medium") -> None:
+    normalized_key = _normalize_need_key(need_key)
+    if not normalized_key or normalized_key in seen:
+        return
+    seen.add(normalized_key)
+    needs.append({
+        "need_key": normalized_key,
+        "domain": domain,
+        "source": "intake",
+        "priority": priority,
+        "status": "suggested",
+        "reason": reason,
+    })
+
+
+def derive_operational_needs(client: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Derive normalized operational needs from current intake facts without creating tasks."""
+    needs: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    for raw_need in client.get("needs") or []:
+        key = _normalize_need_key(raw_need)
+        domain = {
+            "housing": "housing",
+            "sober_living": "sober_living",
+            "sober_living_aftercare": "sober_living",
+            "employment": "employment",
+            "job_search": "employment",
+            "resume": "resume",
+            "benefits": "benefits",
+            "medical": "medical",
+            "legal": "legal",
+            "transportation": "services",
+        }.get(key, "services")
+        _add_need(needs, seen, key, domain, "Need captured on intake form")
+
+    housing_status = str(client.get("housing_status") or "").strip().lower()
+    if housing_status in {"unknown", "unstable", "homeless", "transitional", "needs housing"}:
+        _add_need(needs, seen, "housing", "housing", f"Housing status is {client.get('housing_status')}", "high")
+
+    employment_status = str(client.get("employment_status") or "").strip().lower()
+    if employment_status in {"unknown", "unemployed", "seeking", "not employed"}:
+        _add_need(needs, seen, "resume", "resume", f"Employment status is {client.get('employment_status')}", "medium")
+        _add_need(needs, seen, "job_search", "employment", f"Employment status is {client.get('employment_status')}", "medium")
+
+    benefits_status = str(client.get("benefits_status") or "").strip().lower()
+    if benefits_status in {"not applied", "pending", "unknown", "needs screening"}:
+        _add_need(needs, seen, "benefits_screening", "benefits", f"Benefits status is {client.get('benefits_status')}", "medium")
+
+    legal_status = str(client.get("legal_status") or "").strip().lower()
+    if legal_status and legal_status not in {"no active cases", "none", "unknown"}:
+        _add_need(needs, seen, "legal_follow_up", "legal", f"Legal status is {client.get('legal_status')}", "high")
+
+    medical_text = " ".join([
+        str(client.get("medical_conditions") or ""),
+        str(client.get("special_needs") or ""),
+        str(client.get("mental_health_status") or ""),
+    ]).lower()
+    if any(term in medical_text for term in ["dental", "tooth", "teeth", "dentist"]):
+        _add_need(needs, seen, "dental", "medical", "Dental need found in medical/special-needs intake", "high")
+    if client.get("medical_conditions"):
+        _add_need(needs, seen, "primary_care", "medical", "Medical conditions documented in intake", "medium")
+    if any(term in medical_text for term in ["psychiatry", "psychiatric", "medication", "mental health", "depression", "anxiety"]):
+        _add_need(needs, seen, "behavioral_health", "medical", "Behavioral health context documented in intake", "medium")
+    if any(term in medical_text for term in ["disabled", "disability", "ssi", "ssdi", "functional limitation"]):
+        _add_need(needs, seen, "disability", "benefits", "Disability context documented in intake", "high")
+
+    transportation = str(client.get("transportation") or "").strip().lower()
+    if transportation and transportation not in {"none", "no", "n/a", "not needed"}:
+        _add_need(needs, seen, "transportation", "services", f"Transportation barrier is {client.get('transportation')}", "medium")
+
+    goals_barriers = f"{client.get('goals') or ''} {client.get('barriers') or ''}".lower()
+    if any(term in goals_barriers for term in ["sober living", "aftercare", "outpatient", "step down", "step-down"]):
+        _add_need(needs, seen, "sober_living_aftercare", "sober_living", "Aftercare/sober living need found in goals or barriers", "high")
+
+    return needs
+
+
+def _client_identity_context(client: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "client_id": client.get("client_id"),
+        "first_name": client.get("first_name", ""),
+        "last_name": client.get("last_name", ""),
+        "full_name": client.get("full_name", ""),
+        "date_of_birth": client.get("date_of_birth", ""),
+        "phone": client.get("phone", ""),
+        "email": client.get("email", ""),
+        "address": client.get("address", ""),
+        "city": client.get("city", ""),
+        "state": client.get("state", ""),
+        "zip_code": client.get("zip_code", ""),
+        "case_manager_id": client.get("case_manager_id", ""),
+        "risk_level": client.get("risk_level", "Medium"),
+        "case_status": client.get("case_status", "Active"),
+        "intake_date": client.get("intake_date", ""),
+        "admission_date": client.get("admission_date") or client.get("intake_date", ""),
+        "program_type": client.get("program_type", ""),
+    }
+
+
+def _client_intake_context(client: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "housing_status": client.get("housing_status", "Unknown"),
+        "employment_status": client.get("employment_status", "Unknown"),
+        "benefits_status": client.get("benefits_status", "Not Applied"),
+        "legal_status": client.get("legal_status", "No Active Cases"),
+        "prior_convictions": client.get("prior_convictions", ""),
+        "substance_abuse_history": client.get("substance_abuse_history", ""),
+        "mental_health_status": client.get("mental_health_status", ""),
+        "medical_conditions": client.get("medical_conditions", ""),
+        "special_needs": client.get("special_needs", ""),
+        "transportation": client.get("transportation", ""),
+        "referral_source": client.get("referral_source", ""),
+        "goals": client.get("goals", ""),
+        "barriers": client.get("barriers", ""),
+        "notes": client.get("notes", ""),
+        "needs": client.get("needs", []),
+        "background": client.get("background", {}),
+    }
+
+
+def _get_active_treatment_plan_placeholder(
+    client: Dict[str, Any],
+    operational_needs: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    background = client.get("background") if isinstance(client.get("background"), dict) else {}
+    treatment_plan = background.get("treatment_plan") or background.get("treatment_plan_summary")
+    aftercare_plan = background.get("aftercare_plan") or background.get("aftercare_plan_summary")
+    intake_has_plan_seed = bool(client.get("goals") or client.get("barriers") or client.get("needs"))
+    status = "draft" if treatment_plan or aftercare_plan else ("intake_seed" if intake_has_plan_seed else "missing")
+    return {
+        "plan_id": background.get("treatment_plan_id") or None,
+        "status": status,
+        "created_at": background.get("treatment_plan_created_at"),
+        "approved_at": background.get("treatment_plan_approved_at"),
+        "review_due_date": background.get("treatment_plan_review_due_date"),
+        "problems": background.get("treatment_plan_problems") or [],
+        "goals": background.get("treatment_plan_goals") or ([client.get("goals")] if client.get("goals") else []),
+        "objectives": background.get("treatment_plan_objectives") or [],
+        "interventions": background.get("treatment_plan_interventions") or [],
+        "target_dates": background.get("treatment_plan_target_dates") or [],
+        "aftercare_plan": aftercare_plan or {},
+        "completion_criteria": background.get("completion_criteria") or [],
+        "operational_needs": background.get("operational_needs") or operational_needs or [],
+    }
+
+
+def _open_task_context(overview_data: Dict[str, Any], services_summary: Dict[str, Any]) -> List[Dict[str, Any]]:
+    open_tasks: List[Dict[str, Any]] = []
+
+    for task in overview_data.get("tasks", []) or []:
+        status_value = str(task.get("status") or "").strip().lower()
+        if status_value in {"completed", "done", "cancelled", "canceled"}:
+            continue
+        open_tasks.append({
+            "task_id": task.get("task_id"),
+            "source": "case_management",
+            "module": task.get("module") or "case_management",
+            "title": task.get("title") or task.get("task_type") or "Client task",
+            "description": task.get("description") or "",
+            "priority": task.get("priority") or "medium",
+            "due_date": task.get("due_date"),
+            "status": task.get("status") or "pending",
+            "need_key": task.get("need_key"),
+        })
+
+    for reminder in overview_data.get("reminders", []) or []:
+        status_value = str(reminder.get("status") or "").strip().lower()
+        if status_value in {"completed", "done", "cancelled", "canceled"}:
+            continue
+        open_tasks.append({
+            "task_id": reminder.get("reminder_id"),
+            "source": "reminders",
+            "module": "reminders",
+            "title": reminder.get("message") or reminder.get("reminder_type") or "Reminder",
+            "description": reminder.get("message") or "",
+            "priority": reminder.get("priority") or "medium",
+            "due_date": reminder.get("due_date"),
+            "status": reminder.get("status") or "active",
+            "need_key": reminder.get("need_key"),
+        })
+
+    for task in services_summary.get("tasks", []) or []:
+        status_value = str(task.get("status") or "").strip().lower()
+        if status_value in {"completed", "done", "cancelled", "canceled"}:
+            continue
+        open_tasks.append({
+            "task_id": task.get("task_id"),
+            "source": "services",
+            "module": "services",
+            "title": task.get("title") or task.get("task_type") or "Service task",
+            "description": task.get("description") or "",
+            "priority": task.get("priority") or "medium",
+            "due_date": task.get("due_date"),
+            "status": task.get("status") or "pending",
+            "need_key": task.get("need_key"),
+        })
+
+    return open_tasks[:25]
+
+
+def build_client_operational_context(
+    client: Dict[str, Any],
+    overview_data: Optional[Dict[str, Any]] = None,
+    benefits_summary: Optional[Dict[str, Any]] = None,
+    legal_summary: Optional[Dict[str, Any]] = None,
+    services_summary: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build the shared read model consumed by module dropdown workflows."""
+    overview_data = overview_data or {}
+    benefits_summary = benefits_summary or get_client_benefits_summary(client["client_id"])
+    legal_summary = legal_summary or get_client_legal_summary(client["client_id"])
+    services_summary = services_summary or get_client_services_summary(client["client_id"])
+    operational_needs = derive_operational_needs(client)
+    open_tasks = _open_task_context(overview_data, services_summary)
+    treatment_plan_context = _get_active_treatment_plan_placeholder(client, operational_needs)
+
+    return {
+        "client": _client_identity_context(client),
+        "intake": _client_intake_context(client),
+        "treatment_plan": treatment_plan_context,
+        "module_context": {
+            "legal": {
+                "intake_status": client.get("legal_status", "No Active Cases"),
+                "prior_convictions": client.get("prior_convictions", ""),
+                "summary": legal_summary,
+                "needs": [need for need in operational_needs if need["domain"] == "legal"],
+                "active_needs": [need for need in operational_needs if need["domain"] == "legal"],
+            },
+            "medical": {
+                "medical_conditions": client.get("medical_conditions", ""),
+                "mental_health_status": client.get("mental_health_status", ""),
+                "special_needs": client.get("special_needs", ""),
+                "needs": [need for need in operational_needs if need["domain"] == "medical"],
+                "active_needs": [need for need in operational_needs if need["domain"] == "medical"],
+            },
+            "benefits": {
+                "status": client.get("benefits_status", "Not Applied"),
+                "medical_conditions": client.get("medical_conditions", ""),
+                "special_needs": client.get("special_needs", ""),
+                "summary": benefits_summary,
+                "needs": [need for need in operational_needs if need["domain"] == "benefits"],
+                "active_needs": [need for need in operational_needs if need["domain"] == "benefits"],
+            },
+            "housing": {
+                "status": client.get("housing_status", "Unknown"),
+                "address": client.get("address", ""),
+                "city": client.get("city", ""),
+                "state": client.get("state", ""),
+                "zip_code": client.get("zip_code", ""),
+                "needs": [need for need in operational_needs if need["domain"] == "housing"],
+                "active_needs": [need for need in operational_needs if need["domain"] == "housing"],
+            },
+            "sober_living": {
+                "program_type": client.get("program_type", ""),
+                "aftercare_plan": treatment_plan_context.get("aftercare_plan"),
+                "needs": [need for need in operational_needs if need["domain"] == "sober_living"],
+                "active_needs": [need for need in operational_needs if need["domain"] == "sober_living"],
+            },
+            "employment": {
+                "status": client.get("employment_status", "Unknown"),
+                "goals": client.get("goals", ""),
+                "barriers": client.get("barriers", ""),
+                "needs": [need for need in operational_needs if need["domain"] == "employment"],
+                "active_needs": [need for need in operational_needs if need["domain"] == "employment"],
+            },
+            "resume": {
+                "contact": _client_identity_context(client),
+                "prior_convictions": client.get("prior_convictions", ""),
+                "employment_status": client.get("employment_status", "Unknown"),
+                "needs": [need for need in operational_needs if need["domain"] == "resume"],
+                "active_needs": [need for need in operational_needs if need["domain"] == "resume"],
+            },
+            "documentation": {
+                "admission_date": client.get("intake_date", ""),
+                "program_type": client.get("program_type", ""),
+                "goals": client.get("goals", ""),
+                "barriers": client.get("barriers", ""),
+                "treatment_plan_available": treatment_plan_context.get("status") in {"draft", "active", "review_due", "completed"},
+            },
+            "reminders": {
+                "open_tasks": open_tasks,
+                "suggested_needs": operational_needs,
+            },
+        },
+        "operational_needs": operational_needs,
+        "open_tasks": open_tasks,
+        "daily_priority": {
+            "risk_level": client.get("risk_level", "Medium"),
+            "open_task_count": len(open_tasks),
+            "suggested_need_count": len(operational_needs),
+            "highest_priority_needs": [
+                need for need in operational_needs if need.get("priority") in {"urgent", "high"}
+            ][:5],
+        },
+        "data_sources": {
+            "client": "core_clients.db",
+            "overview": "case_management.db + reminders.db",
+            "benefits": "unified_platform.db",
+            "legal": "legal_cases.db",
+            "services": "social_services.db",
+            "treatment_plan": "background placeholder until first-class treatment plan store exists",
+        },
+        "metadata": {
+            "version": "1.0",
+            "generated_at": datetime.utcnow().isoformat() + "Z",
+            "read_only": True,
+        },
+    }
+
+
 def get_client_benefits_summary(client_id: str) -> Dict[str, Any]:
     """Get benefits application summary for unified client view."""
     summary = {
@@ -847,6 +1162,51 @@ async def get_client_unified_view(client_id: str, request: Request):
     except Exception as e:
         logger.error(f"Error getting unified view for {client_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/clients/{client_id}/operational-context")
+async def get_client_operational_context(client_id: str, request: Request):
+    """Return the shared read-only client context used to prefill module workflows."""
+    try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
+        with get_database_connection("core_clients", "READ_ONLY") as conn:
+            ensure_core_clients_schema(conn)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+            row = cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Client not found")
+
+        client = normalize_client_record(row)
+
+        try:
+            overview_data = get_client_data_integrator().get_client_overview_data(client_id)
+        except Exception as exc:
+            logger.warning("Operational context overview unavailable for %s: %s", client_id, exc)
+            overview_data = {}
+
+        operational_context = build_client_operational_context(
+            client,
+            overview_data=overview_data,
+            benefits_summary=get_client_benefits_summary(client_id),
+            legal_summary=get_client_legal_summary(client_id),
+            services_summary=get_client_services_summary(client_id),
+        )
+
+        return {
+            "success": True,
+            "operational_context": operational_context,
+            "client": operational_context["client"],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting operational context for {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.get("/api/clients/{client_id}/intelligent-tasks")
 async def get_intelligent_tasks(client_id: str, request: Request):

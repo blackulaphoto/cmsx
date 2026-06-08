@@ -13,7 +13,8 @@ const ClientSelector = ({
   showCreateNew = true,
   showViewDashboard = true,
   placeholder = "Select a client...",
-  className = ""
+  className = "",
+  includeOperationalContext = false
 }) => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -132,6 +133,34 @@ const ClientSelector = ({
     })
   }
 
+  const resolveClientSelection = async (client) => {
+    if (!includeOperationalContext || !client?.client_id) {
+      return client
+    }
+
+    try {
+      const response = await apiFetch(`/api/clients/${client.client_id}/operational-context`)
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+
+      const data = await response.json()
+      const operationalContext = data?.operational_context
+      if (!operationalContext) {
+        return client
+      }
+
+      return {
+        ...client,
+        ...(operationalContext.client || {}),
+        operational_context: operationalContext,
+      }
+    } catch (error) {
+      console.error('Error fetching client operational context:', error)
+      return client
+    }
+  }
+
   const fetchClientById = async (clientId) => {
     try {
       const response = await apiFetch(`/api/clients/${clientId}`)
@@ -140,7 +169,7 @@ const ClientSelector = ({
         const data = await response.json()
         const resolvedClient = data?.client || (data?.client_id ? data : null)
         if (resolvedClient) {
-          setSelectedClient(resolvedClient)
+          setSelectedClient(await resolveClientSelection(resolvedClient))
           return
         }
       }
@@ -151,19 +180,20 @@ const ClientSelector = ({
     }
   }
 
-  const handleClientSelect = (client) => {
-    setSelectedClient(client)
+  const handleClientSelect = async (client) => {
+    const resolvedClient = await resolveClientSelection(client)
+    setSelectedClient(resolvedClient)
     setIsOpen(false)
     setSearchTerm('')
     
     // Call parent callback if provided
     if (onClientSelect) {
-      onClientSelect(client)
+      onClientSelect(resolvedClient)
     }
     
     // Update URL params
     const currentUrl = new URL(window.location)
-    currentUrl.searchParams.set('client', client.client_id)
+    currentUrl.searchParams.set('client', resolvedClient.client_id)
     window.history.replaceState({}, '', currentUrl)
   }
 
