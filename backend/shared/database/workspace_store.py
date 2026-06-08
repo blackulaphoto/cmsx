@@ -5,6 +5,7 @@ Shared SQLite-backed storage for lightweight workspace content.
 from __future__ import annotations
 
 import logging
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -131,6 +132,31 @@ class WorkspaceStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS client_treatment_plans (
+                    plan_id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    created_by TEXT,
+                    approved_by TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    approved_at TEXT,
+                    review_due_date TEXT,
+                    problems_json TEXT NOT NULL DEFAULT '[]',
+                    goals_json TEXT NOT NULL DEFAULT '[]',
+                    objectives_json TEXT NOT NULL DEFAULT '[]',
+                    interventions_json TEXT NOT NULL DEFAULT '[]',
+                    target_dates_json TEXT NOT NULL DEFAULT '[]',
+                    aftercare_plan_json TEXT NOT NULL DEFAULT '{}',
+                    completion_criteria_json TEXT NOT NULL DEFAULT '[]',
+                    operational_needs_json TEXT NOT NULL DEFAULT '[]',
+                    raw_suggestions_json TEXT NOT NULL DEFAULT '{}'
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_client_treatment_plans_client
+                ON client_treatment_plans (client_id, status, updated_at);
                 """
             )
             note_columns = {
@@ -148,6 +174,200 @@ class WorkspaceStore:
     @staticmethod
     def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
         return dict(row)
+
+    @staticmethod
+    def _json_dumps(value: Any, fallback: Any) -> str:
+        if value in (None, ""):
+            return json.dumps(fallback)
+        if isinstance(value, str):
+            try:
+                json.loads(value)
+                return value
+            except Exception:
+                return json.dumps(value)
+        return json.dumps(value)
+
+    @staticmethod
+    def _json_loads(value: Any, fallback: Any) -> Any:
+        if value in (None, ""):
+            return fallback
+        if isinstance(value, (dict, list)):
+            return value
+        try:
+            return json.loads(value)
+        except Exception:
+            return fallback
+
+    def _plan_row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
+        plan = self._row_to_dict(row)
+        plan["problems"] = self._json_loads(plan.pop("problems_json", None), [])
+        plan["goals"] = self._json_loads(plan.pop("goals_json", None), [])
+        plan["objectives"] = self._json_loads(plan.pop("objectives_json", None), [])
+        plan["interventions"] = self._json_loads(plan.pop("interventions_json", None), [])
+        plan["target_dates"] = self._json_loads(plan.pop("target_dates_json", None), [])
+        plan["aftercare_plan"] = self._json_loads(plan.pop("aftercare_plan_json", None), {})
+        plan["completion_criteria"] = self._json_loads(plan.pop("completion_criteria_json", None), [])
+        plan["operational_needs"] = self._json_loads(plan.pop("operational_needs_json", None), [])
+        plan["raw_suggestions"] = self._json_loads(plan.pop("raw_suggestions_json", None), {})
+        return plan
+
+    def list_client_treatment_plans(self, client_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM client_treatment_plans
+                WHERE client_id = ?
+                ORDER BY
+                    CASE status
+                        WHEN 'active' THEN 0
+                        WHEN 'review_due' THEN 1
+                        WHEN 'draft' THEN 2
+                        ELSE 3
+                    END,
+                    COALESCE(approved_at, updated_at, created_at) DESC
+                """,
+                (client_id,),
+            ).fetchall()
+        return [self._plan_row_to_dict(row) for row in rows]
+
+    def get_current_treatment_plan(self, client_id: str) -> Optional[Dict[str, Any]]:
+        plans = self.list_client_treatment_plans(client_id)
+        return plans[0] if plans else None
+
+    def get_treatment_plan(self, plan_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM client_treatment_plans WHERE plan_id = ?",
+                (plan_id,),
+            ).fetchone()
+        return self._plan_row_to_dict(row) if row else None
+
+    def create_treatment_plan_draft(
+        self,
+        client_id: str,
+        created_by: str,
+        plan_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        now = self._now()
+        plan = {
+            "plan_id": plan_data.get("plan_id") or f"txp_{uuid4().hex[:12]}",
+            "client_id": client_id,
+            "status": "draft",
+            "source": plan_data.get("source") or "case_manager",
+            "created_by": created_by or "",
+            "approved_by": None,
+            "created_at": now,
+            "updated_at": now,
+            "approved_at": None,
+            "review_due_date": plan_data.get("review_due_date"),
+            "problems": plan_data.get("problems") or [],
+            "goals": plan_data.get("goals") or [],
+            "objectives": plan_data.get("objectives") or [],
+            "interventions": plan_data.get("interventions") or [],
+            "target_dates": plan_data.get("target_dates") or [],
+            "aftercare_plan": plan_data.get("aftercare_plan") or {},
+            "completion_criteria": plan_data.get("completion_criteria") or [],
+            "operational_needs": plan_data.get("operational_needs") or [],
+            "raw_suggestions": plan_data.get("raw_suggestions") or {},
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO client_treatment_plans (
+                    plan_id, client_id, status, source, created_by, approved_by,
+                    created_at, updated_at, approved_at, review_due_date,
+                    problems_json, goals_json, objectives_json, interventions_json,
+                    target_dates_json, aftercare_plan_json, completion_criteria_json,
+                    operational_needs_json, raw_suggestions_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    plan["plan_id"],
+                    plan["client_id"],
+                    plan["status"],
+                    plan["source"],
+                    plan["created_by"],
+                    plan["approved_by"],
+                    plan["created_at"],
+                    plan["updated_at"],
+                    plan["approved_at"],
+                    plan["review_due_date"],
+                    self._json_dumps(plan["problems"], []),
+                    self._json_dumps(plan["goals"], []),
+                    self._json_dumps(plan["objectives"], []),
+                    self._json_dumps(plan["interventions"], []),
+                    self._json_dumps(plan["target_dates"], []),
+                    self._json_dumps(plan["aftercare_plan"], {}),
+                    self._json_dumps(plan["completion_criteria"], []),
+                    self._json_dumps(plan["operational_needs"], []),
+                    self._json_dumps(plan["raw_suggestions"], {}),
+                ),
+            )
+            conn.commit()
+        return plan
+
+    def update_treatment_plan(self, plan_id: str, plan_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        existing = self.get_treatment_plan(plan_id)
+        if not existing:
+            return None
+        if existing["status"] == "active":
+            plan_data = {key: value for key, value in plan_data.items() if key in {"review_due_date"}}
+
+        updated = {**existing, **{key: value for key, value in plan_data.items() if value is not None}}
+        updated["updated_at"] = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE client_treatment_plans
+                SET updated_at = ?, review_due_date = ?, problems_json = ?, goals_json = ?,
+                    objectives_json = ?, interventions_json = ?, target_dates_json = ?,
+                    aftercare_plan_json = ?, completion_criteria_json = ?, operational_needs_json = ?,
+                    raw_suggestions_json = ?
+                WHERE plan_id = ?
+                """,
+                (
+                    updated["updated_at"],
+                    updated.get("review_due_date"),
+                    self._json_dumps(updated.get("problems"), []),
+                    self._json_dumps(updated.get("goals"), []),
+                    self._json_dumps(updated.get("objectives"), []),
+                    self._json_dumps(updated.get("interventions"), []),
+                    self._json_dumps(updated.get("target_dates"), []),
+                    self._json_dumps(updated.get("aftercare_plan"), {}),
+                    self._json_dumps(updated.get("completion_criteria"), []),
+                    self._json_dumps(updated.get("operational_needs"), []),
+                    self._json_dumps(updated.get("raw_suggestions"), {}),
+                    plan_id,
+                ),
+            )
+            conn.commit()
+        return self.get_treatment_plan(plan_id)
+
+    def approve_treatment_plan(self, plan_id: str, approved_by: str) -> Optional[Dict[str, Any]]:
+        existing = self.get_treatment_plan(plan_id)
+        if not existing:
+            return None
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE client_treatment_plans
+                SET status = 'superseded', updated_at = ?
+                WHERE client_id = ? AND plan_id != ? AND status IN ('active', 'review_due')
+                """,
+                (now, existing["client_id"], plan_id),
+            )
+            conn.execute(
+                """
+                UPDATE client_treatment_plans
+                SET status = 'active', approved_by = ?, approved_at = ?, updated_at = ?
+                WHERE plan_id = ?
+                """,
+                (approved_by or "", now, now, plan_id),
+            )
+            conn.commit()
+        return self.get_treatment_plan(plan_id)
 
     def list_client_notes(self, client_id: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:

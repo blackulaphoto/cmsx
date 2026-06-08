@@ -14,6 +14,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 from backend.shared.database.railway_postgres import upsert_client_to_postgres
+from backend.shared.database.workspace_store import workspace_store
 from backend.api.client_data_integration import get_client_data_integrator
 from backend.auth.authorization import assert_client_access, effective_case_manager_id
 from backend.auth.service import require_authenticated_user
@@ -315,6 +316,30 @@ def _get_active_treatment_plan_placeholder(
     client: Dict[str, Any],
     operational_needs: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
+    try:
+        current_plan = workspace_store.get_current_treatment_plan(client.get("client_id"))
+    except Exception as exc:
+        logger.warning("Unable to load current treatment plan for %s: %s", client.get("client_id"), exc)
+        current_plan = None
+
+    if current_plan:
+        return {
+            "plan_id": current_plan.get("plan_id"),
+            "status": current_plan.get("status", "draft"),
+            "created_at": current_plan.get("created_at"),
+            "approved_at": current_plan.get("approved_at"),
+            "review_due_date": current_plan.get("review_due_date"),
+            "problems": current_plan.get("problems") or [],
+            "goals": current_plan.get("goals") or [],
+            "objectives": current_plan.get("objectives") or [],
+            "interventions": current_plan.get("interventions") or [],
+            "target_dates": current_plan.get("target_dates") or [],
+            "aftercare_plan": current_plan.get("aftercare_plan") or {},
+            "completion_criteria": current_plan.get("completion_criteria") or [],
+            "operational_needs": current_plan.get("operational_needs") or operational_needs or [],
+            "source": current_plan.get("source", ""),
+        }
+
     background = client.get("background") if isinstance(client.get("background"), dict) else {}
     treatment_plan = background.get("treatment_plan") or background.get("treatment_plan_summary")
     aftercare_plan = background.get("aftercare_plan") or background.get("aftercare_plan_summary")
@@ -830,6 +855,117 @@ class ClientUpdateRequest(BaseModel):
     needs: Optional[List[str]] = None
     background: Optional[Dict[str, Any]] = None
 
+
+class TreatmentPlanDraftRequest(BaseModel):
+    source: str = "case_manager"
+    context: Dict[str, Any] = Field(default_factory=dict)
+    review_due_date: Optional[str] = None
+    problems: Optional[List[Dict[str, Any]]] = None
+    goals: Optional[List[Dict[str, Any]]] = None
+    objectives: Optional[List[Dict[str, Any]]] = None
+    interventions: Optional[List[Dict[str, Any]]] = None
+    target_dates: Optional[List[str]] = None
+    aftercare_plan: Optional[Dict[str, Any]] = None
+    completion_criteria: Optional[List[str]] = None
+    operational_needs: Optional[List[Dict[str, Any]]] = None
+
+
+class TreatmentPlanUpdateRequest(BaseModel):
+    review_due_date: Optional[str] = None
+    problems: Optional[List[Dict[str, Any]]] = None
+    goals: Optional[List[Dict[str, Any]]] = None
+    objectives: Optional[List[Dict[str, Any]]] = None
+    interventions: Optional[List[Dict[str, Any]]] = None
+    target_dates: Optional[List[str]] = None
+    aftercare_plan: Optional[Dict[str, Any]] = None
+    completion_criteria: Optional[List[str]] = None
+    operational_needs: Optional[List[Dict[str, Any]]] = None
+
+
+def _get_normalized_client_or_404(client_id: str) -> Dict[str, Any]:
+    with get_database_connection("core_clients", "READ_ONLY") as conn:
+        ensure_core_clients_schema(conn)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+        row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return normalize_client_record(row)
+
+
+def _coerce_plan_list(value: Any) -> List[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _build_treatment_plan_data(
+    client: Dict[str, Any],
+    payload: TreatmentPlanDraftRequest,
+    suggestions: Dict[str, Any],
+) -> Dict[str, Any]:
+    operational_needs = payload.operational_needs or derive_operational_needs(client)
+    barriers = client.get("barriers") or "Current barriers need case manager review"
+    client_goal = client.get("goals") or "Improve stability and functioning"
+    suggested_goal = suggestions.get("goal") or client_goal
+    suggested_objective = suggestions.get("objective") or (
+        "Client will complete at least one documented follow-up action each week."
+    )
+    suggested_interventions = suggestions.get("interventions") or []
+
+    return {
+        "source": payload.source or "case_manager",
+        "review_due_date": payload.review_due_date,
+        "problems": payload.problems if payload.problems is not None else [
+            {
+                "problem_id": f"problem_{uuid.uuid4().hex[:8]}",
+                "domain": "case_management",
+                "description": barriers,
+                "source": "intake",
+            }
+        ],
+        "goals": payload.goals if payload.goals is not None else [
+            {
+                "goal_id": f"goal_{uuid.uuid4().hex[:8]}",
+                "description": suggested_goal,
+                "status": "draft",
+                "source": "ai_suggestion" if suggestions else "intake",
+            }
+        ],
+        "objectives": payload.objectives if payload.objectives is not None else [
+            {
+                "objective_id": f"objective_{uuid.uuid4().hex[:8]}",
+                "description": suggested_objective,
+                "measure": "Weekly documented follow-up action and case manager review",
+                "status": "draft",
+                "source": "ai_suggestion" if suggestions else "intake",
+            }
+        ],
+        "interventions": payload.interventions if payload.interventions is not None else [
+            {
+                "intervention_id": f"intervention_{uuid.uuid4().hex[:8]}",
+                "description": intervention,
+                "assigned_to": "case_manager",
+                "status": "draft",
+                "source": "ai_suggestion",
+            }
+            for intervention in _coerce_plan_list(suggested_interventions)
+        ],
+        "target_dates": payload.target_dates or [],
+        "aftercare_plan": payload.aftercare_plan or {
+            "summary": "Aftercare plan requires case manager review and client confirmation.",
+            "source": "draft",
+        },
+        "completion_criteria": payload.completion_criteria or [
+            "Client progress and service completion criteria require case manager review."
+        ],
+        "operational_needs": operational_needs,
+        "raw_suggestions": suggestions,
+    }
+
 @router.post("/api/clients")
 async def create_client(client_data: ClientCreateRequest, request: Request):
     """
@@ -1205,6 +1341,125 @@ async def get_client_operational_context(client_id: str, request: Request):
         raise
     except Exception as e:
         logger.error(f"Error getting operational context for {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/clients/{client_id}/treatment-plan")
+async def get_client_treatment_plan(client_id: str, request: Request):
+    """Return the current treatment plan plus plan history for a client."""
+    try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
+        plans = workspace_store.list_client_treatment_plans(client_id)
+        current_plan = plans[0] if plans else None
+        return {
+            "success": True,
+            "current_plan": current_plan,
+            "plans": plans,
+            "count": len(plans),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting treatment plan for {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/clients/{client_id}/treatment-plan/draft")
+async def create_client_treatment_plan_draft(
+    client_id: str,
+    payload: TreatmentPlanDraftRequest,
+    request: Request,
+):
+    """Create a structured draft treatment plan from intake and optional AI suggestions."""
+    try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
+        client = _get_normalized_client_or_404(client_id)
+
+        from backend.modules.ai_documentation.service import documentation_ai_service
+
+        suggestions = documentation_ai_service.generate_treatment_plan_suggestions(
+            {
+                "client_id": client_id,
+                "client_name": client.get("full_name"),
+                "context": {
+                    **(payload.context or {}),
+                    "client_goals": client.get("goals"),
+                    "barriers": client.get("barriers"),
+                    "needs": payload.operational_needs or derive_operational_needs(client),
+                },
+            }
+        )
+        plan_data = _build_treatment_plan_data(client, payload, suggestions)
+        plan = workspace_store.create_treatment_plan_draft(
+            client_id,
+            created_by=current_user.case_manager_id,
+            plan_data=plan_data,
+        )
+        return {
+            "success": True,
+            "plan": plan,
+            "suggestions": suggestions,
+            "message": "Draft treatment plan created. Approval is required before it becomes active.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating treatment plan draft for {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/api/clients/{client_id}/treatment-plan/{plan_id}")
+async def update_client_treatment_plan(
+    client_id: str,
+    plan_id: str,
+    payload: TreatmentPlanUpdateRequest,
+    request: Request,
+):
+    """Update a draft treatment plan. Active plans only allow review-date updates."""
+    try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
+        existing = workspace_store.get_treatment_plan(plan_id)
+        if not existing or existing.get("client_id") != client_id:
+            raise HTTPException(status_code=404, detail="Treatment plan not found")
+
+        updated = workspace_store.update_treatment_plan(
+            plan_id,
+            {key: value for key, value in payload.model_dump().items() if value is not None},
+        )
+        return {
+            "success": True,
+            "plan": updated,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating treatment plan {plan_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/api/clients/{client_id}/treatment-plan/{plan_id}/approve")
+async def approve_client_treatment_plan(client_id: str, plan_id: str, request: Request):
+    """Approve a draft treatment plan and make it the active client plan."""
+    try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
+        existing = workspace_store.get_treatment_plan(plan_id)
+        if not existing or existing.get("client_id") != client_id:
+            raise HTTPException(status_code=404, detail="Treatment plan not found")
+
+        approved = workspace_store.approve_treatment_plan(plan_id, approved_by=current_user.case_manager_id)
+        return {
+            "success": True,
+            "plan": approved,
+            "message": "Treatment plan approved. Task generation remains a separate review step.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error approving treatment plan {plan_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

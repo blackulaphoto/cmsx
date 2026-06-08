@@ -271,6 +271,7 @@ class DocumentationAIService:
         """Merge core intake and module data into one documentation context."""
         core = comprehensive_data.get("core", {}) or {}
         case_mgmt = comprehensive_data.get("case_management", {}) or {}
+        active_treatment_plan = comprehensive_data.get("treatment_plan", {}) or {}
 
         def first(*keys: str, default: str = "") -> str:
             values = []
@@ -327,6 +328,10 @@ class DocumentationAIService:
         special_needs = first("special_needs")
 
         treatment_plan = self._first_context_value(
+            active_treatment_plan.get("summary"),
+            active_treatment_plan.get("goals"),
+            active_treatment_plan.get("objectives"),
+            active_treatment_plan.get("interventions"),
             first("treatment_plan"),
             first("treatment_plan_summary"),
             first("current_treatment_plan"),
@@ -334,6 +339,7 @@ class DocumentationAIService:
             background.get("treatment_plan_summary"),
         )
         aftercare_plan = self._first_context_value(
+            active_treatment_plan.get("aftercare_plan"),
             first("aftercare_plan"),
             first("aftercare_plan_summary"),
             first("discharge_plan"),
@@ -627,11 +633,22 @@ class DocumentationAIService:
                     ORDER BY created_at DESC
                     LIMIT 5
                 """, (client_id,))
-                notes = [dict(row) for row in cursor.fetchall()]
-                comprehensive_data['recent_notes'] = notes
+            notes = [dict(row) for row in cursor.fetchall()]
+            comprehensive_data['recent_notes'] = notes
+
+            current_treatment_plan = workspace_store.get_current_treatment_plan(client_id)
+            if current_treatment_plan:
+                comprehensive_data["treatment_plan"] = current_treatment_plan
 
         except Exception as exc:
             logger.warning("Error gathering comprehensive client data: %s", exc)
+
+        try:
+            current_treatment_plan = workspace_store.get_current_treatment_plan(client_id)
+            if current_treatment_plan:
+                comprehensive_data["treatment_plan"] = current_treatment_plan
+        except Exception as exc:
+            logger.warning("Unable to load treatment plan for documentation context: %s", exc)
 
         return comprehensive_data
 

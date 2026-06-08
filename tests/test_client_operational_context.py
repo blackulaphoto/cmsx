@@ -6,6 +6,8 @@ from fastapi.testclient import TestClient
 
 from backend.api import clients as clients_api
 from backend.auth.service import FirebaseAuthService
+from backend.modules.ai_documentation.service import documentation_ai_service
+from backend.shared.database.workspace_store import workspace_store
 
 
 class _StubClientDataIntegrator:
@@ -87,6 +89,13 @@ def _seed_core_client(client_id="client-operational-1"):
     return client_id
 
 
+def _use_temp_workspace_store(tmp_path):
+    original_db_path = workspace_store.db_path
+    workspace_store.db_path = tmp_path / "workspace_content.db"
+    workspace_store._initialize()
+    return original_db_path
+
+
 def test_operational_context_routes_intake_to_module_needs(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
@@ -166,3 +175,120 @@ def test_operational_context_enforces_case_manager_access(tmp_path, monkeypatch)
     )
 
     assert response.status_code == 403
+
+
+def test_treatment_plan_draft_approve_and_context_readback(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_workspace_db = _use_temp_workspace_store(tmp_path)
+    monkeypatch.setattr(
+        documentation_ai_service,
+        "generate_treatment_plan_suggestions",
+        lambda payload: {
+            "goal": "Client will secure sober living and complete dental follow-up.",
+            "objective": "Client will complete two documented service actions within 30 days.",
+            "interventions": [
+                "Case manager will coordinate sober living referrals.",
+                "Case manager will support dental appointment scheduling.",
+            ],
+            "needs_considered": payload["context"]["needs"],
+        },
+    )
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_benefits_summary",
+        lambda client_id: {"applications": [], "total_applications": 0, "active_applications": 0},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_legal_summary",
+        lambda client_id: {"cases": [], "active_cases": 0, "next_court_date": None},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_services_summary",
+        lambda client_id: {"referrals": [], "tasks": [], "open_tasks": 0},
+    )
+    client_id = _seed_core_client("client-treatment-plan")
+    client = TestClient(_test_app(tmp_path))
+    headers = {
+        "X-Test-Auth-Email": "case.manager@example.test",
+        "X-Test-Auth-Case-Manager-Id": "cm_test",
+        "X-Test-Auth-Role": "case_manager",
+    }
+
+    try:
+        draft_response = client.post(
+            f"/api/clients/{client_id}/treatment-plan/draft",
+            headers=headers,
+            json={"source": "ai_suggestion", "review_due_date": "2026-07-07"},
+        )
+
+        assert draft_response.status_code == 200
+        draft_payload = draft_response.json()
+        assert draft_payload["success"] is True
+        plan = draft_payload["plan"]
+        assert plan["status"] == "draft"
+        assert plan["client_id"] == client_id
+        assert plan["goals"][0]["description"] == "Client will secure sober living and complete dental follow-up."
+        assert {need["need_key"] for need in plan["operational_needs"]} >= {"dental", "sober_living_aftercare"}
+
+        approve_response = client.post(
+            f"/api/clients/{client_id}/treatment-plan/{plan['plan_id']}/approve",
+            headers=headers,
+        )
+
+        assert approve_response.status_code == 200
+        approved_plan = approve_response.json()["plan"]
+        assert approved_plan["status"] == "active"
+        assert approved_plan["approved_by"] == "cm_test"
+
+        context_response = client.get(
+            f"/api/clients/{client_id}/operational-context",
+            headers=headers,
+        )
+
+        assert context_response.status_code == 200
+        treatment_plan = context_response.json()["operational_context"]["treatment_plan"]
+        assert treatment_plan["plan_id"] == plan["plan_id"]
+        assert treatment_plan["status"] == "active"
+        assert treatment_plan["review_due_date"] == "2026-07-07"
+    finally:
+        workspace_store.db_path = original_workspace_db
+        workspace_store._initialize()
+
+
+def test_documentation_context_uses_current_treatment_plan(tmp_path):
+    original_workspace_db = _use_temp_workspace_store(tmp_path)
+    try:
+        plan = workspace_store.create_treatment_plan_draft(
+            "client-doc-plan",
+            created_by="cm_test",
+            plan_data={
+                "source": "test",
+                "goals": [{"description": "Client will maintain sober living placement."}],
+                "objectives": [{"description": "Client will attend weekly recovery support."}],
+                "interventions": [{"description": "CM will monitor placement and aftercare adherence."}],
+                "aftercare_plan": {"summary": "Sober living plus outpatient aftercare."},
+            },
+        )
+        approved = workspace_store.approve_treatment_plan(plan["plan_id"], approved_by="cm_test")
+
+        context = documentation_ai_service._build_shared_intake_context(
+            {
+                "core": {
+                    "client_id": "client-doc-plan",
+                    "first_name": "Doc",
+                    "last_name": "Plan",
+                    "goals": "Legacy intake goal",
+                },
+                "treatment_plan": approved,
+            },
+            client_name="Doc Plan",
+        )
+
+        assert "maintain sober living placement" in context["treatment_plan_summary"]
+        assert "Sober living plus outpatient aftercare" in context["aftercare_plan_summary"]
+    finally:
+        workspace_store.db_path = original_workspace_db
+        workspace_store._initialize()
