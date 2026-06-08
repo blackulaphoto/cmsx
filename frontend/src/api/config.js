@@ -200,6 +200,20 @@ export const API_ENDPOINTS = {
     health: '/health',
     databaseStatus: '/api/system/database-status',
     accessMatrix: '/api/system/access-matrix'
+  },
+
+  // Group Facilitation
+  groups: {
+    topics: '/api/groups/topics',
+    topicById: (id) => `/api/groups/topics/${id}`,
+    topicCategories: '/api/groups/topics/categories',
+    topicAiGenerate: '/api/groups/topics/ai-generate',
+    playlists: '/api/groups/playlists',
+    playlistById: (id) => `/api/groups/playlists/${id}`,
+    videos: '/api/groups/videos',
+    videoById: (id) => `/api/groups/videos/${id}`,
+    sessions: '/api/groups/sessions',
+    sessionById: (id) => `/api/groups/sessions/${id}`,
   }
 }
 

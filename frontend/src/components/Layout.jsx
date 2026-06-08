@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { 
-  Users, 
-  Home, 
-  DollarSign, 
-  Scale, 
-  FileText, 
+import {
+  Users,
+  Home,
+  DollarSign,
+  Scale,
+  FileText,
   ClipboardList,
   MessageSquare,
   Building2,
@@ -19,7 +19,8 @@ import {
   BarChart3,
   Stethoscope,
   Contact,
-  ChevronDown
+  ChevronDown,
+  BookOpen,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -38,6 +39,7 @@ const Layout = ({ children }) => {
     { path: '/housing', label: 'Housing', icon: Home, gradient: 'from-blue-500 to-cyan-500' },
     { path: '/sober-living', label: 'Sober Living', icon: Home, gradient: 'from-teal-500 to-emerald-500' },
     { path: '/sober-living-directory', label: 'Sober Directory', icon: Building2, gradient: 'from-teal-500 to-cyan-500' },
+    { path: '/groups', label: 'Groups', icon: BookOpen, gradient: 'from-teal-400 to-cyan-500' },
     { path: '/benefits', label: 'Benefits', icon: Heart, gradient: 'from-pink-500 to-rose-500' },
     { path: '/medical', label: 'Medical', icon: Stethoscope, gradient: 'from-teal-500 to-cyan-500' },
     { path: '/rolodex', label: 'Rolodex', icon: Contact, gradient: 'from-cyan-500 to-sky-500' },

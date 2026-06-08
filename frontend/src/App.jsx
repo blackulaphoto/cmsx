@@ -41,6 +41,9 @@ import AIAssistantPopup from './components/AIAssistant/AIAssistantPopup'
 import SystemIntegrity from './pages/SystemIntegrity'
 // Phase 3: Frontend Integration Audit
 import IntegrationAudit from './pages/IntegrationAudit'
+// Group Facilitation module
+import Groups from './pages/Groups'
+import GroupSessionDetail from './pages/GroupSessionDetail'
 
 function App() {
   return (
@@ -102,6 +105,9 @@ function App() {
         <Route path="/system-integrity" element={<SystemIntegrity />} />
         {/* Phase 3: Frontend Integration Audit */}
         <Route path="/integration-audit" element={<IntegrationAudit />} />
+        {/* Group Facilitation */}
+        <Route path="/groups" element={<Groups />} />
+        <Route path="/groups/sessions/:sessionId" element={<GroupSessionDetail />} />
         
         {/* Redirect any unmatched routes to dashboard */}
               <Route path="*" element={<Navigate to="/" replace />} />

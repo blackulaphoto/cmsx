@@ -142,6 +142,14 @@ except ImportError as e:
     logger.warning(f"Sober living module not available: {e}")
     SOBER_LIVING_AVAILABLE = False
 
+# Import group facilitation module
+try:
+    from modules.groups.routes import router as groups_router
+    GROUPS_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Groups module not available: {e}")
+    GROUPS_AVAILABLE = False
+
 # Pydantic models for API
 class ClientCreate(BaseModel):
     first_name: str
@@ -282,6 +290,13 @@ class NewUnifiedPlatform:
             logger.info("[CHECK] Sober living module integrated")
         else:
             logger.warning("[WARNING] Sober living module not available")
+
+        # Include group facilitation module if available
+        if GROUPS_AVAILABLE:
+            self.app.include_router(groups_router, prefix="/api")
+            logger.info("[CHECK] Group facilitation module integrated")
+        else:
+            logger.warning("[WARNING] Group facilitation module not available")
 
         # Include database integrity routes
         self.app.include_router(integrity_router)
