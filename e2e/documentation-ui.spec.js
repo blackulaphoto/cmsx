@@ -103,6 +103,18 @@ const TEMPLATE_EXPECTATIONS = {
   ]
 }
 
+const PDF_EXPECTATIONS = {
+  'Completion Letter Template': [/successfully completed treatment/i],
+  'Letter of Presence Template': [/Letter of Presence/i, /currently enrolled in treatment/i],
+  'Progress Report Template': [/treatment has primarily focused on/i],
+  'Proof of Residence Template': [/Proof of Residency/i, /currently a resident/i],
+  'Treatment Plan Review': [/TREATMENT PLAN REVIEW/i, /Problem 1: Goal/i],
+  'Discharge Summary': [/DISCHARGE SUMMARY/i, /Aftercare Appointments/i],
+  'Referral Summary': [/REFERRAL NEED/i, /ACTION TAKEN/i],
+  'Court / Probation Letter': [/TO WHOM IT MAY CONCERN/i, /CURRENT STATUS/i],
+  'FMLA Correspondence': [/CONTACT METHOD/i, /FOLLOW-UP/i]
+}
+
 const timestamp = () => Date.now()
 
 async function selectFirstClient(page) {
@@ -181,7 +193,7 @@ async function deleteSavedItem(page, title) {
   await expect(page.getByText(title)).toBeHidden()
 }
 
-async function downloadSavedDocument(page, title) {
+async function downloadSavedDocument(page, title, expectedPatterns = []) {
   const item = page.locator('div.rounded-2xl').filter({ hasText: title }).filter({ hasText: 'Download PDF' }).first()
   await expect(item).toBeVisible()
   const downloadPromise = page.waitForEvent('download')
@@ -191,8 +203,13 @@ async function downloadSavedDocument(page, title) {
   const path = await download.path()
   expect(path).toBeTruthy()
   const fileContent = fs.readFileSync(path, 'latin1')
-  expect(fileContent).toContain('PROOF OF RESIDENCY')
-  expect(fileContent).toContain('E2E document verifies the client residence workflow')
+  expect(fileContent).toContain('%PDF-1.4')
+  for (const expectedPattern of expectedPatterns) {
+    expect.soft(
+      fileContent,
+      `${title} downloaded PDF should include ${expectedPattern}`
+    ).toMatch(expectedPattern)
+  }
 }
 
 async function showSavedList(page, isNote) {
@@ -272,7 +289,7 @@ test('documentation manual note and document saves persist after reload and clea
   await expect(page.getByRole('heading', { name: 'Notes and Documents Command Center' })).toBeVisible()
   await showSavedList(page, false)
   await expect(page.getByText(docTitle)).toBeVisible()
-  await downloadSavedDocument(page, docTitle)
+  await downloadSavedDocument(page, docTitle, [/PROOF OF RESIDENCY/i, /E2E document verifies the client residence workflow/i])
 
   for (const { title, isNote } of savedItems.reverse()) {
     await showSavedList(page, isNote)
@@ -280,4 +297,48 @@ test('documentation manual note and document saves persist after reload and clea
   }
 
   expect(browserErrors).toEqual([])
+})
+
+test('generated template drafts save, reload, export PDFs, and cleanup', async ({ page }) => {
+  test.setTimeout(360_000)
+  const browserErrors = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') browserErrors.push(message.text())
+  })
+  page.on('pageerror', (error) => browserErrors.push(error.message))
+
+  await page.goto('/documentation')
+  await expect(page.getByRole('heading', { name: 'Notes and Documents Command Center' })).toBeVisible()
+  await expect(page.getByText('E2E Case Manager')).toBeVisible()
+  await selectFirstClient(page)
+
+  const savedItems = []
+
+  for (const label of TEMPLATE_LABELS) {
+    await returnToGallery(page)
+    await chooseTemplate(page, label)
+    const { finalDraft } = await generateDraft(page, label)
+    const generatedText = await finalDraft.inputValue()
+    expect.soft(generatedText, `${label} generated draft should contain saved content`).toMatch(TEMPLATE_EXPECTATIONS[label][0])
+
+    const isNote = NOTE_TEMPLATES.has(label)
+    const title = await saveCurrentDraft(page, label, isNote)
+    savedItems.push({ title, isNote, label })
+
+    await page.reload()
+    await expect(page.getByRole('heading', { name: 'Notes and Documents Command Center' })).toBeVisible()
+    await showSavedList(page, isNote)
+    await expect(page.getByText(title)).toBeVisible()
+
+    if (!isNote) {
+      await downloadSavedDocument(page, title, PDF_EXPECTATIONS[label] || [])
+    }
+  }
+
+  for (const { title, isNote } of savedItems.reverse()) {
+    await showSavedList(page, isNote)
+    await deleteSavedItem(page, title)
+  }
+
+  expect.soft(browserErrors).toEqual([])
 })
