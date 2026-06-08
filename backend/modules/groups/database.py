@@ -863,8 +863,10 @@ class GroupsDatabase:
 
     def report_attendance(self, start_date: str, end_date: str, facilitator: str = "", topic_id: str = "") -> List[dict]:
         with self._connect() as conn:
+            # Join schedule instances so we can filter by facilitator stored on the schedule
             query = """
-                SELECT s.session_id, s.title, s.scheduled_date, s.facilitator_notes,
+                SELECT s.session_id, s.title, s.scheduled_date,
+                       COALESCE(sch.facilitator, '') as facilitator,
                        COUNT(a.attendance_id) as total_attendees,
                        SUM(CASE WHEN a.status='present' THEN 1 ELSE 0 END) as present_count,
                        SUM(CASE WHEN a.status='absent' THEN 1 ELSE 0 END) as absent_count,
@@ -872,12 +874,17 @@ class GroupsDatabase:
                        SUM(CASE WHEN a.status='excused' THEN 1 ELSE 0 END) as excused_count
                 FROM group_sessions s
                 LEFT JOIN group_attendance a ON a.session_id = s.session_id
+                LEFT JOIN group_schedule_instances gsi ON gsi.session_id = s.session_id
+                LEFT JOIN group_schedules sch ON sch.schedule_id = gsi.schedule_id
                 WHERE s.scheduled_date >= ? AND s.scheduled_date <= ?
             """
             params = [start_date, end_date]
             if topic_id:
                 query += " AND s.topic_id = ?"
                 params.append(topic_id)
+            if facilitator:
+                query += " AND LOWER(COALESCE(sch.facilitator,'')) LIKE ?"
+                params.append(f"%{facilitator.lower()}%")
             query += " GROUP BY s.session_id ORDER BY s.scheduled_date"
             rows = conn.execute(query, params).fetchall()
             return [dict(r) for r in rows]

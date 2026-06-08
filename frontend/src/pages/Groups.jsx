@@ -23,6 +23,7 @@ import {
   BarChart2,
   Package,
   RefreshCw,
+  Edit3,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -990,19 +991,20 @@ function VideoLibraryTab() {
 
 // ── Schedule Tab ──────────────────────────────────────────────────────────────
 
-function ScheduleFormModal({ onClose, onSaved, topics = [], packs = [] }) {
+function ScheduleFormModal({ onClose, onSaved, topics = [], packs = [], initialSchedule = null }) {
+  const isEdit = !!initialSchedule
   const [form, setForm] = useState({
-    title: '',
-    group_type: 'psychoeducation',
-    day_of_week: 0,
-    start_time: '10:00',
-    duration_minutes: 60,
-    location: '',
-    facilitator: '',
-    recurrence: 'weekly',
-    topic_id: '',
-    curriculum_pack_id: '',
-    is_active: true,
+    title: initialSchedule?.title || '',
+    group_type: initialSchedule?.group_type || 'psychoeducation',
+    day_of_week: initialSchedule?.day_of_week ?? 0,
+    start_time: initialSchedule?.start_time || '10:00',
+    duration_minutes: initialSchedule?.duration_minutes ?? 60,
+    location: initialSchedule?.location || '',
+    facilitator: initialSchedule?.facilitator || '',
+    recurrence: initialSchedule?.recurrence || 'weekly',
+    topic_id: initialSchedule?.topic_id || '',
+    curriculum_pack_id: initialSchedule?.curriculum_pack_id || '',
+    is_active: initialSchedule ? Boolean(initialSchedule.is_active) : true,
   })
   const [saving, setSaving] = useState(false)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
@@ -1019,18 +1021,24 @@ function ScheduleFormModal({ onClose, onSaved, topics = [], packs = [] }) {
         topic_id: form.topic_id || null,
         curriculum_pack_id: form.curriculum_pack_id || null,
       }
-      const saved = await schedulesAPI.create(payload)
-      toast.success('Schedule created')
+      let saved
+      if (isEdit) {
+        saved = await schedulesAPI.update(initialSchedule.schedule_id, payload)
+        toast.success('Schedule updated')
+      } else {
+        saved = await schedulesAPI.create(payload)
+        toast.success('Schedule created')
+      }
       onSaved(saved)
     } catch (err) {
-      toast.error(err?.message || 'Failed to create schedule')
+      toast.error(err?.message || (isEdit ? 'Failed to update schedule' : 'Failed to create schedule'))
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <ModalWrapper onClose={onClose} title="Create Group Schedule" wide>
+    <ModalWrapper onClose={onClose} title={isEdit ? `Edit: ${initialSchedule.title}` : 'Create Group Schedule'} wide>
       <div className="space-y-4">
         <div>
           <label className="text-xs text-gray-400 block mb-1">Schedule Title *</label>
@@ -1086,11 +1094,24 @@ function ScheduleFormModal({ onClose, onSaved, topics = [], packs = [] }) {
             {packs.map((p) => <option key={p.pack_id} value={p.pack_id}>{p.name} ({p.total_sessions} sessions)</option>)}
           </select>
         </div>
+        {isEdit && (
+          <div className="flex items-center gap-3 pt-1">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <div
+                onClick={() => setForm((f) => ({ ...f, is_active: !f.is_active }))}
+                className={`relative w-9 h-5 rounded-full transition-colors ${form.is_active ? 'bg-purple-600' : 'bg-slate-600'}`}
+              >
+                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.is_active ? 'translate-x-4 left-0.5' : 'left-0.5'}`} />
+              </div>
+              <span className="text-xs text-gray-400">{form.is_active ? 'Active' : 'Inactive (paused)'}</span>
+            </label>
+          </div>
+        )}
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="btn-secondary">Cancel</button>
           <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2">
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            Create Schedule
+            {isEdit ? 'Save Changes' : 'Create Schedule'}
           </button>
         </div>
       </div>
@@ -1149,6 +1170,7 @@ function ScheduleTab({ topics, packs, onPacksRefresh }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
+  const [editFor, setEditFor] = useState(null)
   const [generateFor, setGenerateFor] = useState(null)
   const [expandedInstances, setExpandedInstances] = useState({})
   const [instancesData, setInstancesData] = useState({})
@@ -1231,6 +1253,13 @@ function ScheduleTab({ topics, packs, onPacksRefresh }) {
                     {expandedInstances[s.schedule_id] ? 'Hide' : 'Instances'}
                   </button>
                   <button
+                    onClick={() => setEditFor(s)}
+                    className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-white/10 transition-colors flex items-center gap-1"
+                  >
+                    <Edit3 className="h-3 w-3" />
+                    Edit
+                  </button>
+                  <button
                     onClick={() => setGenerateFor(s)}
                     className="btn-secondary text-xs py-1 px-3 flex items-center gap-1"
                   >
@@ -1270,6 +1299,15 @@ function ScheduleTab({ topics, packs, onPacksRefresh }) {
           packs={packs}
           onClose={() => setShowCreate(false)}
           onSaved={() => { setShowCreate(false); load() }}
+        />
+      )}
+      {editFor && (
+        <ScheduleFormModal
+          topics={topics}
+          packs={packs}
+          initialSchedule={editFor}
+          onClose={() => setEditFor(null)}
+          onSaved={() => { setEditFor(null); load() }}
         />
       )}
       {generateFor && (
