@@ -8,9 +8,11 @@
   },
   "scripts": {
     "test": "playwright test",
+    "test:e2e:ur": "python scripts/run_ur_e2e.py",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
-    "test:debug": "playwright test --debug"
+    "test:debug": "playwright test --debug",
+    "typecheck": "npm --prefix frontend run typecheck"
   },
   "keywords": [],
   "author": "",
@@ -21,5 +23,13 @@
   },
   "dependencies": {
     "biome": "^0.2.2"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/blackulaphoto/cmsx.git"
+  },
+  "bugs": {
+    "url": "https://github.com/blackulaphoto/cmsx/issues"
+  },
+  "homepage": "https://github.com/blackulaphoto/cmsx#readme"
 }

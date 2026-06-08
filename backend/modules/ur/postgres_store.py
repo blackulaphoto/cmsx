@@ -73,7 +73,7 @@ class PostgresURStore:
     def _ensure_ready(self) -> None:
         if self._schema_ready:
             return
-        ensure_postgres_ur_tables()
+        ensure_postgres_ur_tables(self._get_engine())
         self._schema_ready = True
 
     def _fetchone(self, query: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:

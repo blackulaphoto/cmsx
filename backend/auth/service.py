@@ -24,6 +24,9 @@ ADMIN_ROLE = "admin"
 CASE_MANAGER_ROLE = "case_manager"
 ALLOWED_ROLES = {ADMIN_ROLE, CASE_MANAGER_ROLE}
 BOOTSTRAP_ADMIN_EMAILS = {"blackulaphotography@gmail.com"}
+TRUE_VALUES = {"1", "true", "yes", "on"}
+TEST_AUTH_ENVIRONMENTS = {"test", "testing", "e2e"}
+PRODUCTION_ENVIRONMENTS = {"prod", "production"}
 
 
 @dataclass
@@ -346,6 +349,35 @@ class FirebaseAuthService:
         if not user.is_active:
             raise HTTPException(status_code=403, detail="User account is inactive")
         return user
+
+    def is_test_auth_enabled(self) -> bool:
+        if (os.getenv("ENABLE_TEST_AUTH") or "").strip().lower() not in TRUE_VALUES:
+            return False
+
+        environment_values = {
+            (os.getenv("APP_ENV") or "").strip().lower(),
+            (os.getenv("ENVIRONMENT") or "").strip().lower(),
+            (os.getenv("RAILWAY_ENVIRONMENT") or "").strip().lower(),
+        }
+        if environment_values & PRODUCTION_ENVIRONMENTS:
+            logger.error("ENABLE_TEST_AUTH ignored because a production environment is configured.")
+            return False
+
+        return bool(environment_values & TEST_AUTH_ENVIRONMENTS)
+
+    def test_user_from_request(self, request: Request) -> AuthenticatedUser:
+        role = (request.headers.get("X-Test-Auth-Role") or ADMIN_ROLE).strip().lower()
+        if role not in ALLOWED_ROLES:
+            role = ADMIN_ROLE
+        return AuthenticatedUser(
+            firebase_uid=(request.headers.get("X-Test-Auth-Uid") or "test-firebase-uid").strip(),
+            email=(request.headers.get("X-Test-Auth-Email") or "case.manager@example.com").strip().lower(),
+            full_name=(request.headers.get("X-Test-Auth-Name") or "Test Case Manager").strip(),
+            role=role,
+            case_manager_id=(request.headers.get("X-Test-Auth-Case-Manager-Id") or "cm_001").strip(),
+            auth_provider="test",
+            is_active=True,
+        )
 
     def _row_to_user(self, row: sqlite3.Row) -> AuthenticatedUser:
         return AuthenticatedUser(

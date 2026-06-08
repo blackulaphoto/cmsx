@@ -140,8 +140,11 @@ async def firebase_auth_middleware(request, call_next):
 
     if path.startswith("/api"):
         try:
-            decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
-            request.state.auth_user = auth_service.upsert_profile_from_token(decoded)
+            if auth_service.is_test_auth_enabled():
+                request.state.auth_user = auth_service.test_user_from_request(request)
+            else:
+                decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
+                request.state.auth_user = auth_service.upsert_profile_from_token(decoded)
         except HTTPException as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 

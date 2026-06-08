@@ -4,20 +4,37 @@ Railway Postgres bridge for Utilization Review persistence.
 
 from __future__ import annotations
 
+import os
+
 from sqlalchemy import create_engine, text
 
+from backend.auth.service import auth_service
 from .railway_postgres import _normalized_postgres_url, is_postgres_configured
 
 
+def _test_database_url() -> str:
+    if not auth_service.is_test_auth_enabled():
+        return ""
+    return os.getenv("UR_TEST_DATABASE_URL", "").strip()
+
+
+def is_ur_database_configured() -> bool:
+    return is_postgres_configured() or bool(_test_database_url())
+
+
+def _database_url() -> str:
+    return _test_database_url() or _normalized_postgres_url()
+
+
 def _engine():
-    return create_engine(_normalized_postgres_url(), pool_pre_ping=True, future=True)
+    return create_engine(_database_url(), pool_pre_ping=True, future=True)
 
 
-def ensure_postgres_ur_tables() -> None:
-    if not is_postgres_configured():
+def ensure_postgres_ur_tables(engine=None) -> None:
+    if engine is None and not is_ur_database_configured():
         return
 
-    engine = _engine()
+    engine = engine or _engine()
     with engine.begin() as conn:
         conn.execute(
             text(

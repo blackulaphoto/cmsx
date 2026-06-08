@@ -1,4 +1,4 @@
-"""Pydantic models for sober living module — Phase 1 + Phase 2."""
+"""Pydantic models for the sober living management module."""
 
 from __future__ import annotations
 

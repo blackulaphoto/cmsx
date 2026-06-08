@@ -1,4 +1,4 @@
-"""Sober Living Management — API routes (Phase 1 + Phase 2 stubs)."""
+"""Sober Living Management API routes."""
 
 from __future__ import annotations
 
@@ -324,7 +324,7 @@ def create_payment(body: RentPaymentCreate):
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: Meetings
+# Meetings
 # ---------------------------------------------------------------------------
 
 @router.get("/houses/{house_id}/meetings")
@@ -347,7 +347,7 @@ def update_meeting(meeting_id: str, body: MeetingUpdate):
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: Chores
+# Chores
 # ---------------------------------------------------------------------------
 
 @router.get("/houses/{house_id}/chores")
@@ -370,7 +370,7 @@ def update_chore(chore_id: str, body: ChoreUpdate):
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: Passes
+# Passes
 # ---------------------------------------------------------------------------
 
 @router.get("/houses/{house_id}/passes")
@@ -393,7 +393,7 @@ def update_pass(pass_id: str, body: PassUpdate):
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: Curfew checks
+# Curfew checks
 # ---------------------------------------------------------------------------
 
 @router.get("/houses/{house_id}/curfew")
@@ -418,7 +418,7 @@ def upsert_curfew(house_id: str, body: CurfewCheckUpsert):
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: Dashboard
+# Dashboard
 # ---------------------------------------------------------------------------
 
 @router.get("/houses/{house_id}/dashboard")

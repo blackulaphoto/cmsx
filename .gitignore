@@ -147,3 +147,8 @@ frontend/build/
 scripts/qc/report_qc_*.json
 scripts/qc/report_qc_*.md
 scripts/qc/runtime_flow_*.json
+test-results/
+playwright-report/
+
+.vercel
+.env*.local

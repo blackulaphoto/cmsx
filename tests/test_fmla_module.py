@@ -5,15 +5,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.auth.service import AuthenticatedUser
 from backend.modules.fmla import routes as fmla_routes
 from backend.modules.fmla.store import FMLAStore
 from backend.modules.fmla.store_factory import get_fmla_store
+from tests.auth_helpers import add_test_auth_middleware
 
 
 class FMLAStoreTests(unittest.TestCase):
@@ -49,20 +49,7 @@ class FMLAStoreTests(unittest.TestCase):
         fmla_routes.FMLA_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
         app = FastAPI()
-
-        @app.middleware("http")
-        async def inject_auth_user(request: Request, call_next):
-            request.state.auth_user = AuthenticatedUser(
-                firebase_uid="uid-1",
-                email="case.manager@example.com",
-                full_name="Case Manager",
-                role="admin",
-                case_manager_id="cm_001",
-                auth_provider="password",
-                is_active=True,
-            )
-            return await call_next(request)
-
+        add_test_auth_middleware(app)
         app.include_router(fmla_routes.router, prefix="/api")
         self.client = TestClient(app)
 

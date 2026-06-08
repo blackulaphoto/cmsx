@@ -5,17 +5,18 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 os.environ.setdefault("DATABASE_URL", "postgresql://ur-test")
 
-from backend.auth.service import AuthenticatedUser
 from backend.modules.ur import routes as ur_routes
 from backend.modules.ur.postgres_store import PostgresURStore
+from backend.shared.database.railway_ur_postgres import ensure_postgres_ur_tables
+from tests.auth_helpers import add_test_auth_middleware, make_test_user
 
 
 class URModuleTests(unittest.TestCase):
@@ -35,23 +36,13 @@ class URModuleTests(unittest.TestCase):
         self.original_store = ur_routes.store
         ur_routes.store = self.store
 
+        self.client = self._build_client()
+
+    def _build_client(self, user=None):
         app = FastAPI()
-
-        @app.middleware("http")
-        async def inject_auth_user(request: Request, call_next):
-            request.state.auth_user = AuthenticatedUser(
-                firebase_uid="uid-1",
-                email="case.manager@example.com",
-                full_name="Case Manager",
-                role="admin",
-                case_manager_id="cm_001",
-                auth_provider="password",
-                is_active=True,
-            )
-            return await call_next(request)
-
+        add_test_auth_middleware(app, user)
         app.include_router(ur_routes.router, prefix="/api")
-        self.client = TestClient(app)
+        return TestClient(app)
 
     def tearDown(self):
         ur_routes.store = self.original_store
@@ -231,3 +222,142 @@ class URModuleTests(unittest.TestCase):
         self.assertEqual(payload["approved_days"], 9)
         self.assertEqual(payload["denied_days"], 5)
         self.assertEqual(payload["reviewer_company"], "Health Net UM")
+
+    def test_route_validation_rejects_missing_required_fields_and_negative_days(self):
+        missing_name = self.client.post(
+            "/api/ur",
+            json={
+                "payer": "Health Net",
+                "admit_date": "2030-01-01",
+                "requested_days": 1,
+            },
+        )
+        self.assertEqual(missing_name.status_code, 422)
+
+        negative_days = self.client.post(
+            "/api/ur",
+            json={
+                "client_name": "Taylor Jones",
+                "payer": "Health Net",
+                "admit_date": "2030-01-01",
+                "requested_days": -1,
+            },
+        )
+        self.assertEqual(negative_days.status_code, 422)
+
+    def test_route_rejects_unsupported_statuses_and_event_types(self):
+        bad_filter = self.client.get("/api/ur?status=not_real")
+        self.assertEqual(bad_filter.status_code, 400)
+        self.assertEqual(bad_filter.json()["detail"], "Unsupported UR status filter")
+
+        bad_status = self.client.post(
+            "/api/ur",
+            json={
+                "client_name": "Taylor Jones",
+                "payer": "Health Net",
+                "admit_date": "2030-01-01",
+                "status": "not_real",
+            },
+        )
+        self.assertEqual(bad_status.status_code, 400)
+        self.assertEqual(bad_status.json()["detail"], "Unsupported UR status")
+
+        created = self._create_case()
+        bad_event = self.client.post(
+            f"/api/ur/{created['case_id']}/events",
+            json={"event_type": "not_real"},
+        )
+        self.assertEqual(bad_event.status_code, 400)
+        self.assertEqual(bad_event.json()["detail"], "Unsupported UR event type")
+
+    def test_missing_case_routes_return_404(self):
+        detail = self.client.get("/api/ur/missing-case-id")
+        self.assertEqual(detail.status_code, 404)
+
+        update = self.client.put(
+            "/api/ur/missing-case-id",
+            json={
+                "client_name": "Taylor Jones",
+                "payer": "Health Net",
+                "admit_date": "2030-01-01",
+            },
+        )
+        self.assertEqual(update.status_code, 404)
+
+        event_create = self.client.post(
+            "/api/ur/missing-case-id/events",
+            json={"event_type": "initial_auth"},
+        )
+        self.assertEqual(event_create.status_code, 404)
+
+        event_list = self.client.get("/api/ur/missing-case-id/events")
+        self.assertEqual(event_list.status_code, 404)
+
+    def test_non_admin_case_manager_scope_is_enforced(self):
+        non_admin_client = self._build_client(
+            make_test_user(role="case_manager", case_manager_id="cm_001")
+        )
+        own_case = self._create_case(assigned_case_manager="cm_001", client_name="Own Case")
+        other_case = self._create_case(assigned_case_manager="cm_999", client_name="Other Case")
+
+        list_response = non_admin_client.get("/api/ur")
+        self.assertEqual(list_response.status_code, 200)
+        listed_ids = {case["case_id"] for case in list_response.json()["cases"]}
+        self.assertIn(own_case["case_id"], listed_ids)
+        self.assertNotIn(other_case["case_id"], listed_ids)
+
+        other_detail = non_admin_client.get(f"/api/ur/{other_case['case_id']}")
+        self.assertEqual(other_detail.status_code, 403)
+
+    def test_non_admin_create_assigns_current_case_manager(self):
+        non_admin_client = self._build_client(
+            make_test_user(role="case_manager", case_manager_id="cm_001")
+        )
+        response = non_admin_client.post(
+            "/api/ur",
+            json={
+                "client_name": "Assigned By Auth",
+                "assigned_case_manager": "cm_999",
+                "payer": "Health Net",
+                "admit_date": "2030-01-01",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["case"]["assigned_case_manager"], "cm_001")
+
+    def test_create_with_unknown_client_id_returns_404(self):
+        response = self.client.post(
+            "/api/ur",
+            json={
+                "client_id": "missing-client",
+                "client_name": "Taylor Jones",
+                "payer": "Health Net",
+                "admit_date": "2030-01-01",
+            },
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Client not found")
+
+    def test_schema_creation_is_idempotent_and_creates_expected_indexes(self):
+        ensure_postgres_ur_tables(self.engine)
+        ensure_postgres_ur_tables(self.engine)
+
+        inspector = inspect(self.engine)
+        tables = set(inspector.get_table_names())
+        self.assertIn("railway_ur_cases", tables)
+        self.assertIn("railway_ur_review_events", tables)
+
+        case_columns = {column["name"] for column in inspector.get_columns("railway_ur_cases")}
+        event_columns = {column["name"] for column in inspector.get_columns("railway_ur_review_events")}
+        self.assertIn("case_id", case_columns)
+        self.assertIn("client_name", case_columns)
+        self.assertIn("status", case_columns)
+        self.assertIn("event_id", event_columns)
+        self.assertIn("case_id", event_columns)
+        self.assertIn("event_type", event_columns)
+
+        case_indexes = {index["name"] for index in inspector.get_indexes("railway_ur_cases")}
+        event_indexes = {index["name"] for index in inspector.get_indexes("railway_ur_review_events")}
+        self.assertIn("idx_railway_ur_cases_manager", case_indexes)
+        self.assertIn("idx_railway_ur_cases_status", case_indexes)
+        self.assertIn("idx_railway_ur_events_case_date", event_indexes)

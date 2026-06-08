@@ -1,6 +1,7 @@
 """
-Sober Living store — Phase 1 (houses/rooms/beds/residents/stays) +
-Phase 2 stubs (compliance, UA tests, incidents, rent).
+Sober Living store for houses, rooms, beds, residents, stays,
+compliance, UA tests, incidents, rent, meetings, chores, passes,
+and curfew checks.
 
 Storage: Postgres when DATABASE_URL is set, SQLite fallback for local dev.
 All queries written with %s placeholders; _q() converts to ? for SQLite.
@@ -103,6 +104,26 @@ def _row(r) -> Optional[Dict]:
     if r is None:
         return None
     return dict(r)
+
+
+def _as_bool(value: Any, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "t", "yes", "y", "active"}:
+            return True
+        if normalized in {"0", "false", "f", "no", "n", "inactive", ""}:
+            return False
+    return bool(value)
+
+
+def _as_db_flag(value: Any) -> int:
+    return 1 if _as_bool(value, default=False) else 0
 
 
 def _rows(rs) -> List[Dict]:
@@ -222,7 +243,7 @@ _DDL = [
         created_at             TEXT NOT NULL,
         updated_at             TEXT NOT NULL
     )""",
-    # ---- Phase 2: Compliance ----
+    # ---- Compliance ----
     """CREATE TABLE IF NOT EXISTS sober_living_document_checklists (
         checklist_id                      TEXT PRIMARY KEY,
         resident_id                       TEXT NOT NULL REFERENCES sober_living_residents(resident_id),
@@ -242,7 +263,7 @@ _DDL = [
         missing_items_summary             TEXT,
         updated_at                        TEXT NOT NULL
     )""",
-    # ---- Phase 2: UA Tests ----
+    # ---- UA Tests ----
     """CREATE TABLE IF NOT EXISTS sober_living_ua_tests (
         test_id                   TEXT PRIMARY KEY,
         house_id                  TEXT NOT NULL REFERENCES sober_living_houses(house_id),
@@ -265,7 +286,7 @@ _DDL = [
         notes                     TEXT,
         created_at                TEXT NOT NULL
     )""",
-    # ---- Phase 2: Incidents ----
+    # ---- Incidents ----
     """CREATE TABLE IF NOT EXISTS sober_living_incidents (
         incident_id               TEXT PRIMARY KEY,
         house_id                  TEXT NOT NULL REFERENCES sober_living_houses(house_id),
@@ -293,7 +314,7 @@ _DDL = [
         created_at                TEXT NOT NULL,
         updated_at                TEXT NOT NULL
     )""",
-    # ---- Phase 2: Rent ----
+    # ---- Rent ----
     """CREATE TABLE IF NOT EXISTS sober_living_rent_charges (
         charge_id    TEXT PRIMARY KEY,
         resident_id  TEXT NOT NULL REFERENCES sober_living_residents(resident_id),
@@ -324,7 +345,7 @@ _DDL = [
         notes               TEXT,
         created_at          TEXT NOT NULL
     )""",
-    # ---- Phase 3: Meetings ----
+    # ---- Meetings ----
     """CREATE TABLE IF NOT EXISTS sober_living_meetings (
         meeting_id       TEXT PRIMARY KEY,
         house_id         TEXT NOT NULL REFERENCES sober_living_houses(house_id) ON DELETE CASCADE,
@@ -340,7 +361,7 @@ _DDL = [
         created_at       TEXT NOT NULL,
         updated_at       TEXT NOT NULL
     )""",
-    # ---- Phase 3: Chores ----
+    # ---- Chores ----
     """CREATE TABLE IF NOT EXISTS sober_living_chores (
         chore_id      TEXT PRIMARY KEY,
         house_id      TEXT NOT NULL REFERENCES sober_living_houses(house_id) ON DELETE CASCADE,
@@ -358,7 +379,7 @@ _DDL = [
         created_at    TEXT NOT NULL,
         updated_at    TEXT NOT NULL
     )""",
-    # ---- Phase 3: Passes ----
+    # ---- Passes ----
     """CREATE TABLE IF NOT EXISTS sober_living_passes (
         pass_id          TEXT PRIMARY KEY,
         house_id         TEXT NOT NULL REFERENCES sober_living_houses(house_id) ON DELETE CASCADE,
@@ -379,7 +400,7 @@ _DDL = [
         created_at       TEXT NOT NULL,
         updated_at       TEXT NOT NULL
     )""",
-    # ---- Phase 3: Curfew checks ----
+    # ---- Curfew checks ----
     """CREATE TABLE IF NOT EXISTS sober_living_curfew_checks (
         check_id       TEXT PRIMARY KEY,
         house_id       TEXT NOT NULL REFERENCES sober_living_houses(house_id) ON DELETE CASCADE,
@@ -415,6 +436,73 @@ _DDL = [
     "CREATE INDEX IF NOT EXISTS idx_sl_curfew_house     ON sober_living_curfew_checks(house_id)",
     "CREATE INDEX IF NOT EXISTS idx_sl_curfew_date      ON sober_living_curfew_checks(check_date)",
 ]
+
+
+_SQLITE_COMPAT_ADD_COLUMNS = [
+    ("sober_living_houses", "house_manager_name", "TEXT"),
+    ("sober_living_houses", "house_manager_phone", "TEXT"),
+    ("sober_living_houses", "house_manager_email", "TEXT"),
+    ("sober_living_houses", "address", "TEXT"),
+    ("sober_living_houses", "city", "TEXT"),
+    ("sober_living_houses", "state", "TEXT"),
+    ("sober_living_houses", "zip_code", "TEXT"),
+    ("sober_living_houses", "house_type", "TEXT DEFAULT 'any'"),
+    ("sober_living_houses", "certification_level", "TEXT"),
+    ("sober_living_houses", "total_beds", "INTEGER DEFAULT 0"),
+    ("sober_living_houses", "monthly_rent", "REAL"),
+    ("sober_living_houses", "house_rules_version", "TEXT"),
+    ("sober_living_houses", "affiliated_clinical_program", "TEXT"),
+    ("sober_living_houses", "notes", "TEXT"),
+    ("sober_living_houses", "is_active", "INTEGER DEFAULT 1"),
+    ("sober_living_houses", "certification_notes", "TEXT"),
+    ("sober_living_houses", "payment_type", "TEXT DEFAULT 'unknown'"),
+    ("sober_living_houses", "accepts_insurance", "TEXT DEFAULT 'unknown'"),
+    ("sober_living_houses", "insurance_plans_accepted", "TEXT"),
+    ("sober_living_houses", "funding_notes", "TEXT"),
+    ("sober_living_houses", "requires_clinical_program", "INTEGER DEFAULT 0"),
+    ("sober_living_houses", "billing_contact_name", "TEXT"),
+    ("sober_living_houses", "billing_contact_phone", "TEXT"),
+    ("sober_living_houses", "billing_contact_email", "TEXT"),
+    ("sober_living_rooms", "floor", "TEXT"),
+    ("sober_living_rooms", "room_type", "TEXT"),
+    ("sober_living_rooms", "max_occupancy", "INTEGER DEFAULT 1"),
+    ("sober_living_rooms", "notes", "TEXT"),
+    ("sober_living_rooms", "is_active", "INTEGER DEFAULT 1"),
+    ("sober_living_beds", "current_resident_id", "TEXT"),
+    ("sober_living_beds", "reserved_for_client_id", "TEXT"),
+    ("sober_living_beds", "reserved_until", "TEXT"),
+    ("sober_living_beds", "notes", "TEXT"),
+    ("sober_living_stays", "expected_move_out_date", "TEXT"),
+    ("sober_living_stays", "actual_move_out_date", "TEXT"),
+    ("sober_living_stays", "move_out_reason", "TEXT"),
+    ("sober_living_stays", "resident_status", "TEXT DEFAULT 'active'"),
+    ("sober_living_stays", "clinical_program", "TEXT"),
+    ("sober_living_stays", "case_manager_name", "TEXT"),
+    ("sober_living_stays", "referral_source", "TEXT"),
+    ("sober_living_stays", "step_down_from_level", "TEXT"),
+    ("sober_living_stays", "discharge_destination", "TEXT"),
+    ("sober_living_residents", "linked_client_id", "TEXT"),
+    ("sober_living_residents", "emergency_contact_relationship", "TEXT"),
+    ("sober_living_residents", "primary_substance", "TEXT"),
+    ("sober_living_residents", "sobriety_date", "TEXT"),
+    ("sober_living_meetings", "attendance_json", "TEXT"),
+    ("sober_living_meetings", "location", "TEXT"),
+    ("sober_living_chores", "verified_by", "TEXT"),
+    ("sober_living_chores", "completed_at", "TEXT"),
+    ("sober_living_passes", "is_blackout", "INTEGER DEFAULT 0"),
+    ("sober_living_curfew_checks", "method", "TEXT"),
+]
+
+
+def _sqlite_add_missing_columns(conn) -> None:
+    for table, column, column_def in _SQLITE_COMPAT_ADD_COLUMNS:
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_def}")
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            if "duplicate column" in message or "no such table" in message:
+                continue
+            raise
 
 
 def _setup_schema() -> None:
@@ -465,6 +553,7 @@ def _setup_schema() -> None:
                 conn.execute(ddl)
             except Exception as e:
                 log.debug(f"[sober_living] SQLite DDL skip: {e}")
+        _sqlite_add_missing_columns(conn)
         conn.commit()
         conn.close()
         log.info("[sober_living] init_db complete (sqlite)")
@@ -593,8 +682,8 @@ def _migrate_legacy() -> None:
         ("sober_living_residents", "emergency_contact_relationship", "TEXT"),
         ("sober_living_residents", "primary_substance",              "TEXT"),
         ("sober_living_residents", "sobriety_date",                  "TEXT"),
-        # Phase 3 — new tables; ADD COLUMN on non-existent table is caught and skipped
-        # These are here as a safety net; _setup_schema handles table creation
+        # Newer operational tables are created by _setup_schema; these columns
+        # are kept here as a safety net for older deployments.
         ("sober_living_meetings",  "attendance_json",  "TEXT"),
         ("sober_living_meetings",  "location",         "TEXT"),
         ("sober_living_chores",    "verified_by",      "TEXT"),
@@ -801,11 +890,11 @@ class SoberLivingStore:
                 for h in rows:
                     planned = int(h.get("total_beds") or 0)
                     h["bed_counts"] = self._bed_counts(conn, h["house_id"], planned)
-                    h["is_active"] = bool(h.get("is_active", 1))
+                    h["is_active"] = _as_bool(h.get("is_active", 1))
             return rows
         except Exception as e:
             log.error(f"[sober_living] list_houses error: {e}")
-            return []
+            raise
 
     def get_house(self, house_id: str) -> Optional[Dict]:
         with _db() as conn:
@@ -814,7 +903,7 @@ class SoberLivingStore:
             if h:
                 planned = int(h.get("total_beds") or 0)
                 h["bed_counts"] = self._bed_counts(conn, house_id, planned)
-                h["is_active"] = bool(h.get("is_active", 1))
+                h["is_active"] = _as_bool(h.get("is_active", 1))
         return h
 
     def create_house(self, data: Dict) -> Optional[Dict]:
@@ -869,8 +958,11 @@ class SoberLivingStore:
             "payment_type", "accepts_insurance", "insurance_plans_accepted", "funding_notes",
             "requires_clinical_program", "billing_contact_name", "billing_contact_phone", "billing_contact_email",
         ]
-        pairs = [f"{f} = %s" for f in updatable if f in data]
-        vals  = [data[f]     for f in updatable if f in data]
+        normalized = dict(data)
+        if "is_active" in normalized:
+            normalized["is_active"] = _as_db_flag(normalized["is_active"])
+        pairs = [f"{f} = %s" for f in updatable if f in normalized]
+        vals  = [normalized[f] for f in updatable if f in normalized]
         if not pairs:
             return self.get_house(house_id)
         with _db() as conn:

@@ -16,6 +16,18 @@ const useSameOriginProxyOnVercel = isVercelBrowserHost && import.meta.env.VITE_F
 export const API_BASE_URL = useSameOriginProxyOnVercel ? '' : configuredApiBaseUrl
 const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 8000)
 export const apiUrl = (endpoint) => `${API_BASE_URL}${endpoint}`
+const isFrontendTestAuthEnabled = import.meta.env.VITE_ENABLE_TEST_AUTH === 'true'
+
+const getTestAuthHeaders = () => {
+  if (!isFrontendTestAuthEnabled) return {}
+  return {
+    'X-Test-Auth-User': import.meta.env.VITE_TEST_AUTH_USER || 'uid-e2e',
+    'X-Test-Auth-Email': import.meta.env.VITE_TEST_AUTH_EMAIL || 'e2e.case.manager@example.com',
+    'X-Test-Auth-Name': import.meta.env.VITE_TEST_AUTH_NAME || 'E2E Case Manager',
+    'X-Test-Auth-Role': import.meta.env.VITE_TEST_AUTH_ROLE || 'admin',
+    'X-Test-Auth-Case-Manager': import.meta.env.VITE_TEST_AUTH_CASE_MANAGER || 'cm_e2e'
+  }
+}
 
 const GATEWAY_RETRY_STATUS = new Set([502, 503, 504])
 
@@ -107,10 +119,11 @@ export const API_ENDPOINTS = {
 
 // Helper function to make API calls
 export const apiCall = async (endpoint, options = {}) => {
-  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null
+  const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null
   const defaultOptions = {
     headers: {
       'Content-Type': 'application/json',
+      ...getTestAuthHeaders(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers
     }
@@ -151,12 +164,13 @@ export const apiCall = async (endpoint, options = {}) => {
 export const apiFetch = async (endpoint, options = {}) => {
   const { timeoutMs, ...fetchOptions } = options
   const effectiveTimeoutMs = Number(timeoutMs || API_TIMEOUT_MS)
-  const token = auth.currentUser ? await auth.currentUser.getIdToken() : null
+  const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), effectiveTimeoutMs)
   try {
     const primaryUrl = apiUrl(endpoint)
     const headers = {
+      ...getTestAuthHeaders(),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(fetchOptions.headers || {}),
     }

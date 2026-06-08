@@ -431,7 +431,7 @@ TO REPLACE THE CORRUPTED FILE:
 1. Save this as: backend/api/unified_client_api.py
 
 2. Restart your backend server:
-   uvicorn backend.main_backend:app --reload
+   uvicorn main:app --reload
 
 3. Test the key endpoint:
    curl "http://localhost:8000/api/clients/59a2455b-3ff1-445e-9b30-69e4d46abadd/intelligent-tasks"
@@ -452,5 +452,4 @@ WHAT'S SIMPLIFIED:
 The focus is getting your task persistence working again with a clean, 
 corruption-free API file.
 """
-
 

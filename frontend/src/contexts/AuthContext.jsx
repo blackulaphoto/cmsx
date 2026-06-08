@@ -16,6 +16,16 @@ import {
 import { auth, firebaseConfigError, googleProvider } from '../lib/firebase'
 
 const AuthContext = createContext(null)
+const isFrontendTestAuthEnabled = import.meta.env.VITE_ENABLE_TEST_AUTH === 'true'
+const testAuthProfile = {
+  firebase_uid: import.meta.env.VITE_TEST_AUTH_USER || 'uid-e2e',
+  email: import.meta.env.VITE_TEST_AUTH_EMAIL || 'e2e.case.manager@example.com',
+  full_name: import.meta.env.VITE_TEST_AUTH_NAME || 'E2E Case Manager',
+  role: import.meta.env.VITE_TEST_AUTH_ROLE || 'admin',
+  case_manager_id: import.meta.env.VITE_TEST_AUTH_CASE_MANAGER || 'cm_e2e',
+  auth_provider: 'test',
+  is_active: true
+}
 
 async function fetchBackendProfile(firebaseUser, role = 'case_manager') {
   const token = await firebaseUser.getIdToken()
@@ -37,11 +47,17 @@ async function fetchBackendProfile(firebaseUser, role = 'case_manager') {
 
 export function AuthProvider({ children }) {
   const [firebaseUser, setFirebaseUser] = useState(null)
-  const [profile, setProfile] = useState(null)
-  const [loading, setLoading] = useState(!firebaseConfigError)
+  const [profile, setProfile] = useState(isFrontendTestAuthEnabled ? testAuthProfile : null)
+  const [loading, setLoading] = useState(isFrontendTestAuthEnabled ? false : !firebaseConfigError)
   const [configError] = useState(firebaseConfigError)
 
   useEffect(() => {
+    if (isFrontendTestAuthEnabled) {
+      setProfile(testAuthProfile)
+      setLoading(false)
+      return undefined
+    }
+
     if (!auth) {
       setLoading(false)
       return undefined
@@ -119,6 +135,10 @@ export function AuthProvider({ children }) {
       }
     },
     async logout() {
+      if (isFrontendTestAuthEnabled) {
+        setProfile(testAuthProfile)
+        return
+      }
       if (!auth) return
       await signOut(auth)
       setProfile(null)
