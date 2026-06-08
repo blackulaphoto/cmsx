@@ -782,49 +782,77 @@ async def generate_sessions(request: Request, schedule_id: str, payload: Generat
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid start_date format, use YYYY-MM-DD")
 
-    target_dow = schedule["day_of_week"]  # 0=Mon ... 6=Sun
-    # Find first occurrence on or after start_date
-    days_ahead = (target_dow - start.weekday()) % 7
-    current = start + timedelta(days=days_ahead)
+    # Resolve multi-day slots; fall back to legacy single-day fields
+    schedule_days = schedule.get("schedule_days") or []
+    if not schedule_days:
+        schedule_days = [{"day": schedule.get("day_of_week", 0), "time": schedule.get("start_time", "10:00")}]
+    # Sort slots by day-of-week for predictable ordering
+    schedule_days = sorted(schedule_days, key=lambda s: s.get("day", 0))
 
     recurrence = schedule.get("recurrence", "weekly")
     if recurrence == "biweekly":
-        step = timedelta(weeks=2)
+        cycle_weeks = 2
     elif recurrence == "monthly":
-        step = timedelta(weeks=4)
+        cycle_weeks = 4
     else:
-        step = timedelta(weeks=1)
+        cycle_weeks = 1
 
+    # Build an ordered list of (date, time) occurrences starting from start_date.
+    # Strategy: expand week-by-week, emitting one date per slot per cycle.
     created = []
-    for i in range(num):
-        date_str = current.isoformat()
+    topic_counter = 0
+    cycle_start = start
+    # Max cycles guard: generate enough cycles to reach num sessions
+    max_cycles = (num // max(len(schedule_days), 1)) + num + 1
 
-        # Pick topic for this session
-        if schedule.get("topic_id"):
-            topic_id = schedule["topic_id"]
-        elif pack_topic_ids:
-            topic_id = pack_topic_ids[i % len(pack_topic_ids)]
-        else:
-            topic_id = None
+    for _ in range(max_cycles):
+        if len(created) >= num:
+            break
+        # For this cycle, find the actual date for each day-slot
+        week_sessions = []
+        for slot in schedule_days:
+            target_dow = slot.get("day", 0)
+            days_ahead = (target_dow - cycle_start.weekday()) % 7
+            session_date = cycle_start + timedelta(days=days_ahead)
+            # Only include dates on/after start
+            if session_date >= start:
+                week_sessions.append((session_date, slot.get("time", "10:00")))
+        # Sort by date within cycle
+        week_sessions.sort(key=lambda x: x[0])
 
-        session = groups_db.create_session({
-            "title": schedule["title"],
-            "topic_id": topic_id,
-            "scheduled_date": date_str,
-            "scheduled_time": schedule.get("start_time", "10:00"),
-            "location": schedule.get("location", ""),
-            "group_type": schedule.get("group_type", "psychoeducation"),
-            "facilitator_notes": "",
-            "case_manager_id": current_user.case_manager_id,
-        })
-        instance = groups_db.create_instance({
-            "schedule_id": schedule_id,
-            "session_id": session["session_id"],
-            "scheduled_date": date_str,
-            "status": "planned",
-        })
-        created.append({"session": session, "instance": instance})
-        current += step
+        for session_date, session_time in week_sessions:
+            if len(created) >= num:
+                break
+            date_str = session_date.isoformat()
+
+            # Pick topic for this session
+            if schedule.get("topic_id"):
+                topic_id = schedule["topic_id"]
+            elif pack_topic_ids:
+                topic_id = pack_topic_ids[topic_counter % len(pack_topic_ids)]
+            else:
+                topic_id = None
+            topic_counter += 1
+
+            session = groups_db.create_session({
+                "title": schedule["title"],
+                "topic_id": topic_id,
+                "scheduled_date": date_str,
+                "scheduled_time": session_time,
+                "location": schedule.get("location", ""),
+                "group_type": schedule.get("group_type", "psychoeducation"),
+                "facilitator_notes": "",
+                "case_manager_id": current_user.case_manager_id,
+            })
+            instance = groups_db.create_instance({
+                "schedule_id": schedule_id,
+                "session_id": session["session_id"],
+                "scheduled_date": date_str,
+                "status": "planned",
+            })
+            created.append({"session": session, "instance": instance})
+
+        cycle_start += timedelta(weeks=cycle_weeks)
 
     return {
         "created": len(created),

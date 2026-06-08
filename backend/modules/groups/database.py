@@ -168,6 +168,7 @@ class GroupsDatabase:
             conn.commit()
         # Safe migration for existing DBs that predate new columns
         self._migrate_notes_table()
+        self._migrate_schedules_table()
 
     def _migrate_notes_table(self) -> None:
         new_cols = [
@@ -702,24 +703,60 @@ class GroupsDatabase:
 
     # ── Schedules ──────────────────────────────────────────────────────────────
 
+    def _migrate_schedules_table(self) -> None:
+        """Add schedule_days_json column to existing group_schedules rows."""
+        with self._connect() as conn:
+            existing = {row[1] for row in conn.execute("PRAGMA table_info(group_schedules)").fetchall()}
+            if "schedule_days_json" not in existing:
+                try:
+                    conn.execute("ALTER TABLE group_schedules ADD COLUMN schedule_days_json TEXT NOT NULL DEFAULT '[]'")
+                    # Back-fill: convert old day_of_week + start_time into the new format
+                    conn.execute("""
+                        UPDATE group_schedules
+                        SET schedule_days_json = json_array(json_object('day', day_of_week, 'time', start_time))
+                        WHERE schedule_days_json = '[]'
+                    """)
+                except Exception:
+                    pass
+            conn.commit()
+
+    def _parse_schedule(self, row: dict) -> dict:
+        """Parse schedule_days_json into a list; fall back to legacy fields if empty."""
+        try:
+            days = json.loads(row.get("schedule_days_json") or "[]")
+        except Exception:
+            days = []
+        if not days and row.get("day_of_week") is not None:
+            days = [{"day": row["day_of_week"], "time": row.get("start_time", "10:00")}]
+        row["schedule_days"] = days
+        return row
+
     def list_schedules(self) -> List[dict]:
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM group_schedules ORDER BY day_of_week, start_time").fetchall()
-            return [dict(r) for r in rows]
+            rows = conn.execute("SELECT * FROM group_schedules ORDER BY title").fetchall()
+            return [self._parse_schedule(dict(r)) for r in rows]
 
     def create_schedule(self, data: dict) -> dict:
         schedule_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat()
+        schedule_days = data.get("schedule_days", [])
+        # Legacy compat: if caller passes old-style day_of_week/start_time, wrap it
+        if not schedule_days and data.get("day_of_week") is not None:
+            schedule_days = [{"day": data.get("day_of_week", 0), "time": data.get("start_time", "10:00")}]
+        schedule_days_json = json.dumps(schedule_days)
+        # Use first slot for legacy columns so old queries still work
+        first_day = schedule_days[0] if schedule_days else {"day": 0, "time": "10:00"}
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO group_schedules
                 (schedule_id, title, group_type, topic_id, curriculum_pack_id,
-                 day_of_week, start_time, duration_minutes, location, facilitator,
+                 day_of_week, start_time, schedule_days_json,
+                 duration_minutes, location, facilitator,
                  recurrence, is_active, created_by, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (schedule_id, data["title"], data.get("group_type", "psychoeducation"),
                   data.get("topic_id"), data.get("curriculum_pack_id"),
-                  data.get("day_of_week", 0), data.get("start_time", "10:00"),
+                  first_day["day"], first_day["time"], schedule_days_json,
                   data.get("duration_minutes", 60), data.get("location", ""),
                   data.get("facilitator", ""), data.get("recurrence", "weekly"),
                   1 if data.get("is_active", True) else 0,
@@ -730,13 +767,24 @@ class GroupsDatabase:
     def get_schedule(self, schedule_id: str) -> Optional[dict]:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM group_schedules WHERE schedule_id=?", (schedule_id,)).fetchone()
-            return dict(row) if row else None
+            if not row:
+                return None
+            return self._parse_schedule(dict(row))
 
     def update_schedule(self, schedule_id: str, data: dict) -> Optional[dict]:
         now = datetime.utcnow().isoformat()
-        allowed = {"title", "group_type", "topic_id", "curriculum_pack_id", "day_of_week",
-                   "start_time", "duration_minutes", "location", "facilitator", "recurrence", "is_active"}
+        allowed = {"title", "group_type", "topic_id", "curriculum_pack_id",
+                   "duration_minutes", "location", "facilitator", "recurrence", "is_active"}
         sets, vals = [], []
+        # Handle multi-day schedule_days
+        if "schedule_days" in data:
+            schedule_days = data["schedule_days"]
+            sets.append("schedule_days_json=?")
+            vals.append(json.dumps(schedule_days))
+            if schedule_days:
+                first_day = schedule_days[0]
+                sets.append("day_of_week=?"); vals.append(first_day.get("day", 0))
+                sets.append("start_time=?"); vals.append(first_day.get("time", "10:00"))
         for k, v in data.items():
             if k in allowed:
                 sets.append(f"{k}=?")

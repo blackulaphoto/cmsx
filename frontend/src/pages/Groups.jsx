@@ -993,11 +993,21 @@ function VideoLibraryTab() {
 
 function ScheduleFormModal({ onClose, onSaved, topics = [], packs = [], initialSchedule = null }) {
   const isEdit = !!initialSchedule
+
+  // Build initial schedule_days: prefer new field, fall back to legacy day_of_week/start_time
+  const initDays = (() => {
+    if (initialSchedule?.schedule_days?.length) return initialSchedule.schedule_days
+    if (initialSchedule?.day_of_week != null)
+      return [{ day: initialSchedule.day_of_week, time: initialSchedule.start_time || '10:00' }]
+    return []
+  })()
+  // Map of dayIndex -> time string ('' means not selected)
+  const initDayMap = {}
+  initDays.forEach(({ day, time }) => { initDayMap[day] = time || '10:00' })
+
   const [form, setForm] = useState({
     title: initialSchedule?.title || '',
     group_type: initialSchedule?.group_type || 'psychoeducation',
-    day_of_week: initialSchedule?.day_of_week ?? 0,
-    start_time: initialSchedule?.start_time || '10:00',
     duration_minutes: initialSchedule?.duration_minutes ?? 60,
     location: initialSchedule?.location || '',
     facilitator: initialSchedule?.facilitator || '',
@@ -1006,17 +1016,32 @@ function ScheduleFormModal({ onClose, onSaved, topics = [], packs = [], initialS
     curriculum_pack_id: initialSchedule?.curriculum_pack_id || '',
     is_active: initialSchedule ? Boolean(initialSchedule.is_active) : true,
   })
+  // dayTimes: { [dayIndex]: timeString } — presence in map means day is checked
+  const [dayTimes, setDayTimes] = useState(initDayMap)
   const [saving, setSaving] = useState(false)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
   const setNum = (k) => (e) => setForm((f) => ({ ...f, [k]: Number(e.target.value) }))
 
+  const toggleDay = (i) => {
+    setDayTimes((prev) => {
+      const next = { ...prev }
+      if (i in next) { delete next[i] } else { next[i] = '10:00' }
+      return next
+    })
+  }
+  const setDayTime = (i, val) => setDayTimes((prev) => ({ ...prev, [i]: val }))
+
   const handleSave = async () => {
     if (!form.title.trim()) { toast.error('Title is required'); return }
+    const schedule_days = Object.entries(dayTimes)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([day, time]) => ({ day: Number(day), time }))
+    if (!schedule_days.length) { toast.error('Select at least one day'); return }
     setSaving(true)
     try {
       const payload = {
         ...form,
-        day_of_week: Number(form.day_of_week),
+        schedule_days,
         duration_minutes: Number(form.duration_minutes),
         topic_id: form.topic_id || null,
         curriculum_pack_id: form.curriculum_pack_id || null,
@@ -1042,7 +1067,7 @@ function ScheduleFormModal({ onClose, onSaved, topics = [], packs = [], initialS
       <div className="space-y-4">
         <div>
           <label className="text-xs text-gray-400 block mb-1">Schedule Title *</label>
-          <input className="input-field w-full" value={form.title} onChange={set('title')} placeholder="e.g. Monday Morning Psychoeducation" />
+          <input className="input-field w-full" value={form.title} onChange={set('title')} placeholder="e.g. Morning Psychoeducation Group" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -1058,16 +1083,6 @@ function ScheduleFormModal({ onClose, onSaved, topics = [], packs = [], initialS
             </select>
           </div>
           <div>
-            <label className="text-xs text-gray-400 block mb-1">Day of Week</label>
-            <select className="input-field w-full" value={form.day_of_week} onChange={setNum('day_of_week')}>
-              {DAYS_OF_WEEK.map((d, i) => <option key={i} value={i}>{d}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-400 block mb-1">Start Time</label>
-            <input type="time" className="input-field w-full" value={form.start_time} onChange={set('start_time')} />
-          </div>
-          <div>
             <label className="text-xs text-gray-400 block mb-1">Duration (minutes)</label>
             <input type="number" className="input-field w-full" value={form.duration_minutes} onChange={setNum('duration_minutes')} min={15} max={240} step={15} />
           </div>
@@ -1076,6 +1091,44 @@ function ScheduleFormModal({ onClose, onSaved, topics = [], packs = [], initialS
             <input className="input-field w-full" value={form.location} onChange={set('location')} placeholder="Room A" />
           </div>
         </div>
+
+        {/* Multi-day selector */}
+        <div>
+          <label className="text-xs text-gray-400 block mb-2">Days &amp; Times *</label>
+          <div className="space-y-2">
+            {DAYS_OF_WEEK.map((dayName, i) => {
+              const checked = i in dayTimes
+              return (
+                <div key={i} className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => toggleDay(i)}
+                    className={`flex items-center gap-2 min-w-[110px] px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                      checked
+                        ? 'bg-purple-600/30 border-purple-500/60 text-purple-200'
+                        : 'bg-slate-800/60 border-white/10 text-gray-400 hover:border-white/20'
+                    }`}
+                  >
+                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${checked ? 'bg-purple-500 border-purple-400' : 'border-gray-500'}`}>
+                      {checked && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    </div>
+                    {dayName}
+                  </button>
+                  {checked && (
+                    <input
+                      type="time"
+                      className="input-field"
+                      style={{ width: '120px' }}
+                      value={dayTimes[i]}
+                      onChange={(e) => setDayTime(i, e.target.value)}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
         <div>
           <label className="text-xs text-gray-400 block mb-1">Facilitator</label>
           <input className="input-field w-full" value={form.facilitator} onChange={set('facilitator')} placeholder="Staff name" />
@@ -1144,7 +1197,13 @@ function GenerateSessionsModal({ schedule, onClose, onGenerated }) {
   return (
     <ModalWrapper onClose={onClose} title={`Generate Sessions: ${schedule.title}`}>
       <div className="space-y-4">
-        <p className="text-sm text-gray-400">Sessions will be created starting from the selected date, on {DAYS_OF_WEEK[schedule.day_of_week]}s ({schedule.recurrence}).</p>
+        <p className="text-sm text-gray-400">
+          Sessions will be created starting from the selected date ({schedule.recurrence}).
+          {' '}Days: {(schedule.schedule_days?.length
+            ? schedule.schedule_days.map((s) => DAYS_OF_WEEK[s.day]).join(', ')
+            : DAYS_OF_WEEK[schedule.day_of_week] || '—'
+          )}.
+        </p>
         <div>
           <label className="text-xs text-gray-400 block mb-1">Start Date</label>
           <input type="date" className="input-field w-full" value={form.start_date} onChange={set('start_date')} />
@@ -1237,8 +1296,15 @@ function ScheduleTab({ topics, packs, onPacksRefresh }) {
                     {!s.is_active && <Badge className="bg-red-500/20 text-red-300 border-red-500/30">Inactive</Badge>}
                   </div>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-400 mt-1">
-                    <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{DAYS_OF_WEEK[s.day_of_week]}s</span>
-                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{s.start_time} ({s.duration_minutes} min)</span>
+                    {(s.schedule_days?.length
+                      ? s.schedule_days.map((slot, idx) => (
+                          <span key={idx} className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />{DAYS_OF_WEEK[slot.day]} {slot.time}
+                          </span>
+                        ))
+                      : [<span key="legacy" className="flex items-center gap-1"><Calendar className="h-3 w-3" />{DAYS_OF_WEEK[s.day_of_week] || '—'} {s.start_time}</span>]
+                    )}
+                    <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{s.duration_minutes} min</span>
                     {s.location && <span className="flex items-center gap-1"><MapPin className="h-3 w-3" />{s.location}</span>}
                     {s.facilitator && <span className="flex items-center gap-1"><User className="h-3 w-3" />{s.facilitator}</span>}
                   </div>
@@ -1323,7 +1389,8 @@ function ScheduleTab({ topics, packs, onPacksRefresh }) {
 
 // ── Curriculum Packs Tab ──────────────────────────────────────────────────────
 
-function CurriculumPackFormModal({ onClose, onSaved, topics = [], initialPackId = null }) {
+function CurriculumPackFormModal({ onClose, onSaved, topics: initialTopics = [], initialPackId = null }) {
+  const [allTopics, setAllTopics] = useState(initialTopics)
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -1332,7 +1399,20 @@ function CurriculumPackFormModal({ onClose, onSaved, topics = [], initialPackId 
     topic_ids: [],
   })
   const [saving, setSaving] = useState(false)
+  const [topicTab, setTopicTab] = useState('browse') // 'browse' | 'ai' | 'custom'
+
+  // AI Generate state
+  const [aiForm, setAiForm] = useState({ title: '', population: '', tone: 'psychoeducational', group_length_minutes: 60, additional_context: '' })
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiPreview, setAiPreview] = useState(null)
+
+  // Custom topic state
+  const [customForm, setCustomForm] = useState({ title: '', category: 'General', description: '' })
+  const [customSaving, setCustomSaving] = useState(false)
+
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
+  const setAi = (k) => (e) => setAiForm((f) => ({ ...f, [k]: e.target.value }))
+  const setCustom = (k) => (e) => setCustomForm((f) => ({ ...f, [k]: e.target.value }))
 
   const toggleTopic = (topicId) => {
     setForm((f) => ({
@@ -1343,6 +1423,11 @@ function CurriculumPackFormModal({ onClose, onSaved, topics = [], initialPackId 
     }))
   }
 
+  const addTopicToList = (topic) => {
+    setAllTopics((prev) => prev.find((t) => t.topic_id === topic.topic_id) ? prev : [...prev, topic])
+    setForm((f) => f.topic_ids.includes(topic.topic_id) ? f : { ...f, topic_ids: [...f.topic_ids, topic.topic_id] })
+  }
+
   const moveTopic = (index, dir) => {
     setForm((f) => {
       const ids = [...f.topic_ids]
@@ -1351,6 +1436,62 @@ function CurriculumPackFormModal({ onClose, onSaved, topics = [], initialPackId 
       ;[ids[index], ids[newIdx]] = [ids[newIdx], ids[index]]
       return { ...f, topic_ids: ids }
     })
+  }
+
+  const removeTopic = (topicId) => {
+    setForm((f) => ({ ...f, topic_ids: f.topic_ids.filter((id) => id !== topicId) }))
+  }
+
+  // AI generate a topic then save it
+  const handleAiGenerate = async () => {
+    if (!aiForm.title.trim()) { toast.error('Enter a topic title'); return }
+    setAiLoading(true)
+    setAiPreview(null)
+    try {
+      const generated = await topicsAPI.aiGenerate({
+        title: aiForm.title,
+        population: aiForm.population || 'Adults in SUD/MH treatment',
+        tone: aiForm.tone,
+        group_length_minutes: Number(aiForm.group_length_minutes),
+        additional_context: aiForm.additional_context,
+      })
+      setAiPreview(generated)
+    } catch (err) {
+      toast.error(err?.message || 'AI generation failed')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const handleAddAiTopic = async () => {
+    if (!aiPreview) return
+    setAiLoading(true)
+    try {
+      const saved = await topicsAPI.create({ ...aiPreview, source: 'ai_generated' })
+      addTopicToList(saved)
+      toast.success(`"${saved.title}" added to pack`)
+      setAiPreview(null)
+      setAiForm({ title: '', population: '', tone: 'psychoeducational', group_length_minutes: 60, additional_context: '' })
+    } catch (err) {
+      toast.error(err?.message || 'Failed to save topic')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const handleCustomSave = async () => {
+    if (!customForm.title.trim()) { toast.error('Title is required'); return }
+    setCustomSaving(true)
+    try {
+      const saved = await topicsAPI.create({ ...customForm, source: 'custom' })
+      addTopicToList(saved)
+      toast.success(`"${saved.title}" added to pack`)
+      setCustomForm({ title: '', category: 'General', description: '' })
+    } catch (err) {
+      toast.error(err?.message || 'Failed to create topic')
+    } finally {
+      setCustomSaving(false)
+    }
   }
 
   const handleSave = async () => {
@@ -1367,11 +1508,12 @@ function CurriculumPackFormModal({ onClose, onSaved, topics = [], initialPackId 
     }
   }
 
-  const orderedTopics = form.topic_ids.map((id) => topics.find((t) => t.topic_id === id)).filter(Boolean)
+  const orderedTopics = form.topic_ids.map((id) => allTopics.find((t) => t.topic_id === id)).filter(Boolean)
 
   return (
     <ModalWrapper onClose={onClose} title="Create Curriculum Pack" wide>
       <div className="space-y-4">
+        {/* Pack meta */}
         <div>
           <label className="text-xs text-gray-400 block mb-1">Pack Name *</label>
           <input className="input-field w-full" value={form.name} onChange={set('name')} placeholder="e.g. 8-Week SUD Recovery Curriculum" />
@@ -1391,24 +1533,140 @@ function CurriculumPackFormModal({ onClose, onSaved, topics = [], initialPackId 
           <textarea className="input-field w-full h-16 resize-none" value={form.description} onChange={set('description')} placeholder="Brief description of this curriculum" />
         </div>
 
+        {/* Topic tabs */}
         <div>
-          <label className="text-xs text-gray-400 block mb-2">Select Topics (in order)</label>
-          <div className="max-h-48 overflow-y-auto space-y-1 border border-white/10 rounded-lg p-2">
-            {topics.map((t) => (
-              <label key={t.topic_id} className="flex items-center gap-2 cursor-pointer hover:bg-white/5 rounded px-2 py-1">
-                <input
-                  type="checkbox"
-                  checked={form.topic_ids.includes(t.topic_id)}
-                  onChange={() => toggleTopic(t.topic_id)}
-                  className="rounded"
-                />
-                <span className="text-sm text-gray-300 flex-1">{t.title}</span>
-                <Badge className={categoryColor(t.category)}>{t.category}</Badge>
-              </label>
+          <label className="text-xs text-gray-400 block mb-2">Add Topics</label>
+          <div className="flex gap-1 mb-3">
+            {[['browse', 'Browse Library'], ['ai', 'AI Generate'], ['custom', 'Create Custom']].map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setTopicTab(tab)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                  topicTab === tab ? 'bg-purple-600 text-white' : 'bg-slate-700/60 text-gray-400 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
             ))}
           </div>
+
+          {/* Browse tab */}
+          {topicTab === 'browse' && (
+            <div className="max-h-48 overflow-y-auto space-y-1 border border-white/10 rounded-lg p-2">
+              {allTopics.length === 0 && <p className="text-xs text-gray-500 p-2">No topics available. Use AI Generate or Create Custom to add one.</p>}
+              {allTopics.map((t) => (
+                <label key={t.topic_id} className="flex items-center gap-2 cursor-pointer hover:bg-white/5 rounded px-2 py-1">
+                  <input
+                    type="checkbox"
+                    checked={form.topic_ids.includes(t.topic_id)}
+                    onChange={() => toggleTopic(t.topic_id)}
+                    className="rounded"
+                  />
+                  <span className="text-sm text-gray-300 flex-1">{t.title}</span>
+                  <Badge className={categoryColor(t.category)}>{t.category}</Badge>
+                </label>
+              ))}
+            </div>
+          )}
+
+          {/* AI Generate tab */}
+          {topicTab === 'ai' && (
+            <div className="border border-white/10 rounded-lg p-3 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-400 block mb-1">Topic Title *</label>
+                  <input className="input-field w-full" value={aiForm.title} onChange={setAi('title')} placeholder="e.g. Coping with Cravings" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Population</label>
+                  <input className="input-field w-full" value={aiForm.population} onChange={setAi('population')} placeholder="Adults in SUD treatment" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Tone</label>
+                  <select className="input-field w-full" value={aiForm.tone} onChange={setAi('tone')}>
+                    <option value="psychoeducational">Psychoeducational</option>
+                    <option value="motivational">Motivational</option>
+                    <option value="skills-based">Skills-Based</option>
+                    <option value="process">Process</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Duration (min)</label>
+                  <input type="number" className="input-field w-full" value={aiForm.group_length_minutes} onChange={setAi('group_length_minutes')} min={15} max={120} step={15} />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Extra Context</label>
+                  <input className="input-field w-full" value={aiForm.additional_context} onChange={setAi('additional_context')} placeholder="Optional notes for AI" />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleAiGenerate}
+                disabled={aiLoading}
+                className="btn-primary flex items-center gap-2 text-sm"
+              >
+                {aiLoading && !aiPreview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                Generate Topic
+              </button>
+
+              {aiPreview && (
+                <div className="bg-slate-800/60 border border-purple-500/30 rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-white">{aiPreview.title}</p>
+                    <Badge className={categoryColor(aiPreview.category)}>{aiPreview.category}</Badge>
+                  </div>
+                  {aiPreview.description && <p className="text-xs text-gray-400">{aiPreview.description}</p>}
+                  {aiPreview.key_points?.length > 0 && (
+                    <ul className="text-xs text-gray-400 list-disc list-inside space-y-0.5">
+                      {aiPreview.key_points.slice(0, 3).map((kp, i) => <li key={i}>{kp}</li>)}
+                    </ul>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleAddAiTopic}
+                    disabled={aiLoading}
+                    className="btn-primary text-xs flex items-center gap-1.5"
+                  >
+                    {aiLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+                    Add to Pack
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Create Custom tab */}
+          {topicTab === 'custom' && (
+            <div className="border border-white/10 rounded-lg p-3 space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Topic Title *</label>
+                <input className="input-field w-full" value={customForm.title} onChange={setCustom('title')} placeholder="e.g. Healthy Boundaries in Recovery" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Category</label>
+                <select className="input-field w-full" value={customForm.category} onChange={setCustom('category')}>
+                  {TOPIC_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Description</label>
+                <textarea className="input-field w-full h-16 resize-none" value={customForm.description} onChange={setCustom('description')} placeholder="Brief description of the topic" />
+              </div>
+              <button
+                type="button"
+                onClick={handleCustomSave}
+                disabled={customSaving}
+                className="btn-primary flex items-center gap-2 text-sm"
+              >
+                {customSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                Create &amp; Add to Pack
+              </button>
+            </div>
+          )}
         </div>
 
+        {/* Ordered list of selected topics */}
         {orderedTopics.length > 0 && (
           <div>
             <label className="text-xs text-gray-400 block mb-2">Session Order ({orderedTopics.length} topics)</label>
@@ -1422,6 +1680,9 @@ function CurriculumPackFormModal({ onClose, onSaved, topics = [], initialPackId 
                   </button>
                   <button onClick={() => moveTopic(i, 1)} disabled={i === orderedTopics.length - 1} className="text-gray-500 hover:text-white disabled:opacity-30 px-1">
                     <ChevronDown className="h-3 w-3" />
+                  </button>
+                  <button onClick={() => removeTopic(t.topic_id)} className="text-gray-500 hover:text-red-400 px-1">
+                    <X className="h-3 w-3" />
                   </button>
                 </div>
               ))}

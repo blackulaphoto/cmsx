@@ -147,13 +147,17 @@ class AIGroupNoteRequest(BaseModel):
     context: Optional[Dict[str, Any]] = None
 
 
+class ScheduleDaySlot(BaseModel):
+    day: int = 0  # 0=Monday … 6=Sunday
+    time: str = "10:00"
+
+
 class ScheduleCreate(BaseModel):
     title: str = Field(..., min_length=1)
     group_type: str = "psychoeducation"
     topic_id: Optional[str] = None
     curriculum_pack_id: Optional[str] = None
-    day_of_week: int = 0
-    start_time: str = "10:00"
+    schedule_days: List[ScheduleDaySlot] = Field(default_factory=list)
     duration_minutes: int = 60
     location: str = ""
     facilitator: str = ""
@@ -166,8 +170,7 @@ class ScheduleUpdate(BaseModel):
     group_type: Optional[str] = None
     topic_id: Optional[str] = None
     curriculum_pack_id: Optional[str] = None
-    day_of_week: Optional[int] = None
-    start_time: Optional[str] = None
+    schedule_days: Optional[List[ScheduleDaySlot]] = None
     duration_minutes: Optional[int] = None
     location: Optional[str] = None
     facilitator: Optional[str] = None
