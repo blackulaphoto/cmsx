@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 _core_client_service = CoreClientService()
 _file_processor = ResumeFileProcessor()
 DEFAULT_CASE_MANAGER_ID = "cm_001"
+PROJECT_TEMPLATES_DIR = Path(__file__).resolve().parents[3] / "templates"
+REFERENCE_LIBRARY_DIR = PROJECT_TEMPLATES_DIR / "reference-library"
+AI_INSTRUCTIONS_DIR = PROJECT_TEMPLATES_DIR / "ai-instructions"
 
 VAGUE_LANGUAGE_PATTERNS = [
     r"\bdoing better\b",
@@ -109,6 +112,7 @@ class DocumentationAIService:
         self.model = os.getenv("OPENAI_DOCUMENTATION_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o"))
         self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
         self.template_library_text = self._load_template_library()
+        self.reference_library_text = self._load_reference_library()
 
     @staticmethod
     def _normalize_text(text: str, limit: int = 12000) -> str:
@@ -237,6 +241,78 @@ class DocumentationAIService:
             logger.warning("Unable to read universal template library: %s", exc)
             return ""
 
+    def _load_reference_library(self) -> str:
+        blocks: List[str] = []
+        for directory, label in (
+            (AI_INSTRUCTIONS_DIR, "AI instruction"),
+            (REFERENCE_LIBRARY_DIR, "Reference library"),
+        ):
+            if not directory.exists():
+                continue
+            for path in sorted(directory.glob("*")):
+                if not path.is_file() or path.suffix.lower() not in {".txt", ".md", ".markdown"}:
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8", errors="ignore").strip()
+                except Exception as exc:
+                    logger.warning("Unable to read documentation reference file %s: %s", path, exc)
+                    continue
+                if text:
+                    blocks.append(
+                        "\n".join(
+                            [
+                                f"<{label} name=\"{path.name}\">",
+                                self._normalize_text(text, limit=5000),
+                                f"</{label}>",
+                            ]
+                        )
+                    )
+        return "\n\n".join(blocks)
+
+    def _get_reference_library_context(self, query: str, note_kind: str, limit: int = 2) -> Optional[str]:
+        if not self.reference_library_text:
+            return None
+
+        blocks = re.findall(
+            r"<(?P<label>AI instruction|Reference library) name=\"(?P<name>[^\"]+)\">\n(?P<body>.*?)\n</(?P=label)>",
+            self.reference_library_text,
+            flags=re.DOTALL,
+        )
+        if not blocks:
+            return self.reference_library_text[:6000]
+
+        query_terms = {
+            term
+            for term in re.findall(r"[a-z0-9]+", f"{query} {note_kind}".lower())
+            if len(term) >= 4
+        }
+        scored: List[tuple[int, str]] = []
+        for label, name, body in blocks:
+            searchable = f"{name} {body}".lower()
+            score = 0
+            if label == "AI instruction":
+                score += 3
+            for term in query_terms:
+                if term in searchable:
+                    score += 2
+            if "case management playbook" in searchable:
+                score += 4
+            if note_kind.replace("_", " ") in searchable:
+                score += 3
+            scored.append((score, f"<{label} name=\"{name}\">\n{body}\n</{label}>"))
+
+        selected = [block for score, block in sorted(scored, key=lambda item: item[0], reverse=True) if score > 0][:limit]
+        if not selected:
+            selected = [block for _, block in scored[:limit]]
+        if not selected:
+            return None
+
+        return (
+            "INTERNAL DOCUMENTATION PLAYBOOK AND REFERENCE MATERIALS:\n"
+            "Use these as style, workflow, and compliance context. They are supporting context, not a replacement for the selected template.\n\n"
+            + "\n\n---\n\n".join(selected)
+        )
+
     def _get_comprehensive_client_data(self, client_id: Optional[str]) -> Dict[str, Any]:
         """Pull ALL available client data from all databases for intelligent auto-population."""
         if not client_id:
@@ -328,6 +404,7 @@ class DocumentationAIService:
                 "FMLA correspondence",
             ]
         )
+        reference_context = self._get_reference_library_context(query, note_kind)
         return (
             "Internal documentation template library is available from UNIVERSAL_CM_TEMPLATES.md.\n"
             "Do not claim you lack access to templates or documentation guidance.\n"
@@ -336,6 +413,7 @@ class DocumentationAIService:
             "Use this internal guidance before answering template or documentation questions.\n"
             "Relevant template excerpt:\n"
             f"{excerpt}"
+            + (f"\n\n{reference_context}" if reference_context else "")
         )
 
     def _auto_fill_placeholders(self, draft: str, client_id: Optional[str], client_name: Optional[str]) -> str:
@@ -997,6 +1075,10 @@ class DocumentationAIService:
         template_label = (payload.get("context") or {}).get("template_label", note_kind.replace("_", " ").title())
         template_category = (payload.get("context") or {}).get("template_category", "")
         current_date = datetime.now().strftime("%B %d, %Y")
+        reference_guidance_context = self._get_reference_library_context(
+            query=user_prompt or payload.get("current_text") or note_kind,
+            note_kind=note_kind,
+        )
         brand_guidance_context = self.get_brand_guidance_context(
             query=user_prompt or payload.get("current_text") or note_kind,
             note_kind=note_kind,
@@ -1083,6 +1165,8 @@ class DocumentationAIService:
             "",
             "REFERENCE LIBRARY CONTEXT:",
             library_excerpt or "No additional library context available.",
+            "",
+            reference_guidance_context or "No internal playbook or reference-library context matched this draft.",
             "",
             client_context_str,
             "",

@@ -114,6 +114,17 @@ class DocumentationAIServiceTests(unittest.TestCase):
         self.assertIn("UNIVERSAL_CM_TEMPLATES.md", context)
         self.assertIn("treatment_plan", context)
 
+    def test_reference_library_loads_case_management_playbook(self):
+        self.assertIn("Case Management Playbook.txt", self.service.reference_library_text)
+        self.assertIn("Kipu", self.service.reference_library_text)
+
+    def test_template_reference_context_includes_internal_playbook_context(self):
+        context = self.service.get_template_reference_context("Write a weekly CM note using Brandon's Kipu workflow")
+        self.assertIsNotNone(context)
+        self.assertIn("UNIVERSAL_CM_TEMPLATES.md", context)
+        self.assertIn("INTERNAL DOCUMENTATION PLAYBOOK", context)
+        self.assertIn("Case Management Playbook.txt", context)
+
     def test_brand_guidance_context_uses_uploaded_company_material(self):
         resource = workspace_store.create_brand_resource(
             case_manager_id="cm_001",
