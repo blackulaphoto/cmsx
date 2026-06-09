@@ -345,7 +345,9 @@ async def get_benefits_applications(
             'applications': applications,
             'total_count': len(applications)
         }
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Get benefits applications error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1211,35 +1213,32 @@ async def api_start_disability_application(application_data: StartApplication, r
         follow_up_date = (datetime.now() + timedelta(days=7)).date().isoformat()
         application_record['follow_up_date'] = follow_up_date
 
-        try:
-            import sqlite3
-            ensure_benefits_applications_schema()
-            conn = sqlite3.connect('databases/unified_platform.db')
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO benefits_applications
-                (application_id, client_id, application_type, benefit_type, status,
-                 application_method, assistance_received, notes, current_step, next_action_required, follow_up_date, created_at, last_updated)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                application_id,
-                client_id,
-                benefit_type,
-                benefit_type,
-                'Started',
-                'Online',
-                0,
-                application_record.get('notes', ''),
-                application_record.get('current_step', 'Initial Assessment Completed'),
-                application_record.get('next_action_required', 'Gather medical documentation'),
-                follow_up_date,
-                datetime.now().isoformat(),
-                datetime.now().isoformat()
-            ))
-            conn.commit()
-            conn.close()
-        except Exception as db_error:
-            logger.warning(f"Could not persist benefits application: {db_error}")
+        import sqlite3
+        ensure_benefits_applications_schema()
+        conn = sqlite3.connect('databases/unified_platform.db')
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO benefits_applications
+            (application_id, client_id, application_type, benefit_type, status,
+             application_method, assistance_received, notes, current_step, next_action_required, follow_up_date, created_at, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            application_id,
+            client_id,
+            benefit_type,
+            benefit_type,
+            'Started',
+            'Online',
+            0,
+            application_record.get('notes', ''),
+            application_record.get('current_step', 'Initial Assessment Completed'),
+            application_record.get('next_action_required', 'Gather medical documentation'),
+            follow_up_date,
+            datetime.now().isoformat(),
+            datetime.now().isoformat()
+        ))
+        conn.commit()
+        conn.close()
         
         return {
             'success': True,

@@ -161,14 +161,19 @@ function HousingSearch() {
         query += ' background friendly second chance'
       }
       
-      const params = new URLSearchParams({
+      const paramsObj = {
         query: query,
         location: normalizedLocation,
         background_friendly: searchParams.backgroundFriendly.toString(),
-        max_cost: searchParams.maxPrice || '',
         page: '1',
         per_page: '20'
-      })
+      }
+      // Only include max_cost when the user actually entered a value — an empty
+      // string is not a valid number and causes a 422 from the backend validator.
+      if (searchParams.maxPrice) {
+        paramsObj.max_cost = searchParams.maxPrice
+      }
+      const params = new URLSearchParams(paramsObj)
 
       const requestUrl = `/api/housing/search?${params}`
       console.log('Housing search request:', requestUrl)

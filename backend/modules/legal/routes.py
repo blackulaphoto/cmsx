@@ -573,7 +573,7 @@ async def get_legal_documents(request: Request, client_id: Optional[str] = Query
             "doc_id": row["document_id"],
             "case_id": row["case_id"],
             "client_id": row["client_id"],
-            "client_name": name_map.get(row["client_id"], row["client_id"]),
+            "client_name": name_map.get(row["client_id"], "Unknown Client"),
             "document_type": row["document_type"] or "Document",
             "document_title": row["document_title"] or "",
             "document_purpose": row["document_purpose"] or "",
