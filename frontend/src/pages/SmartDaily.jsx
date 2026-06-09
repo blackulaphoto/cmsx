@@ -9,8 +9,7 @@ import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
-
-const CASE_MANAGER_ID = 'default_cm'
+import { useAuth } from '../contexts/AuthContext'
 
 const BUCKET_META = {
   overdue: {
@@ -230,7 +229,7 @@ const QUICK_TEMPLATES = [
   { key: 'fmla',         label: 'FMLA paperwork',       type: 'fmla',            priority: 'High',   text: 'Complete FMLA paperwork' },
 ]
 
-function CreateTaskModal({ onClose, onCreated }) {
+function CreateTaskModal({ onClose, onCreated, caseManagerId }) {
   const today = new Date().toISOString().split('T')[0]
   const [form, setForm] = useState({
     client: null,
@@ -278,7 +277,7 @@ function CreateTaskModal({ onClose, onCreated }) {
           reminder_text: form.title.trim(),
           due_date: form.due_date,
           priority: form.priority,
-          case_manager_id: CASE_MANAGER_ID,
+          case_manager_id: caseManagerId,
           reminder_type: form.task_type,
           description: form.description.trim(),
         }),
@@ -494,6 +493,8 @@ function EmptyState({ onCreateClick }) {
 function SmartDaily() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const { profile } = useAuth()
+  const caseManagerId = profile?.case_manager_id || ''
   const clientIdFromUrl = searchParams.get('client') || ''
   const [buckets, setBuckets] = useState({})
   const [aiSummary, setAiSummary] = useState(null)
@@ -507,10 +508,11 @@ function SmartDaily() {
   const [showCreateModal, setShowCreateModal] = useState(false)
 
   const fetchData = async () => {
+    if (!caseManagerId) return
     try {
       const [prioritizedRes, dashboardRes] = await Promise.all([
-        apiFetch(`/api/reminders/prioritized/${CASE_MANAGER_ID}`),
-        apiFetch(`/api/reminders/smart-dashboard/${CASE_MANAGER_ID}`),
+        apiFetch(`/api/reminders/prioritized/${caseManagerId}`),
+        apiFetch(`/api/reminders/smart-dashboard/${caseManagerId}`),
       ])
 
       if (prioritizedRes.ok) {
@@ -537,7 +539,7 @@ function SmartDaily() {
     }
   }
 
-  useEffect(() => { fetchData() }, [])
+  useEffect(() => { fetchData() }, [caseManagerId])
 
   const getTaskDestination = (task) => {
     const cat = String(task.task_type || '').toLowerCase()
@@ -580,6 +582,14 @@ function SmartDaily() {
         const res = await apiFetch(`/api/reminders/tasks/${encodeURIComponent(taskId)}/complete`, { method: 'POST' })
         if (!res.ok) throw new Error('Server error')
         toast.success('Task marked complete')
+      } catch {
+        toast.error('Could not save completion — refresh to sync')
+      }
+    } else if (source === 'active_reminder' && taskId) {
+      try {
+        const res = await apiFetch(`/api/reminders/${encodeURIComponent(taskId)}/complete`, { method: 'POST' })
+        if (!res.ok) throw new Error('Server error')
+        toast.success('Reminder marked complete')
       } catch {
         toast.error('Could not save completion — refresh to sync')
       }
@@ -850,6 +860,7 @@ function SmartDaily() {
         <CreateTaskModal
           onClose={() => setShowCreateModal(false)}
           onCreated={() => { setLoading(true); fetchData() }}
+          caseManagerId={caseManagerId}
         />
       )}
     </div>

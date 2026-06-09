@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 
@@ -45,6 +45,11 @@ import IntegrationAudit from './pages/IntegrationAudit'
 import Groups from './pages/Groups'
 import GroupSessionDetail from './pages/GroupSessionDetail'
 
+function RedirectCaseManagement() {
+  const { clientId } = useParams()
+  return <Navigate to={`/client/${clientId}`} replace />
+}
+
 function App() {
   return (
     <Routes>
@@ -72,6 +77,7 @@ function App() {
         
         {/* Core Service Pages - replace old HTML template routes */}
         <Route path="/case-management" element={<CaseManagement />} />
+        <Route path="/case-management/:clientId" element={<RedirectCaseManagement />} />
         <Route path="/client/:clientId" element={<ClientDashboard />} />
         {/* ✅ HOUSING SYSTEM ROUTES - FULLY FUNCTIONAL - DO NOT MODIFY */}
         {/* These routes provide: Real housing search, Case manager tools, API testing */}

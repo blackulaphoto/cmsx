@@ -1003,6 +1003,37 @@ def create_active_reminder(
     return reminder_id
 
 
+def complete_active_reminder(reminder_id: str) -> bool:
+    """Mark an active reminder as Completed. Returns True if a row was updated."""
+    if use_postgres():
+        try:
+            from sqlalchemy import text
+            with _pg_conn() as conn:
+                result = conn.execute(
+                    text("""
+                        UPDATE railway_active_reminders
+                        SET status = 'Completed'
+                        WHERE reminder_id = :reminder_id
+                    """),
+                    {"reminder_id": reminder_id},
+                )
+                if result.rowcount > 0:
+                    return True
+        except Exception as exc:
+            logger.warning("Postgres complete_active_reminder failed (%s), using SQLite", exc)
+
+    try:
+        with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+            cur = conn.execute(
+                "UPDATE active_reminders SET status = 'Completed' WHERE reminder_id = ?",
+                (reminder_id,),
+            )
+            return cur.rowcount > 0
+    except Exception as exc:
+        logger.warning("SQLite complete_active_reminder failed: %s", exc)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------

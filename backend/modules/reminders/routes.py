@@ -891,6 +891,21 @@ async def complete_task(task_id: str):
         logger.error(f"Failed to complete task {task_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to complete task: {str(e)}")
 
+@router.post("/{reminder_id}/complete")
+async def complete_reminder(reminder_id: str):
+    """Mark an active reminder as completed so it does not reappear after refresh."""
+    try:
+        updated = _repo.complete_active_reminder(reminder_id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        return {"success": True, "reminder_id": reminder_id, "status": "Completed"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to complete reminder {reminder_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to complete reminder: {str(e)}")
+
+
 @router.get("/prioritized/{case_manager_id}")
 async def get_prioritized_tasks(case_manager_id: str):
     """

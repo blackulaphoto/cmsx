@@ -286,6 +286,11 @@ function UR() {
   }
 
   const saveCase = async () => {
+    if (creatingNewCase) {
+      if (!caseForm.client_name?.trim()) { toast.error('Client name is required'); return }
+      if (!caseForm.payer?.trim()) { toast.error('Payer is required'); return }
+      if (!caseForm.admit_date) { toast.error('Admit date is required'); return }
+    }
     try {
       setSaving(true)
       const normalizedStatus = deriveSuggestedStatus(caseForm)
