@@ -150,7 +150,7 @@ def _get_client_name_map() -> Dict[str, str]:
             first_name = (row["first_name"] or "").strip()
             last_name = (row["last_name"] or "").strip()
             full_name = f"{first_name} {last_name}".strip()
-            name_map[row["client_id"]] = full_name or row["client_id"]
+            name_map[row["client_id"]] = full_name or "Unknown Client"
     except Exception as e:
         logger.warning(f"Unable to load client names from core_clients.db: {e}")
     finally:
@@ -316,7 +316,7 @@ async def get_legal_cases(request: Request, client_id: Optional[str] = Query(Non
             cases.append({
                 "case_id": row["case_id"],
                 "client_id": row["client_id"],
-                "client_name": name_map.get(row["client_id"], row["client_id"]),
+                "client_name": name_map.get(row["client_id"], "Unknown Client"),
                 "case_type": row["case_type"] or "Legal Case",
                 "status": status.title(),
                 "priority": priority,
@@ -439,7 +439,7 @@ async def get_court_dates(request: Request, client_id: Optional[str] = Query(Non
                 "court_date_id": row["court_date_id"],
                 "case_id": row["case_id"],
                 "client_id": row["client_id"],
-                "client_name": name_map.get(row["client_id"], row["client_id"]),
+                "client_name": name_map.get(row["client_id"], "Unknown Client"),
                 "hearing_date": row["hearing_date"],
                 "hearing_time": row["hearing_time"],
                 "court_name": row["court_name"],

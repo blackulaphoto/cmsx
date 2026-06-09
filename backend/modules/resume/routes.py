@@ -979,7 +979,14 @@ async def create_employment_profile(profile_request: EmploymentProfileRequest):
 
             success = db.profiles.update_profile(existing_profile)
             if not success:
-                raise HTTPException(status_code=500, detail="Failed to update profile")
+                profile_id = db.profiles.create_profile(existing_profile)
+                if not profile_id:
+                    raise HTTPException(status_code=500, detail="Failed to save profile")
+                return {
+                    "success": True,
+                    "profile_id": profile_id,
+                    "message": "Employment profile created successfully",
+                }
 
             return {
                 "success": True,

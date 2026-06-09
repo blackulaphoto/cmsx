@@ -595,6 +595,8 @@ async def get_application_documents(application_id: str, request: Request):
         } for row in rows]
 
         return {"success": True, "documents": documents, "total_count": len(documents)}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Get benefits application documents error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
