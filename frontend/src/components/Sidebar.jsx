@@ -24,7 +24,7 @@ function Sidebar() {
     { icon: Home, label: 'Housing Search', path: '/housing' },
     { icon: Search, label: 'Job Search', path: '/jobs' },
     { icon: MessageSquare, label: 'AI Chat Assistant', path: '/ai-chat' },
-    { icon: Calendar, label: 'Smart Daily Dashboard', path: '/smart-daily' },
+    { icon: Calendar, label: 'Smart Daily Dashboard', path: '/smart-dashboard' },
     { icon: FileText, label: 'Resume Builder', path: '/resume' },
     { icon: Scale, label: 'Legal Services', path: '/legal' },
     { icon: Heart, label: 'Benefits & Support', path: '/benefits' },

@@ -559,7 +559,14 @@ async def get_application_documents(application_id: str, request: Request):
         client_id = _get_application_client_id(application_id)
         if not client_id:
             raise HTTPException(status_code=404, detail="Benefits application not found")
-        assert_client_access(current_user, client_id)
+        try:
+            assert_client_access(current_user, client_id)
+        except HTTPException as auth_exc:
+            if auth_exc.status_code == 403:
+                raise
+            # client_id in the application does not exist in core_clients (orphan/seeded app)
+            return {"success": True, "documents": [], "total_count": 0}
+
         import sqlite3
 
         ensure_benefits_documents_schema()

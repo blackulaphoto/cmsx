@@ -97,6 +97,7 @@ function Resume() {
   const [selectedClient, setSelectedClient] = useState(null)
   const [availableClients, setAvailableClients] = useState([])
   const [activeTab, setActiveTab] = useState('builder')
+  const [clientContact, setClientContact] = useState(null)
   // Guest mode functionality
   const [guestMode, setGuestMode] = useState(false)
   const [guestData, setGuestData] = useState({
@@ -202,13 +203,18 @@ function Resume() {
 
   const fetchEmploymentProfile = async () => {
     if (!selectedClient) return
-    
+
     try {
       const response = await apiFetch(`/api/resume/profile/${selectedClient.client_id}`)
       if (response.ok) {
         const data = await response.json()
         if (data.profile) {
-          setEmploymentProfile(data.profile)
+          const profile = data.profile
+          // Normalize old profiles where skills were stored as flat strings
+          if (Array.isArray(profile.skills) && profile.skills.length > 0 && typeof profile.skills[0] === 'string') {
+            profile.skills = [{ category: 'Skills', skill_list: profile.skills.filter(Boolean) }]
+          }
+          setEmploymentProfile(profile)
         }
       }
     } catch (error) {
@@ -690,6 +696,18 @@ function Resume() {
     setSelectedClient(client)
     const intake = getIntakeContext(client)
     const treatmentPlan = getTreatmentPlanContext(client)
+    const resumeContact = client?.operational_context?.module_context?.resume?.contact || {}
+
+    // Capture contact fields from operational context for read-only display
+    setClientContact({
+      phone: client.phone || resumeContact.phone || '',
+      email: client.email || resumeContact.email || '',
+      address: client.address || resumeContact.address || '',
+      city: client.city || resumeContact.city || '',
+      state: client.state || resumeContact.state || '',
+      zip_code: client.zip_code || resumeContact.zip_code || '',
+    })
+
     const treatmentGoals = Array.isArray(treatmentPlan.goals)
       ? treatmentPlan.goals.map((goal) => typeof goal === 'string' ? goal : goal?.description).filter(Boolean)
       : []
@@ -932,6 +950,23 @@ function Resume() {
                     <div className="split-screen-layout grid grid-cols-1 xl:grid-cols-5 gap-4 sm:gap-8">
                       {/* Left Panel - Enhanced Form (60% width) */}
                       <div className="xl:col-span-3 space-y-4 sm:space-y-8">
+                        {/* Client contact context — read-only, sourced from operational context */}
+                        {clientContact && (clientContact.phone || clientContact.email || clientContact.address) && (
+                          <div className="bg-white/5 border border-white/10 rounded-xl px-5 py-4 flex flex-wrap gap-4 text-sm text-gray-300">
+                            {clientContact.phone && (
+                              <span><span className="text-gray-500">Phone:</span> {clientContact.phone}</span>
+                            )}
+                            {clientContact.email && (
+                              <span><span className="text-gray-500">Email:</span> {clientContact.email}</span>
+                            )}
+                            {(clientContact.address || clientContact.city) && (
+                              <span>
+                                <span className="text-gray-500">Address:</span>{' '}
+                                {[clientContact.address, clientContact.city, clientContact.state, clientContact.zip_code].filter(Boolean).join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         <div className="flex flex-wrap items-start sm:items-center justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
                             <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex-shrink-0">
