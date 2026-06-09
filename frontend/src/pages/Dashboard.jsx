@@ -330,7 +330,7 @@ const Dashboard = () => {
             <div className="flex items-center gap-3 mb-8">
               <h2 className="text-2xl font-bold text-white">Available Services</h2>
               <div className="px-3 py-1 bg-gradient-to-r from-pink-500 to-purple-500 rounded-full">
-                <span className="text-xs font-medium text-white">8 Modules</span>
+                <span className="text-xs font-medium text-white">10 Modules</span>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
