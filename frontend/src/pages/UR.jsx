@@ -168,7 +168,8 @@ function UR() {
   const scrollToForm = () => {
     requestAnimationFrame(() => {
       if (!formSectionRef.current) return
-      formSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const top = formSectionRef.current.getBoundingClientRect().top + window.pageYOffset - 84
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
       formSectionRef.current.classList.add('ur-form-highlight')
       setTimeout(() => formSectionRef.current?.classList.remove('ur-form-highlight'), 1200)
       const first = formSectionRef.current.querySelector('input:not([type="hidden"]), select')

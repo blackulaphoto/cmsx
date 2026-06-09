@@ -272,7 +272,8 @@ function FMLA() {
   const scrollToForm = () => {
     requestAnimationFrame(() => {
       if (!formSectionRef.current) return
-      formSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const top = formSectionRef.current.getBoundingClientRect().top + window.pageYOffset - 84
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
       formSectionRef.current.classList.add('fmla-form-highlight')
       setTimeout(() => formSectionRef.current?.classList.remove('fmla-form-highlight'), 1200)
       const first = formSectionRef.current.querySelector('input:not([type="hidden"]), select')
