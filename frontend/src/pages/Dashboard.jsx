@@ -1,18 +1,20 @@
 ﻿import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { 
-  Users, 
-  Home, 
-  DollarSign, 
-  Scale, 
-  FileText, 
+  Users,
+  Home,
+  DollarSign,
+  Scale,
+  FileText,
   MessageSquare,
   Building2,
   Calendar,
   TrendingUp,
   AlertCircle,
   Sparkles,
-  Zap
+  Zap,
+  BookOpen,
+  FolderOpen
 } from 'lucide-react'
 import NotesList from '../components/NotesList'
 import NoteForm from '../components/NoteForm'
@@ -171,6 +173,24 @@ const Dashboard = () => {
       gradient: 'from-cyan-500 via-sky-600 to-blue-600',
       stats: 'AI Powered',
       accent: 'bg-cyan-500/20 border-cyan-500/30'
+    },
+    {
+      title: 'Rolodex',
+      description: 'Quick-access contact directory for providers, agencies, and community resources',
+      path: '/rolodex',
+      icon: BookOpen,
+      gradient: 'from-violet-500 via-purple-600 to-fuchsia-600',
+      stats: 'Contact Directory',
+      accent: 'bg-violet-500/20 border-violet-500/30'
+    },
+    {
+      title: 'Documents',
+      description: 'Generate, manage, and store case documents, letters, and treatment plans',
+      path: '/documentation',
+      icon: FolderOpen,
+      gradient: 'from-rose-500 via-pink-600 to-red-600',
+      stats: 'Case Records',
+      accent: 'bg-rose-500/20 border-rose-500/30'
     }
   ]
 
