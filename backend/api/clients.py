@@ -1072,6 +1072,8 @@ async def create_client(client_data: ClientCreateRequest, request: Request):
             "integration_results": integration_results
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Client creation failed: {e}")
         raise HTTPException(
@@ -1145,6 +1147,8 @@ async def list_clients(request: Request, case_manager_id: Optional[str] = None, 
                 "clients": clients,
                 "count": len(clients)
             }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Database error listing clients: {e}")
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
