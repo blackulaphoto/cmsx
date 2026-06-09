@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { BellRing, ClipboardList, Plus, Save, ShieldAlert } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -163,6 +163,18 @@ function UR() {
   const [creatingNewCase, setCreatingNewCase] = useState(true)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const formSectionRef = useRef(null)
+
+  const scrollToForm = () => {
+    requestAnimationFrame(() => {
+      if (!formSectionRef.current) return
+      formSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      formSectionRef.current.classList.add('ur-form-highlight')
+      setTimeout(() => formSectionRef.current?.classList.remove('ur-form-highlight'), 1200)
+      const first = formSectionRef.current.querySelector('input:not([type="hidden"]), select')
+      first?.focus({ preventScroll: true })
+    })
+  }
 
   const summaryCards = useMemo(() => getSummaryCards(summary), [summary])
   const banner = useMemo(() => buildStatusBanner(caseForm), [caseForm])
@@ -271,6 +283,7 @@ function UR() {
       current_level_of_care: client.level_of_care || intake.level_of_care || prev.current_level_of_care
     }))
     setEventForm(emptyEventForm())
+    scrollToForm()
   }
 
   const startNewCase = () => {
@@ -283,6 +296,7 @@ function UR() {
       assigned_case_manager: defaultCaseManagerId
     })
     setEventForm(emptyEventForm())
+    scrollToForm()
   }
 
   const saveCase = async () => {
@@ -446,7 +460,7 @@ function UR() {
           </aside>
 
           <div className="space-y-6">
-            <section className="rounded-3xl border border-emerald-500/15 bg-emerald-500/10 p-6">
+            <section ref={formSectionRef} className="rounded-3xl border border-emerald-500/15 bg-emerald-500/10 p-6 transition-[box-shadow] duration-700">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                   <p className="text-xs uppercase tracking-[0.3em] text-emerald-200">{banner.statusLabel}</p>

@@ -214,3 +214,10 @@ body {
   max-width: 120px;
   object-fit: contain;
 } 
+
+/* Form scroll-into-view highlight — UR and FMLA new case */
+.ur-form-highlight,
+.fmla-form-highlight {
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.55), 0 0 32px rgba(52, 211, 153, 0.15);
+  transition: box-shadow 1.2s ease-out;
+}

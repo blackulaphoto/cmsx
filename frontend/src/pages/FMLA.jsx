@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   FileSpreadsheet,
@@ -267,6 +267,18 @@ function FMLA() {
   const [creatingNewCase, setCreatingNewCase] = useState(false)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const formSectionRef = useRef(null)
+
+  const scrollToForm = () => {
+    requestAnimationFrame(() => {
+      if (!formSectionRef.current) return
+      formSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      formSectionRef.current.classList.add('fmla-form-highlight')
+      setTimeout(() => formSectionRef.current?.classList.remove('fmla-form-highlight'), 1200)
+      const first = formSectionRef.current.querySelector('input:not([type="hidden"]), select')
+      first?.focus({ preventScroll: true })
+    })
+  }
 
   const visibleCases = useMemo(() => filterFmlaCases(cases, filters), [cases, filters])
   const missingChecklist = useMemo(() => getMissingChecklist(selectedCase, documents), [selectedCase, documents])
@@ -391,6 +403,7 @@ function FMLA() {
       assigned_case_manager: client.case_manager_id || prev.assigned_case_manager,
       treatment_status: client.case_status || ''
     }))
+    scrollToForm()
   }
 
   const saveCase = async () => {
@@ -555,6 +568,7 @@ function FMLA() {
                       client_id: clientIdFromUrl,
                       assigned_case_manager: defaultCaseManagerId
                     })
+                    scrollToForm()
                   }}
                   className="inline-flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
                 >
@@ -804,7 +818,7 @@ function FMLA() {
           </aside>
 
           <div className="space-y-6">
-            <section className="rounded-3xl border border-white/10 bg-white/5 p-6">
+            <section ref={formSectionRef} className="rounded-3xl border border-white/10 bg-white/5 p-6 transition-[box-shadow] duration-700">
               <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-2xl font-semibold">{creatingNewCase ? 'New FMLA Case' : (selectedCase?.client_name || 'Select an FMLA case')}</h2>
