@@ -294,7 +294,7 @@ function CreateTaskModal({ onClose, onCreated, caseManagerId }) {
   }
 
   const inputCls = (err) =>
-    `w-full px-4 py-3 bg-white/8 border rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all ${err ? 'border-red-500/60' : 'border-white/15'}`
+    `w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all ${err ? 'border-red-500/60' : 'border-white/20'}`
 
   return (
     <div
@@ -330,7 +330,7 @@ function CreateTaskModal({ onClose, onCreated, caseManagerId }) {
                 key={tpl.key}
                 type="button"
                 onClick={() => applyTemplate(tpl)}
-                className="px-3 py-1.5 bg-white/8 hover:bg-white/15 border border-white/15 hover:border-cyan-500/40 rounded-lg text-xs text-gray-300 hover:text-white transition-all"
+                className="px-3 py-1.5 bg-white/10 hover:bg-white/20 border border-white/20 hover:border-cyan-500/40 rounded-lg text-xs text-gray-300 hover:text-white transition-all"
               >
                 {tpl.label}
               </button>
