@@ -72,12 +72,17 @@ const ClientSelector = ({
     }
   }, [isOpen])
 
-  // Sync selectedClient with parent component when it changes
+  // Sync selectedClient with parent component when the resolved client changes.
+  // onClientSelect is intentionally excluded from deps — it is a new function
+  // reference on every parent render, and including it causes an infinite loop
+  // (effect fires → parent re-renders → new onClientSelect → effect fires again).
+  // onClientSelect is already called directly in handleClientSelect and fetchClientById.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (selectedClient && onClientSelect) {
       onClientSelect(selectedClient)
     }
-  }, [selectedClient, onClientSelect])
+  }, [selectedClient])
 
   const fetchClients = async () => {
     try {
