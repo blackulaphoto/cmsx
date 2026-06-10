@@ -82,7 +82,7 @@ class ProgressRecord(BaseModel):
 class ReminderCreate(BaseModel):
     client_id: str
     reminder_text: str
-    due_date: str
+    due_date: Optional[str] = None
     case_manager_id: Optional[str] = None
     priority: str = "Medium"
 
