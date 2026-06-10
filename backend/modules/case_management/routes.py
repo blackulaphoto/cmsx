@@ -156,11 +156,15 @@ async def create_client(client_request: ClientCreateRequest, request: Request):
         if result['success']:
             # Create client object for response
             client = Client(**client_data)
-            
+            client_id = result['client_id']
+
+            # Generate intake needs and tasks in the background (non-blocking on failure)
+            await _generate_initial_tasks(client, client_id)
+
             return ClientResponse(
                 success=True,
                 message=f"Client created successfully in core database",
-                client_id=result['client_id'],
+                client_id=client_id,
                 client=client.to_dict(),
                 integration_results={'core_database': 'core_clients.db'}
             )
@@ -505,20 +509,37 @@ async def get_dashboard_stats(case_manager_id: str, request: Request):
 # HELPER FUNCTIONS
 # =============================================================================
 
-async def _generate_initial_tasks(client: Client):
-    """Generate initial tasks and reminders for new clients"""
+async def _generate_initial_tasks(client: Client, client_id: str):
+    """Derive intake needs and create initial tasks for a newly created client."""
     try:
-        # This would typically create initial assessment tasks
-        # For now, we'll just log the intent
-        logger.info(f"Generated initial tasks for client: {client.client_id}")
-        
-        # TODO: Integration with reminders system to create:
-        # 1. Initial assessment task (due in 3 days)
-        # 2. Intake follow-up (due in 1 week)
-        # 3. Service referral tasks based on needs
-        
+        from backend.api.clients import derive_operational_needs
+        client_dict = client.to_dict()
+        client_dict["client_id"] = client_id
+
+        needs = derive_operational_needs(client_dict)
+        if not needs:
+            logger.info("No intake needs derived for client %s", client_id)
+            return
+
+        workspace_store.upsert_operational_needs(
+            client_id=client_id,
+            needs=needs,
+            source="intake",
+            source_id=client_id,
+        )
+        created = workspace_store.create_tasks_from_operational_needs(
+            client_id=client_id,
+            needs=needs,
+            source="intake",
+            source_id=client_id,
+            assigned_to="Case Manager",
+        )
+        logger.info(
+            "Generated %d intake needs and %d initial tasks for client %s",
+            len(needs), len(created), client_id,
+        )
     except Exception as e:
-        logger.error(f"Error generating initial tasks: {e}")
+        logger.error(f"Error generating initial tasks for {client_id}: {e}")
 
 
 # =============================================================================

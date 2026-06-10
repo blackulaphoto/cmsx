@@ -4,7 +4,7 @@ SQLite helpers for case management dashboard data.
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from backend.shared.database.core_client_service import CoreClientService
 
@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 core_client_service = CoreClientService()
 
 
-def _fetch_clients(case_manager_id: str) -> List[Dict[str, Any]]:
+def _fetch_clients(case_manager_id: Optional[str]) -> List[Dict[str, Any]]:
+    if not case_manager_id:
+        return core_client_service.get_all_clients(limit=10000) or []
     clients = core_client_service.get_clients_by_case_manager(case_manager_id)
     return clients or []
 
@@ -23,7 +25,7 @@ def _is_active_client(client: Dict[str, Any]) -> bool:
     return case_status not in {"inactive", "closed", "deleted"}
 
 
-def _build_dashboard_payload(case_manager_id: str, clients: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _build_dashboard_payload(case_manager_id: Optional[str], clients: List[Dict[str, Any]]) -> Dict[str, Any]:
     total_clients = len(clients)
     active_clients = len([c for c in clients if _is_active_client(c)])
     high_risk_clients = len([c for c in clients if str(c.get("risk_level", "")).lower() == "high"])
@@ -58,8 +60,10 @@ def _build_dashboard_payload(case_manager_id: str, clients: List[Dict[str, Any]]
     }
 
 
-def get_dashboard_stats_from_db(case_manager_id: str) -> Dict[str, Any]:
-    """Return dashboard stats from the core client source of truth."""
+def get_dashboard_stats_from_db(case_manager_id: Optional[str] = None) -> Dict[str, Any]:
+    """Return dashboard stats from the core client source of truth.
+    Pass None to get stats across all clients (admin overview).
+    """
     try:
         clients = _fetch_clients(case_manager_id)
         return _build_dashboard_payload(case_manager_id, clients)

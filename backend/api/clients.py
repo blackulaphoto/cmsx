@@ -1507,6 +1507,127 @@ async def approve_client_treatment_plan(client_id: str, plan_id: str, request: R
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class GenerateTasksPayload(BaseModel):
+    source: str = "intake"
+    source_id: Optional[str] = None
+    needs: Optional[List[Dict[str, Any]]] = None
+    approval_mode: str = "auto"  # auto|review — review skips urgent/high-priority tasks
+
+
+@router.post("/api/clients/{client_id}/operational-tasks/generate")
+async def generate_operational_tasks(
+    client_id: str,
+    payload: GenerateTasksPayload,
+    request: Request,
+):
+    """Generate tasks from a client's operational needs.
+    If needs is not provided, derives them from current intake context.
+    """
+    try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
+        client = _get_normalized_client_or_404(client_id)
+
+        needs = payload.needs
+        if not needs:
+            needs = derive_operational_needs(client)
+
+        source_id = payload.source_id or client_id
+
+        persisted = workspace_store.upsert_operational_needs(
+            client_id=client_id,
+            needs=needs,
+            source=payload.source,
+            source_id=source_id,
+        )
+
+        tasks_to_create = needs
+        if payload.approval_mode == "review":
+            tasks_to_create = [n for n in needs if n.get("priority") not in {"urgent", "high"}]
+
+        created_tasks = workspace_store.create_tasks_from_operational_needs(
+            client_id=client_id,
+            needs=tasks_to_create,
+            source=payload.source,
+            source_id=source_id,
+            assigned_to=current_user.full_name,
+        )
+
+        return {
+            "success": True,
+            "client_id": client_id,
+            "needs_count": len(persisted),
+            "created_tasks": created_tasks,
+            "created_task_count": len(created_tasks),
+            "skipped_for_review": len(needs) - len(tasks_to_create),
+            "approval_mode": payload.approval_mode,
+            "message": f"Generated {len(created_tasks)} tasks from {len(needs)} needs.",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating operational tasks for {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class NeedStatusUpdate(BaseModel):
+    status: str
+    priority: Optional[str] = None
+    reason: Optional[str] = None
+
+
+@router.patch("/api/clients/{client_id}/needs/{need_key}")
+async def update_need_status(
+    client_id: str,
+    need_key: str,
+    payload: NeedStatusUpdate,
+    request: Request,
+):
+    """Update the status of a client need by need_key.
+    Valid statuses: open, active, in_progress, completed, deferred, cancelled
+    """
+    try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
+
+        valid_statuses = {"open", "active", "in_progress", "completed", "deferred", "cancelled"}
+        if payload.status.lower() not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status. Must be one of: {', '.join(sorted(valid_statuses))}",
+            )
+
+        updated_count = workspace_store.update_need_status_by_key(
+            client_id=client_id,
+            need_key=need_key,
+            status=payload.status.lower(),
+            priority=payload.priority,
+            reason=payload.reason,
+        )
+
+        if updated_count == 0:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No needs found for client '{client_id}' with key '{need_key}'",
+            )
+
+        needs = workspace_store.list_client_operational_needs(client_id)
+        updated_needs = [n for n in needs if n.get("need_key") == need_key]
+
+        return {
+            "success": True,
+            "client_id": client_id,
+            "need_key": need_key,
+            "updated_count": updated_count,
+            "needs": updated_needs,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating need '{need_key}' for client {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/api/clients/{client_id}/intelligent-tasks")
 async def get_intelligent_tasks(client_id: str, request: Request):
     """Get AI-generated intelligent tasks for client

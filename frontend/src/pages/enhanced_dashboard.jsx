@@ -75,6 +75,7 @@ const EnhancedDashboard = () => {
   const [editingDoc, setEditingDoc] = useState(null)
   const [newNote, setNewNote] = useState('')
   const [newDoc, setNewDoc] = useState({ title: '', content: '', url: '' })
+  const [docUploadMode, setDocUploadMode] = useState(false)
   const [newBookmark, setNewBookmark] = useState({ title: '', url: '', description: '' })
 
   const getBookmarkFavicon = (bookmark) => {
@@ -333,6 +334,43 @@ const EnhancedDashboard = () => {
     } catch (error) {
       console.error('Error updating note:', error)
       toast.error('Failed to update note')
+    }
+  }
+
+  const uploadDocFile = async (file) => {
+    if (!file) return
+    const autoTitle = newDoc.title.trim() || file.name.replace(/\.[^.]+$/, '')
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const uploadRes = await apiFetch('/api/dashboard/resources', {
+        method: 'POST',
+        body: formData
+      })
+      if (!uploadRes.ok) throw new Error('Upload failed')
+      const uploadData = await uploadRes.json()
+      const resourceId = uploadData.resource?.id
+      if (!resourceId) throw new Error('No resource ID returned')
+      const docRes = await apiFetch('/api/dashboard/docs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: autoTitle,
+          content: newDoc.content || '',
+          url: `/api/dashboard/resources/${resourceId}/download`
+        })
+      })
+      if (!docRes.ok) throw new Error('Failed to save document record')
+      const docData = await docRes.json()
+      setDocs(current => [docData.doc, ...current])
+      setResources(current => [uploadData.resource, ...current])
+      setNewDoc({ title: '', content: '', url: '' })
+      setDocUploadMode(false)
+      setShowDocEditor(false)
+      toast.success('Document uploaded!')
+    } catch (error) {
+      console.error('Error uploading document:', error)
+      toast.error('Failed to upload document')
     }
   }
 
@@ -890,7 +928,7 @@ const EnhancedDashboard = () => {
                   </span>
                 </div>
                 <button
-                  onClick={() => setShowDocEditor(true)}
+                  onClick={() => { setShowDocEditor(true); setDocUploadMode(false) }}
                   className="p-1 hover:bg-blue-500/20 rounded-lg transition-colors"
                 >
                   <Plus className="h-4 w-4 text-blue-400" />
@@ -900,6 +938,21 @@ const EnhancedDashboard = () => {
               {/* Doc Editor */}
               {showDocEditor && (
                 <div className="mb-4 p-3 bg-black/20 rounded-lg border border-blue-500/30">
+                  {/* Mode toggle */}
+                  <div className="flex gap-1 mb-3">
+                    <button
+                      onClick={() => setDocUploadMode(false)}
+                      className={`px-2 py-1 text-xs rounded transition-colors ${!docUploadMode ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      Write
+                    </button>
+                    <button
+                      onClick={() => setDocUploadMode(true)}
+                      className={`px-2 py-1 text-xs rounded transition-colors flex items-center gap-1 ${docUploadMode ? 'bg-blue-500 text-white' : 'text-gray-400 hover:text-white'}`}
+                    >
+                      <Upload className="h-3 w-3" /> Upload
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={newDoc.title}
@@ -907,36 +960,61 @@ const EnhancedDashboard = () => {
                     placeholder="Document title..."
                     className="w-full bg-transparent text-white placeholder-gray-400 border-none outline-none mb-2"
                   />
-                  <textarea
-                    value={newDoc.content}
-                    onChange={(e) => setNewDoc({...newDoc, content: e.target.value})}
-                    placeholder="Document content..."
-                    className="w-full bg-transparent text-white placeholder-gray-400 resize-none border-none outline-none mb-2"
-                    rows="3"
-                  />
-                  <input
-                    type="url"
-                    value={newDoc.url}
-                    onChange={(e) => setNewDoc({...newDoc, url: e.target.value})}
-                    placeholder="External URL (optional)..."
-                    className="w-full bg-transparent text-white placeholder-gray-400 border-none outline-none mb-2"
-                  />
-                  <div className="flex justify-end gap-2">
+                  {docUploadMode ? (
+                    <div
+                      className="border-2 border-dashed border-blue-500/40 rounded-lg p-4 text-center cursor-pointer hover:border-blue-400/60 transition-colors"
+                      onClick={() => {
+                        const input = document.createElement('input')
+                        input.type = 'file'
+                        input.accept = '.pdf,.doc,.docx,.txt,.md,.jpg,.jpeg,.png,.xlsx,.csv'
+                        input.onchange = (e) => {
+                          const file = e.target.files?.[0]
+                          if (file) uploadDocFile(file)
+                        }
+                        input.click()
+                      }}
+                    >
+                      <Upload className="h-6 w-6 text-blue-400 mx-auto mb-1" />
+                      <p className="text-xs text-gray-400">Click to upload a file</p>
+                      <p className="text-xs text-gray-500 mt-1">PDF, Word, images, spreadsheets</p>
+                    </div>
+                  ) : (
+                    <>
+                      <textarea
+                        value={newDoc.content}
+                        onChange={(e) => setNewDoc({...newDoc, content: e.target.value})}
+                        placeholder="Document content..."
+                        className="w-full bg-transparent text-white placeholder-gray-400 resize-none border-none outline-none mb-2"
+                        rows="3"
+                      />
+                      <input
+                        type="url"
+                        value={newDoc.url}
+                        onChange={(e) => setNewDoc({...newDoc, url: e.target.value})}
+                        placeholder="External URL (optional)..."
+                        className="w-full bg-transparent text-white placeholder-gray-400 border-none outline-none mb-2"
+                      />
+                    </>
+                  )}
+                  <div className="flex justify-end gap-2 mt-2">
                     <button
                       onClick={() => {
                         setShowDocEditor(false)
+                        setDocUploadMode(false)
                         setNewDoc({ title: '', content: '', url: '' })
                       }}
                       className="px-3 py-1 text-xs text-gray-400 hover:text-white transition-colors"
                     >
                       Cancel
                     </button>
-                    <button
-                      onClick={addDoc}
-                      className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-400 transition-colors"
-                    >
-                      Save
-                    </button>
+                    {!docUploadMode && (
+                      <button
+                        onClick={addDoc}
+                        className="px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-400 transition-colors"
+                      >
+                        Save
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -953,7 +1031,12 @@ const EnhancedDashboard = () => {
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1">
-                          <h4 className="text-white font-medium text-sm">{doc.title}</h4>
+                          <div className="flex items-center gap-1">
+                            <h4 className="text-white font-medium text-sm">{doc.title}</h4>
+                            {doc.url?.includes('/api/dashboard/resources/') && (
+                              <span className="text-xs bg-blue-500/20 text-blue-300 px-1 rounded">file</span>
+                            )}
+                          </div>
                           {doc.content && (
                             <p className="text-gray-300 text-xs mt-1 line-clamp-2">{doc.content}</p>
                           )}
@@ -966,8 +1049,13 @@ const EnhancedDashboard = () => {
                             <button
                               onClick={() => window.open(doc.url, '_blank')}
                               className="p-1 rounded hover:bg-white/10 transition-colors text-gray-400"
+                              title={doc.url.includes('/api/dashboard/resources/') ? 'Download file' : 'Open URL'}
                             >
-                              <ExternalLink className="h-3 w-3" />
+                              {doc.url.includes('/api/dashboard/resources/') ? (
+                                <Download className="h-3 w-3" />
+                              ) : (
+                                <ExternalLink className="h-3 w-3" />
+                              )}
                             </button>
                           )}
                           <button

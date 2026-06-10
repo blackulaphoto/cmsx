@@ -44,6 +44,7 @@ import IntegrationAudit from './pages/IntegrationAudit'
 // Group Facilitation module
 import Groups from './pages/Groups'
 import GroupSessionDetail from './pages/GroupSessionDetail'
+import TreatmentPlan from './pages/TreatmentPlan'
 
 function RedirectCaseManagement() {
   const { clientId } = useParams()
@@ -114,6 +115,8 @@ function App() {
         {/* Group Facilitation */}
         <Route path="/groups" element={<Groups />} />
         <Route path="/groups/sessions/:sessionId" element={<GroupSessionDetail />} />
+        {/* Treatment Plan */}
+        <Route path="/treatment-plan" element={<TreatmentPlan />} />
         
         {/* Redirect any unmatched routes to dashboard */}
               <Route path="*" element={<Navigate to="/" replace />} />

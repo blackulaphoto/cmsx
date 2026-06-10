@@ -21,6 +21,7 @@ import {
   Contact,
   ChevronDown,
   BookOpen,
+  Brain,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -51,7 +52,8 @@ const Layout = ({ children }) => {
     { path: '/supervisor-dashboard', label: 'Supervisor', icon: BarChart3, gradient: 'from-cyan-500 to-blue-500' },
     { path: '/services', label: 'Services', icon: Building2, gradient: 'from-orange-500 to-amber-500' },
     { path: '/ai-chat', label: 'AI Assistant', icon: MessageSquare, gradient: 'from-yellow-500 to-amber-500' },
-    { path: '/smart-dashboard', label: 'Smart Daily', icon: Calendar, gradient: 'from-purple-500 to-pink-500' }
+    { path: '/smart-dashboard', label: 'Smart Daily', icon: Calendar, gradient: 'from-purple-500 to-pink-500' },
+    { path: '/treatment-plan', label: 'Treatment Plan', icon: Brain, gradient: 'from-emerald-500 to-cyan-500' }
   ];
   const visibleNavigationItems = navigationItems.filter((item) => canAccessSupervisorMode || item.path !== '/supervisor-dashboard');
   const primaryNavigationItems = visibleNavigationItems.slice(0, 6);

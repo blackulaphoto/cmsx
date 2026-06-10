@@ -354,12 +354,20 @@ def _task_priority_score(task: Dict[str, Any], today: date) -> int:
 
 def _priority_reason(task: Dict[str, Any], today: date) -> str:
     pieces: List[str] = []
+    task_source = str(task.get("task_source") or task.get("source") or "").lower()
+
     if _is_treatment_plan_task(task):
         need_label = str(task.get("need_key") or "").replace("_", " ").strip()
         if need_label:
             pieces.append(f"Approved treatment plan need: {need_label}.")
         else:
             pieces.append("Approved treatment plan task.")
+    elif task_source == "intake":
+        need_label = str(task.get("need_key") or "").replace("_", " ").strip()
+        if need_label:
+            pieces.append(f"Intake-identified need: {need_label}.")
+        else:
+            pieces.append("Identified during client intake.")
 
     module = str(task.get("module") or "").replace("_", " ").strip()
     if module:

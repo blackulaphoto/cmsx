@@ -34,7 +34,11 @@ router = APIRouter()
 async def get_stats(request: Request, case_manager_id: str = Query(...)) -> Dict[str, Any]:
     try:
         current_user = require_authenticated_user(request)
-        scoped_id = effective_case_manager_id(current_user, case_manager_id) or current_user.case_manager_id
+        if current_user.is_admin:
+            # Admins see all clients on the overview dashboard
+            scoped_id = None
+        else:
+            scoped_id = current_user.case_manager_id
         return get_dashboard_stats_from_db(scoped_id)
     except Exception as exc:
         logger.error(f"Dashboard stats error: {exc}")

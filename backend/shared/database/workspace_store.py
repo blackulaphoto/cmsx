@@ -613,6 +613,43 @@ class WorkspaceStore:
                 created_tasks.append(task)
         return created_tasks
 
+    def update_need_status_by_key(
+        self,
+        client_id: str,
+        need_key: str,
+        status: str,
+        priority: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> int:
+        """Update status (and optionally priority/reason) for all needs matching need_key for a client.
+        Returns the number of rows updated."""
+        now = self._now()
+        resolved_at = now if status in {"completed", "cancelled", "canceled"} else None
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE client_operational_needs
+                SET status = ?,
+                    priority = COALESCE(?, priority),
+                    reason = COALESCE(?, reason),
+                    resolved_at = CASE WHEN ? = 1 THEN ? ELSE resolved_at END,
+                    updated_at = ?
+                WHERE client_id = ? AND need_key = ?
+                """,
+                (
+                    status,
+                    priority,
+                    reason,
+                    1 if resolved_at else 0,
+                    resolved_at,
+                    now,
+                    client_id,
+                    need_key,
+                ),
+            )
+            conn.commit()
+            return cursor.rowcount
+
     def list_client_notes(self, client_id: str) -> List[Dict[str, Any]]:
         with self._connect() as conn:
             rows = conn.execute(
