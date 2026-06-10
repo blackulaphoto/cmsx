@@ -51,10 +51,20 @@ function CaseManagement() {
     special_needs: '',
     goals: '',
     barriers: '',
+    strengths: '',
+    weaknesses: '',
+    reason_for_treatment: '',
+    discharge_plan: '',
+    aftercare_plan: '',
+    education: '',
+    level_of_care: 'IOP',
+    projected_los: '30-45 days',
+    legal_needs: '',
+    medical_needs: '',
     notes: '',
     case_manager_id: profile?.case_manager_id || ''
   })
-  
+
   const [formErrors, setFormErrors] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -64,12 +74,16 @@ function CaseManagement() {
   }, [profile?.case_manager_id])
 
   const applyTreatmentPlanSuggestions = (suggestions) => {
+    const firstProblem = (suggestions.problems || [])[0]
+    const goalText = firstProblem?.goal || suggestions.goal || ''
+    const objectiveText = firstProblem?.objective || suggestions.objective || ''
+    const interventions = firstProblem?.plan_items || suggestions.interventions || []
     setClientForm(prev => ({
       ...prev,
-      goals: [prev.goals, suggestions.goal, `Objective: ${suggestions.objective}`].filter(Boolean).join('\n\n'),
-      notes: [prev.notes, 'Suggested interventions:', ...(suggestions.interventions || []).map(item => `- ${item}`), '', 'Progress summary:', suggestions.progress_summary].filter(Boolean).join('\n'),
+      goals: [prev.goals, goalText, objectiveText ? `Objective: ${objectiveText}` : ''].filter(Boolean).join('\n\n'),
+      notes: [prev.notes, interventions.length ? 'Plan:' : '', ...interventions.map(i => `- ${i}`), suggestions.progress_summary ? `\nProgress: ${suggestions.progress_summary}` : ''].filter(Boolean).join('\n'),
     }))
-    toast.success('Treatment plan suggestions added to the client form')
+    toast.success('Treatment plan goal applied to client form')
   }
 
   // Load clients on component mount
@@ -223,6 +237,16 @@ function CaseManagement() {
         special_needs: clientForm.special_needs,
         goals: clientForm.goals,
         barriers: clientForm.barriers,
+        strengths: clientForm.strengths,
+        weaknesses: clientForm.weaknesses,
+        reason_for_treatment: clientForm.reason_for_treatment,
+        discharge_plan: clientForm.discharge_plan,
+        aftercare_plan: clientForm.aftercare_plan,
+        education: clientForm.education,
+        level_of_care: clientForm.level_of_care,
+        projected_los: clientForm.projected_los,
+        legal_needs: clientForm.legal_needs,
+        medical_needs: clientForm.medical_needs,
         notes: clientForm.notes,
         needs: generateInitialNeeds(clientForm),
         background: {
@@ -306,6 +330,16 @@ function CaseManagement() {
         special_needs: clientForm.special_needs,
         goals: clientForm.goals,
         barriers: clientForm.barriers,
+        strengths: clientForm.strengths,
+        weaknesses: clientForm.weaknesses,
+        reason_for_treatment: clientForm.reason_for_treatment,
+        discharge_plan: clientForm.discharge_plan,
+        aftercare_plan: clientForm.aftercare_plan,
+        education: clientForm.education,
+        level_of_care: clientForm.level_of_care,
+        projected_los: clientForm.projected_los,
+        legal_needs: clientForm.legal_needs,
+        medical_needs: clientForm.medical_needs,
         notes: clientForm.notes,
         needs: generateInitialNeeds(clientForm),
         background: {
@@ -400,6 +434,16 @@ function CaseManagement() {
       special_needs: '',
       goals: '',
       barriers: '',
+      strengths: '',
+      weaknesses: '',
+      reason_for_treatment: '',
+      discharge_plan: '',
+      aftercare_plan: '',
+      education: '',
+      level_of_care: 'IOP',
+      projected_los: '30-45 days',
+      legal_needs: '',
+      medical_needs: '',
       notes: '',
       case_manager_id: profile?.case_manager_id || ''
     })
@@ -1093,13 +1137,164 @@ function CaseManagement() {
                           placeholder="What challenges might prevent the client from achieving their goals?"
                         />
                       </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Client Strengths <span className="text-gray-500 font-normal">(CT's own words)</span>
+                        </label>
+                        <textarea
+                          value={clientForm.strengths}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, strengths: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
+                          rows="3"
+                          placeholder='e.g. "I\'m a hard worker and when I set my mind to something I complete it."'
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Client Weaknesses <span className="text-gray-500 font-normal">(CT's own words)</span>
+                        </label>
+                        <textarea
+                          value={clientForm.weaknesses}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, weaknesses: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
+                          rows="3"
+                          placeholder='e.g. "Being around people who use drugs."'
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          I am here because... <span className="text-gray-500 font-normal">(CT's own words)</span>
+                        </label>
+                        <textarea
+                          value={clientForm.reason_for_treatment}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, reason_for_treatment: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
+                          rows="3"
+                          placeholder='e.g. "I need to be a better man for my family."'
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Discharge Plans <span className="text-gray-500 font-normal">(CT's own words)</span>
+                        </label>
+                        <textarea
+                          value={clientForm.discharge_plan}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, discharge_plan: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
+                          rows="3"
+                          placeholder='e.g. "I want to stay in CA, live at a sober living and hopefully work in treatment."'
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Aftercare Plan
+                        </label>
+                        <textarea
+                          value={clientForm.aftercare_plan}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, aftercare_plan: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
+                          rows="3"
+                          placeholder="Sober living, outpatient program, therapy, AA/NA plan after discharge..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Education
+                        </label>
+                        <textarea
+                          value={clientForm.education}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, education: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
+                          rows="3"
+                          placeholder="Highest level completed, GED/diploma status, vocational training goals..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Medical Needs
+                        </label>
+                        <textarea
+                          value={clientForm.medical_needs}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, medical_needs: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
+                          rows="3"
+                          placeholder="Dental, primary care, psychiatry, medications needed..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Legal Needs
+                        </label>
+                        <textarea
+                          value={clientForm.legal_needs}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, legal_needs: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
+                          rows="3"
+                          placeholder="Probation/parole requirements, court dates, expungement, warrants..."
+                        />
+                      </div>
                     </div>
+
+                    {/* Level of Care + Projected LOS */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Level of Care (LOC)
+                        </label>
+                        <select
+                          value={clientForm.level_of_care}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, level_of_care: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white transition-all duration-300"
+                        >
+                          <option value="PHP" className="bg-slate-800">PHP – Partial Hospitalization</option>
+                          <option value="IOP" className="bg-slate-800">IOP – Intensive Outpatient</option>
+                          <option value="OP" className="bg-slate-800">OP – Outpatient</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                          Projected Length of Stay
+                        </label>
+                        <input
+                          type="text"
+                          value={clientForm.projected_los}
+                          onChange={(e) => setClientForm(prev => ({ ...prev, projected_los: e.target.value }))}
+                          className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
+                          placeholder="e.g. 30-45 days"
+                        />
+                      </div>
+                    </div>
+
                     <TreatmentPlanAssistCard
                       clientId={editingClient?.client_id || ''}
                       clientName={`${clientForm.first_name} ${clientForm.last_name}`.trim()}
                       clientGoals={clientForm.goals}
                       barriers={clientForm.barriers}
+                      strengths={clientForm.strengths}
+                      weaknesses={clientForm.weaknesses}
+                      reasonForTreatment={clientForm.reason_for_treatment}
+                      dischargePlan={clientForm.discharge_plan}
+                      aftercarePlan={clientForm.aftercare_plan}
+                      education={clientForm.education}
+                      levelOfCare={clientForm.level_of_care}
+                      projectedLos={clientForm.projected_los}
+                      admitDate={clientForm.intake_date || ''}
+                      legalNeeds={clientForm.legal_needs}
+                      medicalNeeds={clientForm.medical_needs}
+                      housingStatus={clientForm.housing_status}
+                      employmentStatus={clientForm.employment_status}
+                      legalStatus={clientForm.legal_status}
+                      medicalConditions={clientForm.medical_conditions}
                       needs={generateInitialNeeds(clientForm)}
+                      caseManagerName={profile?.name || profile?.email || ''}
                       onApplySuggestions={applyTreatmentPlanSuggestions}
                     />
                   </div>

@@ -46,6 +46,18 @@ class TreatmentPlanSuggestionRequest(BaseModel):
     client_id: Optional[str] = None
     client_name: Optional[str] = None
     context: Dict[str, Any] = Field(default_factory=dict)
+    strengths: Optional[str] = None
+    weaknesses: Optional[str] = None
+    reason_for_treatment: Optional[str] = None
+    discharge_plan: Optional[str] = None
+    level_of_care: Optional[str] = None
+    projected_los: Optional[str] = None
+    admit_date: Optional[str] = None
+    education: Optional[str] = None
+    aftercare_plan: Optional[str] = None
+    legal_needs: Optional[str] = None
+    medical_needs: Optional[str] = None
+    case_manager_name: Optional[str] = None
 
 
 class GroupNoteRequest(BaseModel):

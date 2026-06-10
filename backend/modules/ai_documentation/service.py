@@ -1302,11 +1302,103 @@ class DocumentationAIService:
             }
 
     def generate_treatment_plan_suggestions(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        from datetime import datetime, timedelta
+
         recent_notes = self._get_recent_note_context(payload.get("client_id"))
         context = payload.get("context") or {}
-        client_goal = context.get("client_goals") or payload.get("client_goals") or "Improve stability and functioning"
-        barriers = context.get("barriers") or payload.get("barriers") or "Current barriers need further assessment"
+
+        # Pull from top-level payload fields first, fall back to context dict
+        def _get(key: str, default: str = "") -> str:
+            return (payload.get(key) or context.get(key) or default).strip()
+
+        strengths = _get("strengths")
+        weaknesses = _get("weaknesses")
+        reason_for_treatment = _get("reason_for_treatment")
+        discharge_plan = _get("discharge_plan")
+        level_of_care = _get("level_of_care", "IOP")
+        projected_los = _get("projected_los", "30-45 days")
+        admit_date_raw = _get("admit_date")
+        education = _get("education")
+        aftercare_plan = _get("aftercare_plan")
+        legal_needs = _get("legal_needs")
+        medical_needs = _get("medical_needs")
+        housing_status = _get("housing_status")
+        employment_status = _get("employment_status")
+        legal_status = _get("legal_status")
+        medical_conditions = _get("medical_conditions")
+        case_manager_name = _get("case_manager_name", "Case Manager")
+        client_goals = _get("client_goals") or _get("goals")
+        barriers = _get("barriers")
         needs = context.get("needs") or []
+
+        today = datetime.now()
+        review_date = today.strftime("%m/%d/%Y")
+
+        try:
+            admit_dt = datetime.strptime(admit_date_raw, "%Y-%m-%d") if admit_date_raw else today
+        except ValueError:
+            admit_dt = today
+        admit_display = admit_dt.strftime("%m/%d/%Y")
+        target_dt = admit_dt + timedelta(weeks=4)
+        target_date = target_dt.strftime("%m/%d/%Y")
+
+        # Level of care display flags
+        loc_upper = level_of_care.upper()
+        loc_options = {"PHP": loc_upper == "PHP", "IOP": loc_upper == "IOP", "OP": loc_upper == "OP"}
+        if not any(loc_options.values()):
+            loc_options["IOP"] = True
+
+        freq_map = {"PHP": "1x1x4 weeks PHP", "IOP": "1x1x4 weeks IOP", "OP": "1x1x4 weeks OP"}
+        frequency = freq_map.get(loc_upper, f"1x1x4 weeks {level_of_care}")
+
+        # Discharge Planning goal — use client's own words where available
+        goal_text_parts = ["Identify any 3 needs for aftercare, therapy, and primary care physician.",
+                           "Identify any 3 needs for transition including sober living."]
+        voice = discharge_plan or reason_for_treatment or client_goals
+        if voice:
+            goal_text_parts.append(f'CT stated "{voice}"')
+        goal_text = " ".join(goal_text_parts)
+
+        objective_text = (
+            "CM will meet with CT weekly to discuss options for aftercare planning and explore high risk situations "
+            "and motivation for maintaining sobriety. CM will educate CT on various sober support groups and the "
+            "importance of building sober support networks."
+        )
+
+        plan_intro = (
+            "CT to work on developing safe aftercare plans AEB reviewing sober support systems, exploring various "
+            "sober support groups, reviewing potential outpatient programs, and procuring therapy and psychiatry "
+            "referrals as appropriate."
+        )
+
+        plan_items = []
+        if "housing" in needs or housing_status in ("Homeless", "Transitional") or "sober living" in (discharge_plan + aftercare_plan).lower():
+            plan_items.append("CM will assist client in identifying sober living options to support stable housing upon discharge.")
+        if "employment" in needs or employment_status in ("Unemployed", "Seeking"):
+            plan_items.append("CM will provide client with employment resources and referrals in alignment with client's stated career goals.")
+        if "legal" in needs or legal_status not in ("No Active Cases", "", None) or legal_needs:
+            plan_items.append("CM will coordinate with client's probation/parole officer and provide monthly progress reports as required.")
+        if medical_needs or medical_conditions:
+            plan_items.append("CM will assist client in identifying medical resources and coordinate appointments to address client's identified health needs.")
+        if education:
+            plan_items.append("CM will assist client in exploring education and vocational training opportunities aligned with stated goals.")
+        plan_items.append("Client will attend a minimum of three AA/NA meetings per week to build sober support network.")
+
+        problems = [
+            {
+                "number": 1,
+                "title": "Discharge Planning",
+                "goal": goal_text,
+                "objective": objective_text,
+                "plan_intro": plan_intro,
+                "plan_items": plan_items,
+                "frequency": frequency,
+                "target_date": target_date,
+                "status": "open",
+                "outcome": "in progress",
+                "comment": "initial goal developed",
+            }
+        ]
 
         progress_summary = "No recent notes available to summarize."
         if recent_notes:
@@ -1315,31 +1407,34 @@ class DocumentationAIService:
                 for note in recent_notes[:2]
             )
 
-        suggestions = {
-            "goal": f"Client will make measurable progress toward {client_goal.lower()} while reducing the impact of current barriers.",
-            "objective": "Client will complete at least one documented follow-up action per week toward the identified goal and review progress with case management.",
-            "interventions": [
-                "Case manager will review barriers, provide coordination support, and reinforce follow-through on referrals and appointments.",
-                "Case manager will use motivational interviewing and problem-solving to support progress toward the identified goal.",
-                "Case manager will document client response, barriers, and next steps during each contact."
-            ],
+        return {
+            "level_of_care": loc_upper if any(loc_options.values()) else "IOP",
+            "loc_options": loc_options,
+            "review_date": review_date,
+            "case_manager_name": case_manager_name,
+            "admit_date": admit_display,
+            "projected_los": projected_los,
+            "client_strengths": strengths,
+            "client_weaknesses": weaknesses,
+            "reason_for_treatment": reason_for_treatment,
+            "discharge_plan_stated": discharge_plan,
+            "education": education,
+            "aftercare_plan": aftercare_plan,
+            "problems": problems,
+            "progress_summary": progress_summary,
+            # Backward-compat fields
+            "goal": goal_text,
+            "objective": objective_text,
+            "interventions": plan_items,
             "smart_formatting_help": [
                 "Specific: name the service area or functional issue being addressed.",
                 "Measurable: include a count, deadline, or review frequency.",
                 "Achievable: keep the objective realistic for the current level of stability.",
                 "Relevant: tie the objective to housing, employment, legal, benefits, health, or recovery needs.",
-                "Time-bound: include a target date or review cadence."
-            ],
-            "progress_summary": progress_summary,
-            "golden_thread_suggestions": [
-                f"Problem: {barriers}",
-                f"Goal: {client_goal}",
-                "Intervention: document what case management support was actually provided.",
-                "Next step: record the next action, responsible party, and due date."
+                "Time-bound: include a target date or review cadence.",
             ],
             "needs_considered": needs,
         }
-        return suggestions
 
     async def generate_group_note(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         context = payload.get("context") or {}
