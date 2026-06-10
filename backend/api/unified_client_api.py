@@ -135,13 +135,13 @@ async def get_client_intelligent_tasks(
         # Tasks are only created via POST /api/reminders/start-process — never auto-generated on GET.
         # Return empty list; the frontend will show the clean empty state.
         return {
-            “success”: True,
-            “tasks”: [],
-            “total_count”: 0,
-            “data_source”: “database”,
-            “client_id”: client_id,
-            “task_statistics”: {},
-            “message”: “No tasks found. Use Start Process to generate tasks for a specific workflow.”
+            "success": True,
+            "tasks": [],
+            "total_count": 0,
+            "data_source": "database",
+            "client_id": client_id,
+            "task_statistics": {},
+            "message": "No tasks found. Use Start Process to generate tasks for a specific workflow."
         }
             
     except Exception as e:
