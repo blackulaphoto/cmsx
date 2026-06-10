@@ -6,15 +6,33 @@ generates suggested tasks using stable task_keys — no writes to any
 external system. Callers decide whether to present tasks, push them, etc.
 """
 import logging
+import time as _time
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from .database import admissions_store
+from .store_factory import admissions_store
 from .extractor import extract_admissions_data
 
 logger = logging.getLogger(__name__)
 
 _INSTALLMENT_ARRANGEMENTS = {"Installment plan", "To be determined with billing"}
+
+_SUMMARY_CACHE: Dict[str, Any] = {}
+_CACHE_TTL_S = 30
+
+
+def bust_summary_cache(client_id: str) -> None:
+    _SUMMARY_CACHE.pop(client_id, None)
+
+
+def build_operational_summary(client_id: str) -> Dict[str, Any]:
+    _now = _time.time()
+    _hit = _SUMMARY_CACHE.get(client_id)
+    if _hit is not None and _now - _hit[0] < _CACHE_TTL_S:
+        return _hit[1]
+    _result = _build_operational_summary_uncached(client_id)
+    _SUMMARY_CACHE[client_id] = (_now, _result)
+    return _result
 
 
 def _days_until(date_str: str) -> Optional[int]:
@@ -42,19 +60,8 @@ def _priority_for_days(days: Optional[int], default: str = "medium") -> str:
 
 # ── Core builder ──────────────────────────────────────────────────────────────
 
-def build_operational_summary(client_id: str) -> Dict[str, Any]:
-    """
-    Build a complete operational summary for a client's admissions packet.
-
-    Returns a structured dict with:
-      - packet metadata
-      - categorized form lists (missing, needs_signature, in_progress, etc.)
-      - extracted key data (payer, medical, legal, ROI, ASAM)
-      - medical_flags, legal_flags
-      - suggested_tasks (stable task_keys, no external writes)
-
-    Returns {has_packet: False} when no packet exists for the client.
-    """
+def _build_operational_summary_uncached(client_id: str) -> Dict[str, Any]:
+    """Build a complete operational summary. Call build_operational_summary() instead."""
     packet = admissions_store.get_packet_by_client(client_id)
     if not packet:
         return {"has_packet": False, "client_id": client_id}
@@ -295,7 +302,7 @@ def build_operational_summary(client_id: str) -> Dict[str, Any]:
         })
 
     # ── Financial coordination tasks ──────────────────────────────────────────
-    fc = admissions_store.get_financial_coordination(client_id)
+    fc = admissions_store.get_financial_coordination_readonly(client_id)
 
     if fc.get("billing_explained_status", "Not Started") != "Explained":
         suggested_tasks.append({
@@ -393,6 +400,11 @@ def build_operational_summary(client_id: str) -> Dict[str, Any]:
     # ── Task dedup: keys already added to Smart Daily ────────────────────────
     created_task_keys = admissions_store.get_created_task_keys(client_id)
 
+    # ── Suppressed / N/A tasks ───────────────────────────────────────────────
+    suppressions = admissions_store.get_task_suppressions(client_id)
+    suppressed_task_keys = [k for k, v in suppressions.items() if v == "dismissed"]
+    not_applicable_task_keys = [k for k, v in suppressions.items() if v == "not_applicable"]
+
     # ── Assemble response ─────────────────────────────────────────────────────
     return {
         "has_packet": True,
@@ -464,6 +476,8 @@ def build_operational_summary(client_id: str) -> Dict[str, Any]:
         "suggested_tasks_count": len(suggested_tasks),
         "critical_task_count": sum(1 for t in suggested_tasks if t.get("priority") == "critical"),
         "created_task_keys": created_task_keys,
+        "suppressed_task_keys": suppressed_task_keys,
+        "not_applicable_task_keys": not_applicable_task_keys,
         "financial_coordination": fc,
     }
 

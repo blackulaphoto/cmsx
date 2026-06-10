@@ -25,6 +25,9 @@ import {
   Scale,
   Sparkles,
   Activity,
+  X,
+  Minus,
+  EyeOff,
 } from 'lucide-react'
 import { apiFetch } from '../api/config'
 import FinancialCoordinationPanel from '../components/admissions/FinancialCoordinationPanel'
@@ -236,10 +239,12 @@ function FormRow({ form, packetId, clientId, onUpdate }) {
               {form.signatures_required?.join(', ') || 'Signature'}
             </span>
           )}
-          {form.allow_attachments && (
+          {(form.allow_attachments || form.attachment_count > 0) && (
             <span className="inline-flex items-center gap-1 text-xs text-sky-400">
               <Paperclip className="h-3 w-3" />
-              Attachments
+              {form.attachment_count > 0 ? (
+                <>{form.attachment_count} file{form.attachment_count !== 1 ? 's' : ''}</>
+              ) : 'Attachments'}
             </span>
           )}
           {form.review_status && form.review_status !== 'Not Reviewed' && (
@@ -319,8 +324,13 @@ function reminderPriority(p) {
   return p === 'critical' ? 'High' : p === 'high' ? 'High' : p === 'medium' ? 'Medium' : 'Low'
 }
 
-function SuggestedTask({ task, caseManagerId, clientId, alreadyCreated, onCreated }) {
+function SuggestedTask({
+  task, caseManagerId, clientId,
+  alreadyCreated, onCreated,
+  alreadyDismissed, alreadyNotApplicable, onSuppressed,
+}) {
   const [state, setState] = useState(alreadyCreated ? 'done' : 'idle') // idle | creating | done | error
+  const [suppressing, setSuppressing] = useState(false)
   const ps = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium
 
   const handleCreate = async () => {
@@ -340,7 +350,6 @@ function SuggestedTask({ task, caseManagerId, clientId, alreadyCreated, onCreate
       if (!res.ok) throw new Error('Server error')
       const rd = await res.json().catch(() => ({}))
       const reminderId = rd.reminder_id || null
-      // Persist so the button stays "Already in Smart Daily" across refreshes
       await apiFetch(`/api/admissions/packets/${clientId}/task-keys`, {
         method: 'POST',
         body: JSON.stringify({
@@ -348,7 +357,7 @@ function SuggestedTask({ task, caseManagerId, clientId, alreadyCreated, onCreate
           reminder_id: reminderId,
           case_manager_id: caseManagerId,
         }),
-      }).catch(() => {}) // non-fatal
+      }).catch(() => {})
       setState('done')
       if (onCreated) onCreated(task.task_key)
     } catch {
@@ -357,11 +366,35 @@ function SuggestedTask({ task, caseManagerId, clientId, alreadyCreated, onCreate
     }
   }
 
+  const handleSuppress = async (status) => {
+    setSuppressing(true)
+    try {
+      await apiFetch(`/api/admissions/packets/${clientId}/task-suppressions`, {
+        method: 'POST',
+        body: JSON.stringify({ task_key: task.task_key, status }),
+      })
+      if (onSuppressed) onSuppressed(task.task_key, status)
+    } catch {
+      // non-fatal
+    } finally {
+      setSuppressing(false)
+    }
+  }
+
+  if (alreadyDismissed) return null
+
   return (
-    <div className={`flex items-start gap-3 px-3.5 py-3 rounded-xl border ${ps.bg} transition-colors`}>
-      <span className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${ps.dot}`} />
+    <div className={`flex items-start gap-3 px-3.5 py-3 rounded-xl border ${alreadyNotApplicable ? 'bg-white/3 border-white/6 opacity-60' : ps.bg} transition-colors`}>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${alreadyNotApplicable ? 'bg-gray-600' : ps.dot}`} />
       <div className="flex-1 min-w-0">
-        <p className={`text-sm font-medium leading-snug ${ps.text}`}>{task.title}</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className={`text-sm font-medium leading-snug ${alreadyNotApplicable ? 'text-gray-500' : ps.text}`}>
+            {task.title}
+          </p>
+          {alreadyNotApplicable && (
+            <span className="text-xs px-1.5 py-0.5 rounded border bg-white/6 border-white/10 text-gray-500">N/A</span>
+          )}
+        </div>
         {task.description && (
           <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{task.description}</p>
         )}
@@ -371,8 +404,8 @@ function SuggestedTask({ task, caseManagerId, clientId, alreadyCreated, onCreate
           </span>
         )}
       </div>
-      <div className="flex-shrink-0">
-        {state === 'done' ? (
+      <div className="flex-shrink-0 flex items-center gap-1.5">
+        {alreadyNotApplicable ? null : state === 'done' ? (
           <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">
             <CheckCircle2 className="h-3 w-3" />
             {alreadyCreated ? 'In Smart Daily' : 'Added'}
@@ -380,18 +413,33 @@ function SuggestedTask({ task, caseManagerId, clientId, alreadyCreated, onCreate
         ) : state === 'error' ? (
           <span className="text-xs text-red-400">Failed</span>
         ) : (
-          <button
-            onClick={handleCreate}
-            disabled={state === 'creating'}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-gray-300 border border-white/12 bg-white/5 hover:bg-white/10 hover:text-white disabled:opacity-40 transition-colors"
-          >
-            {state === 'creating' ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Plus className="h-3 w-3" />
-            )}
-            Smart Daily
-          </button>
+          <>
+            <button
+              onClick={handleCreate}
+              disabled={state === 'creating' || suppressing}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-gray-300 border border-white/12 bg-white/5 hover:bg-white/10 hover:text-white disabled:opacity-40 transition-colors"
+            >
+              {state === 'creating' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plus className="h-3 w-3" />}
+              Smart Daily
+            </button>
+            <button
+              onClick={() => handleSuppress('not_applicable')}
+              disabled={suppressing}
+              title="Mark as not applicable"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-500 border border-white/8 bg-white/4 hover:bg-white/10 hover:text-gray-300 disabled:opacity-40 transition-colors"
+            >
+              <Minus className="h-3 w-3" />
+              N/A
+            </button>
+            <button
+              onClick={() => handleSuppress('dismissed')}
+              disabled={suppressing}
+              title="Dismiss this suggestion"
+              className="inline-flex items-center px-2 py-1 rounded-lg text-xs text-gray-600 border border-white/6 bg-white/3 hover:bg-white/8 hover:text-gray-400 disabled:opacity-40 transition-colors"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -416,6 +464,9 @@ function OperationalSummaryPanel({ clientId, packetCaseManagerId }) {
   const [loading, setLoading] = useState(true)
   const [collapsed, setCollapsed] = useState(false)
   const [createdKeys, setCreatedKeys] = useState(new Set())
+  const [suppressedKeys, setSuppressedKeys] = useState(new Set())
+  const [naKeys, setNaKeys] = useState(new Set())
+  const [dismissedOpen, setDismissedOpen] = useState(false)
 
   useEffect(() => {
     if (!clientId) return
@@ -425,13 +476,11 @@ function OperationalSummaryPanel({ clientId, packetCaseManagerId }) {
       .then((d) => {
         const s = d.summary || null
         setSummary(s)
-        // Seed createdKeys from persisted task_keys so dedup survives refresh
-        if (s?.created_task_keys?.length) {
-          setCreatedKeys(new Set(s.created_task_keys))
-        }
+        if (s?.created_task_keys?.length) setCreatedKeys(new Set(s.created_task_keys))
+        if (s?.suppressed_task_keys?.length) setSuppressedKeys(new Set(s.suppressed_task_keys))
+        if (s?.not_applicable_task_keys?.length) setNaKeys(new Set(s.not_applicable_task_keys))
         const hasCritical = (s?.suggested_tasks || []).some((t) => t.priority === 'critical')
-        if (hasCritical) setCollapsed(false)
-        else setCollapsed(true)
+        setCollapsed(!hasCritical)
       })
       .catch(() => setSummary(null))
       .finally(() => setLoading(false))
@@ -439,6 +488,16 @@ function OperationalSummaryPanel({ clientId, packetCaseManagerId }) {
 
   const handleTaskCreated = (taskKey) => {
     setCreatedKeys((prev) => new Set([...prev, taskKey]))
+  }
+
+  const handleSuppressed = (taskKey, status) => {
+    if (status === 'dismissed') {
+      setSuppressedKeys((prev) => new Set([...prev, taskKey]))
+      setNaKeys((prev) => { const n = new Set(prev); n.delete(taskKey); return n })
+    } else {
+      setNaKeys((prev) => new Set([...prev, taskKey]))
+      setSuppressedKeys((prev) => { const n = new Set(prev); n.delete(taskKey); return n })
+    }
   }
 
   if (loading) {
@@ -455,8 +514,10 @@ function OperationalSummaryPanel({ clientId, packetCaseManagerId }) {
   const { medical_flags = [], legal_flags = [], suggested_tasks = [], key_admissions_data: kad = {} } = summary
   const allFlags = [...medical_flags, ...legal_flags]
   const hasCritical = allFlags.some((f) => f.priority === 'critical')
-  // Show all tasks; alreadyCreated prop controls the button vs badge display
-  const visibleTasks = suggested_tasks
+
+  const activeTasks = suggested_tasks.filter((t) => !suppressedKeys.has(t.task_key))
+  const dismissedTasks = suggested_tasks.filter((t) => suppressedKeys.has(t.task_key))
+  const activeCount = activeTasks.filter((t) => !naKeys.has(t.task_key)).length
 
   return (
     <div className={`rounded-2xl border overflow-hidden ${hasCritical ? 'border-red-500/25 bg-red-500/4' : 'border-white/10 bg-white/3'}`}>
@@ -473,9 +534,9 @@ function OperationalSummaryPanel({ clientId, packetCaseManagerId }) {
               Action Required
             </span>
           )}
-          {suggested_tasks.length > 0 && (
+          {activeTasks.length > 0 && (
             <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/8 border border-white/10 text-gray-400">
-              {visibleTasks.length} task{visibleTasks.length !== 1 ? 's' : ''}
+              {activeCount} task{activeCount !== 1 ? 's' : ''}
             </span>
           )}
         </div>
@@ -531,14 +592,14 @@ function OperationalSummaryPanel({ clientId, packetCaseManagerId }) {
             </div>
           )}
 
-          {/* Suggested tasks */}
-          {visibleTasks.length > 0 && (
+          {/* Suggested tasks (active + NA) */}
+          {activeTasks.length > 0 && (
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2.5">
-                Suggested Tasks ({visibleTasks.length})
+                Suggested Tasks ({activeCount})
               </p>
               <div className="space-y-2">
-                {visibleTasks.map((task) => (
+                {activeTasks.map((task) => (
                   <SuggestedTask
                     key={task.task_key}
                     task={task}
@@ -546,25 +607,46 @@ function OperationalSummaryPanel({ clientId, packetCaseManagerId }) {
                     clientId={clientId}
                     alreadyCreated={createdKeys.has(task.task_key)}
                     onCreated={handleTaskCreated}
+                    alreadyDismissed={false}
+                    alreadyNotApplicable={naKeys.has(task.task_key)}
+                    onSuppressed={handleSuppressed}
                   />
                 ))}
               </div>
               <p className="text-xs text-gray-600 mt-2.5 px-1">
-                Tasks showing "In Smart Daily" were already added and will not duplicate.
+                Use N/A to mark a task as not relevant, or × to dismiss it.
               </p>
             </div>
           )}
 
-          {visibleTasks.length === 0 && allFlags.length === 0 && !kad.payer_type && (
+          {activeTasks.length === 0 && allFlags.length === 0 && !kad.payer_type && (
             <div className="pt-4 text-center text-xs text-gray-600">
               Complete intake forms to see operational data here.
             </div>
           )}
 
-          {suggested_tasks.length > 0 && suggested_tasks.every((t) => createdKeys.has(t.task_key)) && (
-            <div className="pt-2 flex items-center gap-2 text-xs text-emerald-400">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              All suggested tasks are already in Smart Daily.
+          {/* Dismissed tasks (collapsed section) */}
+          {dismissedTasks.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setDismissedOpen((v) => !v)}
+                className="flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-400 transition-colors"
+              >
+                <EyeOff className="h-3 w-3" />
+                Dismissed ({dismissedTasks.length})
+                <ChevronDown className={`h-3 w-3 transition-transform ${dismissedOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {dismissedOpen && (
+                <div className="space-y-1.5 mt-2 opacity-50">
+                  {dismissedTasks.map((task) => (
+                    <div key={task.task_key} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/3 border border-white/6">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gray-600 flex-shrink-0" />
+                      <span className="text-xs text-gray-500 line-through">{task.title}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>

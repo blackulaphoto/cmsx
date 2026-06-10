@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import {
   DollarSign, ShieldCheck, ArrowLeftRight, CreditCard,
   FileText, LogOut, ChevronDown, Loader2, CheckCircle2,
-  AlertTriangle, Save,
+  AlertTriangle, Save, ExternalLink, Clock,
 } from 'lucide-react'
 import { apiFetch } from '../../api/config'
 
@@ -112,6 +113,7 @@ function Chk({ label, checked, onChange }) {
 
 export default function FinancialCoordinationPanel({ clientId }) {
   const [form, setForm] = useState({})
+  const [recentEvents, setRecentEvents] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savedFlash, setSavedFlash] = useState(false)
@@ -132,7 +134,10 @@ export default function FinancialCoordinationPanel({ clientId }) {
     setLoading(true)
     apiFetch(`/api/admissions/packets/${clientId}/financial-coordination`)
       .then((r) => r.json())
-      .then((d) => setForm(d.financial_coordination || {}))
+      .then((d) => {
+        setForm(d.financial_coordination || {})
+        setRecentEvents(d.recent_events || [])
+      })
       .catch(() => setLoadError('Failed to load financial coordination data.'))
       .finally(() => setLoading(false))
   }, [clientId])
@@ -368,6 +373,15 @@ export default function FinancialCoordinationPanel({ clientId }) {
                     placeholder="FMLA case reference"
                   />
                 </div>
+                {form.fmla_needed === 'Yes' && (
+                  <Link
+                    to={`/fmla?search=${encodeURIComponent(clientId)}`}
+                    className="inline-flex items-center gap-1.5 text-xs text-cyan-400 hover:text-cyan-300 underline underline-offset-2"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Open FMLA Module
+                  </Link>
+                )}
               </SectionCard>
 
               {/* F. Discharge Starter */}
@@ -414,7 +428,86 @@ export default function FinancialCoordinationPanel({ clientId }) {
                   onChange={(v) => set('discharge_notes', v)}
                   placeholder="Discharge planning notes…"
                 />
+                {/* Downstream module links — read-only navigation, no cross-module writes */}
+                {(form.sober_living_needed || form.benefits_followup_needed ||
+                  form.employment_resume_needed || form.legal_probation_followup_needed ||
+                  form.pcp_dental_psych_needed) && (
+                  <div className="pt-2 space-y-1">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Jump to module
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {form.sober_living_needed && (
+                        <Link
+                          to={`/sober-living?client=${encodeURIComponent(clientId)}`}
+                          className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Sober Living
+                        </Link>
+                      )}
+                      {form.benefits_followup_needed && (
+                        <Link
+                          to={`/benefits?client=${encodeURIComponent(clientId)}`}
+                          className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Benefits
+                        </Link>
+                      )}
+                      {form.employment_resume_needed && (
+                        <Link
+                          to={`/resume?client=${encodeURIComponent(clientId)}`}
+                          className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Resume / Jobs
+                        </Link>
+                      )}
+                      {form.legal_probation_followup_needed && (
+                        <Link
+                          to={`/legal?client=${encodeURIComponent(clientId)}`}
+                          className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Legal
+                        </Link>
+                      )}
+                      {form.pcp_dental_psych_needed && (
+                        <Link
+                          to={`/medical?client=${encodeURIComponent(clientId)}`}
+                          className="inline-flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1"
+                        >
+                          <ExternalLink className="h-3 w-3" /> Medical
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                )}
               </SectionCard>
+
+              {/* Last updated / audit trail */}
+              {(form.last_updated_by || recentEvents.length > 0) && (
+                <div className="border border-white/6 rounded-xl px-4 py-3 space-y-2 bg-white/2">
+                  {form.last_updated_by && (
+                    <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                      <Clock className="h-3 w-3" />
+                      Last updated by{' '}
+                      <span className="text-gray-400">{form.last_updated_by}</span>
+                      {form.updated_at && (
+                        <> · {new Date(form.updated_at).toLocaleDateString()}</>
+                      )}
+                    </p>
+                  )}
+                  {recentEvents.length > 0 && (
+                    <div className="space-y-1">
+                      {recentEvents.slice(0, 3).map((ev) => (
+                        <p key={ev.id} className="text-xs text-gray-600">
+                          {ev.changed_by || 'System'} changed{' '}
+                          {(ev.changed_fields || []).join(', ') || 'record'}{' '}
+                          · {ev.created_at ? new Date(ev.created_at).toLocaleDateString() : ''}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Save */}
               {saveError && (

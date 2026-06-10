@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -18,12 +19,40 @@ if not DB_PATH.parent.exists():
 if not MANIFEST_PATH.exists():
     MANIFEST_PATH = Path("data") / "form_templates" / "admissions" / "manifest.json"
 
+# Resolve attachment storage root once at startup.
+# Priority: Railway volume > ADMISSIONS_UPLOAD_DIR env var > local default.
+_RAILWAY_VOLUME_ROOT = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "")
+_UPLOAD_DIR_ENV = os.environ.get("ADMISSIONS_UPLOAD_DIR", "")
+if _RAILWAY_VOLUME_ROOT:
+    _UPLOADS_BASE = Path(_RAILWAY_VOLUME_ROOT) / "admissions"
+elif _UPLOAD_DIR_ENV:
+    _UPLOADS_BASE = Path(_UPLOAD_DIR_ENV)
+else:
+    _UPLOADS_BASE = _PROJECT_ROOT / "uploads" / "admissions"
+
+
+def _resolve_attachment_path(storage_path: str) -> Path:
+    """Resolve a stored attachment path to an absolute filesystem Path.
+
+    Handles two storage_path formats:
+    - New (relative):  '{packet_id}/{form_key}/{name}'  → _UPLOADS_BASE / path
+    - Legacy (prefixed): 'uploads/admissions/{...}'    → _UPLOADS_BASE / stripped
+    """
+    sp = storage_path
+    if sp.startswith("uploads/admissions/"):
+        return _UPLOADS_BASE / sp[len("uploads/admissions/"):]
+    if sp.startswith("uploads/"):
+        # Generic uploads/ prefix from before Railway Volume support
+        return _PROJECT_ROOT / sp
+    return _UPLOADS_BASE / sp
+
 # Column migrations: run at startup, silently skip if column already exists
 _COLUMN_MIGRATIONS = [
     "ALTER TABLE admission_packet_forms ADD COLUMN review_status TEXT NOT NULL DEFAULT 'Not Reviewed'",
     "ALTER TABLE admission_packet_forms ADD COLUMN review_notes TEXT",
     "ALTER TABLE admission_packet_forms ADD COLUMN reviewed_by TEXT",
     "ALTER TABLE admission_packet_forms ADD COLUMN started_at TEXT",
+    "ALTER TABLE admissions_financial_coordination ADD COLUMN last_updated_by TEXT",
 ]
 
 
@@ -64,7 +93,7 @@ _FC_ALLOWED_COLUMNS = {
     "pcp_dental_psych_needed", "legal_probation_followup_needed",
     "benefits_followup_needed", "employment_resume_needed",
     "transportation_plan", "discharge_notes",
-    "case_manager_id",
+    "case_manager_id", "last_updated_by",
 }
 
 _FC_BOOL_COLUMNS = {
@@ -224,6 +253,30 @@ class AdmissionsStore:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     UNIQUE(client_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS admissions_task_suppressions (
+                    id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    task_key TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'dismissed',
+                    reason TEXT,
+                    dismissed_by TEXT,
+                    dismissed_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(client_id, task_key)
+                );
+
+                CREATE TABLE IF NOT EXISTS admissions_financial_coordination_events (
+                    id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    packet_id TEXT NOT NULL DEFAULT '',
+                    event_type TEXT NOT NULL DEFAULT 'update',
+                    changed_by TEXT NOT NULL DEFAULT '',
+                    changed_fields_json TEXT NOT NULL DEFAULT '[]',
+                    previous_values_json TEXT,
+                    new_values_json TEXT,
+                    created_at TEXT NOT NULL
                 );
             """)
             # Migrate existing tables that pre-date Phase 5 columns
@@ -413,7 +466,12 @@ class AdmissionsStore:
                    ORDER BY created_at ASC""",
                 (packet_id, form_key),
             ).fetchall()
-            return [dict(r) for r in rows]
+            result = []
+            for r in rows:
+                d = dict(r)
+                d["file_exists"] = _resolve_attachment_path(d["storage_path"]).exists()
+                result.append(d)
+            return result
 
     def add_attachment(
         self,
@@ -507,6 +565,39 @@ class AdmissionsStore:
             ).fetchone()
             return self._form_row_to_dict(updated)
 
+    # ── Task suppression tracking ──────────────────────────────────────
+
+    def suppress_task(
+        self,
+        client_id: str,
+        task_key: str,
+        status: str,
+        reason: Optional[str] = None,
+        dismissed_by: Optional[str] = None,
+    ) -> None:
+        now = _now()
+        with self._db() as conn:
+            conn.execute(
+                """INSERT INTO admissions_task_suppressions
+                   (id, client_id, task_key, status, reason, dismissed_by, dismissed_at, created_at)
+                   VALUES (?,?,?,?,?,?,?,?)
+                   ON CONFLICT(client_id, task_key) DO UPDATE SET
+                       status=excluded.status,
+                       reason=excluded.reason,
+                       dismissed_by=excluded.dismissed_by,
+                       dismissed_at=excluded.dismissed_at""",
+                (str(uuid.uuid4()), client_id, task_key, status, reason, dismissed_by, now, now),
+            )
+
+    def get_task_suppressions(self, client_id: str) -> Dict[str, str]:
+        """Return {task_key: status} for all suppressions for this client."""
+        with self._db() as conn:
+            rows = conn.execute(
+                "SELECT task_key, status FROM admissions_task_suppressions WHERE client_id = ?",
+                (client_id,),
+            ).fetchall()
+            return {r["task_key"]: r["status"] for r in rows}
+
     # ── Task dedup tracking ────────────────────────────────────────────
 
     def record_task_key(
@@ -537,6 +628,46 @@ class AdmissionsStore:
             return [r["task_key"] for r in rows]
 
     # ── Financial coordination ─────────────────────────────────────────
+
+    def get_financial_coordination_readonly(self, client_id: str) -> Dict[str, Any]:
+        """Read FC record without creating one. Returns exists=False dict if missing."""
+        with self._db() as conn:
+            row = conn.execute(
+                "SELECT * FROM admissions_financial_coordination WHERE client_id = ?",
+                (client_id,),
+            ).fetchone()
+            if row:
+                return self._fc_row_to_dict(row)
+            return {
+                "exists": False,
+                "billing_explained_status": "Not Started",
+                "insurance_verification_status": "Not Started",
+                "cob_status": "Not Needed",
+                "payment_plan_status": "Not Needed",
+                "std_needed": "Unknown",
+                "std_status": "Not Started",
+                "fmla_needed": "Unknown",
+                "discharge_planning_started": False,
+            }
+
+    def get_recent_fc_events(self, client_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+        with self._db() as conn:
+            rows = conn.execute(
+                """SELECT * FROM admissions_financial_coordination_events
+                   WHERE client_id = ?
+                   ORDER BY created_at DESC
+                   LIMIT ?""",
+                (client_id, limit),
+            ).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d["changed_fields"] = json.loads(d.get("changed_fields_json") or "[]")
+                except (ValueError, TypeError):
+                    d["changed_fields"] = []
+                result.append(d)
+            return result
 
     def get_financial_coordination(self, client_id: str) -> Dict[str, Any]:
         with self._db() as conn:
@@ -581,22 +712,49 @@ class AdmissionsStore:
             return self._fc_row_to_dict(row)
 
     def upsert_financial_coordination(
-        self, client_id: str, packet_id: str, fields: Dict[str, Any]
+        self,
+        client_id: str,
+        packet_id: str,
+        fields: Dict[str, Any],
+        changed_by: str = "",
     ) -> Dict[str, Any]:
         now = _now()
         safe = {k: v for k, v in fields.items() if k in _FC_ALLOWED_COLUMNS}
+        if changed_by:
+            safe["last_updated_by"] = changed_by
         with self._db() as conn:
             existing = conn.execute(
-                "SELECT id FROM admissions_financial_coordination WHERE client_id = ?",
+                "SELECT * FROM admissions_financial_coordination WHERE client_id = ?",
                 (client_id,),
             ).fetchone()
+            _AUDIT_META = {"updated_at", "last_updated_by"}
             if existing:
+                prev = dict(existing)
                 if safe:
                     safe["updated_at"] = now
                     set_clause = ", ".join(f"{k} = ?" for k in safe)
                     conn.execute(
                         f"UPDATE admissions_financial_coordination SET {set_clause} WHERE client_id = ?",
                         list(safe.values()) + [client_id],
+                    )
+                # Record audit event
+                changed_field_names = [k for k in safe if k not in _AUDIT_META]
+                if changed_field_names:
+                    prev_vals = {k: prev.get(k) for k in changed_field_names}
+                    new_vals = {k: safe[k] for k in changed_field_names}
+                    conn.execute(
+                        """INSERT INTO admissions_financial_coordination_events
+                           (id, client_id, packet_id, event_type, changed_by,
+                            changed_fields_json, previous_values_json, new_values_json, created_at)
+                           VALUES (?,?,?,?,?,?,?,?,?)""",
+                        (
+                            str(uuid.uuid4()), client_id,
+                            existing["packet_id"] or packet_id, "update", changed_by,
+                            json.dumps(changed_field_names),
+                            json.dumps(prev_vals),
+                            json.dumps(new_vals),
+                            now,
+                        ),
                     )
             else:
                 fc_id = str(uuid.uuid4())
@@ -614,6 +772,17 @@ class AdmissionsStore:
                     f"INSERT INTO admissions_financial_coordination "
                     f"({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
                     vals,
+                )
+                _create_fields = [k for k in safe if k not in _AUDIT_META]
+                conn.execute(
+                    """INSERT INTO admissions_financial_coordination_events
+                       (id, client_id, packet_id, event_type, changed_by,
+                        changed_fields_json, created_at)
+                       VALUES (?,?,?,?,?,?,?)""",
+                    (
+                        str(uuid.uuid4()), client_id, packet_id, "create", changed_by,
+                        json.dumps(_create_fields), now,
+                    ),
                 )
             row = conn.execute(
                 "SELECT * FROM admissions_financial_coordination WHERE client_id = ?",
@@ -667,14 +836,17 @@ class AdmissionsStore:
 
     def _get_forms(self, conn: sqlite3.Connection, packet_id: str) -> List[Dict[str, Any]]:
         rows = conn.execute(
-            """SELECT * FROM admission_packet_forms
-               WHERE packet_id = ?
-               ORDER BY CASE timing_group
+            """SELECT f.*,
+                   (SELECT COUNT(*) FROM admission_form_attachments a
+                    WHERE a.packet_id = f.packet_id AND a.form_key = f.form_key) AS attachment_count
+               FROM admission_packet_forms f
+               WHERE f.packet_id = ?
+               ORDER BY CASE f.timing_group
                    WHEN 'admission' THEN 1
                    WHEN '72_hours'  THEN 2
                    WHEN '7_days'    THEN 3
                    ELSE 4 END,
-               form_key""",
+               f.form_key""",
             (packet_id,),
         ).fetchall()
         return [self._form_row_to_dict(r) for r in rows]
@@ -701,7 +873,8 @@ class AdmissionsStore:
         for col in _FC_BOOL_COLUMNS:
             if col in d:
                 d[col] = bool(d[col])
+        d["exists"] = True
         return d
 
 
-admissions_store = AdmissionsStore()
+# Singleton is created in store_factory.py (SQLite dev / Postgres production).

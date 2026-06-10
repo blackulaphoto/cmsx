@@ -52,6 +52,16 @@ class RecordTaskKeyPayload(BaseModel):
     case_manager_id: Optional[str] = None
 
 
+ALLOWED_SUPPRESSION_STATUSES = {"dismissed", "not_applicable"}
+
+
+class SuppressTaskPayload(BaseModel):
+    task_key: str = Field(..., min_length=1)
+    status: str = Field(..., min_length=1)
+    reason: Optional[str] = None
+    dismissed_by: Optional[str] = None
+
+
 class UpdateFinancialCoordinationPayload(BaseModel):
     billing_explained_status: Optional[str] = None
     billing_explained_date: Optional[str] = None

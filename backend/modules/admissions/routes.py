@@ -10,19 +10,22 @@ from fastapi.responses import FileResponse
 from backend.auth.authorization import effective_case_manager_id
 from backend.auth.service import require_authenticated_user
 
-from .database import admissions_store
+from .database import _resolve_attachment_path
+from .store_factory import admissions_store
 from .extractor import extract_admissions_data
 from .models import (
     ALLOWED_FORM_STATUSES,
     ALLOWED_REVIEW_STATUSES,
+    ALLOWED_SUPPRESSION_STATUSES,
     RecordTaskKeyPayload,
     SaveResponsePayload,
     StartPacketPayload,
+    SuppressTaskPayload,
     UpdateFinancialCoordinationPayload,
     UpdateFormStatusPayload,
     UpdateReviewPayload,
 )
-from .summary import build_operational_summary
+from .summary import build_operational_summary, bust_summary_cache
 from .template_parser import parse_template
 
 logger = logging.getLogger(__name__)
@@ -30,7 +33,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admissions", tags=["admissions"])
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-_ADMISSIONS_UPLOADS = _PROJECT_ROOT / "uploads" / "admissions"
+
+# Storage backend: Railway volume > env override > default
+_RAILWAY_VOLUME = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
+_UPLOAD_DIR_ENV = os.environ.get("ADMISSIONS_UPLOAD_DIR")
+if _RAILWAY_VOLUME:
+    _ADMISSIONS_UPLOADS = Path(_RAILWAY_VOLUME) / "admissions"
+elif _UPLOAD_DIR_ENV:
+    _ADMISSIONS_UPLOADS = Path(_UPLOAD_DIR_ENV)
+else:
+    _ADMISSIONS_UPLOADS = _PROJECT_ROOT / "uploads" / "admissions"
+
 _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024  # 10 MB
 
 _ALLOWED_ATTACHMENT_TYPES = {
@@ -105,12 +118,32 @@ async def record_task_key(client_id: str, payload: RecordTaskKeyPayload, request
     return {"success": True}
 
 
+@router.post("/packets/{client_id}/task-suppressions")
+async def suppress_task(client_id: str, payload: SuppressTaskPayload, request: Request):
+    """Dismiss or mark a suggested task as not-applicable. Idempotent."""
+    require_authenticated_user(request)
+    if payload.status not in ALLOWED_SUPPRESSION_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{payload.status}'. Allowed: {sorted(ALLOWED_SUPPRESSION_STATUSES)}",
+        )
+    admissions_store.suppress_task(
+        client_id=client_id,
+        task_key=payload.task_key,
+        status=payload.status,
+        reason=payload.reason,
+        dismissed_by=payload.dismissed_by,
+    )
+    bust_summary_cache(client_id)
+    return {"success": True}
+
+
 @router.get("/packets/{client_id}/financial-coordination")
 async def get_financial_coordination(client_id: str, request: Request):
-    """Return financial coordination record, creating defaults on first access.
-    Prefills payer fields from face sheet / financial agreement if still empty."""
+    """Return financial coordination record. Never creates a DB record (read-only).
+    Prefills payer fields in-memory from face sheet / financial agreement if still empty."""
     require_authenticated_user(request)
-    fc = admissions_store.get_financial_coordination(client_id)
+    fc = admissions_store.get_financial_coordination_readonly(client_id)
     needs_prefill = not fc.get("primary_payer_type") and not fc.get("primary_plan_name")
     if needs_prefill:
         packet = admissions_store.get_packet_by_client(client_id)
@@ -137,12 +170,11 @@ async def get_financial_coordination(client_id: str, request: Request):
                     if v:
                         prefill["payment_arrangement_type"] = v
                 if prefill:
-                    fc = admissions_store.upsert_financial_coordination(
-                        client_id, packet.get("id", ""), prefill
-                    )
+                    fc = {**fc, **prefill}
             except Exception as exc:
                 logger.warning(f"[ADMISSIONS] FC prefill skipped for {client_id}: {exc}")
-    return {"success": True, "financial_coordination": fc}
+    recent_events = admissions_store.get_recent_fc_events(client_id)
+    return {"success": True, "financial_coordination": fc, "recent_events": recent_events}
 
 
 @router.put("/packets/{client_id}/financial-coordination")
@@ -150,11 +182,15 @@ async def update_financial_coordination(
     client_id: str, payload: UpdateFinancialCoordinationPayload, request: Request
 ):
     """Partial-update financial coordination. Only explicitly provided fields are saved."""
-    require_authenticated_user(request)
+    current_user = require_authenticated_user(request)
     packet = admissions_store.get_packet_by_client(client_id)
     packet_id = packet["id"] if packet else ""
     fields = payload.model_dump(exclude_unset=True)
-    fc = admissions_store.upsert_financial_coordination(client_id, packet_id, fields)
+    changed_by = (
+        getattr(current_user, "case_manager_id", "") or getattr(current_user, "uid", "")
+    )
+    fc = admissions_store.upsert_financial_coordination(client_id, packet_id, fields, changed_by=changed_by)
+    bust_summary_cache(client_id)
     return {"success": True, "financial_coordination": fc}
 
 
@@ -193,6 +229,8 @@ async def update_form_status(
 
     refreshed_packet = admissions_store.get_packet_by_id(packet_id)
     progress = refreshed_packet.get("progress_percent") if refreshed_packet else None
+    if refreshed_packet:
+        bust_summary_cache(refreshed_packet.get("client_id", ""))
 
     return {"success": True, "form": updated, "progress_percent": progress}
 
@@ -226,6 +264,7 @@ async def save_form_response(
         raise HTTPException(status_code=404, detail="Packet not found")
     try:
         saved = admissions_store.save_form_response(packet_id, form_key, payload.response_data)
+        bust_summary_cache(packet.get("client_id", ""))
         return {"success": True, "response": saved}
     except Exception as exc:
         logger.exception(f"[ADMISSIONS] Failed to save response {packet_id}/{form_key}: {exc}")
@@ -256,6 +295,9 @@ async def update_form_review(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Form not found in this packet")
+    packet_for_bust = admissions_store.get_packet_by_id(packet_id)
+    if packet_for_bust:
+        bust_summary_cache(packet_for_bust.get("client_id", ""))
     return {"success": True, "form": updated}
 
 
@@ -317,8 +359,8 @@ async def upload_attachment(
         logger.exception(f"[ADMISSIONS] Failed to write attachment: {exc}")
         raise HTTPException(status_code=500, detail="Failed to save attachment file")
 
-    # Record in DB (store relative path so it's portable)
-    storage_path = str(Path("uploads") / "admissions" / packet_id / form_key / safe_name)
+    # Store path relative to _ADMISSIONS_UPLOADS so Railway Volume moves don't break reads
+    storage_path = str(Path(packet_id) / form_key / safe_name)
     uploaded_by = getattr(current_user, "case_manager_id", "") or getattr(current_user, "uid", "")
 
     attachment = admissions_store.add_attachment(
@@ -343,7 +385,7 @@ async def delete_attachment(attachment_id: str, request: Request):
 
     # Remove file from disk (non-fatal if missing)
     try:
-        full_path = _PROJECT_ROOT / att["storage_path"]
+        full_path = _resolve_attachment_path(att["storage_path"])
         if full_path.exists():
             full_path.unlink()
     except Exception as exc:
@@ -362,7 +404,7 @@ async def download_attachment(attachment_id: str, request: Request):
     if not att:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    full_path = _PROJECT_ROOT / att["storage_path"]
+    full_path = _resolve_attachment_path(att["storage_path"])
     if not full_path.exists():
         raise HTTPException(status_code=404, detail="Attachment file not found on server")
 
