@@ -1147,7 +1147,7 @@ function CaseManagement() {
                           onChange={(e) => setClientForm(prev => ({ ...prev, strengths: e.target.value }))}
                           className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
                           rows="3"
-                          placeholder='e.g. "I\'m a hard worker and when I set my mind to something I complete it."'
+                          placeholder="e.g. I'm a hard worker and when I set my mind to something I complete it."
                         />
                       </div>
 
@@ -1160,7 +1160,7 @@ function CaseManagement() {
                           onChange={(e) => setClientForm(prev => ({ ...prev, weaknesses: e.target.value }))}
                           className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
                           rows="3"
-                          placeholder='e.g. "Being around people who use drugs."'
+                          placeholder="e.g. Being around people who use drugs."
                         />
                       </div>
 
@@ -1173,7 +1173,7 @@ function CaseManagement() {
                           onChange={(e) => setClientForm(prev => ({ ...prev, reason_for_treatment: e.target.value }))}
                           className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
                           rows="3"
-                          placeholder='e.g. "I need to be a better man for my family."'
+                          placeholder="e.g. I need to be a better man for my family."
                         />
                       </div>
 
@@ -1186,7 +1186,7 @@ function CaseManagement() {
                           onChange={(e) => setClientForm(prev => ({ ...prev, discharge_plan: e.target.value }))}
                           className="w-full px-4 py-3 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl focus:ring-2 focus:ring-purple-500 focus:border-purple-500/50 text-white placeholder-gray-400 transition-all duration-300"
                           rows="3"
-                          placeholder='e.g. "I want to stay in CA, live at a sober living and hopefully work in treatment."'
+                          placeholder="e.g. I want to stay in CA, live at a sober living and hopefully work in treatment."
                         />
                       </div>
 
