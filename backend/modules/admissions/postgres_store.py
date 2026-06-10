@@ -711,7 +711,7 @@ class PostgresAdmissionsStore(AdmissionsStore):
         changed_by: str = "",
     ) -> Dict[str, Any]:
         now = _now()
-        safe = {k: v for k, v in fields.items() if k in _FC_ALLOWED_COLUMNS}
+        safe = {k: (int(v) if isinstance(v, bool) else v) for k, v in fields.items() if k in _FC_ALLOWED_COLUMNS}
         if changed_by:
             safe["last_updated_by"] = changed_by
         with self._db() as conn:
