@@ -142,8 +142,6 @@ def _build_operational_summary_uncached(client_id: str) -> Dict[str, Any]:
             "priority": "high",
             "source": "health_questionnaire",
         })
-    if health["interpreter_needed"] if "interpreter_needed" in extracted["face_sheet"] else face_sheet.get("interpreter_needed"):
-        pass  # interpreter need is informational, not a medical flag
     if health["hx_seizures_dt"]:
         medical_flags.append({
             "type": "seizure_history",
