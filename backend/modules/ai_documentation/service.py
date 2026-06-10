@@ -1663,6 +1663,40 @@ class DocumentationAIService:
                 if note.get('action_items'):
                     client_context_parts.append(f"    Actions: {note.get('action_items')}")
 
+        # Inject form context provided by the case manager as the authoritative source
+        form_context = payload.get("context") or {}
+        form_context_parts = []
+        field_labels = {
+            "goals": "Client Goals",
+            "barriers": "Identified Barriers",
+            "strengths": "Client Strengths (CT's own words)",
+            "weaknesses": "Client Weaknesses (CT's own words)",
+            "reason_for_treatment": "Reason for Treatment (CT's own words)",
+            "discharge_plan": "Discharge Plans (CT's own words)",
+            "aftercare_plan": "Aftercare Plan",
+            "education": "Education",
+            "level_of_care": "Level of Care",
+            "projected_los": "Projected Length of Stay",
+            "legal_needs": "Legal Needs",
+            "medical_needs": "Medical Needs",
+            "substance_abuse_history": "Substance Abuse History",
+            "mental_health_status": "Mental Health Status",
+            "medical_conditions": "Medical Conditions",
+            "prior_convictions": "Prior Convictions",
+            "referral_source": "Referral Source",
+            "program_type": "Program Type",
+            "observations": "Status Summary",
+        }
+        for key, label in field_labels.items():
+            val = form_context.get(key, "")
+            if val:
+                form_context_parts.append(f"• {label}: {val}")
+
+        if form_context_parts:
+            client_context_parts.append("")
+            client_context_parts.append("INTAKE FORM DATA (entered by case manager — use this as authoritative source):")
+            client_context_parts.extend(form_context_parts)
+
         client_context_str = "\n".join(client_context_parts)
 
         prompt = [
@@ -1670,13 +1704,15 @@ class DocumentationAIService:
             "",
             "CRITICAL INSTRUCTIONS:",
             "1. Use the template from the library below as your PRIMARY FORMAT",
-            "2. Generate COMPLETE, FULLY-WRITTEN professional documentation using ALL available client data",
-            "3. AUTO-FILL ALL POSSIBLE FIELDS using the client profile data provided",
-            "4. DO NOT leave demographic/status brackets empty if data is available",
-            "5. Write full narrative paragraphs integrating client-specific details",
-            "6. Follow the EXACT structure and formatting from the selected template",
-            "7. Do not leave bracket placeholders in the final draft; write a complete sentence when a direct quote or data point is unavailable",
-            "8. Follow organization-specific guidance materials when they are provided below",
+            "2. Generate COMPLETE, FULLY-WRITTEN professional documentation using the INTAKE FORM DATA provided",
+            "3. AUTO-FILL fields using the INTAKE FORM DATA — this is what the case manager actually entered",
+            "4. NEVER invent demographics (age, race, ethnicity, gender, children, marital status) unless explicitly stated in the data",
+            "5. NEVER invent substance history, legal history, or diagnoses beyond what is documented",
+            "6. If a field is not in the provided data, omit it or write 'not documented' — do not fabricate",
+            "7. When the client's own words are provided (strengths, weaknesses, reason for treatment, discharge plans), quote them directly using 'CT stated'",
+            "8. Write full narrative paragraphs using ONLY documented facts",
+            "9. Follow the EXACT structure and formatting from the selected template",
+            "10. Follow organization-specific guidance materials when they are provided below",
             "",
             f"SELECTED TEMPLATE: {template_label}",
             f"TEMPLATE CATEGORY: {template_category}",
@@ -1702,13 +1738,13 @@ class DocumentationAIService:
             "INSTRUCTIONS:",
             "- Copy the SELECTED TEMPLATE format EXACTLY as shown above",
             "- Do NOT switch to a treatment plan or CM note format unless the selected template is actually that format",
-            "- Fill in ALL demographic/status fields using the CLIENT PROFILE data",
-            "- Use the shared intake context for admission date, program type, medical, legal, benefits, treatment plan, aftercare, and record number fields.",
-            "- If diagnosis, treatment plan, or aftercare is not documented in the profile, state that verification is needed instead of inventing facts.",
-            "- For RESPONSE section: Write complete paragraph using: demographics (age/race/gender), substance history, legal status, employment status, recent barriers",
+            "- Fill fields using INTAKE FORM DATA first, then CLIENT PROFILE data as supplement",
+            "- For RESPONSE section: ONLY use demographics and history that are explicitly in the provided data — never assume race, age, gender, or background",
+            "- If strengths/weaknesses/reason for treatment/discharge plans are provided, include them as direct CT quotes using 'CT stated'",
+            "- If a data point is not documented, write 'not documented' rather than inventing a plausible value",
             "- If case manager provided session notes, incorporate them into the narrative",
-            "- If no session notes provided, use recent case notes to write continuity note",
-            "- If a client quote is available, use the exact quote. If not, write a complete sentence stating that no direct quote was documented; do not leave bracket placeholders.",
+            "- If no session notes provided, use recent case notes or intake form data to write the note",
+            "- If a client quote is available, use the exact quote. If not, write a complete sentence stating that no direct quote was documented",
             "- Use professional case management language matching the template style",
             "- Make it comprehensive so the case manager only needs to verify facts, dates, and any quote wording",
             "",
