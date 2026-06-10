@@ -14,8 +14,9 @@ logger = logging.getLogger(__name__)
 class HousingResourceTools:
     """Query Virgil St database for ACTUAL housing resources case managers use"""
 
-    def __init__(self, db_path: str = "databases/virgil_st_dev.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        from backend.shared.db_path import DB_DIR
+        self.db_path = db_path or str(DB_DIR / "virgil_st_dev.db")
         self.connection = None
 
     def connect(self):

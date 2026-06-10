@@ -16,8 +16,9 @@ def initialize_databases():
     Initialize all 9 databases with required tables
     Addresses potential table missing errors
     """
-    database_dir = Path("databases")
-    database_dir.mkdir(exist_ok=True)
+    from backend.shared.db_path import DB_DIR
+    database_dir = DB_DIR
+    database_dir.mkdir(parents=True, exist_ok=True)
     
     # Core clients database schema
     core_clients_schema = """

@@ -17,7 +17,8 @@ class ModuleIntegrationManager:
     
     def __init__(self):
         self.reminder_db = ReminderDatabase()
-        self.case_mgmt_db_path = 'databases/case_management.db'
+        from backend.shared.db_path import DB_DIR
+        self.case_mgmt_db_path = str(DB_DIR / 'case_management.db')
     
     def create_housing_reminder(self, client_id: str, event_type: str, event_data: Dict[str, Any]):
         """Create reminders based on housing module events"""

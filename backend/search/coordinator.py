@@ -77,8 +77,9 @@ class SimpleSearchCoordinator:
         self.google_housing_cse_id = self._normalize_key(os.getenv("GOOGLE_HOUSING_CSE_ID", "268132a59ec674755"))
         
         self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        self.cache_db_path = "databases/search_cache.db"
-        self.sample_db_path = "databases/sample_data.db"
+        from backend.shared.db_path import DB_DIR as _DB_DIR
+        self.cache_db_path = str(_DB_DIR / "search_cache.db")
+        self.sample_db_path = str(_DB_DIR / "sample_data.db")
         self.blocked_google_cse_ids: Dict[str, str] = {}
         self.job_search_memory_cache: Dict[str, Dict[str, Any]] = {}
         logger.info(f"SerpAPI Key: {'Loaded' if self.serper_api_key else 'Missing'}")

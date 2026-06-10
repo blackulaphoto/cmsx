@@ -139,8 +139,9 @@ async def get_case_manager_dashboard(case_manager_id: str):
     UPDATED: Dashboard with persisted tasks from database
     """
     try:
-        core_clients_db = Path("databases/core_clients.db")
-        reminders_db = Path("databases/reminders.db")
+        from backend.shared.db_path import DB_DIR
+        core_clients_db = DB_DIR / "core_clients.db"
+        reminders_db = DB_DIR / "reminders.db"
 
         with sqlite3.connect(core_clients_db) as client_conn, sqlite3.connect(reminders_db) as reminders_conn:
             client_cursor = client_conn.cursor()
@@ -392,7 +393,8 @@ async def get_weekly_plan(case_manager_id: str):
         from .models import ReminderDatabase
         from .smart_distributor import SmartTaskDistributor
         
-        reminder_db = ReminderDatabase('databases/reminders.db')
+        from backend.shared.db_path import DB_DIR as _DB_DIR
+        reminder_db = ReminderDatabase(str(_DB_DIR / 'reminders.db'))
         smart_distributor = SmartTaskDistributor(reminder_db)
         
         # Generate weekly plan from integrated system
@@ -519,7 +521,8 @@ async def get_intelligent_dashboard(case_manager_id: str):
     This implements the smart prioritization from the specification
     """
     try:
-        with sqlite3.connect("databases/core_clients.db") as conn:
+        from backend.shared.db_path import DB_DIR as _db
+        with sqlite3.connect(str(_db / "core_clients.db")) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute(
@@ -748,7 +751,8 @@ async def get_today_schedule(case_manager_id: str = Query("default_cm")):
         scoped_client_ids = client_ids
         placeholders = ",".join("?" * len(scoped_client_ids))
         try:
-            with sqlite3.connect("databases/case_management.db") as case_conn:
+            from backend.shared.db_path import DB_DIR as _db2
+            with sqlite3.connect(str(_db2 / "case_management.db")) as case_conn:
                 case_cursor = case_conn.cursor()
                 case_cursor.execute(
                     f"""

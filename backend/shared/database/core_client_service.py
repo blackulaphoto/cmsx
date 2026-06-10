@@ -18,7 +18,8 @@ class CoreClientService:
     """Centralized service for managing clients in core_clients.db"""
     
     def __init__(self):
-        self.db_path = "databases/core_clients.db"
+        from backend.shared.db_path import DB_DIR
+        self.db_path = str(DB_DIR / "core_clients.db")
         self._ensure_database_exists()
     
     def _ensure_database_exists(self):

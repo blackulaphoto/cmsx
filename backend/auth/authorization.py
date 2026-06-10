@@ -8,7 +8,8 @@ from fastapi import HTTPException
 
 from .service import AuthenticatedUser
 
-CORE_CLIENTS_DB = Path("databases") / "core_clients.db"
+from backend.shared.db_path import DB_DIR
+CORE_CLIENTS_DB = DB_DIR / "core_clients.db"
 
 
 def _connect_core_clients() -> sqlite3.Connection:

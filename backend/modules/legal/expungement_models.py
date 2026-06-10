@@ -369,7 +369,9 @@ class ExpungementTask:
 class ExpungementDatabase:
     """Database operations for expungement management"""
     
-    def __init__(self, db_path: str = "databases/expungement.db"):
+    def __init__(self, db_path: str = None):
+        from backend.shared.db_path import DB_DIR
+        db_path = db_path or str(DB_DIR / "expungement.db")
         self.db_path = db_path
         self.init_database()
     

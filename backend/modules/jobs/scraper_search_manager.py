@@ -31,7 +31,8 @@ class ScraperSearchManager:
     """
     
     def __init__(self):
-        self.cache_db_path = "databases/scraper_cache.db"
+        from backend.shared.db_path import DB_DIR
+        self.cache_db_path = str(DB_DIR / "scraper_cache.db")
         self.cache_ttl_minutes = 30  # Cache results for 30 minutes
         self.max_workers = 3  # Limit concurrent scraper threads
         self.search_timeout = 120  # 2 minutes timeout for scraper searches

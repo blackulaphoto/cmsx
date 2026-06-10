@@ -72,10 +72,11 @@ RAW_APPROVAL_REQUIRED_FIELDS = ["name", "city", "state"]
 
 
 class SoberLivingDirectoryDatabase:
-    def __init__(self, db_path: str = "databases/sober_living_directory.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        from backend.shared.db_path import DB_DIR
+        self.db_path = db_path or str(DB_DIR / "sober_living_directory.db")
         self.connection: Optional[sqlite3.Connection] = None
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.setup_database()
 
     def connect(self):

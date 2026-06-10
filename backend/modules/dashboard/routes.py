@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 
 from backend.shared.database.workspace_store import workspace_store
 from backend.auth.service import ADMIN_ROLE, require_authenticated_user, require_role
+from backend.shared.db_path import DB_DIR as _DB_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -201,7 +202,7 @@ def _safe_count_query(conn: sqlite3.Connection, query: str, params: tuple = ()) 
 def _load_case_manager_names() -> Dict[str, str]:
     name_map: Dict[str, str] = {}
     try:
-        with _dict_connection("databases/auth.db") as conn:
+        with _dict_connection(str(_DB_DIR / "auth.db")) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT case_manager_id, full_name FROM user_profiles WHERE is_active = 1")
             for row in cursor.fetchall():
@@ -217,7 +218,7 @@ def _get_supervisor_overview() -> Dict[str, Any]:
     cutoff = (datetime.now() - timedelta(days=7)).date().isoformat()
     name_map = _load_case_manager_names()
 
-    with _dict_connection("databases/core_clients.db") as core_conn:
+    with _dict_connection(str(_DB_DIR / "core_clients.db")) as core_conn:
         core_cursor = core_conn.cursor()
         core_cursor.execute("""
             SELECT
@@ -240,7 +241,7 @@ def _get_supervisor_overview() -> Dict[str, Any]:
 
     for row in manager_rows:
         case_manager_id = row["case_manager_id"]
-        with _dict_connection("databases/core_clients.db") as core_conn:
+        with _dict_connection(str(_DB_DIR / "core_clients.db")) as core_conn:
             client_cursor = core_conn.cursor()
             client_cursor.execute(
                 "SELECT client_id FROM clients WHERE COALESCE(NULLIF(TRIM(case_manager_id), ''), 'unassigned') = ?",
@@ -259,7 +260,7 @@ def _get_supervisor_overview() -> Dict[str, Any]:
         active_fmla = 0
 
         try:
-            with _dict_connection("databases/reminders.db") as reminders_conn:
+            with _dict_connection(str(_DB_DIR / "reminders.db")) as reminders_conn:
                 overdue_reminders = _safe_count_query(
                     reminders_conn,
                     """
@@ -277,7 +278,7 @@ def _get_supervisor_overview() -> Dict[str, Any]:
         if client_ids:
             placeholders = ",".join("?" for _ in client_ids)
             try:
-                with _dict_connection("databases/unified_platform.db") as benefits_conn:
+                with _dict_connection(str(_DB_DIR / "unified_platform.db")) as benefits_conn:
                     open_benefits = _safe_count_query(
                         benefits_conn,
                         f"""
@@ -292,7 +293,7 @@ def _get_supervisor_overview() -> Dict[str, Any]:
                 open_benefits = 0
 
             try:
-                with _dict_connection("databases/legal_cases.db") as legal_conn:
+                with _dict_connection(str(_DB_DIR / "legal_cases.db")) as legal_conn:
                     active_legal = _safe_count_query(
                         legal_conn,
                         f"""
@@ -307,7 +308,7 @@ def _get_supervisor_overview() -> Dict[str, Any]:
                 active_legal = 0
 
         try:
-            with _dict_connection("databases/fmla.db") as fmla_conn:
+            with _dict_connection(str(_DB_DIR / "fmla.db")) as fmla_conn:
                 active_fmla = _safe_count_query(
                     fmla_conn,
                     """

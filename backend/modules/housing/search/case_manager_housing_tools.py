@@ -555,7 +555,8 @@ class CaseManagerHousingTools:
     def get_client_profile(self, client_id: str) -> Dict[str, Any]:
         """Get client profile information"""
         try:
-            with sqlite3.connect("databases/core_clients.db") as conn:
+            from backend.shared.db_path import DB_DIR as _db
+            with sqlite3.connect(str(_db / "core_clients.db")) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
                 cursor.execute(

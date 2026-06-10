@@ -18,12 +18,13 @@ logger = logging.getLogger(__name__)
 class CaseManagementDatabase:
     """Database interface for case management operations"""
     
-    def __init__(self, db_path: str = 'databases/case_management.db'):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        from backend.shared.db_path import DB_DIR
+        self.db_path = db_path or str(DB_DIR / 'case_management.db')
         self.connection = None
-        
+
         # Ensure database directory exists
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
         # Initialize database
         self.setup_database()

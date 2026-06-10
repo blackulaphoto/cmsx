@@ -31,9 +31,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_SQLITE_REMINDERS_PATH = "databases/reminders.db"
-_SQLITE_CORE_CLIENTS_PATH = "databases/core_clients.db"
-_SQLITE_CASE_MGMT_PATH = "databases/case_management.db"
+from backend.shared.db_path import DB_DIR as _DB_DIR
+_SQLITE_REMINDERS_PATH = str(_DB_DIR / "reminders.db")
+_SQLITE_CORE_CLIENTS_PATH = str(_DB_DIR / "core_clients.db")
+_SQLITE_CASE_MGMT_PATH = str(_DB_DIR / "case_management.db")
 
 
 # ---------------------------------------------------------------------------

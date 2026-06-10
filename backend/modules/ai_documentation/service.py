@@ -614,7 +614,8 @@ class DocumentationAIService:
                 comprehensive_data['core'] = core_data
 
             # Get comprehensive case management data (substance history, legal status, etc.)
-            with sqlite3.connect('databases/case_management.db') as conn:
+            from backend.shared.db_path import DB_DIR as _db
+            with sqlite3.connect(str(_db / 'case_management.db')) as conn:
                 conn.row_factory = sqlite3.Row
                 cursor = conn.cursor()
 

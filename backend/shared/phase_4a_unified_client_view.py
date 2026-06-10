@@ -16,6 +16,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
+from backend.shared.db_path import DB_DIR
 from dataclasses import dataclass, asdict
 from enum import Enum
 import hashlib
@@ -78,7 +79,7 @@ class UnifiedClientViewEngine:
     """Phase 4A: Unified Client View Engine"""
     
     def __init__(self):
-        self.db_dir = Path('databases')
+        self.db_dir = DB_DIR
         self.cache_dir = Path('cache')
         self.cache_dir.mkdir(exist_ok=True)
         

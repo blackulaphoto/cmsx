@@ -16,8 +16,9 @@ class ClientDataIntegrator:
     """Integrates real data from all databases for client overview"""
     
     def __init__(self):
-        self.case_mgmt_db_path = 'databases/case_management.db'
-        self.reminders_db_path = 'databases/reminders.db'
+        from backend.shared.db_path import DB_DIR
+        self.case_mgmt_db_path = str(DB_DIR / 'case_management.db')
+        self.reminders_db_path = str(DB_DIR / 'reminders.db')
         
     def get_client_overview_data(self, client_id: str) -> Dict[str, Any]:
         """Get comprehensive client overview data from real databases"""

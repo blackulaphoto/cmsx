@@ -21,7 +21,9 @@ from .postgres_store import (
 class URStore:
     """SQLite persistence for Utilization Review case management."""
 
-    def __init__(self, db_path: str = "databases/ur.db"):
+    def __init__(self, db_path: str = None):
+        from backend.shared.db_path import DB_DIR
+        db_path = db_path or str(DB_DIR / "ur.db")
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._setup()

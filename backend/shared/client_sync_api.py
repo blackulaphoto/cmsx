@@ -8,13 +8,14 @@ import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
+from backend.shared.db_path import DB_DIR
 from typing import Dict, List, Optional
 
 class UnifiedClientSync:
     """Handles automatic client synchronization across all modules"""
     
     def __init__(self):
-        self.db_dir = Path('databases')
+        self.db_dir = DB_DIR
         self.modules = {
             'case_management': 'case_management.db',
             'housing': 'housing.db',

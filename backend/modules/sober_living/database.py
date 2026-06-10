@@ -20,7 +20,8 @@ from typing import Any, Dict, Generator, List, Optional
 
 log = logging.getLogger(__name__)
 
-SQLITE_PATH = Path("databases/sober_living_ops.db")
+from backend.shared.db_path import DB_DIR as _DB_DIR
+SQLITE_PATH = _DB_DIR / "sober_living_ops.db"
 
 BED_STATUSES       = {"available", "occupied", "reserved", "maintenance", "unavailable"}
 RESIDENT_STATUSES  = {"active", "on_leave", "discharged", "evicted"}

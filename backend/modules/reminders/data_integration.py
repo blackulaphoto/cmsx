@@ -17,8 +17,9 @@ class RealDataIntegrator:
     
     def __init__(self):
         self.reminder_db = ReminderDatabase()
-        self.core_clients_db_path = 'databases/core_clients.db'
-        self.case_mgmt_db_path = 'databases/case_management.db'
+        from backend.shared.db_path import DB_DIR
+        self.core_clients_db_path = str(DB_DIR / 'core_clients.db')
+        self.case_mgmt_db_path = str(DB_DIR / 'case_management.db')
     
     def get_smart_dashboard_data(self, case_manager_id: str) -> Dict[str, Any]:
         """Get real dashboard data for case manager"""

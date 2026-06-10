@@ -19,7 +19,8 @@ from google.oauth2 import id_token as google_id_token
 
 logger = logging.getLogger(__name__)
 
-AUTH_DB_PATH = Path("databases") / "auth.db"
+from backend.shared.db_path import DB_DIR
+AUTH_DB_PATH = DB_DIR / "auth.db"
 ADMIN_ROLE = "admin"
 CASE_MANAGER_ROLE = "case_manager"
 ALLOWED_ROLES = {ADMIN_ROLE, CASE_MANAGER_ROLE}

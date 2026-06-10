@@ -20,9 +20,10 @@ def _mappings(result) -> List[Dict[str, Any]]:
 
 
 class PostgresFMLAStore(FMLAStore):
-    def __init__(self, reminders_db_path: str = "databases/reminders.db"):
+    def __init__(self, reminders_db_path: str = None):
+        from backend.shared.db_path import DB_DIR
         self.engine = None
-        self.reminders_db_path = Path(reminders_db_path)
+        self.reminders_db_path = Path(reminders_db_path) if reminders_db_path else DB_DIR / "reminders.db"
         self.reminders_db_path.parent.mkdir(parents=True, exist_ok=True)
         self._schema_ready = False
 

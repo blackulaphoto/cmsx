@@ -22,7 +22,8 @@ class IntelligentReminderEngine:
     """
     
     def __init__(self, reminder_db: ReminderDatabase = None):
-        self.reminder_db = reminder_db or ReminderDatabase('databases/reminders.db')
+        from backend.shared.db_path import DB_DIR
+        self.reminder_db = reminder_db or ReminderDatabase(str(DB_DIR / 'reminders.db'))
         self.current_date = datetime.now()
         
         # Risk-based contact frequency (days)

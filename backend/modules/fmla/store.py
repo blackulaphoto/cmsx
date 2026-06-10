@@ -23,9 +23,10 @@ def _normalize_text(value: Any) -> str:
 class FMLAStore:
     """SQLite persistence for FMLA case management."""
 
-    def __init__(self, db_path: str = "databases/fmla.db", reminders_db_path: str = "databases/reminders.db"):
-        self.db_path = Path(db_path)
-        self.reminders_db_path = Path(reminders_db_path)
+    def __init__(self, db_path: str = None, reminders_db_path: str = None):
+        from backend.shared.db_path import DB_DIR
+        self.db_path = Path(db_path) if db_path else DB_DIR / "fmla.db"
+        self.reminders_db_path = Path(reminders_db_path) if reminders_db_path else DB_DIR / "reminders.db"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._setup()
 

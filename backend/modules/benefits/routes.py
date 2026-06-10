@@ -16,6 +16,7 @@ import logging
 import json
 from datetime import datetime, timedelta
 
+from backend.shared.db_path import DB_DIR as _DB_DIR
 from .models import BenefitsApplication, BenefitsDatabase
 from .disability_assessment import DisabilityAssessment, QUALIFYING_CONDITIONS
 from .eligibility_engine import get_eligibility_engine, EligibilityStatus
@@ -37,7 +38,7 @@ def get_benefits_db():
     """Get thread-safe benefits database instance"""
     global benefits_db
     if benefits_db is None:
-        benefits_db = BenefitsDatabase("databases/benefits_transport.db")
+        benefits_db = BenefitsDatabase(str(_DB_DIR / "benefits_transport.db"))
     return benefits_db
 
 def get_disability_assessor():
@@ -51,7 +52,7 @@ def ensure_benefits_applications_schema():
     """Ensure benefits_applications schema supports current API fields"""
     import sqlite3
 
-    conn = sqlite3.connect('databases/unified_platform.db')
+    conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -90,7 +91,7 @@ def ensure_benefits_applications_schema():
 def ensure_benefits_documents_schema():
     import sqlite3
 
-    conn = sqlite3.connect('databases/unified_platform.db')
+    conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS benefits_documents (
@@ -117,7 +118,7 @@ def ensure_benefits_documents_schema():
 def _get_case_manager_client_ids(case_manager_id: str) -> List[str]:
     import sqlite3
 
-    conn = sqlite3.connect("databases/core_clients.db")
+    conn = sqlite3.connect(str(_DB_DIR / "core_clients.db"))
     cursor = conn.cursor()
     cursor.execute("SELECT client_id FROM clients WHERE case_manager_id = ?", (case_manager_id,))
     client_ids = [row[0] for row in cursor.fetchall() if row and row[0]]
@@ -129,7 +130,7 @@ def _get_application_client_id(application_id: str) -> Optional[str]:
     import sqlite3
 
     ensure_benefits_applications_schema()
-    conn = sqlite3.connect("databases/unified_platform.db")
+    conn = sqlite3.connect(str(_DB_DIR / "unified_platform.db"))
     cursor = conn.cursor()
     cursor.execute(
         "SELECT client_id FROM benefits_applications WHERE application_id = ?",
@@ -144,7 +145,7 @@ def _get_benefits_document_client_id(document_id: str) -> Optional[str]:
     import sqlite3
 
     ensure_benefits_documents_schema()
-    conn = sqlite3.connect("databases/unified_platform.db")
+    conn = sqlite3.connect(str(_DB_DIR / "unified_platform.db"))
     cursor = conn.cursor()
     cursor.execute(
         "SELECT client_id FROM benefits_documents WHERE document_id = ?",
@@ -267,11 +268,11 @@ async def get_benefits_applications(
         ensure_benefits_documents_schema()
         
         # Get applications from unified_platform.db
-        conn_unified = sqlite3.connect('databases/unified_platform.db')
+        conn_unified = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
         cursor_unified = conn_unified.cursor()
         
         # Get client data from core_clients.db
-        conn_clients = sqlite3.connect('databases/core_clients.db')
+        conn_clients = sqlite3.connect(str(_DB_DIR / 'core_clients.db'))
         cursor_clients = conn_clients.cursor()
         
         query = """
@@ -360,7 +361,7 @@ async def get_latest_benefits_assessment(client_id: str, request: Request):
         assert_client_access(current_user, client_id)
         import sqlite3
 
-        conn = sqlite3.connect('databases/unified_platform.db')
+        conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -430,7 +431,7 @@ async def create_benefits_application(application_data: BenefitApplication, requ
         import sqlite3
         ensure_benefits_applications_schema()
         ensure_benefits_documents_schema()
-        conn = sqlite3.connect('databases/unified_platform.db')
+        conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
         cursor = conn.cursor()
         
         cursor.execute("""
@@ -572,7 +573,7 @@ async def get_application_documents(application_id: str, request: Request):
         import sqlite3
 
         ensure_benefits_documents_schema()
-        conn = sqlite3.connect('databases/unified_platform.db')
+        conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
@@ -635,7 +636,7 @@ async def upload_application_document(
         ensure_benefits_applications_schema()
         ensure_benefits_documents_schema()
 
-        conn = sqlite3.connect('databases/unified_platform.db')
+        conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
@@ -729,7 +730,7 @@ async def download_benefits_document(document_id: str, request: Request):
         import sqlite3
 
         ensure_benefits_documents_schema()
-        conn = sqlite3.connect('databases/unified_platform.db')
+        conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(
@@ -1215,7 +1216,7 @@ async def api_start_disability_application(application_data: StartApplication, r
 
         import sqlite3
         ensure_benefits_applications_schema()
-        conn = sqlite3.connect('databases/unified_platform.db')
+        conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
         cursor = conn.cursor()
         cursor.execute("""
             INSERT INTO benefits_applications
@@ -1341,7 +1342,7 @@ async def assess_program_eligibility(request_data: ProgramEligibilityRequest, re
         # Save assessment result to database
         try:
             import sqlite3
-            conn = sqlite3.connect('databases/unified_platform.db')
+            conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
             cursor = conn.cursor()
             
             # Create table if it doesn't exist
@@ -1445,7 +1446,7 @@ async def bulk_eligibility_assessment(request_data: BulkEligibilityRequest, requ
         # Save bulk assessment results
         try:
             import sqlite3
-            conn = sqlite3.connect('databases/unified_platform.db')
+            conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
             cursor = conn.cursor()
             
             # Create table if it doesn't exist
@@ -1515,7 +1516,7 @@ async def get_assessment_history(client_id: str, request: Request):
         current_user = require_authenticated_user(request)
         assert_client_access(current_user, client_id)
         import sqlite3
-        conn = sqlite3.connect('databases/unified_platform.db')
+        conn = sqlite3.connect(str(_DB_DIR / 'unified_platform.db'))
         cursor = conn.cursor()
         
         cursor.execute("""

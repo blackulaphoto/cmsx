@@ -34,6 +34,11 @@ load_dotenv()
 os.makedirs("logs", exist_ok=True)
 os.makedirs("databases", exist_ok=True)
 os.makedirs("uploads", exist_ok=True)
+_vol = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+if _vol:
+    import pathlib
+    pathlib.Path(_vol, "databases").mkdir(parents=True, exist_ok=True)
+    pathlib.Path(_vol, "admissions").mkdir(parents=True, exist_ok=True)
 
 # CORS origins are configurable via CORS_ORIGINS (comma-separated).
 default_cors_origins = [

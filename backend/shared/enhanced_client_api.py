@@ -10,6 +10,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from backend.shared.db_path import DB_DIR
 from typing import Dict, List, Optional, Any
 from contextlib import contextmanager
 import traceback
@@ -21,7 +22,7 @@ class EnhancedClientCreationAPI:
     """Enhanced client creation with automatic distribution and transaction management"""
     
     def __init__(self):
-        self.db_dir = Path('databases')
+        self.db_dir = DB_DIR
         self.modules = {
             'core_clients': {
                 'db_file': 'core_clients.db',

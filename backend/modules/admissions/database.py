@@ -11,11 +11,10 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DB_PATH = _PROJECT_ROOT / "databases" / "admissions.db"
+from backend.shared.db_path import DB_DIR as _DB_DIR
+DB_PATH = _DB_DIR / "admissions.db"
 MANIFEST_PATH = _PROJECT_ROOT / "data" / "form_templates" / "admissions" / "manifest.json"
 
-if not DB_PATH.parent.exists():
-    DB_PATH = Path("databases") / "admissions.db"
 if not MANIFEST_PATH.exists():
     MANIFEST_PATH = Path("data") / "form_templates" / "admissions" / "manifest.json"
 

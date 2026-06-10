@@ -17,6 +17,7 @@ import sqlite3
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timedelta
 
+from backend.shared.db_path import DB_DIR as _DB_DIR
 from .models import LegalCase, CourtDate, LegalDocument, LegalDatabase
 from .expungement_routes import router as expungement_router
 from .expungement_service import ExpungementEligibilityEngine
@@ -38,7 +39,7 @@ expungement_engine = ExpungementEligibilityEngine()
 def get_legal_db():
     """Get thread-safe legal database instance"""
     # Create a new instance for each request to avoid threading issues
-    return LegalDatabase("databases/legal_cases.db")
+    return LegalDatabase(str(_DB_DIR / "legal_cases.db"))
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ def _get_client_name_map() -> Dict[str, str]:
     """Load client_id -> full name mapping from core clients DB."""
     name_map: Dict[str, str] = {}
     try:
-        conn = sqlite3.connect("databases/core_clients.db")
+        conn = sqlite3.connect(str(_DB_DIR / "core_clients.db"))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute("SELECT client_id, first_name, last_name FROM clients")
@@ -167,7 +168,7 @@ def _get_accessible_client_ids(current_user) -> Optional[List[str]]:
 
     conn: Optional[sqlite3.Connection] = None
     try:
-        conn = sqlite3.connect("databases/core_clients.db")
+        conn = sqlite3.connect(str(_DB_DIR / "core_clients.db"))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         cursor.execute(

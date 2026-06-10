@@ -17,6 +17,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Set
+from backend.shared.db_path import DB_DIR
 from contextlib import contextmanager
 import hashlib
 from dataclasses import dataclass, asdict
@@ -77,7 +78,7 @@ class DataConsistencyEngine:
     """Phase 3B: Comprehensive Data Consistency Engine"""
     
     def __init__(self):
-        self.db_dir = Path('databases')
+        self.db_dir = DB_DIR
         self.lock = threading.RLock()
         
         # Module configuration

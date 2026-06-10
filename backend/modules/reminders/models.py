@@ -163,10 +163,11 @@ class ActiveReminder:
 class ReminderDatabase:
     """Database interface for reminder system"""
     
-    def __init__(self, db_path: str = 'databases/reminders.db'):
-        self.db_path = db_path
-        self.core_clients_db_path = 'databases/core_clients.db'
-        self.case_mgmt_db_path = 'databases/case_management.db'
+    def __init__(self, db_path: str = None):
+        from backend.shared.db_path import DB_DIR
+        self.db_path = db_path or str(DB_DIR / 'reminders.db')
+        self.core_clients_db_path = str(DB_DIR / 'core_clients.db')
+        self.case_mgmt_db_path = str(DB_DIR / 'case_management.db')
         self.connection = None
         self.core_clients_connection = None
         self.case_mgmt_connection = None

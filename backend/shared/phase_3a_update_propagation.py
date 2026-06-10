@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Any, Set
+from backend.shared.db_path import DB_DIR
 import hashlib
 import threading
 from contextlib import contextmanager
@@ -34,7 +35,7 @@ class UpdatePropagationSystem:
     """Phase 3A: Comprehensive Update Propagation System"""
     
     def __init__(self):
-        self.db_dir = Path('databases')
+        self.db_dir = DB_DIR
         self.lock = threading.RLock()  # Reentrant lock for thread safety
         
         # Module configuration with field mappings

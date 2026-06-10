@@ -219,7 +219,9 @@ class HousingResource:
 class HousingDatabase:
     """Housing database manager with comprehensive search capabilities"""
     
-    def __init__(self, db_path: str = "databases/housing_resources.db"):
+    def __init__(self, db_path: str = None):
+        from backend.shared.db_path import DB_DIR
+        db_path = db_path or str(DB_DIR / "housing_resources.db")
         self.db_path = db_path
         self.connection = None
         self.create_tables()

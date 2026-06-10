@@ -19,7 +19,8 @@ router = APIRouter()
 
 def get_database_connection(db_name: str, access_type: str = "READ_ONLY"):
     """Simple database connection helper"""
-    db_path = Path("databases") / f"{db_name}.db"
+    from backend.shared.db_path import DB_DIR
+    db_path = DB_DIR / f"{db_name}.db"
     if not db_path.exists():
         # Create database directory if it doesn't exist
         db_path.parent.mkdir(exist_ok=True)

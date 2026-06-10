@@ -251,7 +251,8 @@ class CoreClientsManager:
             conn.close()
             
             # Now get resume counts from employment.db
-            employment_conn = sqlite3.connect('databases/employment.db')
+            from backend.shared.db_path import DB_DIR as _db
+            employment_conn = sqlite3.connect(str(_db / 'employment.db'))
             employment_cursor = employment_conn.cursor()
             
             clients = []

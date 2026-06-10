@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 class AuthDatabase:
     """Database manager for authentication"""
     
-    def __init__(self, db_path: str = "databases/auth.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        from backend.shared.db_path import DB_DIR
+        self.db_path = db_path or str(DB_DIR / "auth.db")
         self.ensure_database_exists()
         self.init_tables()
     
