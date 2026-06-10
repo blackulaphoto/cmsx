@@ -18,7 +18,9 @@ import {
   Save,
   RefreshCw,
   BellRing,
-  Search
+  Search,
+  Eye,
+  X
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ClientSelector from '../components/ClientSelector'
@@ -483,8 +485,16 @@ function FMLA() {
     }
   }
 
+  const [docViewerUrl, setDocViewerUrl] = useState(null)
+  const [docViewerName, setDocViewerName] = useState('')
+
   const downloadDocument = (documentId) => {
     window.open(`/api/fmla/documents/${documentId}/download`, '_blank', 'noopener,noreferrer')
+  }
+
+  const viewDocument = (documentId, fileName) => {
+    setDocViewerUrl(`/api/fmla/documents/${documentId}/download`)
+    setDocViewerName(fileName || 'Document')
   }
 
   const addCorrespondence = async () => {
@@ -1195,13 +1205,22 @@ function FMLA() {
                           <div className="flex items-center gap-2">
                             <span className="rounded-full bg-cyan-500/20 px-2 py-1 text-xs text-cyan-200 capitalize">{doc.document_status}</span>
                             {doc.file_path ? (
-                              <button
-                                onClick={() => downloadDocument(doc.document_id)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/10"
-                              >
-                                <Download className="h-3.5 w-3.5" />
-                                Download
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => viewDocument(doc.document_id, doc.file_name)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs font-medium text-blue-300 transition hover:bg-blue-500/20"
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                  View
+                                </button>
+                                <button
+                                  onClick={() => downloadDocument(doc.document_id)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/10"
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                  Download
+                                </button>
+                              </>
                             ) : null}
                           </div>
                         </div>
@@ -1280,6 +1299,33 @@ function FMLA() {
           </div>
         </section>
       </div>
+
+      {/* Doc Viewer Modal */}
+      {docViewerUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setDocViewerUrl(null)} />
+          <div className="relative z-10 w-full max-w-4xl max-h-[90vh] bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl border border-white/20 shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-blue-400" />
+                <span className="font-medium text-white">{docViewerName}</span>
+              </div>
+              <div className="flex gap-2">
+                <a href={docViewerUrl} target="_blank" rel="noopener noreferrer"
+                  className="px-3 py-1.5 text-xs bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors flex items-center gap-1">
+                  <Download className="h-3.5 w-3.5" /> Download
+                </a>
+                <button onClick={() => setDocViewerUrl(null)} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-2 min-h-0">
+              <iframe src={docViewerUrl} className="w-full h-[75vh] rounded-lg border-0" title={docViewerName} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

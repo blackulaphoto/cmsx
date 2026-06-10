@@ -4,10 +4,12 @@ Client Management API - Core client creation and management endpoints
 Fixes the missing client creation pipeline causing HTTP 405 errors
 """
 
-from fastapi import APIRouter, HTTPException, status, Query, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import logging
+import shutil
 import sqlite3
 import uuid
 import json
@@ -1288,6 +1290,23 @@ async def get_client_unified_view(client_id: str, request: Request):
         legal_summary = get_client_legal_summary(client_id)
         services_summary = get_client_services_summary(client_id)
 
+        # Augment services summary with workspace-stored referrals
+        ws_referrals = workspace_store.list_client_service_referrals(client_id)
+        if ws_referrals:
+            existing = services_summary.get("referrals", [])
+            services_summary["referrals"] = ws_referrals + existing
+            services_summary["total_referrals"] = len(services_summary["referrals"])
+            services_summary["active_referrals"] = sum(
+                1 for r in services_summary["referrals"]
+                if str(r.get("status", "")).strip().lower() in {"pending", "active", "in progress", "open"}
+            )
+
+        # Workspace-stored appointments
+        ws_appointments = workspace_store.list_client_appointments(client_id)
+
+        # Workspace-stored client documents
+        ws_documents = workspace_store.list_client_documents(client_id)
+
         return {
             "success": True,
             "client_data": {
@@ -1303,7 +1322,8 @@ async def get_client_unified_view(client_id: str, request: Request):
                 "services": services_summary,
                 "tasks": overview_data.get("tasks", []),
                 "notes": overview_data.get("case_notes", []),
-                "appointments": overview_data.get("appointments", []),
+                "appointments": ws_appointments + overview_data.get("appointments", []),
+                "documents": ws_documents,
                 "reminders": overview_data.get("reminders", []),
                 "recent_activity": overview_data.get("recent_activity", []),
                 "contact_history": overview_data.get("contact_history", []),
@@ -1927,9 +1947,254 @@ def propagate_client_to_modules(client_id: str, client_data: Dict[str, Any]) -> 
                 
                 conn.commit()
                 integration_results[module] = "success"
-                
+
         except Exception as e:
             logger.error(f"Failed to sync client {client_id} to {module}: {e}")
             integration_results[module] = f"error: {str(e)}"
-    
+
     return integration_results
+
+
+# ── Client Appointments ──────────────────────────────────────────────────────
+
+CLIENT_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "clients"
+CLIENT_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class AppointmentPayload(BaseModel):
+    title: str
+    appointment_date: str
+    appointment_time: Optional[str] = None
+    location: Optional[str] = None
+    doctor_name: Optional[str] = None
+    service_type: Optional[str] = None
+    status: Optional[str] = "scheduled"
+    notes: Optional[str] = None
+    items_to_bring: Optional[str] = None
+
+
+@router.get("/api/clients/{client_id}/appointments")
+async def list_client_appointments(client_id: str, request: Request):
+    require_authenticated_user(request)
+    assert_client_access(require_authenticated_user(request), client_id)
+    return {"success": True, "appointments": workspace_store.list_client_appointments(client_id)}
+
+
+@router.post("/api/clients/{client_id}/appointments")
+async def create_client_appointment(client_id: str, payload: AppointmentPayload, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    apt = workspace_store.create_client_appointment(client_id, payload.dict())
+    # Create a reminder for this appointment
+    try:
+        description = f"Appointment: {apt['title']}"
+        if apt.get("doctor_name"):
+            description += f" with {apt['doctor_name']}"
+        if apt.get("location"):
+            description += f" at {apt['location']}"
+        with get_database_connection("reminders", "READ_WRITE") as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            reminder_id = str(uuid.uuid4())
+            cursor.execute(
+                """INSERT OR IGNORE INTO reminders
+                   (reminder_id, client_id, module_source, task_type, description, due_date, priority_score, status, assigned_to, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    reminder_id, client_id,
+                    "appointments", "appointment",
+                    description, apt["appointment_date"],
+                    50, "pending",
+                    getattr(user, "case_manager_id", "system"),
+                    datetime.now().isoformat(),
+                ),
+            )
+            conn.commit()
+        workspace_store.update_client_appointment(apt["apt_id"], {"reminder_id": reminder_id})
+        apt["reminder_id"] = reminder_id
+    except Exception as e:
+        logger.warning("Could not create reminder for appointment %s: %s", apt["apt_id"], e)
+    return {"success": True, "appointment": apt}
+
+
+@router.put("/api/clients/{client_id}/appointments/{apt_id}")
+async def update_client_appointment(client_id: str, apt_id: str, payload: AppointmentPayload, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    updated = workspace_store.update_client_appointment(apt_id, payload.dict(exclude_none=True))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    return {"success": True, "appointment": updated}
+
+
+@router.delete("/api/clients/{client_id}/appointments/{apt_id}")
+async def delete_client_appointment(client_id: str, apt_id: str, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    deleted = workspace_store.delete_client_appointment(apt_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    return {"success": True}
+
+
+# ── Client Service Referrals ─────────────────────────────────────────────────
+
+class ServiceReferralPayload(BaseModel):
+    service_name: str
+    service_type: Optional[str] = None
+    provider_name: Optional[str] = None
+    phone: Optional[str] = None
+    address: Optional[str] = None
+    url: Optional[str] = None
+    appointment_time: Optional[str] = None
+    doctor_name: Optional[str] = None
+    items_to_bring: Optional[str] = None
+    status: Optional[str] = "pending"
+    notes: Optional[str] = None
+
+
+@router.get("/api/clients/{client_id}/service-referrals")
+async def list_client_service_referrals(client_id: str, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    return {"success": True, "referrals": workspace_store.list_client_service_referrals(client_id)}
+
+
+@router.post("/api/clients/{client_id}/service-referrals")
+async def create_client_service_referral(client_id: str, payload: ServiceReferralPayload, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    ref = workspace_store.create_client_service_referral(client_id, payload.dict())
+    # Create a follow-up reminder
+    try:
+        from datetime import date, timedelta
+        due = (date.today() + timedelta(days=3)).isoformat()
+        description = f"Service referral follow-up: {ref['service_name']}"
+        if ref.get("provider_name"):
+            description += f" ({ref['provider_name']})"
+        if ref.get("phone"):
+            description += f" - {ref['phone']}"
+        with get_database_connection("reminders", "READ_WRITE") as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT OR IGNORE INTO reminders
+                   (reminder_id, client_id, module_source, task_type, description, due_date, priority_score, status, assigned_to, created_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    str(uuid.uuid4()), client_id,
+                    "service_referrals", "referral",
+                    description, due,
+                    50, "pending",
+                    getattr(user, "case_manager_id", "system"),
+                    datetime.now().isoformat(),
+                ),
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning("Could not create reminder for referral %s: %s", ref["ref_id"], e)
+    return {"success": True, "referral": ref}
+
+
+@router.put("/api/clients/{client_id}/service-referrals/{ref_id}")
+async def update_client_service_referral(client_id: str, ref_id: str, payload: ServiceReferralPayload, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    updated = workspace_store.update_client_service_referral(ref_id, payload.dict(exclude_none=True))
+    if not updated:
+        raise HTTPException(status_code=404, detail="Referral not found")
+    return {"success": True, "referral": updated}
+
+
+@router.delete("/api/clients/{client_id}/service-referrals/{ref_id}")
+async def delete_client_service_referral(client_id: str, ref_id: str, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    deleted = workspace_store.delete_client_service_referral(ref_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Referral not found")
+    return {"success": True}
+
+
+# ── Client Documents ─────────────────────────────────────────────────────────
+
+@router.get("/api/clients/{client_id}/documents")
+async def list_client_documents(client_id: str, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    return {"success": True, "documents": workspace_store.list_client_documents(client_id)}
+
+
+@router.post("/api/clients/{client_id}/documents")
+async def upload_client_document(
+    client_id: str,
+    request: Request,
+    title: str = Form(...),
+    doc_type: str = Form("other"),
+    url: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+
+    data: Dict[str, Any] = {"title": title, "doc_type": doc_type, "url": url}
+
+    if file and file.filename:
+        client_dir = CLIENT_UPLOADS_DIR / client_id
+        client_dir.mkdir(parents=True, exist_ok=True)
+        safe_name = f"{uuid.uuid4().hex}_{Path(file.filename).name}"
+        dest = client_dir / safe_name
+        with open(dest, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        data["file_name"] = file.filename
+        data["file_mime"] = file.content_type or "application/octet-stream"
+        data["file_path"] = str(dest.relative_to(CLIENT_UPLOADS_DIR.parent.parent))
+        try:
+            data["file_size"] = dest.stat().st_size
+        except Exception:
+            pass
+
+    doc = workspace_store.create_client_document(client_id, data)
+    return {"success": True, "document": doc}
+
+
+@router.get("/api/clients/{client_id}/documents/{doc_id}/view")
+async def view_client_document(client_id: str, doc_id: str, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    doc = workspace_store.get_client_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.get("file_path"):
+        file_path = (Path(__file__).resolve().parents[2] / doc["file_path"]).resolve()
+        uploads_root = CLIENT_UPLOADS_DIR.parent.parent.resolve()
+        try:
+            file_path.relative_to(uploads_root)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid file path")
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found on disk")
+        return FileResponse(
+            str(file_path),
+            media_type=doc.get("file_mime", "application/octet-stream"),
+            filename=doc.get("file_name", "document"),
+        )
+    raise HTTPException(status_code=404, detail="No file attached; use the URL field")
+
+
+@router.delete("/api/clients/{client_id}/documents/{doc_id}")
+async def delete_client_document(client_id: str, doc_id: str, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    doc = workspace_store.get_client_document(doc_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if doc.get("file_path"):
+        try:
+            fp = (Path(__file__).resolve().parents[2] / doc["file_path"]).resolve()
+            if fp.exists():
+                fp.unlink()
+        except Exception as e:
+            logger.warning("Could not delete file for doc %s: %s", doc_id, e)
+    workspace_store.delete_client_document(doc_id)
+    return {"success": True}

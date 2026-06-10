@@ -187,6 +187,65 @@ class WorkspaceStore:
 
                 CREATE INDEX IF NOT EXISTS idx_client_operational_needs_dedupe
                 ON client_operational_needs (client_id, need_key, source, source_id);
+
+                CREATE TABLE IF NOT EXISTS client_appointments (
+                    apt_id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    appointment_date TEXT NOT NULL,
+                    appointment_time TEXT,
+                    location TEXT,
+                    doctor_name TEXT,
+                    service_type TEXT,
+                    status TEXT NOT NULL DEFAULT 'scheduled',
+                    notes TEXT,
+                    items_to_bring TEXT,
+                    reminder_id TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_client_appointments_client
+                ON client_appointments (client_id, appointment_date);
+
+                CREATE TABLE IF NOT EXISTS client_service_referrals (
+                    ref_id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    service_name TEXT NOT NULL,
+                    service_type TEXT,
+                    provider_name TEXT,
+                    phone TEXT,
+                    address TEXT,
+                    url TEXT,
+                    appointment_time TEXT,
+                    doctor_name TEXT,
+                    items_to_bring TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    notes TEXT,
+                    referral_date TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_client_service_referrals_client
+                ON client_service_referrals (client_id, referral_date);
+
+                CREATE TABLE IF NOT EXISTS client_documents (
+                    doc_id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    doc_type TEXT NOT NULL DEFAULT 'other',
+                    file_name TEXT,
+                    file_size INTEGER,
+                    file_mime TEXT,
+                    file_path TEXT,
+                    url TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_client_documents_client
+                ON client_documents (client_id, created_at);
                 """
             )
             note_columns = {
@@ -1217,6 +1276,213 @@ class WorkspaceStore:
     def delete_rolodex_entry(self, entry_id: str) -> bool:
         with self._connect() as conn:
             cursor = conn.execute("DELETE FROM case_manager_rolodex WHERE id = ?", (entry_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # ── Client Appointments ──────────────────────────────────────────────────
+
+    def list_client_appointments(self, client_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM client_appointments WHERE client_id = ? ORDER BY appointment_date ASC, appointment_time ASC",
+                (client_id,),
+            ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def create_client_appointment(self, client_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        now = self._now()
+        item = {
+            "apt_id": uuid4().hex,
+            "client_id": client_id,
+            "title": data.get("title", "Appointment"),
+            "appointment_date": data.get("appointment_date", ""),
+            "appointment_time": data.get("appointment_time"),
+            "location": data.get("location"),
+            "doctor_name": data.get("doctor_name"),
+            "service_type": data.get("service_type"),
+            "status": data.get("status", "scheduled"),
+            "notes": data.get("notes"),
+            "items_to_bring": data.get("items_to_bring"),
+            "reminder_id": data.get("reminder_id"),
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO client_appointments
+                   (apt_id, client_id, title, appointment_date, appointment_time,
+                    location, doctor_name, service_type, status, notes, items_to_bring,
+                    reminder_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    item["apt_id"], item["client_id"], item["title"],
+                    item["appointment_date"], item["appointment_time"],
+                    item["location"], item["doctor_name"], item["service_type"],
+                    item["status"], item["notes"], item["items_to_bring"],
+                    item["reminder_id"], item["created_at"], item["updated_at"],
+                ),
+            )
+            conn.commit()
+        return item
+
+    def update_client_appointment(self, apt_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        now = self._now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """UPDATE client_appointments
+                   SET title=COALESCE(?,title), appointment_date=COALESCE(?,appointment_date),
+                       appointment_time=?, location=?, doctor_name=?, service_type=?,
+                       status=COALESCE(?,status), notes=?, items_to_bring=?, updated_at=?
+                   WHERE apt_id=?""",
+                (
+                    data.get("title"), data.get("appointment_date"),
+                    data.get("appointment_time"), data.get("location"),
+                    data.get("doctor_name"), data.get("service_type"),
+                    data.get("status"), data.get("notes"),
+                    data.get("items_to_bring"), now, apt_id,
+                ),
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                return None
+            row = conn.execute("SELECT * FROM client_appointments WHERE apt_id=?", (apt_id,)).fetchone()
+        return self._row_to_dict(row) if row else None
+
+    def delete_client_appointment(self, apt_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM client_appointments WHERE apt_id=?", (apt_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # ── Client Service Referrals ─────────────────────────────────────────────
+
+    def list_client_service_referrals(self, client_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM client_service_referrals WHERE client_id=? ORDER BY referral_date DESC",
+                (client_id,),
+            ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def create_client_service_referral(self, client_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        from datetime import date
+        now = self._now()
+        item = {
+            "ref_id": uuid4().hex,
+            "client_id": client_id,
+            "service_name": data.get("service_name", "Service"),
+            "service_type": data.get("service_type"),
+            "provider_name": data.get("provider_name"),
+            "phone": data.get("phone"),
+            "address": data.get("address"),
+            "url": data.get("url"),
+            "appointment_time": data.get("appointment_time"),
+            "doctor_name": data.get("doctor_name"),
+            "items_to_bring": data.get("items_to_bring"),
+            "status": data.get("status", "pending"),
+            "notes": data.get("notes"),
+            "referral_date": data.get("referral_date", str(date.today())),
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO client_service_referrals
+                   (ref_id, client_id, service_name, service_type, provider_name, phone,
+                    address, url, appointment_time, doctor_name, items_to_bring, status,
+                    notes, referral_date, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    item["ref_id"], item["client_id"], item["service_name"],
+                    item["service_type"], item["provider_name"], item["phone"],
+                    item["address"], item["url"], item["appointment_time"],
+                    item["doctor_name"], item["items_to_bring"], item["status"],
+                    item["notes"], item["referral_date"], item["created_at"], item["updated_at"],
+                ),
+            )
+            conn.commit()
+        return item
+
+    def update_client_service_referral(self, ref_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        now = self._now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """UPDATE client_service_referrals
+                   SET service_name=COALESCE(?,service_name), service_type=?,
+                       provider_name=?, phone=?, address=?, url=?,
+                       appointment_time=?, doctor_name=?, items_to_bring=?,
+                       status=COALESCE(?,status), notes=?, updated_at=?
+                   WHERE ref_id=?""",
+                (
+                    data.get("service_name"), data.get("service_type"),
+                    data.get("provider_name"), data.get("phone"),
+                    data.get("address"), data.get("url"),
+                    data.get("appointment_time"), data.get("doctor_name"),
+                    data.get("items_to_bring"), data.get("status"),
+                    data.get("notes"), now, ref_id,
+                ),
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                return None
+            row = conn.execute("SELECT * FROM client_service_referrals WHERE ref_id=?", (ref_id,)).fetchone()
+        return self._row_to_dict(row) if row else None
+
+    def delete_client_service_referral(self, ref_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM client_service_referrals WHERE ref_id=?", (ref_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    # ── Client Documents ─────────────────────────────────────────────────────
+
+    def list_client_documents(self, client_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM client_documents WHERE client_id=? ORDER BY created_at DESC",
+                (client_id,),
+            ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def create_client_document(self, client_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        now = self._now()
+        item = {
+            "doc_id": uuid4().hex,
+            "client_id": client_id,
+            "title": data.get("title", "Document"),
+            "doc_type": data.get("doc_type", "other"),
+            "file_name": data.get("file_name"),
+            "file_size": data.get("file_size"),
+            "file_mime": data.get("file_mime"),
+            "file_path": data.get("file_path"),
+            "url": data.get("url"),
+            "created_at": now,
+            "updated_at": now,
+        }
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO client_documents
+                   (doc_id, client_id, title, doc_type, file_name, file_size,
+                    file_mime, file_path, url, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    item["doc_id"], item["client_id"], item["title"],
+                    item["doc_type"], item["file_name"], item["file_size"],
+                    item["file_mime"], item["file_path"], item["url"],
+                    item["created_at"], item["updated_at"],
+                ),
+            )
+            conn.commit()
+        return item
+
+    def get_client_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM client_documents WHERE doc_id=?", (doc_id,)).fetchone()
+        return self._row_to_dict(row) if row else None
+
+    def delete_client_document(self, doc_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute("DELETE FROM client_documents WHERE doc_id=?", (doc_id,))
             conn.commit()
             return cursor.rowcount > 0
 

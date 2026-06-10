@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Briefcase, Search, MapPin, Phone, User, Building2, Heart, Users, Car, Home, GraduationCap, Shield, Sparkles, Zap, TrendingUp } from 'lucide-react'
+import { Briefcase, Search, MapPin, Phone, User, Building2, Heart, Users, Car, Home, GraduationCap, Shield, Sparkles, Zap, TrendingUp, X, Calendar, ClipboardList } from 'lucide-react'
 import ClientSelector from '../components/ClientSelector'
 import Pagination from '../components/Pagination'
 import toast from 'react-hot-toast'
@@ -18,6 +18,17 @@ function Services() {
     insuranceType: searchParams.get('insurance_type') || 'all',
   })
   
+  // Referral modal state
+  const [showReferralModal, setShowReferralModal] = useState(false)
+  const [selectedService, setSelectedService] = useState(null)
+  const [referralForm, setReferralForm] = useState({
+    appointment_time: '',
+    doctor_name: '',
+    items_to_bring: '',
+    notes: '',
+  })
+  const [referralSaving, setReferralSaving] = useState(false)
+
   // Pagination state
   const [pagination, setPagination] = useState({
     currentPage: parseInt(searchParams.get('page')) || 1,
@@ -262,38 +273,43 @@ function Services() {
   // as that can hide valid matches from external sources.
   const filteredServices = services
 
-  const createServiceReferralReminder = async (service) => {
+  const openReferralModal = (service) => {
     if (!selectedClient?.client_id) {
       toast.error('Please select a client first')
       return
     }
+    setSelectedService(service)
+    setReferralForm({ appointment_time: '', doctor_name: '', items_to_bring: '', notes: '' })
+    setShowReferralModal(true)
+  }
 
-    const dueDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const reminderText = `Service referral follow-up: ${service.name}${service.phone ? ` (${service.phone})` : ''}`
-
+  const submitReferral = async () => {
+    if (!selectedClient?.client_id || !selectedService) return
+    setReferralSaving(true)
     try {
-      const response = await apiFetch('/api/reminders/create', {
+      const response = await apiFetch(`/api/clients/${selectedClient.client_id}/service-referrals`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          client_id: selectedClient.client_id,
-          reminder_text: reminderText,
-          due_date: dueDate,
-          case_manager_id: selectedClient.case_manager_id || 'default_cm',
-          priority: 'Medium',
+          service_name: selectedService.name,
+          service_type: selectedService.serviceType || selectedService.category,
+          provider_name: selectedService.name,
+          phone: selectedService.phone,
+          address: selectedService.address,
+          url: selectedService.url,
+          appointment_time: referralForm.appointment_time || null,
+          doctor_name: referralForm.doctor_name || null,
+          items_to_bring: referralForm.items_to_bring || null,
+          notes: referralForm.notes || null,
         }),
       })
-
-      if (!response.ok) {
-        throw new Error('Failed to create referral follow-up')
-      }
-
-      toast.success(`Referral follow-up created for ${selectedClient.first_name} ${selectedClient.last_name}`)
+      if (!response.ok) throw new Error('Failed to create referral')
+      toast.success(`Referral created for ${selectedClient.first_name} ${selectedClient.last_name}`)
+      setShowReferralModal(false)
     } catch (error) {
-      console.error('Service referral reminder error:', error)
-      toast.error(error?.message || 'Failed to create referral follow-up')
+      toast.error(error?.message || 'Failed to create referral')
+    } finally {
+      setReferralSaving(false)
     }
   }
 
@@ -574,8 +590,8 @@ function Services() {
                         )}
                         
                         <div className="flex gap-3">
-                          <button 
-                            onClick={() => createServiceReferralReminder(service)}
+                          <button
+                            onClick={() => openReferralModal(service)}
                             className="group/btn flex-1 px-4 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white text-sm rounded-lg font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-lg hover:shadow-teal-500/25"
                           >
                             Refer Client
@@ -619,6 +635,96 @@ function Services() {
           </div>
         </div>
       </div>
+
+      {/* Referral Details Modal */}
+      {showReferralModal && selectedService && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowReferralModal(false)} />
+          <div className="relative z-10 w-full max-w-lg bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl border border-white/20 shadow-2xl shadow-teal-500/20 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-gradient-to-r from-teal-500 to-cyan-500 rounded-lg">
+                  <ClipboardList className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-white">Refer Client</h2>
+                  <p className="text-sm text-teal-300">{selectedService.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowReferralModal(false)} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4 p-3 bg-teal-500/10 border border-teal-500/20 rounded-xl">
+              <p className="text-sm text-teal-200">
+                Referring <strong className="text-white">{selectedClient?.first_name} {selectedClient?.last_name}</strong> to this service.
+                All fields below are optional.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1 flex items-center gap-1">
+                  <Calendar className="h-3 w-3" /> Appointment Date/Time
+                </label>
+                <input
+                  type="datetime-local"
+                  value={referralForm.appointment_time}
+                  onChange={e => setReferralForm(f => ({ ...f, appointment_time: e.target.value }))}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">Doctor / Provider Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Dr. Smith"
+                  value={referralForm.doctor_name}
+                  onChange={e => setReferralForm(f => ({ ...f, doctor_name: e.target.value }))}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500/50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">What Client Needs to Bring</label>
+                <input
+                  type="text"
+                  placeholder="e.g. ID, insurance card, referral letter"
+                  value={referralForm.items_to_bring}
+                  onChange={e => setReferralForm(f => ({ ...f, items_to_bring: e.target.value }))}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500/50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-400 mb-1">Notes</label>
+                <textarea
+                  rows={3}
+                  placeholder="Any additional notes for this referral..."
+                  value={referralForm.notes}
+                  onChange={e => setReferralForm(f => ({ ...f, notes: e.target.value }))}
+                  className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500/50 resize-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setShowReferralModal(false)}
+                className="flex-1 px-4 py-2.5 bg-white/10 border border-white/20 text-gray-300 rounded-xl hover:bg-white/20 hover:text-white transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitReferral}
+                disabled={referralSaving}
+                className="flex-1 px-4 py-2.5 bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 text-white rounded-xl font-medium transition-all disabled:opacity-50"
+              >
+                {referralSaving ? 'Saving...' : 'Create Referral'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,11 +1,11 @@
 ﻿import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { 
-  ArrowLeft, 
-  User, 
-  Phone, 
-  Mail, 
-  MapPin, 
+import {
+  ArrowLeft,
+  User,
+  Phone,
+  Mail,
+  MapPin,
   Calendar,
   AlertCircle,
   CheckCircle,
@@ -26,7 +26,13 @@ import {
   RefreshCw,
   Filter,
   Sparkles,
-  Zap
+  Zap,
+  FolderOpen,
+  Upload,
+  Trash2,
+  Eye,
+  X,
+  ClipboardList
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useNotes from '../hooks/useNotes'
@@ -86,6 +92,25 @@ const ClientDashboard = () => {
   const [showTaskView, setShowTaskView] = useState(false)
   const [viewingTask, setViewingTask] = useState(null)
 
+  // Appointments state
+  const [appointments, setAppointments] = useState([])
+  const [showAptModal, setShowAptModal] = useState(false)
+  const [editingApt, setEditingApt] = useState(null)
+  const [aptForm, setAptForm] = useState({
+    title: '', appointment_date: '', appointment_time: '',
+    location: '', doctor_name: '', service_type: '', notes: '', items_to_bring: ''
+  })
+  const [aptSaving, setAptSaving] = useState(false)
+
+  // Documents state
+  const [documents, setDocuments] = useState([])
+  const [showDocViewer, setShowDocViewer] = useState(false)
+  const [viewingDoc, setViewingDoc] = useState(null)
+  const [docUploading, setDocUploading] = useState(false)
+  const [showDocUpload, setShowDocUpload] = useState(false)
+  const [docForm, setDocForm] = useState({ title: '', doc_type: 'other', url: '' })
+  const [docFile, setDocFile] = useState(null)
+
   // Edit client modal
   const [showEditModal, setShowEditModal] = useState(false)
   const [editForm, setEditForm] = useState({})
@@ -96,6 +121,8 @@ const ClientDashboard = () => {
       fetchClientData()
       fetchIntelligentTasks()
       fetchSearchRecommendations()
+      fetchAppointments()
+      fetchDocuments()
     }
   }, [clientId])
 
@@ -404,6 +431,141 @@ const ClientDashboard = () => {
     }
   }
 
+  // ── Appointments ──────────────────────────────────────────────────────────
+
+  const fetchAppointments = async () => {
+    try {
+      const res = await apiFetch(`/api/clients/${clientId}/appointments`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success) setAppointments(data.appointments || [])
+      }
+    } catch (e) {
+      console.log('Appointments not loaded:', e)
+    }
+  }
+
+  const openAddApt = () => {
+    setEditingApt(null)
+    setAptForm({ title: '', appointment_date: '', appointment_time: '', location: '', doctor_name: '', service_type: '', notes: '', items_to_bring: '' })
+    setShowAptModal(true)
+  }
+
+  const openEditApt = (apt) => {
+    setEditingApt(apt)
+    setAptForm({
+      title: apt.title || '',
+      appointment_date: apt.appointment_date || '',
+      appointment_time: apt.appointment_time || '',
+      location: apt.location || '',
+      doctor_name: apt.doctor_name || '',
+      service_type: apt.service_type || '',
+      notes: apt.notes || '',
+      items_to_bring: apt.items_to_bring || '',
+    })
+    setShowAptModal(true)
+  }
+
+  const saveApt = async () => {
+    if (!aptForm.title || !aptForm.appointment_date) {
+      toast.error('Title and date are required')
+      return
+    }
+    setAptSaving(true)
+    try {
+      const method = editingApt ? 'PUT' : 'POST'
+      const url = editingApt
+        ? `/api/clients/${clientId}/appointments/${editingApt.apt_id}`
+        : `/api/clients/${clientId}/appointments`
+      const res = await apiFetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(aptForm),
+      })
+      if (!res.ok) throw new Error('Failed to save')
+      toast.success(editingApt ? 'Appointment updated!' : 'Appointment created!')
+      setShowAptModal(false)
+      fetchAppointments()
+    } catch (e) {
+      toast.error('Failed to save appointment')
+    } finally {
+      setAptSaving(false)
+    }
+  }
+
+  const deleteApt = async (aptId) => {
+    if (!window.confirm('Delete this appointment?')) return
+    try {
+      const res = await apiFetch(`/api/clients/${clientId}/appointments/${aptId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      toast.success('Appointment deleted')
+      setAppointments(prev => prev.filter(a => a.apt_id !== aptId))
+    } catch {
+      toast.error('Failed to delete appointment')
+    }
+  }
+
+  // ── Documents ─────────────────────────────────────────────────────────────
+
+  const fetchDocuments = async () => {
+    try {
+      const res = await apiFetch(`/api/clients/${clientId}/documents`)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success) setDocuments(data.documents || [])
+      }
+    } catch (e) {
+      console.log('Documents not loaded:', e)
+    }
+  }
+
+  const openDocViewer = (doc) => {
+    setViewingDoc(doc)
+    setShowDocViewer(true)
+  }
+
+  const uploadDocument = async () => {
+    if (!docForm.title) { toast.error('Title is required'); return }
+    if (!docFile && !docForm.url) { toast.error('Attach a file or enter a URL'); return }
+    setDocUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('title', docForm.title)
+      fd.append('doc_type', docForm.doc_type)
+      if (docForm.url) fd.append('url', docForm.url)
+      if (docFile) fd.append('file', docFile)
+      const res = await apiFetch(`/api/clients/${clientId}/documents`, { method: 'POST', body: fd })
+      if (!res.ok) throw new Error()
+      toast.success('Document uploaded!')
+      setShowDocUpload(false)
+      setDocForm({ title: '', doc_type: 'other', url: '' })
+      setDocFile(null)
+      fetchDocuments()
+    } catch {
+      toast.error('Failed to upload document')
+    } finally {
+      setDocUploading(false)
+    }
+  }
+
+  const deleteDocument = async (docId) => {
+    if (!window.confirm('Delete this document?')) return
+    try {
+      const res = await apiFetch(`/api/clients/${clientId}/documents/${docId}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error()
+      toast.success('Document deleted')
+      setDocuments(prev => prev.filter(d => d.doc_id !== docId))
+    } catch {
+      toast.error('Failed to delete document')
+    }
+  }
+
+  const getDocViewUrl = (doc) => {
+    if (doc.file_path) return `/api/clients/${clientId}/documents/${doc.doc_id}/view`
+    if (doc.url) return doc.url
+    return null
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
@@ -477,6 +639,8 @@ const ClientDashboard = () => {
   const tabs = [
     { id: 'overview', label: 'Overview', icon: User, gradient: 'from-blue-500 to-indigo-500' },
     { id: 'timeline', label: 'Timeline', icon: MessageSquare, gradient: 'from-teal-500 to-cyan-500' },
+    { id: 'appointments', label: 'Appointments', icon: Calendar, gradient: 'from-blue-500 to-cyan-500' },
+    { id: 'docs', label: 'Documents', icon: FolderOpen, gradient: 'from-violet-500 to-purple-500' },
     { id: 'housing', label: 'Housing', icon: Home, gradient: 'from-orange-500 to-red-500' },
     { id: 'employment', label: 'Employment', icon: Briefcase, gradient: 'from-green-500 to-emerald-500' },
     { id: 'benefits', label: 'Benefits', icon: DollarSign, gradient: 'from-purple-500 to-violet-500' },
@@ -830,20 +994,54 @@ const ClientDashboard = () => {
 
                 {/* Upcoming Appointments */}
                 <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-6 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
-                  <div className="flex items-center gap-3 mb-6">
-                    <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
-                      <Calendar className="h-5 w-5 text-white" />
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
+                        <Calendar className="h-5 w-5 text-white" />
+                      </div>
+                      <h3 className="text-xl font-bold text-white">Upcoming Appointments</h3>
                     </div>
-                    <h3 className="text-xl font-bold text-white">Upcoming Appointments</h3>
+                    <button
+                      onClick={openAddApt}
+                      className="group flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white text-xs rounded-lg font-medium transition-all hover:scale-105"
+                    >
+                      <Plus className="h-3 w-3" /> Add
+                    </button>
                   </div>
                   <div className="space-y-3">
-                    {clientData.appointments?.map((appointment, index) => (
-                      <div key={index} className="p-4 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-xl border border-blue-500/30">
-                        <p className="font-medium text-white">{appointment.appointment_type}</p>
-                        <p className="text-sm text-blue-200">{appointment.provider_name}</p>
-                        <p className="text-sm text-blue-200">{formatDateTime(appointment.appointment_date)}</p>
+                    {appointments.length > 0 ? appointments.slice(0, 3).map((apt) => (
+                      <div key={apt.apt_id} className="p-4 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-xl border border-blue-500/30">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-medium text-white">{apt.title}</p>
+                            {apt.doctor_name && <p className="text-sm text-blue-200">With: {apt.doctor_name}</p>}
+                            {apt.location && <p className="text-sm text-blue-200">At: {apt.location}</p>}
+                            <p className="text-sm text-blue-300">{formatDate(apt.appointment_date)}{apt.appointment_time ? ` at ${apt.appointment_time}` : ''}</p>
+                            {apt.items_to_bring && <p className="text-xs text-cyan-300 mt-1">Bring: {apt.items_to_bring}</p>}
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <button onClick={() => openEditApt(apt)} className="p-1.5 hover:bg-white/10 rounded text-gray-400 hover:text-white transition-colors">
+                              <Edit className="h-3.5 w-3.5" />
+                            </button>
+                            <button onClick={() => deleteApt(apt.apt_id)} className="p-1.5 hover:bg-red-500/20 rounded text-gray-400 hover:text-red-300 transition-colors">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                    )) || <p className="text-gray-400">No upcoming appointments</p>}
+                    )) : (
+                      <div className="text-center py-6">
+                        <p className="text-gray-400 text-sm mb-3">No upcoming appointments</p>
+                        <button onClick={openAddApt} className="text-blue-400 hover:text-blue-300 text-sm underline">
+                          Schedule one now
+                        </button>
+                      </div>
+                    )}
+                    {appointments.length > 3 && (
+                      <button onClick={() => setActiveTab('appointments')} className="w-full text-center text-blue-400 hover:text-blue-300 text-sm py-2 transition-colors">
+                        View all {appointments.length} appointments →
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -1548,6 +1746,247 @@ const ClientDashboard = () => {
               </div>
             </div>
           )}
+
+          {/* APPOINTMENTS TAB */}
+          {activeTab === 'appointments' && (
+            <div className="space-y-8">
+              <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
+                      <Calendar className="h-6 w-6 text-white" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-white">Appointments</h3>
+                    <span className="px-3 py-1 bg-blue-500/20 rounded-full text-blue-300 text-sm">{appointments.length} total</span>
+                  </div>
+                  <button
+                    onClick={openAddApt}
+                    className="group px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-blue-500/25 flex items-center space-x-2"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>Add Appointment</span>
+                  </button>
+                </div>
+
+                {appointments.length === 0 ? (
+                  <div className="text-center py-16 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-xl border border-blue-500/30">
+                    <Calendar className="h-12 w-12 text-blue-400 mx-auto mb-4" />
+                    <h4 className="text-lg font-medium text-white mb-2">No Appointments Yet</h4>
+                    <p className="text-blue-200 mb-4">Schedule appointments and they will sync to the daily reminder system.</p>
+                    <button onClick={openAddApt} className="px-6 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-medium hover:scale-105 transition-all">
+                      Schedule First Appointment
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {appointments.map((apt) => (
+                      <div key={apt.apt_id} className="p-5 bg-gradient-to-br from-blue-500/15 to-cyan-500/15 backdrop-blur-sm rounded-xl border border-blue-500/25 hover:border-blue-500/40 transition-all">
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h4 className="font-bold text-white text-lg">{apt.title}</h4>
+                              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(apt.status)}`}>{apt.status}</span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                              <div className="flex items-center gap-2 text-blue-200">
+                                <Calendar className="h-4 w-4" />
+                                <span>{formatDate(apt.appointment_date)}{apt.appointment_time ? ` at ${apt.appointment_time}` : ''}</span>
+                              </div>
+                              {apt.doctor_name && (
+                                <div className="flex items-center gap-2 text-blue-200">
+                                  <User className="h-4 w-4" />
+                                  <span>{apt.doctor_name}</span>
+                                </div>
+                              )}
+                              {apt.location && (
+                                <div className="flex items-center gap-2 text-blue-200">
+                                  <MapPin className="h-4 w-4" />
+                                  <span>{apt.location}</span>
+                                </div>
+                              )}
+                              {apt.service_type && (
+                                <div className="flex items-center gap-2 text-blue-200">
+                                  <Building2 className="h-4 w-4" />
+                                  <span>{apt.service_type}</span>
+                                </div>
+                              )}
+                            </div>
+                            {apt.items_to_bring && (
+                              <div className="mt-2 px-3 py-2 bg-cyan-500/10 rounded-lg border border-cyan-500/20">
+                                <p className="text-xs font-medium text-cyan-300">Bring: {apt.items_to_bring}</p>
+                              </div>
+                            )}
+                            {apt.notes && <p className="mt-2 text-sm text-gray-300">{apt.notes}</p>}
+                          </div>
+                          <div className="flex gap-2 ml-4 shrink-0">
+                            <button onClick={() => openEditApt(apt)} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button onClick={() => deleteApt(apt.apt_id)} className="p-2 hover:bg-red-500/20 rounded-lg text-gray-400 hover:text-red-300 transition-colors">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* DOCUMENTS TAB */}
+          {activeTab === 'docs' && (
+            <div className="space-y-8">
+              <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-gradient-to-r from-violet-500 to-purple-500 rounded-lg">
+                      <FolderOpen className="h-6 w-6 text-white" />
+                    </div>
+                    <h3 className="text-2xl font-bold text-white">Client Documents</h3>
+                    <span className="px-3 py-1 bg-violet-500/20 rounded-full text-violet-300 text-sm">{documents.length} files</span>
+                  </div>
+                  <button
+                    onClick={() => setShowDocUpload(true)}
+                    className="group px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-violet-500/25 flex items-center space-x-2"
+                  >
+                    <Upload className="h-4 w-4" />
+                    <span>Upload Document</span>
+                  </button>
+                </div>
+
+                {showDocUpload && (
+                  <div className="mb-6 p-5 bg-violet-500/10 border border-violet-500/30 rounded-xl">
+                    <h4 className="font-medium text-white mb-4">Upload New Document</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Title *</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. State ID, Insurance Card"
+                          value={docForm.title}
+                          onChange={e => setDocForm(f => ({ ...f, title: e.target.value }))}
+                          className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Document Type</label>
+                        <select
+                          value={docForm.doc_type}
+                          onChange={e => setDocForm(f => ({ ...f, doc_type: e.target.value }))}
+                          className="w-full px-3 py-2 bg-slate-700 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                        >
+                          <option value="id">Government ID</option>
+                          <option value="insurance">Insurance Card</option>
+                          <option value="medical">Medical Record</option>
+                          <option value="legal">Legal Document</option>
+                          <option value="housing">Housing Document</option>
+                          <option value="employment">Employment Document</option>
+                          <option value="benefits">Benefits Document</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Upload File</label>
+                        <input
+                          type="file"
+                          onChange={e => setDocFile(e.target.files[0])}
+                          className="w-full text-sm text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-violet-600 file:text-white hover:file:bg-violet-500 cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Or Enter URL</label>
+                        <input
+                          type="url"
+                          placeholder="https://..."
+                          value={docForm.url}
+                          onChange={e => setDocForm(f => ({ ...f, url: e.target.value }))}
+                          className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex gap-3 mt-4">
+                      <button
+                        onClick={() => { setShowDocUpload(false); setDocForm({ title: '', doc_type: 'other', url: '' }); setDocFile(null) }}
+                        className="flex-1 px-4 py-2 bg-white/10 border border-white/20 text-gray-300 rounded-xl hover:bg-white/20 transition-all"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={uploadDocument}
+                        disabled={docUploading}
+                        className="flex-1 px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-medium transition-all disabled:opacity-50"
+                      >
+                        {docUploading ? 'Uploading...' : 'Upload'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {documents.length === 0 && !showDocUpload ? (
+                  <div className="text-center py-16 bg-gradient-to-br from-violet-500/20 to-purple-500/20 backdrop-blur-sm rounded-xl border border-violet-500/30">
+                    <FolderOpen className="h-12 w-12 text-violet-400 mx-auto mb-4" />
+                    <h4 className="text-lg font-medium text-white mb-2">No Documents Yet</h4>
+                    <p className="text-violet-200 mb-4">Upload IDs, insurance cards, and other client documents.</p>
+                    <button onClick={() => setShowDocUpload(true)} className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium hover:scale-105 transition-all">
+                      Upload First Document
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {documents.map((doc) => {
+                      const viewUrl = getDocViewUrl(doc)
+                      const isImage = doc.file_mime?.startsWith('image/')
+                      const isPdf = doc.file_mime === 'application/pdf'
+                      return (
+                        <div key={doc.doc_id} className="p-5 bg-gradient-to-br from-violet-500/15 to-purple-500/15 backdrop-blur-sm rounded-xl border border-violet-500/25 hover:border-violet-500/40 transition-all">
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-bold text-white truncate">{doc.title}</h4>
+                              <p className="text-xs text-violet-300 capitalize">{(doc.doc_type || 'other').replace('_', ' ')}</p>
+                              {doc.file_name && <p className="text-xs text-gray-400 truncate mt-1">{doc.file_name}</p>}
+                              {doc.file_size && <p className="text-xs text-gray-500">{(doc.file_size / 1024).toFixed(1)} KB</p>}
+                              <p className="text-xs text-gray-500 mt-1">{formatDate(doc.created_at)}</p>
+                            </div>
+                            <div className="flex gap-2 ml-3 shrink-0">
+                              {viewUrl && (
+                                <button
+                                  onClick={() => doc.file_path ? openDocViewer(doc) : window.open(viewUrl, '_blank')}
+                                  className="p-2 hover:bg-violet-500/20 rounded-lg text-gray-400 hover:text-violet-300 transition-colors"
+                                  title="View"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                </button>
+                              )}
+                              {viewUrl && (
+                                <a
+                                  href={viewUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
+                                  title="Open in new tab"
+                                >
+                                  <ExternalLink className="h-4 w-4" />
+                                </a>
+                              )}
+                              <button
+                                onClick={() => deleteDocument(doc.doc_id)}
+                                className="p-2 hover:bg-red-500/20 rounded-lg text-gray-400 hover:text-red-300 transition-colors"
+                                title="Delete"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Task Form Modal */}
@@ -1587,6 +2026,126 @@ const ClientDashboard = () => {
           clientId={clientId}
           clientName={client ? `${client.first_name} ${client.last_name}` : ''}
         />
+
+        {/* Appointment Modal */}
+        {showAptModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowAptModal(false)} />
+            <div className="relative z-10 w-full max-w-lg bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl border border-white/20 shadow-2xl shadow-blue-500/20 p-6">
+              <div className="flex items-center justify-between mb-5">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg">
+                    <Calendar className="h-5 w-5 text-white" />
+                  </div>
+                  <h2 className="text-xl font-bold text-white">{editingApt ? 'Edit Appointment' : 'Add Appointment'}</h2>
+                </div>
+                <button onClick={() => setShowAptModal(false)} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Title *</label>
+                  <input type="text" placeholder="e.g. Medical Check-up" value={aptForm.title} onChange={e => setAptForm(f => ({ ...f, title: e.target.value }))}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Date *</label>
+                    <input type="date" value={aptForm.appointment_date} onChange={e => setAptForm(f => ({ ...f, appointment_date: e.target.value }))}
+                      className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-400 mb-1">Time</label>
+                    <input type="time" value={aptForm.appointment_time} onChange={e => setAptForm(f => ({ ...f, appointment_time: e.target.value }))}
+                      className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Doctor / Provider</label>
+                  <input type="text" placeholder="e.g. Dr. Smith" value={aptForm.doctor_name} onChange={e => setAptForm(f => ({ ...f, doctor_name: e.target.value }))}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Location / Address</label>
+                  <input type="text" placeholder="e.g. 123 Main St" value={aptForm.location} onChange={e => setAptForm(f => ({ ...f, location: e.target.value }))}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Service Type</label>
+                  <input type="text" placeholder="e.g. Dental, Medical, Mental Health" value={aptForm.service_type} onChange={e => setAptForm(f => ({ ...f, service_type: e.target.value }))}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">What to Bring</label>
+                  <input type="text" placeholder="e.g. ID, insurance card" value={aptForm.items_to_bring} onChange={e => setAptForm(f => ({ ...f, items_to_bring: e.target.value }))}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Notes</label>
+                  <textarea rows={3} value={aptForm.notes} onChange={e => setAptForm(f => ({ ...f, notes: e.target.value }))}
+                    className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50" />
+                </div>
+              </div>
+              <div className="flex gap-3 mt-6">
+                <button onClick={() => setShowAptModal(false)} className="flex-1 px-4 py-2.5 bg-white/10 border border-white/20 text-gray-300 rounded-xl hover:bg-white/20 hover:text-white transition-all">Cancel</button>
+                <button onClick={saveApt} disabled={aptSaving} className="flex-1 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-xl font-medium transition-all disabled:opacity-50">
+                  {aptSaving ? 'Saving...' : (editingApt ? 'Save Changes' : 'Create Appointment')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Doc Viewer Modal */}
+        {showDocViewer && viewingDoc && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowDocViewer(false)} />
+            <div className="relative z-10 w-full max-w-4xl max-h-[90vh] bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl border border-white/20 shadow-2xl flex flex-col">
+              <div className="flex items-center justify-between p-4 border-b border-white/10">
+                <div className="flex items-center gap-3">
+                  <FolderOpen className="h-5 w-5 text-violet-400" />
+                  <span className="font-medium text-white">{viewingDoc.title}</span>
+                  {viewingDoc.file_name && <span className="text-xs text-gray-400">{viewingDoc.file_name}</span>}
+                </div>
+                <div className="flex gap-2">
+                  <a href={getDocViewUrl(viewingDoc)} target="_blank" rel="noopener noreferrer"
+                    className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors" title="Open in new tab">
+                    <ExternalLink className="h-4 w-4" />
+                  </a>
+                  <button onClick={() => setShowDocViewer(false)} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 overflow-auto p-2 min-h-0">
+                {viewingDoc.file_mime?.startsWith('image/') ? (
+                  <img src={getDocViewUrl(viewingDoc)} alt={viewingDoc.title} className="max-w-full mx-auto rounded-lg" />
+                ) : viewingDoc.file_mime === 'application/pdf' ? (
+                  <iframe src={getDocViewUrl(viewingDoc)} className="w-full h-[70vh] rounded-lg border-0" title={viewingDoc.title} />
+                ) : viewingDoc.url ? (
+                  <div className="text-center py-16">
+                    <FileText className="h-12 w-12 text-violet-400 mx-auto mb-4" />
+                    <p className="text-gray-300 mb-4">This file type cannot be previewed inline.</p>
+                    <a href={getDocViewUrl(viewingDoc)} target="_blank" rel="noopener noreferrer"
+                      className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium hover:scale-105 transition-all inline-block">
+                      Open Document
+                    </a>
+                  </div>
+                ) : (
+                  <div className="text-center py-16">
+                    <FileText className="h-12 w-12 text-violet-400 mx-auto mb-4" />
+                    <p className="text-gray-300 mb-4">Preview not available for this file type.</p>
+                    <a href={getDocViewUrl(viewingDoc)} target="_blank" rel="noopener noreferrer"
+                      className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium hover:scale-105 transition-all inline-block">
+                      Download Document
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Edit Client Modal */}
         {showEditModal && (

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Scale, FileText, CheckCircle, Clock, AlertCircle, Calendar, Plus, Edit, Trash2, X, Save, User, Sparkles, Zap, TrendingUp, Briefcase, Shield, Gavel, Upload, Download } from 'lucide-react'
+import { Scale, FileText, CheckCircle, Clock, AlertCircle, Calendar, Plus, Edit, Trash2, X, Save, User, Sparkles, Zap, TrendingUp, Briefcase, Shield, Gavel, Upload, Download, Eye } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
 import toast from 'react-hot-toast'
@@ -24,6 +24,8 @@ function Legal() {
   const [showDocumentModal, setShowDocumentModal] = useState(false)
   const [documentUploadFile, setDocumentUploadFile] = useState(null)
   const [documentUploadFiles, setDocumentUploadFiles] = useState({})
+  const [docViewerUrl, setDocViewerUrl] = useState(null)
+  const [docViewerName, setDocViewerName] = useState('')
   const [caseForm, setCaseForm] = useState({
     case_number: '',
     court_name: '',
@@ -826,13 +828,26 @@ function Legal() {
                         <div className="mt-4">
                           <div className="flex flex-wrap gap-3">
                             {doc.has_file && (
-                              <button
-                                onClick={() => window.open(`/api/legal/documents/${encodeURIComponent(doc.document_id)}/download`, '_blank', 'noopener,noreferrer')}
-                                className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all duration-300"
-                              >
-                                <Download className="h-4 w-4" />
-                                Download File
-                              </button>
+                              <>
+                                <button
+                                  onClick={() => {
+                                    setDocViewerUrl(`/api/legal/documents/${encodeURIComponent(doc.document_id)}/download`)
+                                    setDocViewerName(doc.document_name || doc.document_id)
+                                  }}
+                                  className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white rounded-xl font-medium transition-all duration-300"
+                                >
+                                  <Eye className="h-4 w-4" />
+                                  View File
+                                </button>
+                                <button
+                                  onClick={() => window.open(`/api/legal/documents/${encodeURIComponent(doc.document_id)}/download`, '_blank', 'noopener,noreferrer')}
+                                  className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white rounded-xl font-medium transition-all duration-300"
+                                >
+                                  <Download className="h-4 w-4" />
+                                  Download File
+                                </button>
+                              </>
+
                             )}
                             <button
                               onClick={() => createReminder({
@@ -1157,6 +1172,33 @@ function Legal() {
                   Cancel
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Doc Viewer Modal */}
+      {docViewerUrl && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setDocViewerUrl(null)} />
+          <div className="relative z-10 w-full max-w-4xl max-h-[90vh] bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl border border-white/20 shadow-2xl flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5 text-emerald-400" />
+                <span className="font-medium text-white">{docViewerName}</span>
+              </div>
+              <div className="flex gap-2">
+                <a href={docViewerUrl} target="_blank" rel="noopener noreferrer"
+                  className="px-3 py-1.5 text-xs bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors flex items-center gap-1">
+                  <Download className="h-3.5 w-3.5" /> Download
+                </a>
+                <button onClick={() => setDocViewerUrl(null)} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto p-2 min-h-0">
+              <iframe src={docViewerUrl} className="w-full h-[75vh] rounded-lg border-0" title={docViewerName} />
             </div>
           </div>
         </div>
