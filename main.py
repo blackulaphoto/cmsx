@@ -305,6 +305,15 @@ except Exception as e:
     loaded_modules["groups"] = f"error: {e}"
     logger.warning(f"Groups facilitation module not loaded: {e}")
 
+try:
+    from backend.modules.admissions.routes import router as admissions_router
+    app.include_router(admissions_router, prefix="/api", tags=["admissions"])
+    loaded_modules["admissions"] = "loaded"
+    logger.info("Admissions module loaded successfully")
+except Exception as e:
+    loaded_modules["admissions"] = f"error: {e}"
+    logger.warning(f"Admissions module not loaded: {e}")
+
 @app.on_event("startup")
 async def initialize_reminders_db():
     """Ensure reminders DB is initialized"""

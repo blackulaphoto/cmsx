@@ -1,0 +1,11 @@
+id,name,phone,score,evidence
+396,Bicycle Health (Telehealth),(844) 705-0129,12,website | serp | organic:bicyclehealth.com
+398,Bright Heart Health (Telemedicine),(800) 892-2695,22,serp | organic:brighthearthealth.com | organic:brighthearthealth.com | organic:brighthearthealth.com | organic:brighthearthealth.com | organic:rehabs.com
+394,Crownview Medical Group - Sublocade Clinic,(619) 435-5400,24,website | serp | knowledge_graph.phone | organic:sandiegopsychiatrist.com | organic:sandiegopsychiatrist.com | organic:yelp.com
+397,Klinic (Telehealth),(216) 478-5990,17,website | serp | organic:klinic.com | organic:klinic.com
+381,LA Suboxone,(866) 210-4936,7,website
+37,Midnight Mission - HomeLight Family Living,(213) 624-9258,13,serp | knowledge_graph.phone | organic:midnightmission.org | organic:midnightmission.org | organic:causes.benevity.org | organic:midnightmission.org
+399,Ophelia (California Telehealth),(215) 585-2144,15,website | serp | organic:opheliahealth.webflow.io | organic:opheliahealth.webflow.io | organic:mapquest.com | organic:opheliahealth.webflow.io
+33,Riverside Recovery LA,(951) 684-3744,9,serp | knowledge_graph.phone | organic:cadtp.org | organic:yelp.com
+10,The Nook Sober Living,(888) 711-4278,12,serp | local_results.phone | local_results.phone | organic:yelp.com
+36,Wellness Housing,(562) 716-4568,23,serp | local_results.phone | local_results.phone | local_results.phone | organic:yelp.com | organic:wellnesshousing.org | organic:facebook.com | organic:wellnesshousing.org

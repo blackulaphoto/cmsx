@@ -1,0 +1,15 @@
+Treatment centers missing phone: 7
+Treatment centers invalid servesPopulation: 0
+Resources missing phone: 9
+Resources invalid filters: 0
+Medi-Cal providers missing searchTerms: 0
+Medi-Cal providers missing normalizedSpecialties: 0
+Meetings invalid type values: 0
+Meetings invalid meetingMode values: 0
+Events invalid eventType values: 0
+Articles missing tags: 0
+Forum posts missing category: 0
+Map pins unapproved: 0
+Videos missing category: 0
+Knowledge documents missing category: 0
+Jobs missing tags: 0

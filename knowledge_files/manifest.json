@@ -1,0 +1,202 @@
+[
+  {
+    "id": "ca_benefits_fast_start",
+    "title": "California Benefits Fast Start (CalFresh + Medi-Cal + Cash Aid) \u2014 SAWS 2 Guide",
+    "jurisdiction": "California",
+    "last_reviewed": "2026-01-31",
+    "tags": [
+      "calfresh",
+      "snap",
+      "medi-cal",
+      "cash aid",
+      "general relief",
+      "saws2",
+      "benefits"
+    ],
+    "sources": [
+      "internal: SAWS2_PLUS (Application for CalFresh, Cash Aid, and/or Medi-Cal)",
+      "CA Benefits portals vary by county; verify via 211/DPSS"
+    ],
+    "path": "ca_benefits_fast_start.md",
+    "sha16": "a2b5e5a9753f0fc0",
+    "chars": 1637
+  },
+  {
+    "id": "ca_id_rebuild_kit",
+    "title": "California ID Rebuild Kit (Birth Certificate \u2192 Social Security Card \u2192 CA ID)",
+    "jurisdiction": "California",
+    "last_reviewed": "2026-01-31",
+    "tags": [
+      "id",
+      "birth certificate",
+      "social security",
+      "dmv",
+      "no-fee id",
+      "homeless"
+    ],
+    "sources": [
+      "CDPH Vital Records: Obtaining Certified Copies of Birth Records (cdph.ca.gov)",
+      "CDPH VS 111: How to Obtain a Certified Copy of a Birth Record (PDF)",
+      "SSA Replace Card (ssa.gov)",
+      "SSA Documents needed for SS card (ssa.gov)",
+      "SSA Form SS-5 (PDF)",
+      "CA DMV ID Cards + No-fee ID eligibility (dmv.ca.gov)",
+      "CA DMV Reduced/No Fee ID Card Program for organizations (dmv.ca.gov)"
+    ],
+    "path": "ca_id_rebuild_kit.md",
+    "sha16": "5d604b7fa24adbc1",
+    "chars": 4801
+  },
+  {
+    "id": "ca_medi_cal_insurance_translator",
+    "title": "California Medi-Cal & Insurance Translator (PCP, HMO/PPO, Referrals, Plan Changes)",
+    "jurisdiction": "California",
+    "last_reviewed": "2026-01-31",
+    "tags": [
+      "medi-cal",
+      "insurance",
+      "pcp",
+      "hmo",
+      "ppo",
+      "referrals",
+      "specialist",
+      "health care options"
+    ],
+    "sources": [
+      "DHCS Health Care Options site (healthcareoptions.dhcs.ca.gov)",
+      "Health Care Options Contact/Enroll numbers (healthcareoptions.dhcs.ca.gov)",
+      "DHCS Medi-Cal Managed Care Health Plan Directory (dhcs.ca.gov)"
+    ],
+    "path": "ca_medi_cal_insurance_translator.md",
+    "sha16": "7af1fd5967c07107",
+    "chars": 4138
+  },
+  {
+    "id": "ca_medical_access_scripts",
+    "title": "California Medical Access Scripts (PCP, Specialist, Refills, After ER)",
+    "jurisdiction": "California",
+    "last_reviewed": "2026-01-31",
+    "tags": [
+      "medical access",
+      "pcp",
+      "specialist",
+      "refill",
+      "er follow-up",
+      "appointments"
+    ],
+    "sources": [
+      "Best-practice scripts (built from field use patterns)",
+      "Pair with: ca_medi_cal_insurance_translator.md for plan/PCP rules"
+    ],
+    "path": "ca_medical_access_scripts.md",
+    "sha16": "fb70b4838be9e46d",
+    "chars": 1806
+  },
+  {
+    "id": "ca_update_watchlist",
+    "title": "California Update Watchlist (Sources Virgil Should Monitor)",
+    "jurisdiction": "California",
+    "last_reviewed": "2026-01-31",
+    "tags": [
+      "updates",
+      "sources",
+      "watchlist",
+      "rag maintenance"
+    ],
+    "sources": [
+      "curated by Virgil St build team"
+    ],
+    "path": "ca_update_watchlist.md",
+    "sha16": "39d62ab680fc9872",
+    "chars": 1260
+  },
+  {
+    "id": "la_crisis_and_24_7_help",
+    "title": "Los Angeles County: Crisis & 24/7 Help (Mental Health, Substance Use, Immediate Support)",
+    "jurisdiction": "Los Angeles County, California",
+    "last_reviewed": "2026-01-31",
+    "tags": [
+      "crisis",
+      "988",
+      "dmh",
+      "access line",
+      "sash",
+      "substance use",
+      "mental health"
+    ],
+    "sources": [
+      "LA County DMH ACCESS Center (dmh.lacounty.gov)",
+      "LA County DMH Get Help Now (dmh.lacounty.gov)",
+      "LA County DPH SAPC SASH flyer (publichealth.lacounty.gov)"
+    ],
+    "path": "la_crisis_and_24_7_help.md",
+    "sha16": "27b794d6e3a8f738",
+    "chars": 2110
+  },
+  {
+    "id": "la_food_right_now",
+    "title": "LA County Food Right Now (Food Banks, Meal Sites, What to Expect)",
+    "jurisdiction": "Los Angeles County, California",
+    "last_reviewed": "2026-01-31",
+    "tags": [
+      "food",
+      "meals",
+      "food bank",
+      "la county",
+      "spa"
+    ],
+    "sources": [
+      "internal: Food Bank Guide 2021_4 (1).pdf (SPA-based listings)",
+      "internal: 4345-food-and-grocery-programs-in-los-angeles-county-by-service-planning-area.pdf",
+      "Call 211 for nearest open food resources (varies daily)"
+    ],
+    "path": "la_food_right_now.md",
+    "sha16": "102b0f5ac88e31bf",
+    "chars": 1378
+  },
+  {
+    "id": "la_sleep_and_shelter_quickstart",
+    "title": "LA County Sleep & Shelter Quickstart (Winter Shelter, Interim Housing, Safe Parking)",
+    "jurisdiction": "Los Angeles County, California",
+    "last_reviewed": "2026-01-31",
+    "tags": [
+      "shelter",
+      "winter shelter",
+      "interim housing",
+      "lahsa",
+      "safe parking",
+      "211"
+    ],
+    "sources": [
+      "internal: 5704-winter-shelter-list-english.pdf (last updated Dec 6, 2023)",
+      "internal: 2196-lahsa-interim-housing-list-english-.pdf (last updated Sep 29, 2023)",
+      "internal: P9 - Homeless Resources_0.pdf"
+    ],
+    "path": "la_sleep_and_shelter_quickstart.md",
+    "sha16": "bf41c6ccb64ebb5b",
+    "chars": 1834
+  },
+  {
+    "id": "la_substance_use_treatment_access",
+    "title": "LA County Substance Use Treatment Access (No Wrong Door: SASH + Walk-in Linkage)",
+    "jurisdiction": "Los Angeles County, California",
+    "last_reviewed": "2026-01-31",
+    "tags": [
+      "substance use",
+      "treatment",
+      "detox",
+      "mat",
+      "sash",
+      "drug medi-cal"
+    ],
+    "sources": [
+      "LA County DPH SAPC SASH flyer (publichealth.lacounty.gov)",
+      "LA County DPH SAPC site (publichealth.lacounty.gov/sapc)",
+      "internal: P15 - Substance Abuse Resources_2.pdf (assessment sites)",
+      "recoverla.org SASH explainer (recoverla.org)"
+    ],
+    "path": "la_substance_use_treatment_access.md",
+    "sha16": "927fdaec632dfe00",
+    "chars": 1822
+  }
+]

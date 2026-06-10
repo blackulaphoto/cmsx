@@ -1,0 +1,357 @@
+
+Skip to main content
+What to Know about Proving Your Identity
+Medical/Professional Relations
+
+    SSA Home
+    Disability
+    Medical/Professional Relations
+    Disability Evaluation Under Social Security
+    Listing of Impairments - Adult Listings (Part A)
+    5.00 Digestive Disorders - Adult
+
+Adult Listings (Part A)
+
+Childhood Listings (Part B)
+
+General Information
+
+Evidentiary Requirements
+
+Listing of Impairments (overview)
+
+Revisions to Rules Regarding the Evaluation of Medical Evidence
+Disability Evaluation Under Social Security
+
+5.00 Digestive Disorders - Adult
+ 
+Section
+
+5.01
+Category of Impairments, Digestive Disorders
+
+5.02
+Gastrointestinal hemorrhaging from any cause, requiring three blood transfusions
+
+5.05
+Chronic liver disease (CLD)
+
+5.06
+Inflammatory bowel disease (IBD)
+
+5.07
+Intestinal failure
+
+5.08
+Weight loss due to any digestive disorder
+
+5.09
+Liver transplantation
+
+5.11
+Small intestine transplantation
+
+
+5.12
+Pancreas transplantation
+
+5.00 Digestive Disorders
+
+A. Which digestive disorders do we evaluate in this body system? We evaluate digestive disorders that result in severe dysfunction of the liver, pancreas, and gastrointestinal tract (the large, muscular tube that extends from the mouth to the anus, where the movement of muscles, along with the release of hormones and enzymes, allows for the digestion of food) in this body system. Examples of these disorders and the listings we use to evaluate them include chronic liver disease (5.05), inflammatory bowel disease (5.06), and intestinal failure (5.07). We also use this body system to evaluate gastrointestinal hemorrhaging from any cause (5.02), weight loss due to any digestive disorder (5.08), liver transplantation (5.09), small intestine transplantation (5.11), and pancreas transplantation (5.12). We evaluate cancers affecting the digestive system under the listings in 13.00.
+
+B. What evidence do we need to evaluate your digestive disorder?
+
+1. General. To establish that you have a digestive disorder, we need medical evidence about the existence of your digestive disorder and its severity. Medical evidence should include your medical history, physical examination findings, operative reports, and relevant laboratory findings.
+
+2. Laboratory findings. We need laboratory reports such as results of imaging (see 5.00B3), endoscopy, and other diagnostic procedures. We may also need clinical laboratory and pathology results.
+
+3. Imaging refers to medical imaging techniques, such as x-ray, ultrasound, magnetic resonance imaging, and computerized tomography. The imaging must be consistent with the prevailing state of medical knowledge and clinical practice as a proper technique to support the evaluation of the disorder.
+
+Back to Top
+
+C. What is chronic liver disease (CLD), and how do we evaluate it under 5.05?
+
+1. General. CLD is loss of liver function with cell necrosis (cell death), inflammation, or scarring of the liver that persists for more than 6 months. Common causes of CLD in adults include chronic infection with hepatitis B virus or hepatitis C virus, and prolonged alcohol abuse.
+
+a. We will evaluate your signs of CLD, such as jaundice, changes in size of the liver and spleen, ascites, peripheral edema, and altered mental status. We will also evaluate your symptoms of CLD, such as pruritus (itching), fatigue, nausea, loss of appetite, and sleep disturbances when we assess the severity of your impairment(s) and how it affects your ability to function. In the absence of evidence of a chronic liver impairment, episodes of acute liver disease do not meet the requirements of 5.05
+
+b. Laboratory findings of your CLD may include decreased serum albumin, increased International Normalized Ratio (INR), arterial deoxygenation (hypoxemia), increased serum creatinine, oliguria (reduced urine output), or sodium retention. Another laboratory finding that may be included in the evidence is a liver biopsy. If you have had a liver biopsy, we will make every reasonable effort to obtain the results; however, we will not purchase a liver biopsy.
+
+2. Manifestations of CLD.
+
+a. Gastrointestinal hemorrhaging (5.05A), as a consequence of cirrhosis and high pressure in the liver's portal venous system, may occur from varices (dilated veins in the esophagus or the stomach) or from portal hypertensive gastropathy (abnormal mucosal changes in the stomach). When gastrointestinal hemorrhaging is due to a cause other than CLD, we evaluate it under 5.02. The phrase "consider under a disability for 1 year" in 5.02 and 5.05A does not refer to the date on which your disability began, only to the date on which we must reevaluate whether your impairment(s) continues to meet a listing or is otherwise disabling. We determine the onset of your disability based on the facts of your case.
+
+b. Ascites or hydrothorax (5.05B) is a pathologic accumulation of fluid in the peritoneal cavity (ascites) or pleural space (hydrothorax). Ascites or hydrothorax may be diagnosed by removing some of the fluid with needle aspiration (paracentesis or thoracentesis), physical examination, or imaging. The most common causes of ascites are portal hypertension and low serum albumin resulting from CLD. We evaluate other causes of ascites and hydrothorax that are unrelated to CLD, such as congestive heart failure and cancer, under the listings in the affected body systems.
+
+c. Spontaneous bacterial peritonitis (SBP) (5.05C) is an acute bacterial infection of peritoneal fluid and is most commonly associated with CLD. SBP is diagnosed by laboratory analysis of peritoneal fluid (obtained by paracentesis) that contains a neutrophil count (also called absolute neutrophil count) of at least 250 cells/mm3. 5.05C is satisfied with one evaluation documenting peritoneal infection. We evaluate other causes of peritonitis that are unrelated to CLD, such as tuberculosis, malignancy, and perforated bowel, under the listings in the affected body systems.
+
+d. Hepatorenal syndrome (5.05D) is renal failure associated with CLD in the absence of underlying kidney pathology. Findings associated with hepatorenal syndrome include elevation of serum creatinine, sodium retention with low urinary sodium excretion, and oliguria. We evaluate renal dysfunction with known underlying kidney pathology, such as glomerulonephritis, tubular necrosis, and renal infections, under the listings in 6.00.
+
+e. Hepatopulmonary syndrome (5.05E) is arterial deoxygenation due to intrapulmonary vascular dilation and arteriovenous shunting associated with CLD. Clinical findings of hepatopulmonary syndrome include platypnea (shortness of breath relieved when lying down) and orthodeoxia (low arterial blood oxygen while in the upright position), when presenting in the context of CLD. We evaluate pulmonary dysfunction with known underlying respiratory pathology, such as asthma, pneumonia, and pulmonary infections, under the listings in 3.00.
+
+(i) Under 5.05E1, we require a resting arterial blood gas (ABG) measurement obtained while you are breathing room air; that is, without oxygen supplementation. The ABG report must include the Pa O2 value, your name, the date of the test, and either the altitude or both the city and State of the test site.
+
+(ii) We will not purchase the specialized imaging techniques described in 5.05E2; however, if you have had the test(s) at a time relevant to your claim, we will make every reasonable effort to obtain the report.
+
+f. Hepatic encephalopathy (5.05F), also known as portosystemic encephalopathy, is a recurrent or chronic neuropsychiatric disorder associated with CLD.
+
+(i) Under 5.05F2, we require documentation of a mental impairment associated with hepatic encephalopathy. A mental impairment can include abnormal behavior, changes in mental status, or an altered state of consciousness. Reports of abnormal behavior may show that you are experiencing delusions, paranoia, or hallucinations. Reports of changes in mental status may show change in sleep patterns, personality or mood changes, poor concentration, or poor judgment or cognitive dysfunction (for example, impaired memory, poor problem-solving ability, or attention deficits). Reports of altered state of consciousness may show that you are experiencing confusion, delirium, or stupor.
+
+(ii) Signs and laboratory findings that document the severity of hepatic encephalopathy when not attributable to other causes may include a "flapping tremor" (asterixis), characteristic abnormalities found on an electroencephalogram (EEG), or abnormal serum albumin or coagulation values. We will not purchase an EEG; however, if you have had this test at a time relevant to your claim, we will make every reasonable effort to obtain the report for the purpose of establishing whether your impairment meets the criteria of 5.05F.
+
+(iii) We will not evaluate acute encephalopathy under 5.05F if it results from conditions other than CLD. For example, we will evaluate acute encephalopathy caused by vascular events under the listings in 11.00 and acute encephalopathy caused by cancer under the listings in 13.00.
+
+3. SSA Chronic Liver Disease (SSA CLD) score (5.05G). Listing 5.05G requires two SSA CLD scores, each requiring three or four laboratory values. The "date of the SSA CLD score" is the date of the earliest of the three or four laboratory values used for its calculation. The date of the second SSA CLD score must be at least 60 days after the date of the first SSA CLD score and both scores must be within the required 12-month period. If you have the two SSA CLD scores required by 5.05G, we will find that your impairment meets the criteria of the listing from at least the date of the first SSA CLD score. [We provide the SSA CLD Calculator to calculate SSA CLD scores as described below.]
+
+a. We calculate the SSA CLD score using a formula that includes up to four laboratory values: Serum creatinine (mg/dL), total bilirubin (mg/dL), INR, and under certain conditions, serum sodium (mmol/L). The SSA CLD score calculation contains at least one, and sometimes two, parts, as described in (i) and (ii).
+
+(i) The initial calculation is:
+SSA CLDi =
+9.57 × [loge(serum creatinine mg/dL)]
++ 3.78 × [loge(serum total bilirubin mg/dL)]
++11.2 × [loge(INR)]
++ 6.43
+rounded to the nearest whole integer.
+
+(ii) If the value from the initial calculation is 11 or below, the SSA CLD score will be the SSA CLDi value. If the value from the initial calculation is greater than 11, the SSA CLD score will be re-calculated as:
+SSA CLD =
+SSA CLDi
++ 1.32 × (137−serum sodium mmol/L)
+−[0.033 × SSA CLDi × (137−serum sodium mmol/L)]
+
+(iii) We round the results of your SSA CLD score calculation to the nearest whole integer to arrive at your SSA CLD score.
+
+b. For any SSA CLD score calculation, all of the required laboratory values (serum creatinine, serum total bilirubin, INR, and serum sodium) must have been obtained within a continuous 30-day period.
+
+(i) We round values for serum creatinine (mg/dL), serum total bilirubin (mg/dL), or INR less than 1.0 up to 1.0 to calculate your SSA CLD score.
+
+(ii) We round values for serum creatinine (mg/dL) greater than 4.0 down to 4.0 to calculate your SSA CLD score.
+
+(iii) If there are multiple laboratory values within the 30-day interval for serum creatinine (mg/dL), serum total bilirubin (mg/dL), or INR, we use the highest value to calculate your SSA CLD score. We will not use any INR values derived from testing done while you are on anticoagulant treatment in our SSA CLD calculation.
+
+(iv) If there are multiple laboratory values within the 30-day interval for serum sodium (mmol/L), we use the lowest value to calculate your SSA CLD score.
+
+(v) If you are in renal failure or on renal dialysis within a week of any serum creatinine test in the period used for the SSA CLD calculation, we will use a serum creatinine value of 4.0, which is the maximum serum creatinine level allowed in the calculation, to calculate your SSA CLD score.
+
+(vi) If your serum sodium is less than 125 mmol/L, we will set your serum sodium to 125 mmol/L for purposes of calculation of the SSA CLD score. If your serum sodium is higher than 137 mmol/L, we will set your serum sodium to 137 mmol/L for purposes of calculation of the SSA CLD score.
+
+c. When we indicate “loge” (also abbreviated “ln”) in the formula for the SSA CLD score calculation, we mean the "base e logarithm" or "natural logarithm" of the numerical laboratory value, not the "base 10 logarithm" or "common logarithm" (log) of the laboratory value, and not the actual laboratory value. For example, if a person has laboratory values of serum creatinine 1.4 mg/dL, serum total bilirubin 1.3 mg/dL, INR 1.32, and serum sodium 119 mmol/L, we compute the SSA CLD score as follows:
+SSA CLDi =
+9.57 × [loge(serum creatinine 1.4 mg/dL) = 0.336]
++ 3.78 × [loge(serum total bilirubin 1.3 mg/dL) = 0.262]
++ 11.2 × [loge(INR 1.32) = .278]
++ 6.43
+= 3.22 + 0.99 + 3.11 + 6.43
+= 13.75, which we round to an SSA CLDi score of 14.
+
+Because the SSA CLDi score is over 11, we then move to the second step of calculating the SSA CLD:
+
+SSA CLD = 14
++ 1.32 × (137−serum sodium 125 mmol/L)
+−[0.033 × SSA CLDi 14 × (137−serum sodium 125 mmol/L)
+= 14 + 15.84−5.54
+= 24.3, which we round to an SSA CLD score of 24.
+
+Back to Top
+
+D. What is inflammatory bowel disease (IBD), and how do we evaluate it under 5.06?
+
+1. IBD is a group of inflammatory conditions of the small intestine and colon. The most common IBD disorders are Crohn's disease and ulcerative colitis. Remissions and exacerbations of variable duration are a hallmark of IBD.
+
+2. We evaluate your signs and symptoms of IBD, such as diarrhea, fecal incontinence, rectal bleeding, abdominal pain, fatigue, fever, nausea, vomiting, arthralgia, abdominal tenderness, palpable abdominal mass (usually inflamed loops of bowel), and perianal disease (for example, fissure, fistulas, abscesses, or anal canal stenosis), when we assess the severity of your impairment(s). You may require supplemental daily nutrition due to IBD. There are two forms of supplemental daily nutrition we consider under 5.06B5: enteral nutrition (delivered directly to a part of your digestive system) via a gastrostomy, duodenostomy, or jejunostomy, and parenteral nutrition delivered via a central venous catheter. Enteral tube feedings delivered via nasal or oral tubes do not satisfy the requirement in 5.06B5.
+
+3. Surgical diversion of the intestinal tract, including ileostomy and colostomy, does not preclude the ability to perform any gainful activity if you are able to maintain adequate nutrition and function of the stoma. However, if you are not able to maintain adequate nutrition, we will evaluate your impairment under 5.08.
+
+4. IBD may also be associated with significant extraintestinal manifestations in a variety of body systems. These include, but are not limited to, involvement of the eye (for example, uveitis, episcleritis, or iritis); hepatobiliary disease (for example, gallstones or primary sclerosing cholangitis); urologic disease (for example, kidney stones or obstructive hydronephrosis); skin involvement (for example, erythema nodosum or pyoderma gangrenosum); or non-destructive inflammatory arthritis. You may also have associated thromboembolic disorders or vascular disease. These manifestations may not correlate with the severity of your IBD. If your impairment does not meet any of the criteria of 5.06, we will consider the effects of your extraintestinal manifestations in determining whether you have an impairment(s) that meets or medically equals another listing, and when we assess your residual functional capacity.
+
+5. Repeated complications of IBD.
+
+a. Examples of complications of IBD include abscesses, intestinal perforation, toxic megacolon, infectious colitis, pyoderma gangrenosum, ureteral obstruction, primary sclerosing cholangitis, and hypercoagulable state (which may lead to thromboses or embolism). When we evaluate repeated complications of IBD, we consider all relevant information in your case record to determine the effects of your IBD on your ability to function independently, appropriately, effectively, and on a sustained basis. Factors we consider include, but are not limited to: your symptoms, the frequency and duration of your complications, periods of exacerbation and remission, and the functional effects of your treatment, including the side effects of your medication. Your impairment will satisfy this criterion regardless of whether you have the same kind of complication repeatedly, all different complications, or any other combination of complications; for example, two of the same kind of complication and a different one.
+
+b. To satisfy the requirements described under 5.06C, your IBD must result in repeated complications and marked limitation in one of three areas of functioning: activities of daily living; maintaining social functioning; or completing tasks in a timely manner due to deficiencies in concentration, persistence, or pace. If the complications do not last as long or occur as frequently as required under 5.06C, we will consider whether your IBD medically equals the listing.
+
+c. Marked limitation means that the signs and symptoms of your IBD interfere seriously with your ability to function. Although we do not require the use of such a scale, “marked” would be the fourth point on a five-point rating scale consisting of no limitation, mild limitation, moderate limitation, marked limitation, and extreme limitation. We do not define “marked” by a specific number of activities of daily living or different behaviors in which your social functioning is impaired, or a specific number of tasks that you are able to complete, but by the nature and overall degree of interference with your functioning. You may have marked limitation when several activities or functions are impaired, or when only one is impaired. Additionally, you need not be totally precluded from performing an activity to have marked limitation, as long as the degree of limitation interferes seriously with your ability to function independently, appropriately, and effectively. The term "marked" does not imply that you must be confined to bed, hospitalized, or in a nursing home.
+
+d. Activities of daily living include, but are not limited to, such activities as doing household chores, grooming and hygiene, using a post office, taking public transportation, or paying bills. We will find that you have “marked” limitation in activities of daily living if you have a serious limitation in your ability to maintain a household or take public transportation because of symptoms, such as pain, severe fatigue, anxiety, or difficulty concentrating, caused by your IBD (including complications of the disorder) or its treatment, even if you are able to perform some self-care activities.
+
+e. Maintaining social functioning includes the capacity to interact independently, appropriately, effectively, and on a sustained basis with others. It includes the ability to communicate effectively with others. We will find that you have “marked” limitation in maintaining social functioning if you have a serious limitation in social interaction on a sustained basis because of symptoms, such as pain, severe fatigue, anxiety, or difficulty concentrating, or a pattern of exacerbation and remission, caused by your IBD (including complications of the disorder) or its treatment, even if you are able to communicate with close friends or relatives.
+
+f. Completing tasks in a timely manner due to deficiencies in concentration, persistence, or pace involves the ability to sustain concentration, persistence, or pace to permit timely completion of tasks commonly found in work settings. We will find that you have “marked” limitation in completing tasks if you have a serious limitation in your ability to sustain concentration or pace adequate to complete work-related tasks because of symptoms, such as pain, severe fatigue, anxiety, or difficulty concentrating, caused by your IBD (including complications of the disorder) or its treatment, even if you are able to do some routine activities of daily living.
+
+Back to Top
+
+E. What is intestinal failure, and how do we evaluate it under 5.07?
+
+1. Intestinal failure is a condition resulting in gut function below the minimum necessary for the absorption of macronutrients or water and electrolytes, resulting in a requirement for intravenous supplementation (i.e., parenteral nutrition) to maintain health. Examples of conditions that may result in intestinal failure include short bowel syndrome, extensive small bowel mucosal disease, and chronic motility disorders.
+
+2. Short bowel syndrome is a malabsorption disorder that occurs when ischemic vascular insults (caused, for example, by volvulus or necrotizing enterocolitis), trauma, or IBD complications require(s) surgical resection of any amount of the small intestine, resulting in chronic malnutrition.
+
+3. Extensive small bowel mucosal disease means that the mucosal surface of the small bowel does not efficiently absorb nutrients or loses nutrients. Common causes of small bowel mucosal disease include microvillous inclusion disease and tufting enteropathy.
+
+4. Chronic motility disorder refers to a chronic disorder of the propulsion of gut content without fixed obstructions, causing intolerance to oral nutrition and inadequate nutritional intake. This type of disorder may also be known as a chronic intestinal pseudo-obstruction (CIPO), because the gut dysfunction mimics that of an obstructed intestine, but without evidence of an actual obstruction. Primary CIPO may have an unknown underlying cause. Chronic motility disorders may also result from congenital, neuromuscular, or autoimmune conditions, such as gastroschisis, omphalocele, long segment Hirschprung's disease, Crohn's disease, and mitochondrial disorders.
+
+5. For short bowel syndrome, we require a copy of the operative report that includes details of the surgical findings, or postoperative imaging indicating a resection of the small intestine. If we cannot get one of these reports, we need other medical reports that include details of the surgical findings. For other chronic motility disorders or extensive small bowel mucosal disease, we need medical reports that include details of your intestinal dysfunction. For any impairment evaluated under 5.07, we also need medical documentation that you are dependent on daily parenteral nutrition to provide most of your nutritional requirements.
+
+Back to Top
+
+F. How do we evaluate weight loss due to any digestive disorder under 5.08?
+
+1. In addition to the impairments specifically mentioned in these listings, other digestive disorders, such as esophageal stricture, pancreatic insufficiency, and malabsorption, may result in significant weight loss. Impairments other than digestive disorders that cause weight loss should be evaluated under the appropriate body system for that impairment. For instance, weight loss as a result of chronic kidney disease should be evaluated under our rules for genitourinary disorders (see 6.00), and weight loss as the result of an eating disorder should be evaluated under our rules for mental disorders (see 12.00). However, if you develop a digestive disorder as the result of your other impairment, we will evaluate the acquired digestive disorder under our rules for digestive disorders. We evaluate weight loss due to any digestive disorder under 5.08 by using the body mass index (BMI).
+
+2. BMI is the ratio of your weight to the square of your height. Calculation and interpretation of the BMI are independent of gender in adults.
+
+a. We calculate BMI using inches and pounds, meters and kilograms, or centimeters and kilograms. We must have measurements of your weight and height without shoes for these calculations.
+
+b. We calculate BMI using one of the following formulas:
+English Formula
+BMI = [Weight in Pounds/(Height in Inches × Height in Inches)] × 703
+
+Metric Formulas
+BMI = Weight in Kilograms/(Height in Meters × Height in Meters)
+BMI = [Weight in Kilograms/(Height in Centimeters × Height in Centimeters)] × 10,000
+
+Back to Top
+
+G. How do we evaluate digestive organ transplantation? If you receive a liver (5.09), small intestine (5.11), or pancreas (5.12) transplant, we will consider you disabled under the listing for 1 year from the date of the transplant. After that, we evaluate your residual impairment(s) by considering the adequacy of your post-transplant function, the frequency and severity of any rejection episodes you have, complications in other body systems, and adverse treatment effects. People who receive digestive organ transplants generally have impairments that meet our definition of disability before they undergo transplantation. The phrase "consider under a disability for 1 year" in 5.09, 5.11, and 5.12 does not refer to the date on which your disability began, only to the date on which we must reevaluate whether your impairment(s) continues to meet a listing or is otherwise disabling. We determine the onset of your disability based on the facts of your case.
+
+H. How do we evaluate your digestive disorder if there is no record of ongoing treatment? If there is no record of ongoing treatment despite the existence of a severe impairment(s), we will assess the severity and duration of your digestive disorder based on the current medical and other evidence in your case record. If there is no record of ongoing treatment, you may not be able to show an impairment that meets a digestive disorders listing, but your impairment may medically equal a listing, or be disabling based on consideration of your residual functional capacity, age, education, and work experience.
+
+I.How do we evaluate your digestive disorder if there is evidence establishing a substance use disorder? If we find that you are disabled and there is medical evidence in your case record establishing that you have a substance use disorder, we will determine whether your substance use disorder is a contributing factor material to the determination of disability. See §§ 404.1535 and 416.935 of this chapter. Digestive disorders resulting from drug or alcohol use are often chronic in nature and will not necessarily improve with cessation in drug or alcohol use.
+
+Back to Top
+
+J. How do we evaluate digestive disorders that do not meet one of these listings?
+
+1. These listings are only examples of common digestive disorders that we consider severe enough to prevent you from doing any gainful activity. If your impairment(s) does not meet the criteria of any of these listings, we must also consider whether you have an impairment(s) that satisfies the criteria of a listing in another body system.
+
+2. If you have a severe medically determinable impairment(s) that does not meet a listing, we will determine whether your impairment(s) medically equals a listing. See §§ 404.1526 and 416.926 of this chapter. Digestive disorders may be associated with disorders in other body systems, and we consider the combined effects of multiple impairments when we determine whether they medically equal a listing. If your impairment(s) does not meet or medically equal a listing, you may or may not have the residual functional capacity to engage in substantial gainful activity. We proceed to the fourth step and, if necessary, the fifth step of the sequential evaluation process in §§ 404.1520 and 416.920 of this chapter. We use the rules in §§ 404.1594 and 416.994 of this chapter, as appropriate, when we decide whether you continue to be disabled.
+
+Back to Top
+
+5.01  Category of Impairments, Digestive Disorders
+
+5.02  Gastrointestinal hemorrhaging from any cause, requiring three blood transfusions of at least 2 units of blood per transfusion, within a consecutive 12-month period and at least 30 days apart. Consider under a disability for 1 year following the last documented transfusion; after that, evaluate the residual impairment(s).
+
+5.03  [Reserved]
+
+5.04  [Reserved]
+
+Back to Top
+
+5.05  Chronic liver disease (CLD) (see 5.00C) with A, B, C, D, E, F, or G:
+
+A. Hemorrhaging from esophageal, gastric, or ectopic varices, or from portal hypertensive gastropathy (see 5.00C2a), documented by imaging (see 5.00B3); resulting in 1 and 2:
+
+1. Hemodynamic instability indicated by signs such as pallor (pale skin), diaphoresis (profuse perspiration), rapid pulse, low blood pressure, postural hypotension (pronounced fall in blood pressure when arising to an upright position from lying down), or syncope (fainting); and
+
+2. Requiring hospitalization for transfusion of at least 2 units of blood. Consider under a disability for 1 year following the documented transfusion; after that, evaluate the residual impairment(s).
+
+OR
+
+B. Ascites or hydrothorax not attributable to other causes (see 5.00C2b), present on two evaluations within a consecutive 12-month period and at least 60 days apart. Each evaluation must document the ascites or hydrothorax by 1, 2, or 3:
+
+1. Paracentesis; or
+
+2. Thoracentesis; or
+
+3. Imaging or physical examination with a or b:
+
+a. Serum albumin of 3.0 g/dL or less; or
+
+b. INR of at least 1.5.
+
+OR
+
+C. Spontaneous bacterial peritonitis (see 5.00C2c) documented by peritoneal fluid containing a neutrophil count of at least 250 cells/mm3.
+
+OR
+
+D. Hepatorenal syndrome (see 5.00C2d) documented by 1, 2, or 3:
+
+1. Serum creatinine elevation of at least 2 mg/dL; or
+
+2. Oliguria with 24-hour urine output less than 500 mL; or
+
+3. Sodium retention with urine sodium less than 10 mEq per liter.
+
+OR
+
+E. Hepatopulmonary syndrome (see 5.00C2e) documented by 1 or 2:
+
+1. Arterial PaO2 measured by an ABG test, while at rest, breathing room air, less than or equal to:
+
+a. 60 mm Hg, at test sites less than 3,000 feet above sea level; or
+
+b. 55 mm Hg, at test sites from 3,000 through 6,000 feet above sea level; or
+
+c. 50 mm Hg, at test sites over 6,000 feet above sea level; or
+
+2. Intrapulmonary arteriovenous shunting as shown by contrast-enhanced echocardiography or macroaggregated albumin lung perfusion scan.
+
+Back to Top
+
+OR
+
+F. Hepatic encephalopathy (see 5.00C2f) with documentation of abnormal behavior, cognitive dysfunction, changes in mental status, or altered state of consciousness (for example, confusion, delirium, stupor, or coma), present on two evaluations within a consecutive 12-month period and at least 60 days apart and either 1 or 2:
+
+1. History of transjugular intrahepatic portosystemic shunt (TIPS) or other surgical portosystemic shunt; or
+
+2. One of the following on at least two evaluations at least 60 days apart within the same consecutive 12-month period as in F:
+
+a. Asterixis or other fluctuating physical neurological abnormalities; or
+
+b. EEG demonstrating triphasic slow wave activity; or
+
+c. Serum albumin of 3.0 g/dL or less; or
+
+d. INR of 1.5 or greater.
+
+OR
+
+G. Two SSA CLD scores (see 5.00C3) [SSA CLD Calculator] of at least 20 within a consecutive 12-month period and at least 60 days apart. Consider under a disability from at least the date of the first score.
+
+Back to Top
+
+5.06  Inflammatory bowel disease (IBD) (see 5.00D) documented by endoscopy, biopsy, imaging, or operative findings, and demonstrated by A, B, or C:
+
+A. Obstruction of stenotic areas (not adhesions) in the small intestine or colon with proximal dilatation, confirmed by imaging or in surgery, requiring two hospitalizations for intestinal decompression or for surgery, within a consecutive 12-month period and at least 60 days apart.
+
+OR
+
+B. Two of the following occurring within a consecutive 12-month period and at least 60 days apart:
+
+1. Anemia with hemoglobin of less than 10.0 g/dL, present on at least two evaluations at least 60 days apart; or
+
+2. Serum albumin of 3.0 g/dL or less, present on at least two evaluations at least 60 days apart; or
+
+3. Clinically documented tender abdominal mass palpable on physical examination with abdominal pain or cramping; or
+
+4. Perianal disease with a draining abscess or fistula; or
+
+5. Need for supplemental daily enteral nutrition via a gastrostomy, duodenostomy, or jejunostomy, or daily parenteral nutrition via a central venous catheter.
+
+OR
+
+C. Repeated complications of IBD (see 5.00D5a), occurring an average of 3 times a year, or once every 4 months, each lasting 2 weeks or more, within a consecutive 12-month period, and marked limitation (see 5.00D5c) in one of the following:
+
+1. Activities of daily living (see 5.00D5d); or
+
+2. Maintaining social functioning (see 5.00D5e); or
+
+3. Completing tasks in a timely manner due to deficiencies in concentration, persistence, or pace (see 5.00D5f).
+
+Back to Top
+
+5.07  Intestinal failure (see 5.00E) due to short bowel syndrome, chronic motility disorders, or extensive small bowel mucosal disease, resulting in dependence on daily parenteral nutrition via a central venous catheter for at least 12 months.
+
+5.08  Weight loss due to any digestive disorder (see 5.00F), despite adherence to prescribed medical treatment, with BMI of less than 17.50 calculated on at least two evaluations at least 60 days apart within a consecutive 12-month period.
+
+5.09  Liver transplantation (see 5.00G). Consider under a disability for 1 year from the date of the transplant; after that, evaluate the residual impairment(s).
+
+5.10  [Reserved]
+
+5.11  Small intestine transplantation (see 5.00G). Consider under a disability for 1 year from the date of the transplant; after that, evaluate the residual impairment(s).
+
+5.12  Pancreas transplantation (see 5.00G). Consider under a disability for 1 year from the date of the transplant; after that, evaluate the residual impairment(s).
+
+Back to Top

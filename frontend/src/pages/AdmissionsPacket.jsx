@@ -1,0 +1,887 @@
+import { useState, useEffect, useCallback } from 'react'
+import { useParams, Link, useNavigate } from 'react-router-dom'
+import {
+  ClipboardCheck,
+  ArrowLeft,
+  CheckCircle2,
+  Clock,
+  PenLine,
+  Paperclip,
+  RotateCcw,
+  AlertTriangle,
+  ChevronDown,
+  Loader2,
+  RefreshCw,
+  User,
+  CalendarClock,
+  XCircle,
+  ShieldAlert,
+  FileSearch,
+  FileX,
+  CircleDot,
+  Plus,
+  CreditCard,
+  Stethoscope,
+  Scale,
+  Sparkles,
+  Activity,
+} from 'lucide-react'
+import { apiFetch } from '../api/config'
+import FinancialCoordinationPanel from '../components/admissions/FinancialCoordinationPanel'
+
+// ── Constants ────────────────────────────────────────────────────────────────
+
+const FORM_STATUSES = [
+  'Not Started',
+  'In Progress',
+  'Needs Signature',
+  'Completed',
+  'Expired',
+  'Revoked',
+  'Missing Attachment',
+  'Staff Review Needed',
+]
+
+const TIMING_ORDER = ['admission', '72_hours', '7_days']
+
+const TIMING_LABELS = {
+  admission: 'Required at Admission',
+  '72_hours': 'Within First 72 Hours',
+  '7_days': 'Within First 7 Days',
+}
+
+const STATUS_CONFIG = {
+  'Not Started': {
+    icon: CircleDot,
+    color: 'text-gray-400',
+    bg: 'bg-gray-500/15 border-gray-500/25',
+    dot: 'bg-gray-400',
+  },
+  'In Progress': {
+    icon: Loader2,
+    color: 'text-blue-300',
+    bg: 'bg-blue-500/15 border-blue-500/25',
+    dot: 'bg-blue-400',
+  },
+  'Needs Signature': {
+    icon: PenLine,
+    color: 'text-purple-300',
+    bg: 'bg-purple-500/15 border-purple-500/25',
+    dot: 'bg-purple-400',
+  },
+  Completed: {
+    icon: CheckCircle2,
+    color: 'text-emerald-300',
+    bg: 'bg-emerald-500/15 border-emerald-500/25',
+    dot: 'bg-emerald-400',
+  },
+  Expired: {
+    icon: CalendarClock,
+    color: 'text-amber-300',
+    bg: 'bg-amber-500/15 border-amber-500/25',
+    dot: 'bg-amber-400',
+  },
+  Revoked: {
+    icon: XCircle,
+    color: 'text-red-300',
+    bg: 'bg-red-500/15 border-red-500/25',
+    dot: 'bg-red-400',
+  },
+  'Missing Attachment': {
+    icon: FileX,
+    color: 'text-orange-300',
+    bg: 'bg-orange-500/15 border-orange-500/25',
+    dot: 'bg-orange-400',
+  },
+  'Staff Review Needed': {
+    icon: FileSearch,
+    color: 'text-sky-300',
+    bg: 'bg-sky-500/15 border-sky-500/25',
+    dot: 'bg-sky-400',
+  },
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function groupForms(forms) {
+  const groups = {}
+  for (const form of forms) {
+    const key = form.timing_group || 'admission'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(form)
+  }
+  return groups
+}
+
+function calcStats(forms) {
+  const total = forms.length
+  const required = forms.filter((f) => f.required)
+  const completed = forms.filter((f) => f.status === 'Completed')
+  const needsSig = forms.filter((f) => f.status === 'Needs Signature')
+  const missingRequired = required.filter(
+    (f) => f.status === 'Not Started' || f.status === 'Missing Attachment'
+  )
+  const expiringSoon = forms.filter((f) => {
+    if (!f.expires_at) return false
+    const diff = (new Date(f.expires_at) - Date.now()) / 86400000
+    return diff >= 0 && diff <= 30
+  })
+  const progress = required.length
+    ? Math.round((completed.filter((f) => f.required).length / required.length) * 100)
+    : 0
+  return { total, completed: completed.length, needsSig: needsSig.length, missingRequired: missingRequired.length, expiringSoon: expiringSoon.length, progress }
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG['Not Started']
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${cfg.bg} ${cfg.color}`}>
+      <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+      {status}
+    </span>
+  )
+}
+
+function StatusDropdown({ form, packetId, onUpdate, disabled }) {
+  const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const handleSelect = async (newStatus) => {
+    if (newStatus === form.status) { setOpen(false); return }
+    setSaving(true)
+    setOpen(false)
+    try {
+      await onUpdate(packetId, form.form_key, newStatus)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (saving) {
+    return (
+      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs bg-white/10 text-gray-400 border border-white/10">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Saving…
+      </span>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => !disabled && setOpen((v) => !v)}
+        disabled={disabled}
+        className="inline-flex items-center gap-1 focus:outline-none disabled:cursor-not-allowed"
+        title="Change status"
+      >
+        <StatusBadge status={form.status} />
+        {!disabled && <ChevronDown className={`h-3 w-3 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`} />}
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 z-50 w-52 rounded-xl border border-white/15 bg-slate-900/95 backdrop-blur-xl shadow-2xl shadow-purple-900/30 py-1 overflow-hidden">
+            {FORM_STATUSES.map((s) => {
+              const cfg = STATUS_CONFIG[s] || {}
+              return (
+                <button
+                  key={s}
+                  onClick={() => handleSelect(s)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs text-left hover:bg-white/8 transition-colors ${
+                    s === form.status ? 'bg-white/8 font-medium' : ''
+                  }`}
+                >
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot || 'bg-gray-400'}`} />
+                  <span className={cfg.color || 'text-gray-300'}>{s}</span>
+                  {s === form.status && <CheckCircle2 className="h-3 w-3 text-emerald-400 ml-auto" />}
+                </button>
+              )
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function FormRow({ form, packetId, clientId, onUpdate }) {
+  return (
+    <div className={`flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5 rounded-xl border transition-colors ${
+      form.status === 'Completed'
+        ? 'bg-emerald-500/5 border-emerald-500/15'
+        : 'bg-white/4 border-white/8 hover:bg-white/6'
+    }`}>
+      {/* Name + badges */}
+      <div className="flex-1 min-w-0">
+        <div className="flex flex-wrap items-center gap-2 mb-1">
+          <span className={`text-sm font-medium truncate ${form.status === 'Completed' ? 'text-emerald-200/80 line-through decoration-emerald-500/40' : 'text-gray-100'}`}>
+            {form.form_name}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className={`text-xs px-1.5 py-0.5 rounded border ${
+            form.required
+              ? 'bg-rose-500/15 border-rose-500/25 text-rose-300'
+              : 'bg-white/8 border-white/10 text-gray-500'
+          }`}>
+            {form.required ? 'Required' : 'Optional'}
+          </span>
+          <span className="text-xs text-gray-600">{form.category}</span>
+          {form.requires_signature && (
+            <span className="inline-flex items-center gap-1 text-xs text-purple-400">
+              <PenLine className="h-3 w-3" />
+              {form.signatures_required?.join(', ') || 'Signature'}
+            </span>
+          )}
+          {form.allow_attachments && (
+            <span className="inline-flex items-center gap-1 text-xs text-sky-400">
+              <Paperclip className="h-3 w-3" />
+              Attachments
+            </span>
+          )}
+          {form.review_status && form.review_status !== 'Not Reviewed' && (
+            <span className={`text-xs px-1.5 py-0.5 rounded border ${
+              form.review_status === 'Approved'
+                ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
+                : 'bg-amber-500/15 border-amber-500/25 text-amber-300'
+            }`}>
+              {form.review_status}
+            </span>
+          )}
+          {form.expires_at && (
+            <span className="inline-flex items-center gap-1 text-xs text-amber-400">
+              <Clock className="h-3 w-3" />
+              Exp {new Date(form.expires_at).toLocaleDateString()}
+            </span>
+          )}
+          {form.allow_revocation && (
+            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+              <RotateCcw className="h-3 w-3" />
+              Revocable
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Status + open */}
+      <div className="flex items-center gap-3 flex-shrink-0">
+        <StatusDropdown form={form} packetId={packetId} onUpdate={onUpdate} disabled={false} />
+        <Link
+          to={`/admissions/${clientId}/forms/${form.form_key}`}
+          className="px-3 py-1.5 rounded-lg text-xs text-gray-200 border border-white/10 bg-white/5 hover:bg-white/12 hover:border-white/20 transition-colors"
+        >
+          Open
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function TimingSection({ timingKey, forms, packetId, clientId, onUpdate }) {
+  const label = TIMING_LABELS[timingKey] || timingKey
+  const completed = forms.filter((f) => f.status === 'Completed').length
+  const allDone = completed === forms.length
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2.5 px-1">
+        <Clock className={`h-3.5 w-3.5 ${allDone ? 'text-emerald-400' : 'text-purple-400'}`} />
+        <span className={`text-xs font-semibold uppercase tracking-wider ${allDone ? 'text-emerald-300' : 'text-purple-300'}`}>
+          {label}
+        </span>
+        <span className="text-xs text-gray-500">
+          {completed}/{forms.length}
+          {allDone && ' · Complete'}
+        </span>
+      </div>
+      <div className="space-y-2">
+        {forms.map((form) => (
+          <FormRow key={form.form_key} form={form} packetId={packetId} clientId={clientId} onUpdate={onUpdate} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Operational Summary Panel ─────────────────────────────────────────────────
+
+const PRIORITY_STYLES = {
+  critical: { bg: 'bg-red-500/12 border-red-500/25', dot: 'bg-red-500', text: 'text-red-300', badge: 'bg-red-500/20 text-red-200 border-red-500/30' },
+  high:     { bg: 'bg-orange-500/10 border-orange-500/20', dot: 'bg-orange-400', text: 'text-orange-300', badge: 'bg-orange-500/20 text-orange-200 border-orange-500/30' },
+  medium:   { bg: 'bg-blue-500/8 border-blue-500/15', dot: 'bg-blue-400', text: 'text-blue-300', badge: 'bg-blue-500/15 text-blue-200 border-blue-500/25' },
+  low:      { bg: 'bg-white/4 border-white/8', dot: 'bg-gray-500', text: 'text-gray-400', badge: 'bg-white/8 text-gray-400 border-white/12' },
+}
+
+function reminderPriority(p) {
+  return p === 'critical' ? 'High' : p === 'high' ? 'High' : p === 'medium' ? 'Medium' : 'Low'
+}
+
+function SuggestedTask({ task, caseManagerId, clientId, alreadyCreated, onCreated }) {
+  const [state, setState] = useState(alreadyCreated ? 'done' : 'idle') // idle | creating | done | error
+  const ps = PRIORITY_STYLES[task.priority] || PRIORITY_STYLES.medium
+
+  const handleCreate = async () => {
+    setState('creating')
+    try {
+      const res = await apiFetch('/api/reminders/create', {
+        method: 'POST',
+        body: JSON.stringify({
+          client_id: clientId,
+          reminder_text: task.title,
+          priority: reminderPriority(task.priority),
+          case_manager_id: caseManagerId,
+          reminder_type: 'Admissions',
+          description: task.description,
+        }),
+      })
+      if (!res.ok) throw new Error('Server error')
+      const rd = await res.json().catch(() => ({}))
+      const reminderId = rd.reminder_id || null
+      // Persist so the button stays "Already in Smart Daily" across refreshes
+      await apiFetch(`/api/admissions/packets/${clientId}/task-keys`, {
+        method: 'POST',
+        body: JSON.stringify({
+          task_key: task.task_key,
+          reminder_id: reminderId,
+          case_manager_id: caseManagerId,
+        }),
+      }).catch(() => {}) // non-fatal
+      setState('done')
+      if (onCreated) onCreated(task.task_key)
+    } catch {
+      setState('error')
+      setTimeout(() => setState('idle'), 2500)
+    }
+  }
+
+  return (
+    <div className={`flex items-start gap-3 px-3.5 py-3 rounded-xl border ${ps.bg} transition-colors`}>
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 mt-1.5 ${ps.dot}`} />
+      <div className="flex-1 min-w-0">
+        <p className={`text-sm font-medium leading-snug ${ps.text}`}>{task.title}</p>
+        {task.description && (
+          <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{task.description}</p>
+        )}
+        {task.due_context && (
+          <span className="inline-block text-xs text-gray-600 mt-1">
+            <Clock className="inline h-3 w-3 mr-0.5 -mt-0.5" />{task.due_context}
+          </span>
+        )}
+      </div>
+      <div className="flex-shrink-0">
+        {state === 'done' ? (
+          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs bg-emerald-500/15 text-emerald-300 border border-emerald-500/20">
+            <CheckCircle2 className="h-3 w-3" />
+            {alreadyCreated ? 'In Smart Daily' : 'Added'}
+          </span>
+        ) : state === 'error' ? (
+          <span className="text-xs text-red-400">Failed</span>
+        ) : (
+          <button
+            onClick={handleCreate}
+            disabled={state === 'creating'}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-gray-300 border border-white/12 bg-white/5 hover:bg-white/10 hover:text-white disabled:opacity-40 transition-colors"
+          >
+            {state === 'creating' ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Plus className="h-3 w-3" />
+            )}
+            Smart Daily
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function KeyDataItem({ icon: Icon, label, value, alert }) {
+  if (!value) return null
+  return (
+    <div className="flex items-start gap-2.5">
+      <Icon className={`h-3.5 w-3.5 flex-shrink-0 mt-0.5 ${alert ? 'text-orange-400' : 'text-gray-500'}`} />
+      <div className="min-w-0">
+        <span className="text-xs text-gray-500">{label}: </span>
+        <span className={`text-xs ${alert ? 'text-orange-300' : 'text-gray-200'}`}>{value}</span>
+      </div>
+    </div>
+  )
+}
+
+function OperationalSummaryPanel({ clientId, packetCaseManagerId }) {
+  const [summary, setSummary] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [collapsed, setCollapsed] = useState(false)
+  const [createdKeys, setCreatedKeys] = useState(new Set())
+
+  useEffect(() => {
+    if (!clientId) return
+    setLoading(true)
+    apiFetch(`/api/admissions/packets/${clientId}/operational-summary`)
+      .then((r) => r.json())
+      .then((d) => {
+        const s = d.summary || null
+        setSummary(s)
+        // Seed createdKeys from persisted task_keys so dedup survives refresh
+        if (s?.created_task_keys?.length) {
+          setCreatedKeys(new Set(s.created_task_keys))
+        }
+        const hasCritical = (s?.suggested_tasks || []).some((t) => t.priority === 'critical')
+        if (hasCritical) setCollapsed(false)
+        else setCollapsed(true)
+      })
+      .catch(() => setSummary(null))
+      .finally(() => setLoading(false))
+  }, [clientId])
+
+  const handleTaskCreated = (taskKey) => {
+    setCreatedKeys((prev) => new Set([...prev, taskKey]))
+  }
+
+  if (loading) {
+    return (
+      <div className="bg-white/3 border border-white/8 rounded-2xl p-4 flex items-center gap-2 text-xs text-gray-600">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        Loading operational summary…
+      </div>
+    )
+  }
+
+  if (!summary || !summary.has_packet) return null
+
+  const { medical_flags = [], legal_flags = [], suggested_tasks = [], key_admissions_data: kad = {} } = summary
+  const allFlags = [...medical_flags, ...legal_flags]
+  const hasCritical = allFlags.some((f) => f.priority === 'critical')
+  // Show all tasks; alreadyCreated prop controls the button vs badge display
+  const visibleTasks = suggested_tasks
+
+  return (
+    <div className={`rounded-2xl border overflow-hidden ${hasCritical ? 'border-red-500/25 bg-red-500/4' : 'border-white/10 bg-white/3'}`}>
+      {/* Header */}
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-left hover:bg-white/4 transition-colors"
+      >
+        <div className="flex items-center gap-2.5">
+          <Sparkles className={`h-4 w-4 ${hasCritical ? 'text-red-400' : 'text-purple-400'}`} />
+          <span className="text-sm font-semibold text-white">Operational Summary</span>
+          {hasCritical && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-red-500/20 border border-red-500/30 text-red-300">
+              Action Required
+            </span>
+          )}
+          {suggested_tasks.length > 0 && (
+            <span className="text-xs px-1.5 py-0.5 rounded-full bg-white/8 border border-white/10 text-gray-400">
+              {visibleTasks.length} task{visibleTasks.length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${collapsed ? '' : 'rotate-180'}`} />
+      </button>
+
+      {!collapsed && (
+        <div className="px-5 pb-5 space-y-5 border-t border-white/8">
+
+          {/* Flags / Alerts */}
+          {allFlags.length > 0 && (
+            <div className="space-y-2 pt-4">
+              {allFlags.map((flag, i) => {
+                const ps = PRIORITY_STYLES[flag.priority] || PRIORITY_STYLES.medium
+                return (
+                  <div key={i} className={`flex items-start gap-2.5 px-3 py-2.5 rounded-xl border ${ps.bg}`}>
+                    <AlertTriangle className={`h-3.5 w-3.5 flex-shrink-0 mt-0.5 ${ps.text}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${ps.text}`}>{flag.label}</p>
+                      {flag.details && <p className="text-xs text-gray-500 mt-0.5">{flag.details}</p>}
+                    </div>
+                    <span className={`text-xs px-1.5 py-0.5 rounded border capitalize flex-shrink-0 ${ps.badge}`}>
+                      {flag.priority}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Key extracted data */}
+          {(kad.payer_type || kad.asam_loc || kad.roi_receiving_party || kad.payment_arrangement || kad.allergies) && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2.5">Key Intake Data</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 bg-white/3 border border-white/8 rounded-xl p-3.5">
+                <KeyDataItem icon={CreditCard} label="Payer" value={[kad.payer_type, kad.plan_name].filter(Boolean).join(' · ') || null} alert={kad.payer_incomplete} />
+                <KeyDataItem icon={Activity} label="ASAM LOC" value={kad.asam_loc || null} />
+                <KeyDataItem icon={Scale} label="Legal" value={legal_flags.length > 0 ? legal_flags[0].label : null} alert />
+                <KeyDataItem icon={CreditCard} label="Payment" value={kad.payment_arrangement || null} alert={kad.payment_arrangement && ['Installment plan', 'To be determined with billing'].includes(kad.payment_arrangement)} />
+                <KeyDataItem icon={User} label="ROI" value={kad.roi_receiving_party ? `${kad.roi_receiving_party}${kad.roi_days_until_expiry != null ? ` · ${kad.roi_days_until_expiry}d` : ''}` : null} alert={kad.roi_days_until_expiry != null && kad.roi_days_until_expiry <= 14} />
+                <KeyDataItem icon={Stethoscope} label="Allergies" value={kad.allergies || null} />
+                {kad.has_medications && <KeyDataItem icon={Stethoscope} label="Medications" value="On file" />}
+                {kad.interpreter_needed && <KeyDataItem icon={User} label="Interpreter" value={`Needed · ${kad.primary_language || 'language not specified'}`} alert />}
+              </div>
+            </div>
+          )}
+
+          {/* ASAM narrative if available */}
+          {kad.asam_medical_necessity && (
+            <div className="bg-white/3 border border-white/8 rounded-xl p-3.5">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Medical Necessity (ASAM)</p>
+              <p className="text-xs text-gray-300 leading-relaxed line-clamp-3">{kad.asam_medical_necessity}</p>
+            </div>
+          )}
+
+          {/* Suggested tasks */}
+          {visibleTasks.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2.5">
+                Suggested Tasks ({visibleTasks.length})
+              </p>
+              <div className="space-y-2">
+                {visibleTasks.map((task) => (
+                  <SuggestedTask
+                    key={task.task_key}
+                    task={task}
+                    caseManagerId={packetCaseManagerId}
+                    clientId={clientId}
+                    alreadyCreated={createdKeys.has(task.task_key)}
+                    onCreated={handleTaskCreated}
+                  />
+                ))}
+              </div>
+              <p className="text-xs text-gray-600 mt-2.5 px-1">
+                Tasks showing "In Smart Daily" were already added and will not duplicate.
+              </p>
+            </div>
+          )}
+
+          {visibleTasks.length === 0 && allFlags.length === 0 && !kad.payer_type && (
+            <div className="pt-4 text-center text-xs text-gray-600">
+              Complete intake forms to see operational data here.
+            </div>
+          )}
+
+          {suggested_tasks.length > 0 && suggested_tasks.every((t) => createdKeys.has(t.task_key)) && (
+            <div className="pt-2 flex items-center gap-2 text-xs text-emerald-400">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              All suggested tasks are already in Smart Daily.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
+export default function AdmissionsPacket() {
+  const { client_id } = useParams()
+  const navigate = useNavigate()
+  const [packet, setPacket] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+
+  const fetchPacket = useCallback(
+    async (silent = false) => {
+      if (!silent) setLoading(true)
+      else setRefreshing(true)
+      setError(null)
+      try {
+        const res = await apiFetch(`/api/admissions/packets/${client_id}`)
+        if (res.status === 404) {
+          setPacket(null)
+          return
+        }
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data.detail || `Server error ${res.status}`)
+        }
+        const data = await res.json()
+        setPacket(data.packet)
+      } catch (err) {
+        setError(err.message || 'Failed to load admissions packet.')
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [client_id]
+  )
+
+  useEffect(() => {
+    fetchPacket()
+  }, [fetchPacket])
+
+  const handleUpdateStatus = async (packetId, formKey, newStatus) => {
+    try {
+      const res = await apiFetch(
+        `/api/admissions/packets/${packetId}/forms/${formKey}/status`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ status: newStatus }),
+        }
+      )
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || `Server error ${res.status}`)
+      }
+      await fetchPacket(true)
+    } catch (err) {
+      setError(`Status update failed: ${err.message}`)
+    }
+  }
+
+  // ── Loading / error / not-found states ──────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-gray-400">
+          <Loader2 className="h-8 w-8 animate-spin text-cyan-500" />
+          <span className="text-sm">Loading admissions packet…</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error && !packet) {
+    return (
+      <div className="min-h-screen p-6 flex items-start justify-center pt-24">
+        <div className="max-w-md w-full bg-red-500/10 border border-red-500/20 rounded-2xl p-6 text-center">
+          <AlertTriangle className="h-10 w-10 text-red-400 mx-auto mb-3" />
+          <h2 className="text-white font-semibold mb-2">Failed to load packet</h2>
+          <p className="text-sm text-red-300 mb-4">{error}</p>
+          <button
+            onClick={() => fetchPacket()}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 text-white text-sm hover:bg-white/15 transition-colors"
+          >
+            <RefreshCw className="h-4 w-4" />
+            Try again
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!packet) {
+    return (
+      <div className="min-h-screen p-6 flex items-start justify-center pt-24">
+        <div className="max-w-md w-full bg-white/5 border border-white/10 rounded-2xl p-8 text-center">
+          <ClipboardCheck className="h-10 w-10 text-cyan-400 mx-auto mb-3" />
+          <h2 className="text-white font-semibold mb-2">No admissions packet found</h2>
+          <p className="text-sm text-gray-400 mb-5">
+            No packet has been started for this client yet.
+          </p>
+          <button
+            onClick={() => navigate('/admissions/new')}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm font-medium hover:from-cyan-400 hover:to-blue-500 transition-all shadow-lg shadow-cyan-500/20"
+          >
+            <ClipboardCheck className="h-4 w-4" />
+            Start Admission Packet
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Packet loaded ────────────────────────────────────────────────────
+
+  const forms = packet.forms || []
+  const stats = calcStats(forms)
+  const grouped = groupForms(forms)
+
+  const progressColor =
+    stats.progress === 100
+      ? 'from-emerald-500 to-teal-500'
+      : stats.progress >= 50
+      ? 'from-cyan-500 to-blue-500'
+      : 'from-orange-500 to-amber-500'
+
+  return (
+    <div className="min-h-screen p-4 sm:p-6 lg:p-8">
+      <div className="max-w-5xl mx-auto space-y-6">
+
+        {/* Back + refresh */}
+        <div className="flex items-center justify-between">
+          <Link
+            to="/admissions"
+            className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Admissions
+          </Link>
+          <button
+            onClick={() => fetchPacket(true)}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+
+        {/* Error banner (non-fatal) */}
+        {error && (
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+            {error}
+            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-200">
+              <XCircle className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Client + packet header */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+            <div className="flex items-center gap-3 flex-1 min-w-0">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+                {(packet.client_name?.[0] || '?').toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-xl font-bold text-white truncate">{packet.client_name}</h1>
+                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                  <span className="flex items-center gap-1 text-xs text-gray-400">
+                    <User className="h-3 w-3" />
+                    {packet.client_id}
+                  </span>
+                  <span className="text-gray-600">·</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                    packet.status === 'Completed'
+                      ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
+                      : 'bg-cyan-500/15 border-cyan-500/25 text-cyan-300'
+                  }`}>
+                    {packet.status}
+                  </span>
+                  <span className="text-xs text-gray-500">
+                    Started {new Date(packet.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          <div className="mt-5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-medium text-gray-400">Packet Progress</span>
+              <span className={`text-sm font-bold ${stats.progress === 100 ? 'text-emerald-400' : 'text-white'}`}>
+                {stats.progress}%
+              </span>
+            </div>
+            <div className="h-2.5 rounded-full bg-white/8 overflow-hidden">
+              <div
+                className={`h-full rounded-full bg-gradient-to-r ${progressColor} transition-all duration-700`}
+                style={{ width: `${stats.progress}%` }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            {
+              label: 'Total Forms',
+              value: stats.total,
+              icon: ClipboardCheck,
+              color: 'from-blue-500 to-cyan-500',
+            },
+            {
+              label: 'Completed',
+              value: stats.completed,
+              icon: CheckCircle2,
+              color: 'from-emerald-500 to-teal-500',
+            },
+            {
+              label: 'Needs Signature',
+              value: stats.needsSig,
+              icon: PenLine,
+              color: 'from-purple-500 to-indigo-500',
+            },
+            {
+              label: 'Missing Required',
+              value: stats.missingRequired,
+              icon: AlertTriangle,
+              color: stats.missingRequired > 0 ? 'from-rose-500 to-red-500' : 'from-gray-500 to-slate-500',
+              alert: stats.missingRequired > 0,
+            },
+          ].map(({ label, value, icon: Icon, color, alert }) => (
+            <div
+              key={label}
+              className={`rounded-2xl p-4 border ${
+                alert
+                  ? 'bg-rose-500/8 border-rose-500/20'
+                  : 'bg-white/5 border-white/10'
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <div className={`p-1 rounded-md bg-gradient-to-r ${color}`}>
+                  <Icon className="h-3 w-3 text-white" />
+                </div>
+                <span className="text-xs text-gray-400">{label}</span>
+              </div>
+              <p className={`text-2xl font-bold ${alert && value > 0 ? 'text-rose-300' : 'text-white'}`}>
+                {value}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Missing required alert */}
+        {stats.missingRequired > 0 && (
+          <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/8 border border-rose-500/20">
+            <ShieldAlert className="h-4 w-4 text-rose-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-rose-300">
+                {stats.missingRequired} required form{stats.missingRequired !== 1 ? 's' : ''} not started
+              </p>
+              <p className="text-xs text-rose-400/70 mt-0.5">
+                Open each form below to complete it. Status updates automatically on save.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Operational Summary panel */}
+        <OperationalSummaryPanel
+          clientId={client_id}
+          packetCaseManagerId={packet.case_manager_id}
+        />
+
+        {/* Financial Coordination panel */}
+        <FinancialCoordinationPanel clientId={client_id} />
+
+        {/* Grouped checklist */}
+        <div className="space-y-7">
+          {TIMING_ORDER.filter((k) => grouped[k]?.length > 0).map((timingKey) => (
+            <TimingSection
+              key={timingKey}
+              timingKey={timingKey}
+              forms={grouped[timingKey]}
+              packetId={packet.id}
+              clientId={client_id}
+              onUpdate={handleUpdateStatus}
+            />
+          ))}
+          {/* Any timing groups not in TIMING_ORDER */}
+          {Object.keys(grouped)
+            .filter((k) => !TIMING_ORDER.includes(k))
+            .map((timingKey) => (
+              <TimingSection
+                key={timingKey}
+                timingKey={timingKey}
+                forms={grouped[timingKey]}
+                packetId={packet.id}
+                clientId={client_id}
+                onUpdate={handleUpdateStatus}
+              />
+            ))}
+        </div>
+
+      </div>
+    </div>
+  )
+}

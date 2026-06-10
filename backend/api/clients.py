@@ -424,6 +424,7 @@ def build_client_operational_context(
     benefits_summary: Optional[Dict[str, Any]] = None,
     legal_summary: Optional[Dict[str, Any]] = None,
     services_summary: Optional[Dict[str, Any]] = None,
+    admissions_context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build the shared read model consumed by module dropdown workflows."""
     overview_data = overview_data or {}
@@ -524,6 +525,7 @@ def build_client_operational_context(
                 "open_tasks": open_tasks,
                 "suggested_needs": operational_needs,
             },
+            "admissions": admissions_context or {},
         },
         "operational_needs": operational_needs,
         "open_tasks": open_tasks,
@@ -541,6 +543,7 @@ def build_client_operational_context(
             "benefits": "unified_platform.db",
             "legal": "legal_cases.db",
             "services": "social_services.db",
+            "admissions": "admissions.db",
             "treatment_plan": "background placeholder until first-class treatment plan store exists",
         },
         "metadata": {
@@ -1371,12 +1374,20 @@ async def get_client_operational_context(client_id: str, request: Request):
             logger.warning("Operational context overview unavailable for %s: %s", client_id, exc)
             overview_data = {}
 
+        try:
+            from backend.modules.admissions.summary import build_admissions_context_for_operational
+            admissions_ctx = build_admissions_context_for_operational(client_id)
+        except Exception as _adm_exc:
+            logger.warning("Admissions context unavailable for %s: %s", client_id, _adm_exc)
+            admissions_ctx = {}
+
         operational_context = build_client_operational_context(
             client,
             overview_data=overview_data,
             benefits_summary=get_client_benefits_summary(client_id),
             legal_summary=get_client_legal_summary(client_id),
             services_summary=get_client_services_summary(client_id),
+            admissions_context=admissions_ctx,
         )
 
         return {

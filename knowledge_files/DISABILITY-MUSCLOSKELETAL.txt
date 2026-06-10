@@ -1,0 +1,555 @@
+
+Skip to main content
+What to Know about Proving Your Identity
+Medical/Professional Relations
+
+    SSA Home
+    Disability
+    Medical/Professional Relations
+    Disability Evaluation Under Social Security
+    Listing of Impairments - Adult Listings (Part A)
+    1.00 Musculoskeletal Disorders - Adult
+
+Adult Listings (Part A)
+
+Childhood Listings (Part B)
+
+General Information
+
+Evidentiary Requirements
+
+Listing of Impairments (overview)
+
+Revisions to Rules Regarding the Evaluation of Medical Evidence
+Disability Evaluation Under Social Security
+
+1.00 Musculoskeletal Disorders - Adult
+ 
+Section
+
+1.01
+Category of Impairments, Musculoskeletal
+
+1.15
+Disorders of the skeletal spine resulting in compromise of a nerve root(s)
+
+1.16
+Lumbar spinal stenosis resulting in compromise of the cauda equina
+
+1.17
+Reconstructive surgery or surgical arthrodesis of a major weight-bearing joint
+
+1.18
+Abnormality of a major joint(s) in any extremity
+
+1.19
+Pathologic fractures due to any cause
+
+1.20
+Amputation due to any cause
+
+1.21
+Soft tissue injury or abnormality under continuing surgical management
+
+1.22
+Non-healing or complex fracture of the femur, tibia, pelvis, or one or more of the talocrural bones
+
+1.23
+Non-healing or complex fracture of an upper extremity
+
+1.00 Musculoskeletal Disorders
+
+A. Which musculoskeletal disorders do we evaluate under these listings?
+
+1. We evaluate disorders of the skeletal spine (vertebral column) or of the upper or lower extremities that affect musculoskeletal functioning under these listings. We use the term “skeletal” when we are referring to the structure of the bony skeleton. The skeletal spine refers to the bony structures, ligaments, and discs making up the spine. We refer to the skeletal spine in some musculoskeletal listings to differentiate it from the neurological spine (see 1.00B1). Musculoskeletal disorders may be congenital or acquired, and may include deformities, amputations, or other abnormalities. These disorders may involve the bones or major joints; or the tendons, ligaments, muscles, or other soft tissues.
+
+2. We evaluate soft tissue injuries (including burns) or abnormalities that are under continuing surgical management (see 1.00O1). The injuries or abnormalities may affect any part of the body, including the face and skull.
+
+3. We evaluate curvatures of the skeletal spine that affect musculoskeletal functioning under 1.15. If a curvature of the skeletal spine is under continuing surgical management (see 1.00O1), we will evaluate it under 1.21 using our rules for determining medical equivalence. See §§ 404.1526 and 416.926 of this chapter.
+
+B. Which related disorders do we evaluate under other listings?
+
+1. We evaluate a disorder or injury of the skeletal spine that results in damage to, and neurological dysfunction of, the spinal cord and its associated nerves (for example, paraplegia or quadriplegia) under the listings in 11.00.
+
+2. We evaluate inflammatory arthritis (for example, rheumatoid arthritis) under the listings in 14.00.
+
+3. We evaluate curvatures of the skeletal spine that interfere with your ability to breathe under the listings in 3.00, impair myocardial function under the listings in 4.00, or result in social withdrawal or depression under the listings in 12.00.
+
+4. We evaluate non-healing or pathological fractures due to cancer, whether it is a primary site or metastases, under the listings in 13.00.
+
+5. We evaluate the leg pain associated with peripheral vascular claudication and foot ulceration associated with peripheral arterial disease under the listings in 4.00.
+
+6. We evaluate burns that do not require continuing surgical management under the listings in 8.00.
+
+C. What evidence do we need to evaluate your musculoskeletal disorder?
+
+1. General. We need objective medical evidence from an acceptable medical source to establish that you have a medically determinable musculoskeletal disorder. We also need evidence from both medical and nonmedical sources, who can describe how you function, to assess the severity and duration of your musculoskeletal disorder. We will determine the extent and kinds of evidence we need from medical and nonmedical sources based on the individual facts about your disorder. For our basic rules on evidence, see §§ 404.1512, 404.1513, 404.1520b, 416.912, 416.913, and 416.920b of this chapter. For our rules on evidence about your symptoms, see §§ 404.1529 and 416.929 of this chapter.
+
+2. Physical examination report(s). In the report(s) of your physical examination, we require a medical source’s detailed description of the orthopedic, neurologic, or other objective clinical findings appropriate to your specific musculoskeletal disorder from his or her direct observations during your physical examination. We will not accept a report of your statements about your symptoms and limitations in place of the medical source’s report of objective clinical findings. We will not use findings on imaging or other diagnostic tests (see 1.00C3) as a substitute for findings on physical examination.
+
+a. When the medical source reports that a clinical test sign(s) is positive, unless we have evidence to the contrary, we will assume that he or she performed the test properly and accept the medical source’s interpretation of the test. For example, we will assume a straight-leg raising test was conducted properly (that is, in sitting and supine positions), even if the medical source does not specify the positions in which the test was performed.
+
+b. If you use an assistive device (see 1.00C6), the report must support the medical need for the device.
+
+c. If your musculoskeletal disorder causes a reduction in muscle strength, the report must document measurement of the strength of the muscle(s) in question. The measurement should be based on a muscle strength grading system that is considered medically acceptable based on your age and impairments. For example, a grading system of 0 to 5, with 0 indicating complete loss of strength and 5 indicating maximum strength or equivalent medically acceptable scale (see Table 1). Reduction in muscle strength is demonstrated by evidence that your muscle strength is less than active range of motion (ROM) against gravity with maximum resistance. If the reduction in muscle strength involves one or both of your hands, the report must also document measurements of grip and pinch strength.
+
+Table 1 - Grading System of Muscle Function
+
+Grade
+	Function of the Muscle
+
+0
+	
+
+None
+	
+
+No visible or palpable contraction.
+
+1
+	
+
+Trace
+	
+
+Visible or palpable contraction with no motion.
+
+2
+	
+
+Poor
+	
+
+Active ROM with gravity eliminated.
+
+3
+	
+
+Fair
+	
+
+Active ROM against gravity only, without resistance.
+
+4
+	
+
+Good
+	
+
+Active ROM against gravity, moderate resistance.
+
+5
+	
+
+Normal
+	
+
+Active ROM against gravity, maximum resistance.
+
+3. Imaging and other diagnostic tests.
+
+a. Imaging refers to medical imaging techniques, such as x-ray, computed tomography (CT), magnetic resonance imaging (MRI), and radionuclide scanning. For the purpose of these listings, the imaging must be consistent with the prevailing state of medical knowledge and clinical practice as the proper technique to support the evaluation of the disorder.
+
+b. Findings on imaging must have lasted, or be expected to last, for a continuous period of at least 12 months.
+
+c. Imaging and other diagnostic tests can provide evidence of physical abnormalities; however, these abnormalities may correlate poorly with your symptoms, including pain, or with your musculoskeletal functioning. Accordingly, we will not use findings on imaging or other diagnostic tests as a substitute for findings on physical examination about your ability to function, nor can we infer severity or functional limitations based solely on such tests.
+
+d. For our rules on purchasing imaging and other diagnostic tests, see §§ 404.1519k, 404.1519m, 416.919k, and 416.919m of this chapter.
+
+4. Operative reports. If you have had a surgical procedure, we need a copy of the operative report, including details of the findings at surgery and information about any medical complications that may have occurred. If we do not have the operative report, we need confirmatory evidence of the surgical procedure from a medical source (for example, detailed follow-up reports or notations in the medical records concerning the surgical procedure in your medical history).
+
+5. Effects of treatment.
+
+a. General. Treatments for musculoskeletal disorders may have beneficial or adverse effects, and responses to treatment vary from person to person. We will evaluate all of the effects of treatment (including surgical treatment, medications, and therapy) on the symptoms, signs, and laboratory findings of your musculoskeletal disorder, and on your musculoskeletal functioning.
+
+b. Response to treatment. To evaluate your musculoskeletal functioning in response to treatment, we need the following: A description, including the frequency of the administration, of your medications; the type and frequency of therapy you receive; and a description of your response to treatment and any complications you experience related to your musculoskeletal disorder. The effects of treatment may be temporary or long-term. We need information over a sufficient period to determine the effects of treatment on your current musculoskeletal functioning and permit reasonable projections about your future functioning. We will determine the amount of time that constitutes a sufficient period in consultation with a medical consultant on a case-by-case basis. In some cases, we will need additional evidence to make an assessment about your response to treatment. Your musculoskeletal disorder may meet or medically equal one of these listings regardless of whether you were prescribed opioid medication, or whether you were prescribed opioid medication and did not follow this prescribed treatment.
+
+6. Assistive devices.
+
+a. General. An assistive device, for the purposes of these listings, is any device that you use to improve your stability, dexterity, or mobility. An assistive device can be worn (see 1.00C6b and 1.00C6c), hand-held (see 1.00C6d), or used in a seated position (see 1.00C6e). When we use the phrase “documented medical need,” we mean that there is evidence from a medical source that supports your medical need for an assistive device (see 1.00C2b) for a continuous period of at least 12 months (see 1.00C6a). This evidence must describe any limitation(s) in your upper or lower extremity functioning and the circumstances for which you need to use the assistive device. We do not require that you have a specific prescription for the assistive device.
+
+b. Prosthesis(es). A prosthesis is a wearable device, such as an artificial limb, that takes the place of an absent body part. If you have a prosthesis(es), we need evidence from a medical source documenting your ability to walk, or perform fine and gross movements (see 1.00E4), with the prosthesis(es) in place. When amputation(s) involves one or both lower extremities, it is not necessary for the medical source to evaluate your ability to walk without the prosthesis(es) in place. If you cannot use your prosthesis(es) due to complications affecting your residual limb(s), we need evidence from a medical source documenting the condition of your residual limb(s) and the medical basis for your inability to use the device(s).
+
+c. Orthosis(es). An orthosis is a wearable device, such as a brace, that prevents or corrects a dysfunction or deformity by aligning or supporting the affected body part. If you have an orthosis(es), we need evidence from a medical source documenting your ability to walk, or perform fine and gross movements (see 1.00E4), with the orthosis(es) in place. If you cannot use your orthosis(es), we need evidence from a medical source documenting the medical basis for your inability to use the device(s).
+
+d. Hand-held assistive devices. Hand-held assistive devices include walkers, canes, or crutches, which you hold onto with your hand(s) to support or aid you in walking. When you use a one-handed, hand-held assistive device (such as a cane) with one upper extremity to walk and you cannot use your other upper extremity for fine or gross movements (see 1.00E4), the need for the assistive device limits the use of both upper extremities. If you use a hand-held assistive device, we need evidence from a medical source describing how you walk with the device.
+
+e. Wheeled and seated mobility devices. Wheeled and seated mobility devices are assistive devices that you use in a seated position, such as manual wheelchairs, motorized wheelchairs, rollators, and power operated vehicles. If you use a wheeled and seated mobility device, we need evidence from a medical source describing the type of wheeled and seated mobility device that you use and how you use the assistive device including any customizations or modifications to the assistive device itself or for your use of the assistive device. For example, if you use a wheelchair that typically requires the use of both hands but has been customized for your use with one hand, then we will evaluate your use of the assistive device using the criteria in 1.00E3b and not 1.00E3a.
+
+(i) Wheeled and seated mobility devices involving the use of both hands. Some wheeled and seated mobility devices involve the use of both hands to use the assistive device (for example, most manual wheelchairs). If you use a wheeled and seated mobility device that involves the use of both hands, then the need for the assistive device limits the use of both upper extremities.
+
+(ii) Wheeled and seated devices involving the use of one hand. Some wheeled and seated mobility devices involve the use of one hand to use the assistive device (for example, most motorized wheelchairs). If you use a wheeled and seated mobility device that involves the use of one upper extremity and you cannot use your other upper extremity for fine or gross movements (see 1.00E4), then the need for the assistive device limits the use of both upper extremities.
+
+7. Longitudinal evidence.
+
+a. The term pandemic period as used in 1.00C7c means the period beginning on April 2, 2021, and ending on May 11, 2025. The term post-pandemic evaluation period as used in 1.00C7c means the period beginning on May 12, 2025, and ending on May 11, 2029.
+
+b. We generally need a longitudinal medical record to assess the severity and duration of your musculoskeletal disorder because the severity of symptoms, signs, and laboratory findings related to most musculoskeletal disorders may improve over time or respond to treatment. Evidence over an extended period will show whether your musculoskeletal functioning is improving, worsening, or unchanging.
+
+c. For 1.15, 1.16, 1.17, 1.18, 1.20C, 1.20D, 1.22, and 1.23, all of the required criteria must be present simultaneously, or within a close proximity of time, to satisfy the level of severity needed to meet the listing. The phrase "within a close proximity of time" means that all of the relevant criteria must appear in the medical record within a consecutive 4-month period, except for claims determined or decided during the pandemic period or post-pandemic evaluation period. For claims determined or decided during the pandemic period or post-pandemic evaluation period, all of the relevant criteria must appear in the medical record within a consecutive 12-month period. When the criterion is imaging, we mean that we could reasonably expect the findings on imaging to have been present at the date of impairment or date of onset. For listings that use the word "and" to link the elements of the required criteria, the medical record must establish the simultaneous presence, or presence within a close proximity of time, of all the required medical criteria. Once this level of severity is established, the medical record must also show that this level of severity has continued, or is expected to continue, for a continuous period of at least 12 months.
+
+8. Surgical treatment and physical therapy. For some musculoskeletal disorders, a medical source may recommend surgery or physical therapy (PT). If you have not yet had the recommended surgery or PT, we will not assume that these interventions will resolve your disorder or improve your functioning. We will assess each case on an individual basis. Depending on your response to treatment, or your medical sources’ treatment plans, we may defer our findings regarding the effect of surgery or PT, until a sufficient period has passed to permit proper consideration or judgment about your future functioning. When necessary, we will follow the rules on following prescribed treatment in §§ 404.1530 and 416.930 of this chapter, including consideration of your reasons for failure to follow prescribed treatment.
+
+D. How do we consider symptoms, including pain, under these listings?
+
+1. Musculoskeletal disorders may cause pain or other symptoms; however, your statements about your pain or other symptoms will not alone establish that you are disabled. We will not substitute an alleged or a reported increase in the intensity of a symptom, such as pain, no matter how severe, for a medical sign or diagnostic finding present in the listing criteria. Pain is included as just one consideration in 1.15A , 1.16A, and 1.18A, but it is not required to satisfy the criteria in 1.15, 1.16, and 1.18.
+
+2. To consider your symptom(s), we require objective medical evidence from an acceptable medical source showing the existence of a medically determinable musculoskeletal impairment that we could reasonably expect to produce the symptom(s). See §§ 404.1529 and 416.929 of this chapter for how we evaluate symptoms, including pain, related to your musculoskeletal disorder.
+
+E. How do we use the functional criteria to evaluate your musculoskeletal disorder under these listings?
+
+1. General. The functional criteria are based on impairment-related physical limitations in your ability to use both upper extremities, one or both lower extremities, or a combination of one upper and one lower extremity. The required impairment-related physical limitation of musculoskeletal functioning must have lasted, or be expected to last, for a continuous period of at least 12 months. We do not use the functional criteria in 1.20A, 1.20B, or 1.21.
+
+2. Work environment. We use the relevant evidence that we have to evaluate your musculoskeletal functioning with respect to the work environment rather than the home environment. For example, an ability to walk independently at home without an assistive device does not, in and of itself, indicate an ability to walk without an assistive device in a work environment.
+
+3. Functional criteria. A musculoskeletal disorder satisfies the functional criteria of a listing when the medical documentation shows the presence of at least one of the impairment-related limitations cited in the listing. The required impairment-related limitation of musculoskeletal functioning must be medically documented by one of the following:
+
+a. A documented medical need (see 1.00C6a) for a walker, bilateral canes, or bilateral crutches (see 1.00C6d) or a wheeled and seated mobility device involving the use of both hands (see 1.00C6e(i));
+
+b. An inability to use one upper extremity to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4), and a documented medical need (see 1.00C6a) for a one-handed, hand-held assistive device (see 1.00C6d) that requires the use of your other upper extremity or a wheeled and seated mobility device involving the use of one hand (see 1.00C6e(ii));
+
+c. An inability to use both upper extremities to the extent that neither can be used to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4).
+
+4. Fine and gross movements. Fine movements, for the purposes of these listings, involve use of your wrists, hands, and fingers; such movements include picking, pinching, manipulating, and fingering. Gross movements involve use of your shoulders, upper arms, forearms, and hands; such movements include handling, gripping, grasping, holding, turning, and reaching. Gross movements also include exertional abilities such as lifting, carrying, pushing, and pulling. Examples of performing fine and gross movements include, but are not limited to, taking care of personal hygiene, sorting and handling papers or files, and placing files in a file cabinet at or above waist level.
+
+F. What do we consider when we evaluate disorders of the skeletal spine resulting in compromise of a nerve root(s) (1.15)?
+
+1. General. We consider musculoskeletal disorders such as herniated nucleus pulposus, spinal osteoarthritis (spondylosis), vertebral slippage (spondylolisthesis), degenerative disc disease, facet arthritis, and vertebral fracture or dislocation. Spinal disorders may cause cervical or lumbar spine dysfunction when abnormalities of the skeletal spine compromise nerve roots of the cervical spine, a nerve root of the lumbar spine, or a nerve root of both cervical and lumbar spines. We consider spinal nerve disorders that originate in the nervous system (for example, spinal arachnoiditis), under the neurological disorders body system, 11.00.
+
+2. Compromise of a nerve root(s). Compromise of a nerve root, sometimes referred to as “nerve root impingement,” is a phrase used when a physical object, such as a tumor, herniated disc, foreign body, or arthritic spur, is pushing on the nerve root as seen on imaging or during surgery. It can occur when a musculoskeletal disorder produces irritation, inflammation, or compression of the nerve root(s) as it exits the skeletal spine between the vertebrae. Related symptoms must be associated with, or follow the path of, the affected nerve root(s).
+
+a. Compromise of unilateral nerve root of the cervical spine. Compromise of a nerve root as it exits the cervical spine between the vertebrae may affect the functioning of the associated upper extremity. The physical examination reproduces the related symptoms based on radicular signs and clinical tests appropriate to the specific cervical nerve root (for example, a positive Spurling test).
+
+b. Compromise of bilateral nerve roots of the cervical spine. Although uncommon, if compromise of a nerve root occurs on both sides of the cervical spinal column, functioning of both upper extremities may be limited.
+
+c. Compromise of a nerve root(s) of the lumbar spine. Compromise of a nerve root as it exits the lumbar spine between the vertebrae may limit the functioning of the associated lower extremity. The physical examination reproduces the related symptoms based on radicular signs and clinical tests. When a nerve root of the lumbar spine is compromised, we require a positive straight-leg raising test (also known as a Lasègue test) in both supine and sitting positions appropriate to the specific lumbar nerve root that is compromised.
+
+G. What do we consider when we evaluate lumbar spinal stenosis resulting in compromise of the cauda equina (1.16)?
+
+1. General. We consider how pain, sensory changes, and muscle weakness caused by compromise of the cauda equina due to lumbar spinal stenosis affect your functioning. The cauda equina is a bundle of nerve roots that descends from the lower part of the spinal cord. Lumbar spinal stenosis can compress the nerves of the cauda equina, causing sensory changes and muscle weakness that may affect your ability to stand or walk. Pain related to compromise of the cauda equina is nonradicular because it is not typically associated with a specific nerve root (as is radicular pain in the cervical or lumbar spine).
+
+2. Compromise of the cauda equina due to lumbar spinal stenosis can affect your ability to walk or stand because of neurogenic claudication (also known as pseudoclaudication), a condition usually causing nonradicular pain that starts in the low back and radiates bilaterally (or less commonly, unilaterally) into the buttocks and lower extremities (or extremity). Extension of the lumbar spine, which occurs when you walk or stand, may provoke the pain of neurogenic claudication. The pain may be relieved by forward flexion of the lumbar spine or by sitting. In contrast, the leg pain associated with peripheral vascular claudication results from inadequate arterial blood flow to a lower extremity. It occurs repeatedly and consistently when a person walks a certain distance and is relieved when the person rests.
+
+H. What do we consider when we evaluate reconstructive surgery or surgical arthrodesis of a major weight-bearing joint (1.17)?
+
+1. General. We consider reconstructive surgery or surgical arthrodesis when an acceptable medical source(s) documents the surgical procedure(s) and associated medical treatments to restore function of, or eliminate motion in, the affected major weight-bearing joint. Reconstructive surgery may be done in a single procedure or a series of procedures directed toward the salvage or restoration of functional use of the affected joint.
+
+2. Major weight-bearing joints are the hip, knee, and ankle-foot. The ankle and foot are considered together as one major joint.
+
+3. Surgical arthrodesis is the artificial fusion of the bones that form a joint, essentially eliminating the joint.
+
+I. What do we consider when we evaluate abnormality of a major joint(s) in any extremity (1.18)?
+
+1. General. We consider musculoskeletal disorders that produce anatomical abnormalities of major joints of the extremities, which result in functional abnormalities in the upper or lower extremities (for example, osteoarthritis, chronic infections of bones and joints, and surgical arthrodesis of a joint). Abnormalities of the joints include ligamentous laxity or rupture, soft tissue contracture, or tendon rupture, and can cause muscle weakness of the affected joint(s).
+
+a. An anatomical abnormality is one that is readily observable by a medical source during a physical examination (for example, subluxation or contracture), or is present on imaging (for example, joint space narrowing, bony destruction, ankylosis, or deformity).
+
+b. A functional abnormality is abnormal motion or instability of the affected joint(s), including limitation of motion, excessive motion (hypermobility), movement outside the normal plane of motion for the joint (for example, lateral deviation), or fixation of the affected joint(s).
+
+2. Major joint of an upper extremity refers to the shoulder, elbow, and wrist-hand. We consider the wrist and hand together as one major joint.
+
+3. Major joint of a lower extremity refers to the hip, knee, and ankle-foot. We consider the ankle and hindfoot together as one major joint.
+
+J. What do we consider when we evaluate pathologic fractures due to any cause (1.19)? We consider pathologic fractures of the bones in the skeletal spine, extremities, or other parts of the skeletal system. Pathologic fractures result from disorders that weaken the bones, making them vulnerable to breakage. Pathologic fractures may occur with osteoporosis, osteogenesis imperfecta or any other skeletal dysplasias, side effects of medications, and disorders of the endocrine or other body systems. Under 1.19, the fractures must have occurred on separate, distinct occasions, rather than multiple fractures occurring at the same time, but the fractures may affect the same bone(s) multiple times. There is no required time that must elapse between the fractures, but all three must occur within a 12-month period; for example, separate incidents may occur within hours or days of each other. We evaluate non-healing or complex traumatic fractures without accompanying pathology under 1.22 or 1.23.
+
+K. What do we consider when we evaluate amputation due to any cause (1.20)?
+
+1. General. We consider amputation (the full or partial loss or absence of any extremity) due to any cause including trauma, congenital abnormality or absence, surgery for treatment of conditions such as cancer or infection, or complications of peripheral vascular disease or diabetes mellitus.
+
+2. Amputation of both upper extremities (1.20A). Under 1.20A, we consider upper extremity amputations that occur at any level at or above the wrists (carpal joints), up to and including disarticulation of the shoulder (glenohumeral) joint. If you have had both upper extremities amputated at any level at or above the wrists up to and including the shoulder, your impairment satisfies the duration requirement in §§ 404.1509 and 416.909 of this chapter. For amputations below the wrist, we will follow the rules described in 1.00S. We do not evaluate amputations below the wrist under 1.20A because the resulting limitation of function of the thumb(s), finger(s), or hand(s) will vary, depending on the extent of loss and corresponding effect on fine and gross movements.
+
+3. Hemipelvectomy or hip disarticulation (1.20B). Under 1.20B, we consider hemipelvectomy, which involves amputation of an entire lower extremity through the sacroiliac joint, and hip disarticulation, which involves amputation of an entire lower extremity through the hip joint capsule and closure of the remaining musculature over the exposed acetabular bone. If you have had a hemipelvectomy or hip disarticulation, your impairment satisfies the duration requirement in §§ 404.1509 and 416.909 of this chapter.
+
+4. Amputation of one upper extremity and one lower extremity (1.20C). Under 1.20C, we consider the amputation of one upper extremity at any level at or above the wrist and one lower extremity at or above the ankle. If you have a documented medical need for a one-handed, hand-held assistive device (such as a cane) or a wheeled and seated mobility device involving the use of one hand (such as a motorized wheelchair), then you must use your remaining upper extremity to hold the device, making the extremity unavailable to perform other fine and gross movements (see 1.00E4).
+
+5. Amputation of one lower extremity or both lower extremities with complications of the residual limb(s) (1.20D). Under 1.20D, we consider the amputation of one lower extremity or both lower extremities at or above the ankle. We also consider the condition of your residual limb(s), whether you can wear a prosthesis(es) (see 1.00C6b), and whether you have a documented medical need (see 1.00C6a) for a hand-held assistive device(s) (see 1.00C6d) or a wheeled and seated mobility device (see 1.00C6e). If you have a non-healing residual limb(s) and are receiving ongoing surgical treatment expected to re-establish or improve function, and that ongoing surgical treatment has not ended, or is not expected to end, within at least 12 months of the initiation of the surgical management (see 1.00L), we evaluate your musculoskeletal disorder under 1.21.
+
+L. What do we consider when we evaluate soft tissue injuries or abnormalities under continuing surgical management (1.21)?
+
+1. General.
+
+a. We consider any soft tissue injury or abnormality involving the soft tissues of the body, whether congenital or acquired, when an acceptable medical source(s) documents the need for ongoing surgical procedures and associated medical treatments to restore function of the affected body part(s) (see 1.00O1). Surgical management includes the surgery(ies) itself, as well as various post-surgical procedures, surgical complications, infections or other medical complications, related illnesses, or related treatments that delay your attainment of maximum benefit from therapy (see 1.00O2).
+
+b. Surgical procedures and associated treatments typically take place over extended periods, which may render you unable to perform work-related activity on a sustained basis. To document such inability, we must have evidence from an acceptable medical source(s) confirming that the surgical management has continued, or is expected to continue, for at least 12 months from the date of the first surgical intervention. These procedures and treatments must be directed toward saving, reconstructing, or replacing the affected part of the body to re-establish or improve its function, and not for cosmetic appearances alone.
+
+c. Examples include malformations, third- and fourth-degree burns, crush injuries, craniofacial injuries, avulsive injuries, and amputations with complications of the residual limb(s).
+
+d. We evaluate skeletal spine abnormalities or injuries under 1.15 or 1.16, as appropriate. We evaluate abnormalities or injuries of bones in the lower extremities under 1.17, 1.18, or 1.22. We evaluate abnormalities or injuries of bones in the upper extremities under 1.18 or 1.23.
+
+2. Documentation. In addition to the objective medical evidence we need to establish your soft tissue injury or abnormality, we also need all of the following medically documented evidence about your continuing surgical management:
+
+a. Operative reports and related laboratory findings;
+
+b. Records of post-surgical procedures;
+
+c. Records of any surgical or medical complications (for example, related infections or systemic illnesses);
+
+d. Records of any prolonged post-operative recovery periods and related treatments (for example, surgeries and treatments for burns);
+
+e. An acceptable medical source’s plans for additional surgeries; and
+
+f. Records detailing any other factors that have delayed, or that an acceptable medical source expects to delay, the saving, restoring, or replacing of the involved part for a continuous period of at least 12 months following the initiation of the surgical management.
+
+3. Burns. Third- and fourth-degree burns damage or destroy nerve tissue, reducing or preventing transmission of signals through those nerves. Such burns frequently require multiple surgical procedures and related therapies to re-establish or improve function, which we evaluate under 1.21. When burns are no longer under continuing surgical management (see 1.00O1), we evaluate the residual impairment(s). When the residual impairment(s) affects the musculoskeletal system, as often occurs in third- and fourth-degree burns, it can result in permanent musculoskeletal tissue loss, joint contractures, or loss of extremities. We will evaluate such impairments under the relevant musculoskeletal disorders listing, for example, 1.18 or 1.20. When the residual impairment(s) involves another body system, we will evaluate the impairment(s) under the listings in the relevant body system(s).
+
+4. Craniofacial injuries. Surgeons may treat craniofacial injuries with multiple surgical procedures. These injuries may affect vision, hearing, speech, and the initiation of the digestive process, including mastication. When the craniofacial injury-related residual impairment(s) involves another body system(s), we will evaluate the impairment(s) under the listings in the relevant body system(s).
+
+M. What do we consider when we evaluate non-healing or complex fractures of the femur, tibia, pelvis, or one or more of the talocrural bones (1.22)?
+
+1. Non-healing fracture. A non-healing (nonunion) fracture is a fracture that has failed to unite completely. Nonunion is usually established when a minimum of 9 months has elapsed since the injury and the fracture site has shown no, or minimal, progressive signs of healing for a minimum of 3 months.
+
+2. Complex fracture. A complex fracture is a fracture with one or more of the following:
+
+a. Comminuted (broken into many pieces) bone fragments;
+
+b. Multiple fractures in a single bone;
+
+c. Bone loss due to severe trauma;
+
+d. Damage to the surrounding soft tissue;
+
+e. Severe cartilage damage to the associated joint; or
+
+f. Dislocation of the associated joint.
+
+3. When a complex fracture involves soft tissue damage, the treatment may involve continuing surgical management to restore or improve functioning. In such cases, we may evaluate the fracture(s) under 1.21.
+
+N. What do we consider when we evaluate non-healing or complex fracture of an upper extremity (1.23)?
+
+1. Non-healing fracture. A non-healing (nonunion) fracture is a fracture that has failed to unite completely. Nonunion is usually established when a minimum of 9 months has elapsed since the injury and the fracture site has shown no, or minimal, progressive signs of healing for a minimum of 3 months.
+
+2. Complex fracture. A complex fracture is a fracture with one or more of the following:
+
+a. Comminuted (broken into many pieces) bone fragments;
+
+b. Multiple fractures in a single bone;
+
+c. Bone loss due to severe trauma;
+
+d. Damage to the surrounding soft tissue;
+
+e. Severe cartilage damage to the associated joint; or
+
+f. Dislocation of the associated joint.
+
+3. When a complex fracture involves soft tissue damage, the treatment may involve continuing surgical management to restore or improve functioning. In such cases, we may evaluate the fracture(s) under 1.21.
+
+O. How will we determine whether your soft tissue injury or abnormality or your upper extremity fracture is no longer under continuing surgical management or you have received maximum benefit from therapy?
+
+1. We will determine that your soft tissue injury or abnormality, or your upper extremity fracture, is no longer under continuing surgical management, as used in 1.21 and 1.23, when the last surgical procedure or medical treatment directed toward the re-establishment or improvement of function of the involved part has occurred.
+
+2. We will determine that you have received maximum benefit from therapy, as used in 1.21, if there are no significant changes in physical findings or on appropriate imaging for any 6-month period after the last surgical procedure or medical treatment. We may also determine that you have received maximum benefit from therapy if your medical source(s) indicates that further improvement is not expected after the last surgical procedure or medical treatment.
+
+3. When you have received maximum benefit from therapy, we will evaluate any impairment-related residual symptoms, signs, and laboratory findings (including those on imaging), any complications associated with your surgical procedures or medical treatments, and any residual limitations in your functioning (see 1.00S).
+
+P. How do we evaluate your musculoskeletal disorder if there is no record of ongoing treatment?
+
+1. Despite having a musculoskeletal disorder, you may not have received ongoing treatment, may have just begun treatment, may not have access to prescribed medical treatment, or may not have an ongoing relationship with the medical community. In any of these situations, you will not have a longitudinal medical record for us to review when we evaluate your disorder and we may ask you to attend a consultative examination to determine the severity and potential duration of your disorder. See §§ 404.1519a(b) and 416.919a(b) of this chapter.
+
+2. In some instances, we may be able to assess the severity and duration of your musculoskeletal disorder based on your medical record and current evidence alone. If the information in your case record is not sufficient to show that you have a musculoskeletal disorder that meets the criteria of one of the musculoskeletal disorders listings, we will follow the rules described in 1.00S.
+
+Q. How do we consider the effects of obesity when we evaluate your musculoskeletal disorder? Obesity is a medically determinable impairment that is often associated with musculoskeletal disorders. Obesity increases stress on weight-bearing joints and may contribute to limitation of the range of motion of the skeletal spine and extremities. The combined effects of obesity with a musculoskeletal disorder can be greater than the effects of each of the impairments considered separately. We consider the additional and cumulative effects of your obesity when we determine whether you have a severe musculoskeletal disorder, a listing-level musculoskeletal disorder, a combination of impairments that medically equals the severity of a listed impairment, and when we assess your residual functional capacity.
+
+R. How do we evaluate your musculoskeletal disorder if there is evidence establishing a substance use disorder? If we find that you are disabled and there is medical evidence in your case record establishing that you have a substance use disorder, we will determine whether your substance use disorder is a contributing factor material to the determination of disability. See §§ 404.1535 and 416.935 of this chapter.
+
+S. How do we evaluate musculoskeletal disorders that do not meet one of these listings?
+
+1. These listings are only examples of musculoskeletal disorders that we consider severe enough to prevent you from doing any gainful activity. If your impairment(s) does not meet the criteria of any of these listings, we must also consider whether you have an impairment(s) that meets the criteria of a listing in another body system.
+
+2. If you have a severe medically determinable impairment(s) that does not meet a listing, we will determine whether your impairment(s) medically equals a listing. See §§ 404.1526 and 416.926 of this chapter. If your impairment(s) does not meet or medically equal a listing, you may or may not have the residual functional capacity to engage in substantial gainful activity. We proceed to the fourth step and, if necessary, the fifth step of the sequential evaluation process in §§ 404.1520 and 416.920 of this chapter.
+
+3. We use the rules in §§ 404.1594 and 416.994 of this chapter, as appropriate, when we decide whether you continue to be disabled.
+
+Back to Top
+
+1.01 Category of Impairments, Musculoskeletal Disorders
+
+1.15 Disorders of the skeletal spine resulting in compromise of a nerve root(s) (see 1.00F), documented by A, B, C, and D:
+
+A. Neuro-anatomic (radicular) distribution of one or more of the following symptoms consistent with compromise of the affected nerve root(s):
+
+1. Pain; or
+
+2. Paresthesia; or
+
+3. Muscle fatigue.
+
+AND
+
+B. Radicular distribution of neurological signs present during physical examination (see 1.00C2) or on a diagnostic test (see 1.00C3) and evidenced by 1, 2, and either 3 or 4:
+
+1. Muscle weakness; and
+
+2. Sign(s) of nerve root irritation, tension, or compression, consistent with compromise of the affected nerve root (see 1.00F2); and
+
+3. Sensory changes evidenced by:
+
+a. Decreased sensation; or
+
+b. Sensory nerve deficit (abnormal sensory nerve latency) on electrodiagnostic testing; or
+
+4. Decreased deep tendon reflexes.
+
+AND
+
+C. Findings on imaging (see 1.00C3) consistent with compromise of a nerve root(s) in the cervical or lumbosacral spine.
+
+AND
+
+D. Impairment-related physical limitation of musculoskeletal functioning that has lasted, or is expected to last, for a continuous period of at least 12 months, and medical documentation of at least one of the following:
+
+1. A documented medical need (see 1.00C6a) for a walker, bilateral canes, or bilateral crutches (see 1.00C6d) or a wheeled and seated mobility device involving the use of both hands (see 1.00C6e(i)); or
+
+2. An inability to use one upper extremity to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4), and a documented medical need (see 1.00C6a) for a one-handed, hand-held assistive device (see 1.00C6d) that requires the use of the other upper extremity or a wheeled and seated mobility device involving the use of one hand (see 1.00C6e(ii)); or
+
+3. An inability to use both upper extremities to the extent that neither can be used to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4).
+
+1.16 Lumbar spinal stenosis resulting in compromise of the cauda equina (see 1.00G), documented by A, B, C, and D:
+
+A. Symptom(s) of neurological compromise manifested as:
+
+1. Nonradicular distribution of pain in one or both lower extremities; or
+
+2. Nonradicular distribution of sensory loss in one or both lower extremities; or
+
+3. Neurogenic claudication.
+
+AND
+
+B. Nonradicular neurological signs present during physical examination (see 1.00C2) or on a diagnostic test (see 1.00C3) and evidenced by 1 and either 2 or 3:
+
+1. Muscle weakness.
+
+2. Sensory changes evidenced by:
+
+a. Decreased sensation; or
+
+b. Sensory nerve deficit (abnormal sensory nerve latency) on electrodiagnostic testing; or
+
+c. Areflexia, trophic ulceration, or bladder or bowel incontinence.
+
+3. Decreased deep tendon reflexes in one or both lower extremities.
+
+AND
+
+C. Findings on imaging (see 1.00C3) or in an operative report (see 1.00C4) consistent with compromise of the cauda equina with lumbar spinal stenosis.
+
+AND
+
+D. Impairment-related physical limitation of musculoskeletal functioning that has lasted, or is expected to last, for a continuous period of at least 12 months, and medical documentation of at least one of the following:
+
+1. A documented medical need (see 1.00C6a) for a walker, bilateral canes, or bilateral crutches (see 1.00C6d) or a wheeled and seated mobility device involving the use of both hands (see 1.00C6e(i)); or
+
+2. An inability to use one upper extremity to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4), and a documented medical need (see 1.00C6a) for a one-handed, hand-held assistive device (see 1.00C6d) that requires the use of the other upper extremity or a wheeled and seated mobility device involving the use of one hand (see 1.00C6e(ii)).
+
+1.17 Reconstructive surgery or surgical arthrodesis of a major weight-bearing joint (see 1.00H), documented by A, B, and C:
+
+A. History of reconstructive surgery or surgical arthrodesis of a major weight-bearing joint.
+
+AND
+
+B. Impairment-related physical limitation of musculoskeletal functioning that has lasted, or is expected to last, for a continuous period of at least 12 months.
+
+AND
+
+C. A documented medical need (see 1.00C6a) for a walker, bilateral canes, or bilateral crutches (see 1.00C6d) or a wheeled and seated mobility device involving the use of both hands (see 1.00C6e(i)).
+
+1.18 Abnormality of a major joint(s) in any extremity (see 1.00I), documented by A, B, C, and D:
+
+A. Chronic joint pain or stiffness.
+
+AND
+
+B. Abnormal motion, instability, or immobility of the affected joint(s).
+
+AND
+
+C. Anatomical abnormality of the affected joint(s) noted on:
+
+1. Physical examination (for example, subluxation, contracture, or bony or fibrous ankylosis); or
+
+2. Imaging (for example, joint space narrowing, bony destruction, or ankylosis or arthrodesis of the affected joint).
+
+AND
+
+D. Impairment-related physical limitation of musculoskeletal functioning that has lasted, or is expected to last, for a continuous period of at least 12 months, and medical documentation of at least one of the following:
+
+1. A documented medical need (see 1.00C6a) for a walker, bilateral canes, or bilateral crutches (see 1.00C6d) or a wheeled and seated mobility device involving the use of both hands (see 1.00C6e(i)); or
+
+2. An inability to use one upper extremity to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4), and a documented medical need (see 1.00C6a) for a one-handed, hand-held assistive device (see 1.00C6d) that requires the use of the other upper extremity or a wheeled and seated mobility device involving the use of one hand (see 1.00C6e(ii)); or
+
+3. An inability to use both upper extremities to the extent that neither can be used to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4).
+
+1.19 Pathologic fractures due to any cause (see 1.00J), documented by A and B:
+
+A. Pathologic fractures occurring on three separate occasions within a 12-month period.
+
+AND
+
+B. Impairment-related physical limitation of musculoskeletal functioning that has lasted, or is expected to last, for a continuous period of at least 12 months, and medical documentation of at least one of the following:
+
+1. A documented medical need (see 1.00C6a) for a walker, bilateral canes, or bilateral crutches (see 1.00C6d) or a wheeled and seated mobility device involving the use of both hands (see 1.00C6e(i)); or
+
+2. An inability to use one upper extremity to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4), and a documented medical need (see 1.00C6a) for a one-handed, hand-held assistive device (see 1.00C6d) that requires the use of the other upper extremity or a wheeled and seated mobility device involving the use of one hand (see 1.00C6e(ii)); or
+
+3. An inability to use both upper extremities to the extent that neither can be used to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4).
+
+1.20 Amputation due to any cause (see 1.00K), documented by A, B, C, or D:
+
+A. Amputation of both upper extremities, occurring at any level at or above the wrists (carpal joints), up to and including the shoulder (glenohumeral) joint.
+
+OR
+
+B. Hemipelvectomy or hip disarticulation.
+
+OR
+
+C. Amputation of one upper extremity, occurring at any level at or above the wrist (carpal joints), and amputation of one lower extremity, occurring at or above the ankle (talocrural joint), and medical documentation of at least one of the following:
+
+1. A documented medical need (see 1.00C6a) for a walker, bilateral canes, or bilateral crutches (see 1.00C6d) or a wheeled and seated mobility device involving the use of both hands (see 1.00C6e(i)); or
+
+2. A documented medical need (see 1.00C6a) for a one-handed, hand-held assistive device (see 1.00C6d) requiring the use of the other upper extremity or a wheeled and seated mobility device involving the use of one hand (see 1.00C6e(ii)); or
+
+3. The inability to use the remaining upper extremity to independently initiate, sustain, and complete work-related activities involving fine and gross movements (1.00E4).
+
+OR
+
+D. Amputation of one or both lower extremities, occurring at or above the ankle (talocrural joint), with complications of the residual limb(s) that have lasted, or are expected to last, for a continuous period of at least 12 months, and medical documentation of 1 and 2:
+
+1. The inability to use a prosthesis(es); and
+
+2. A documented medical need (see 1.00C6a) for a walker, bilateral canes, or bilateral crutches (see 1.00C6d) or a wheeled and seated mobility device involving the use of both hands (see 1.00C6e(i)).
+
+1.21 Soft tissue injury or abnormality under continuing surgical management (see 1.00L), documented by A, B, and C:
+
+A. Evidence confirms continuing surgical management (see 1.00O1) directed toward saving, reconstructing, or replacing the affected part of the body.
+
+AND
+
+B. The surgical management has been, or is expected to be, ongoing for a continuous period of at least 12 months.
+
+AND
+
+C. Maximum benefit from therapy (see 1.00O2) has not yet been achieved.
+
+1.22 Non-healing or complex fracture of the femur, tibia, pelvis, or one or more of the talocrural bones (see 1.00M), documented by A, B, and C:
+
+A. Solid union not evident on imaging (see 1.00C3) and not clinically solid.
+
+AND
+
+B. Impairment-related physical limitation of musculoskeletal functioning that has lasted, or is expected to last, for a continuous period of at least 12 months.
+
+AND
+
+C. A documented medical need (see 1.00C6a) for a walker, bilateral canes, or bilateral crutches (see 1.00C6d) or a wheeled and seated mobility device involving the use of both hands (see 1.00C6e(i)).
+
+1.23 Non-healing or complex fracture of an upper extremity (see 1.00N), documented by A and B:
+
+A. Nonunion or complex fracture of the shaft of the humerus, radius, or ulna, under continuing surgical management (see 1.00O1) directed toward restoration of functional use of the extremity.
+
+AND
+
+B. Medical documentation of an inability to independently initiate, sustain, and complete work-related activities involving fine and gross movements (see 1.00E4) that has lasted, or is expected to last, for a continuous period of at least 12 months.
+
+Back to Top

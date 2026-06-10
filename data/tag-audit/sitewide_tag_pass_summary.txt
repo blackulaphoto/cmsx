@@ -1,0 +1,14 @@
+Treatment centers missing phone: 12
+Treatment centers invalid servesPopulation: 0
+Resources missing phone: 72
+Resources invalid filters: 0
+Medi-Cal providers missing searchTerms: column not present in this local schema
+Medi-Cal providers missing normalizedSpecialties: column not present in this local schema
+Meetings invalid type values: 0
+Meetings invalid meetingMode values: 0
+Events invalid eventType values: 0
+Articles missing tags: 3
+Forum posts missing category: 0
+Map pins unapproved: 0
+Videos missing category: 0
+Knowledge documents missing category: 0

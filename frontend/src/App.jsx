@@ -45,6 +45,11 @@ import IntegrationAudit from './pages/IntegrationAudit'
 import Groups from './pages/Groups'
 import GroupSessionDetail from './pages/GroupSessionDetail'
 import TreatmentPlan from './pages/TreatmentPlan'
+// Admissions module
+import Admissions from './pages/Admissions'
+import AdmissionsNew from './pages/AdmissionsNew'
+import AdmissionsPacket from './pages/AdmissionsPacket'
+import AdmissionsForm from './pages/AdmissionsForm'
 
 function RedirectCaseManagement() {
   const { clientId } = useParams()
@@ -117,7 +122,12 @@ function App() {
         <Route path="/groups/sessions/:sessionId" element={<GroupSessionDetail />} />
         {/* Treatment Plan */}
         <Route path="/treatment-plan" element={<TreatmentPlan />} />
-        
+        {/* Admissions module — specific paths declared before parameter routes */}
+        <Route path="/admissions" element={<Admissions />} />
+        <Route path="/admissions/new" element={<AdmissionsNew />} />
+        <Route path="/admissions/:client_id/forms/:form_key" element={<AdmissionsForm />} />
+        <Route path="/admissions/:client_id" element={<AdmissionsPacket />} />
+
         {/* Redirect any unmatched routes to dashboard */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
