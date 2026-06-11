@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Briefcase, Search, MapPin, Phone, User, Building2, Heart, Users, Car, Home, GraduationCap, Shield, Sparkles, Zap, TrendingUp, X, Calendar, ClipboardList } from 'lucide-react'
+import { Briefcase, Search, MapPin, Phone, User, Building2, Heart, Users, Car, Home, GraduationCap, Shield, Sparkles, Zap, TrendingUp, X, Calendar, ClipboardList, Activity, DollarSign, FileText, ShoppingCart, AlertTriangle, RefreshCw, Scale, Baby, Flag } from 'lucide-react'
 import ClientSelector from '../components/ClientSelector'
 import Pagination from '../components/Pagination'
 import toast from 'react-hot-toast'
@@ -40,94 +40,25 @@ function Services() {
   })
 
   const serviceCategories = [
-    { 
-      id: 'all', 
-      name: 'All Services', 
-      icon: Building2, 
-      gradient: 'from-gray-500 to-gray-600',
-      bgGradient: 'from-gray-500/20 to-gray-600/20',
-      borderColor: 'border-gray-500/30'
-    },
-    { 
-      id: 'mental-health', 
-      name: 'Mental Health', 
-      icon: Heart, 
-      gradient: 'from-pink-500 to-rose-600',
-      bgGradient: 'from-pink-500/20 to-rose-600/20',
-      borderColor: 'border-pink-500/30'
-    },
-    { 
-      id: 'substance-abuse', 
-      name: 'Substance Abuse', 
-      icon: Shield, 
-      gradient: 'from-blue-500 to-indigo-600',
-      bgGradient: 'from-blue-500/20 to-indigo-600/20',
-      borderColor: 'border-blue-500/30'
-    },
-    { 
-      id: 'housing', 
-      name: 'Housing Assistance', 
-      icon: Home, 
-      gradient: 'from-green-500 to-emerald-600',
-      bgGradient: 'from-green-500/20 to-emerald-600/20',
-      borderColor: 'border-green-500/30'
-    },
-    { 
-      id: 'transportation', 
-      name: 'Transportation', 
-      icon: Car, 
-      gradient: 'from-yellow-500 to-amber-600',
-      bgGradient: 'from-yellow-500/20 to-amber-600/20',
-      borderColor: 'border-yellow-500/30'
-    },
-    { 
-      id: 'dental-care', 
-      name: 'Dental Care', 
-      icon: Heart, 
-      gradient: 'from-rose-500 to-pink-600',
-      bgGradient: 'from-rose-500/20 to-pink-600/20',
-      borderColor: 'border-rose-500/30'
-    },
-    { 
-      id: 'couples-counseling', 
-      name: 'Couples Counseling', 
-      icon: Users, 
-      gradient: 'from-fuchsia-500 to-pink-600',
-      bgGradient: 'from-fuchsia-500/20 to-pink-600/20',
-      borderColor: 'border-fuchsia-500/30'
-    },
-    { 
-      id: 'parenting-classes', 
-      name: 'Parenting Classes', 
-      icon: GraduationCap, 
-      gradient: 'from-violet-500 to-purple-600',
-      bgGradient: 'from-violet-500/20 to-purple-600/20',
-      borderColor: 'border-violet-500/30'
-    },
-    { 
-      id: 'hygiene-services', 
-      name: 'Hygiene Services', 
-      icon: Sparkles, 
-      gradient: 'from-sky-500 to-cyan-600',
-      bgGradient: 'from-sky-500/20 to-cyan-600/20',
-      borderColor: 'border-sky-500/30'
-    },
-    { 
-      id: 'education', 
-      name: 'Education & Training', 
-      icon: GraduationCap, 
-      gradient: 'from-purple-500 to-violet-600',
-      bgGradient: 'from-purple-500/20 to-violet-600/20',
-      borderColor: 'border-purple-500/30'
-    },
-    { 
-      id: 'support-groups', 
-      name: 'Support Groups', 
-      icon: Users, 
-      gradient: 'from-indigo-500 to-blue-600',
-      bgGradient: 'from-indigo-500/20 to-blue-600/20',
-      borderColor: 'border-indigo-500/30'
-    }
+    { id: 'all',               name: 'All Resources',                  icon: Building2,     gradient: 'from-gray-500 to-gray-600',         bgGradient: 'from-gray-500/20 to-gray-600/20',         borderColor: 'border-gray-500/30' },
+    { id: 'housing',           name: 'Housing',                        icon: Home,          gradient: 'from-green-500 to-emerald-600',      bgGradient: 'from-green-500/20 to-emerald-600/20',     borderColor: 'border-green-500/30' },
+    { id: 'benefits',          name: 'Benefits',                       icon: DollarSign,    gradient: 'from-lime-500 to-green-600',         bgGradient: 'from-lime-500/20 to-green-600/20',        borderColor: 'border-lime-500/30' },
+    { id: 'medical',           name: 'Medical',                        icon: Activity,      gradient: 'from-red-500 to-rose-600',           bgGradient: 'from-red-500/20 to-rose-600/20',          borderColor: 'border-red-500/30' },
+    { id: 'dental',            name: 'Dental',                         icon: Sparkles,      gradient: 'from-rose-500 to-pink-600',          bgGradient: 'from-rose-500/20 to-pink-600/20',         borderColor: 'border-rose-500/30' },
+    { id: 'mental-health',     name: 'Mental Health',                  icon: Heart,         gradient: 'from-pink-500 to-rose-600',          bgGradient: 'from-pink-500/20 to-rose-600/20',         borderColor: 'border-pink-500/30' },
+    { id: 'sud-recovery',      name: 'SUD / Recovery',                 icon: Shield,        gradient: 'from-blue-500 to-indigo-600',        bgGradient: 'from-blue-500/20 to-indigo-600/20',       borderColor: 'border-blue-500/30' },
+    { id: 'legal-aid',         name: 'Legal Aid',                      icon: Scale,         gradient: 'from-amber-500 to-orange-600',       bgGradient: 'from-amber-500/20 to-orange-600/20',      borderColor: 'border-amber-500/30' },
+    { id: 'food',              name: 'Food',                           icon: ShoppingCart,  gradient: 'from-orange-500 to-amber-600',       bgGradient: 'from-orange-500/20 to-amber-600/20',      borderColor: 'border-orange-500/30' },
+    { id: 'transportation',    name: 'Transportation',                 icon: Car,           gradient: 'from-yellow-500 to-amber-600',       bgGradient: 'from-yellow-500/20 to-amber-600/20',      borderColor: 'border-yellow-500/30' },
+    { id: 'employment',        name: 'Employment',                     icon: Briefcase,     gradient: 'from-teal-500 to-cyan-600',          bgGradient: 'from-teal-500/20 to-cyan-600/20',         borderColor: 'border-teal-500/30' },
+    { id: 'documents-id',      name: 'Documents / ID',                 icon: FileText,      gradient: 'from-cyan-500 to-sky-600',           bgGradient: 'from-cyan-500/20 to-sky-600/20',          borderColor: 'border-cyan-500/30' },
+    { id: 'crisis',            name: 'Crisis',                         icon: AlertTriangle, gradient: 'from-red-600 to-red-700',            bgGradient: 'from-red-600/20 to-red-700/20',           borderColor: 'border-red-600/30' },
+    { id: 'veterans',          name: 'Veterans',                       icon: Flag,          gradient: 'from-indigo-500 to-blue-600',        bgGradient: 'from-indigo-500/20 to-blue-600/20',       borderColor: 'border-indigo-500/30' },
+    { id: 'disability-ihss',   name: 'Disability / IHSS',              icon: Users,         gradient: 'from-violet-500 to-purple-600',      bgGradient: 'from-violet-500/20 to-purple-600/20',     borderColor: 'border-violet-500/30' },
+    { id: 'family-parenting',  name: 'Family / Parenting',             icon: Baby,          gradient: 'from-fuchsia-500 to-pink-600',       bgGradient: 'from-fuchsia-500/20 to-pink-600/20',      borderColor: 'border-fuchsia-500/30' },
+    { id: 'youth-foster',      name: 'Youth / Foster',                 icon: GraduationCap, gradient: 'from-purple-500 to-violet-600',      bgGradient: 'from-purple-500/20 to-violet-600/20',     borderColor: 'border-purple-500/30' },
+    { id: 'reentry',           name: 'Reentry',                        icon: RefreshCw,     gradient: 'from-sky-500 to-cyan-600',           bgGradient: 'from-sky-500/20 to-cyan-600/20',          borderColor: 'border-sky-500/30' },
+    { id: 'domestic-violence', name: 'Domestic Violence / Victim Svcs',icon: Heart,         gradient: 'from-rose-600 to-pink-700',          bgGradient: 'from-rose-600/20 to-pink-700/20',         borderColor: 'border-rose-600/30' },
   ]
 
   const searchServices = async (query = '', category = 'all', page = pagination.currentPage) => {
@@ -475,13 +406,6 @@ function Services() {
                   </h3>
                 </div>
                 <div className="flex items-center gap-4">
-                  {services[0]?.source && (
-                    <div className="px-4 py-2 bg-gradient-to-r from-slate-500/20 to-slate-600/20 backdrop-blur-sm rounded-xl border border-slate-500/30">
-                      <span className="text-sm text-slate-200">
-                        Source: {services[0].source}
-                      </span>
-                    </div>
-                  )}
                   {pagination.totalResults > 0 && (
                     <div className="px-4 py-2 bg-gradient-to-r from-purple-500/20 to-indigo-500/20 backdrop-blur-sm rounded-xl border border-purple-500/30">
                       <span className="text-sm text-purple-200">
@@ -527,6 +451,21 @@ function Services() {
                             </div>
                             <span className="font-medium text-emerald-200">{service.serviceType}</span>
                           </div>
+                          {service.source && (
+                            <div>
+                              <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                                service.source === 'Internal Resource Library'
+                                  ? 'bg-teal-500/20 border-teal-500/40 text-teal-200'
+                                  : service.source === 'Virgil St Resources' || (service.source || '').toLowerCase().startsWith('virgil')
+                                  ? 'bg-blue-500/20 border-blue-500/40 text-blue-200'
+                                  : 'bg-slate-500/20 border-slate-500/40 text-slate-300'
+                              }`}>
+                                {service.source === 'Internal Resource Library' ? 'Internal Resource Library'
+                                  : (service.source === 'Virgil St Resources' || (service.source || '').toLowerCase().startsWith('virgil')) ? 'Virgil St Resources'
+                                  : service.source}
+                              </span>
+                            </div>
+                          )}
                           {(service.servesPopulation || service.acceptsMediCal || service.acceptsPrivateInsurance || service.acceptsMedicare) && (
                             <div className="flex flex-wrap gap-2">
                               {service.servesPopulation ? (
