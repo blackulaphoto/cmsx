@@ -17,9 +17,8 @@ class VirgilServiceDatabase:
     """Query service data from virgil_st_dev.db"""
 
     def __init__(self, db_path: str = None):
-        from backend.shared.db_path import DB_DIR
-        db_path = db_path or str(DB_DIR / "virgil_st_dev.db")
-        self.db_path = db_path
+        _repo_db = Path(__file__).resolve().parents[3] / "databases" / "virgil_st_dev.db"
+        self.db_path = db_path or str(_repo_db)
         self.connection = None
 
     def connect(self):

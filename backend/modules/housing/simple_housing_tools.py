@@ -6,6 +6,7 @@ Sober living homes + housing assistance programs (NOT apartment hunting)
 
 import sqlite3
 import logging
+from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
@@ -15,8 +16,8 @@ class HousingResourceTools:
     """Query Virgil St database for ACTUAL housing resources case managers use"""
 
     def __init__(self, db_path: str = None):
-        from backend.shared.db_path import DB_DIR
-        self.db_path = db_path or str(DB_DIR / "virgil_st_dev.db")
+        _repo_db = Path(__file__).resolve().parents[3] / "databases" / "virgil_st_dev.db"
+        self.db_path = db_path or str(_repo_db)
         self.connection = None
 
     def connect(self):
