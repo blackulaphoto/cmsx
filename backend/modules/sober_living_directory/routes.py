@@ -574,6 +574,31 @@ async def reject_duplicate_candidate(candidate_id: str, payload: DuplicateResolu
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.post("/seed-from-excel")
+async def seed_from_excel():
+    """One-shot: import CA_Sober_Living_Directory.xlsx if the directory is empty."""
+    try:
+        db = get_directory_db()
+        existing = db.list_listings({})
+        if existing:
+            return {"success": True, "skipped": True, "existing_count": len(existing), "message": "Directory already has listings — seed skipped"}
+        excel_path = Path(__file__).resolve().parents[4] / "CA_Sober_Living_Directory.xlsx"
+        if not excel_path.exists():
+            raise HTTPException(status_code=404, detail=f"Excel file not found at {excel_path}")
+        summary = get_importer().import_file(
+            file_name=excel_path.name,
+            content=excel_path.read_bytes(),
+            source_name="CA Sober Living Directory",
+            source_type="spreadsheet_import",
+        )
+        return {"success": True, "skipped": False, "summary": summary}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Failed to seed sober living directory from Excel: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.post("/import")
 async def import_directory_file(
     file: UploadFile = File(...),

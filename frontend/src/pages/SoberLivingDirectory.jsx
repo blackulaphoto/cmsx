@@ -279,7 +279,7 @@ function SoberLivingDirectory() {
           .join(' ')
 
         if (locationQuery && !haystack.includes(locationQuery)) return false
-        if (zipCode && !normalizeText(item.zip_code).includes(zipCode)) return false
+        if (zipCode && item.zip_code && !normalizeText(item.zip_code).includes(zipCode)) return false
         if (state && normalizeText(item.state) !== state) return false
         if (population && normalizeText(item.population_served) !== population) return false
         if (acceptsMat !== null && Boolean(item.accepts_mat) !== acceptsMat) return false
@@ -290,8 +290,7 @@ function SoberLivingDirectory() {
         }
         if (!matchesFunding(item, filters.funding)) return false
         if (!matchesVerificationStatus(item, filters.verification_status)) return false
-        if (geoState.enabled && radiusMiles !== null) {
-          if (typeof item.distanceMiles !== 'number') return false
+        if (geoState.enabled && radiusMiles !== null && typeof item.distanceMiles === 'number') {
           if (item.distanceMiles > radiusMiles) return false
         }
         return true
