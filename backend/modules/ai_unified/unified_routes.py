@@ -25,7 +25,8 @@ def _build_documentation_context(message: str) -> Optional[str]:
 
 def _cleanup_tool_messages(case_manager_id: str) -> None:
     """Remove stale tool-role rows that break OpenAI message validation."""
-    db_path = Path(__file__).resolve().parents[3] / "databases" / "ai_assistant.db"
+    from backend.shared.db_path import DB_DIR as _DB_DIR
+    db_path = _DB_DIR / "ai_assistant.db"
     if not db_path.exists():
         return
     try:

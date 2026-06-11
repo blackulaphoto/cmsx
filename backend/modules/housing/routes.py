@@ -51,7 +51,7 @@ def get_housing_db():
     """Get thread-safe housing database instance"""
     global housing_db
     if housing_db is None:
-        housing_db = HousingDatabase("databases/housing_resources.db")
+        housing_db = HousingDatabase()
     return housing_db
 
 # Pydantic models

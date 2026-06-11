@@ -182,8 +182,9 @@ class ResumeData:
 class DatabaseManager:
     """Database manager for employment.db operations"""
     
-    def __init__(self, db_path='databases/employment.db'):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        from backend.shared.db_path import DB_DIR as _DB_DIR
+        self.db_path = db_path or str(_DB_DIR / "employment.db")
         self.connection = None
     
     def connect(self):
@@ -229,8 +230,9 @@ class DatabaseManager:
 class CoreClientsManager:
     """Manager for reading from core_clients.db"""
     
-    def __init__(self, db_path='databases/core_clients.db'):
-        self.db_path = db_path
+    def __init__(self, db_path=None):
+        from backend.shared.db_path import DB_DIR as _DB_DIR
+        self.db_path = db_path or str(_DB_DIR / "core_clients.db")
     
     def get_available_clients(self) -> List[Client]:
         """Get all active clients from core_clients.db with resume counts"""
@@ -582,7 +584,7 @@ class JobApplicationManager:
 class EmploymentDatabase:
     """Main database interface for Resume Builder functionality"""
     
-    def __init__(self, employment_db_path='databases/employment.db', core_clients_db_path='databases/core_clients.db'):
+    def __init__(self, employment_db_path=None, core_clients_db_path=None):
         self.db_manager = DatabaseManager(employment_db_path)
         self.core_clients = CoreClientsManager(core_clients_db_path)
         self.profiles = EmploymentProfileManager(self.db_manager)

@@ -203,7 +203,7 @@ class IntelligentReminderEngine:
 def initialize_db() -> bool:
     """Initialize reminders database tables."""
     try:
-        ReminderDatabase('databases/reminders.db')
+        ReminderDatabase()
         logger.info("Reminders database initialized")
         return True
     except Exception as e:

@@ -345,7 +345,8 @@ class UnifiedAIService:
     def __init__(self) -> None:
         project_root = Path(__file__).resolve().parents[3]
         self.project_root = project_root
-        self.db_path = project_root / "databases" / "ai_assistant.db"
+        from backend.shared.db_path import DB_DIR as _DB_DIR
+        self.db_path = _DB_DIR / "ai_assistant.db"
         self.model = "gpt-4o"
         self.api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
         self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None

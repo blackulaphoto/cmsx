@@ -231,8 +231,9 @@ class SocialService:
 class SocialServicesDatabase:
     """Professional social services database for case management"""
     
-    def __init__(self, db_path: str = "social_services.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        from backend.shared.db_path import DB_DIR as _DB_DIR
+        self.db_path = db_path if db_path and not db_path.startswith("databases/") else str(_DB_DIR / "social_services.db")
         self.connection = None
         self.create_tables()
     

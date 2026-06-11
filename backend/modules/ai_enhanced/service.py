@@ -40,7 +40,8 @@ class AIService(IAIService):
         self.function_registry: Dict[str, Callable] = {}
         self.conversation_memory: Dict[str, List[Dict[str, Any]]] = {}
         self._initialized = False
-        self.db_path = os.path.join("databases", "ai_assistant.db")
+        from backend.shared.db_path import DB_DIR as _DB_DIR
+        self.db_path = str(_DB_DIR / "ai_assistant.db")
     
     async def initialize(self) -> None:
         """Initialize the AI service with OpenAI client and function registry."""

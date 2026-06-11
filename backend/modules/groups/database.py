@@ -9,7 +9,8 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).resolve().parents[3] / "databases" / "groups.db"
+from backend.shared.db_path import DB_DIR as _DB_DIR
+DB_PATH = _DB_DIR / "groups.db"
 
 
 class GroupsDatabase:

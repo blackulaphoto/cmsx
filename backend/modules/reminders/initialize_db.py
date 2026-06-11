@@ -30,7 +30,7 @@ def initialize_reminder_system():
         logger.info("Initializing reminder system database...")
         
         # Create reminder database
-        reminder_db = ReminderDatabase('databases/reminders.db')
+        reminder_db = ReminderDatabase()
         
         # Create process database (which also creates process tables)
         process_db = ProcessDatabase(reminder_db)
