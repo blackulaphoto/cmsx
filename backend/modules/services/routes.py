@@ -80,7 +80,66 @@ async def api_services_search(
 
         logger.info(f"Services Search: '{search_query}' in '{location_param}' (page {page}, per_page {per_page})")
 
-        # STEP 1: Try Virgil St database first (fast, local, comprehensive)
+        # STEP 1: Try master Resource Library first (curated, staff-verified programs)
+        try:
+            from backend.modules.resource_library.database import search_resources as rl_search
+            rl_result = rl_search(
+                search=search_query,
+                active=True,
+                page=page,
+                per_page=per_page,
+            )
+            if rl_result["success"] and rl_result["total_count"] > 0:
+                logger.info(f"Resource Library found {rl_result['total_count']} resources")
+                # Normalize to service_providers shape expected by frontend transformer
+                # Frontend maps: result.title → name, result.service_type → serviceType,
+                #                result.url → url, result.source → source,
+                #                result.serves_population → servesPopulation
+                providers = []
+                for r in rl_result["results"]:
+                    loc = r.get("locations") or []
+                    first_loc = loc[0] if loc else {}
+                    people = r.get("people_served") or []
+                    serves_pop = ", ".join(people[:3]) if people else ""
+                    providers.append({
+                        "title": r.get("display_name") or r.get("provider_name"),
+                        "provider_name": r.get("provider_name"),
+                        "service_name": r.get("service_name"),
+                        "description": r.get("description"),
+                        "address": first_loc.get("address", ""),
+                        "location": first_loc.get("city", ""),
+                        "city": first_loc.get("city", ""),
+                        "state": first_loc.get("state", "CA"),
+                        "zip": first_loc.get("zip", ""),
+                        "phone": r.get("phone") or first_loc.get("phone", ""),
+                        "email": r.get("email"),
+                        "url": r.get("website"),
+                        "link": r.get("website"),
+                        "service_type": r.get("primary_category", "").replace("_", " ").title(),
+                        "serves_population": serves_pop,
+                        "tags": r.get("tags", []),
+                        "cost": r.get("cost"),
+                        "languages": r.get("languages", []),
+                        "verification_status": r.get("verification_status"),
+                        "resource_library_id": r.get("id"),
+                        "source": "Internal Resource Library",
+                        "background_friendly_score": 0,
+                    })
+                return {
+                    "success": True,
+                    "service_providers": providers,
+                    "total_count": rl_result["total_count"],
+                    "pagination": rl_result["pagination"],
+                    "source": "resource_library",
+                    "source_label": "Internal Resource Library",
+                    "degraded": False,
+                    "warning": None,
+                    "timestamp": datetime.now().isoformat(),
+                }
+        except Exception as rl_error:
+            logger.warning(f"Resource Library search failed, continuing to Virgil St: {rl_error}")
+
+        # STEP 2: Try Virgil St database (fast, local, comprehensive)
         try:
             virgil_db = get_virgil_db()
             db_result = virgil_db.search_services(
@@ -101,6 +160,7 @@ async def api_services_search(
                     'total_count': db_result['total_count'],
                     'pagination': db_result['pagination'],
                     'source': db_result['source'],
+                    'source_label': 'Internal Services Database',
                     'degraded': False,
                     'warning': None,
                     'timestamp': datetime.now().isoformat()
@@ -110,7 +170,7 @@ async def api_services_search(
         except Exception as db_error:
             logger.warning(f"Virgil St DB search failed, falling back to external APIs: {db_error}")
 
-        # STEP 2: Fallback to external APIs if database returns no results
+        # STEP 3: Fallback to external APIs (SerpAPI / Google CSE)
         coordinator = get_coordinator()
         result = await coordinator.search_services(search_query, location_param, page, per_page)
 
@@ -124,8 +184,9 @@ async def api_services_search(
                 'total_count': result['pagination']['total_results'],
                 'pagination': result['pagination'],
                 'source': result['source'],
+                'source_label': 'External Search Results',
                 'degraded': result.get('degraded', False),
-                'warning': result.get('warning') or 'No local database matches found, showing external API results',
+                'warning': result.get('warning') or 'No internal database matches found, showing external search results',
                 'timestamp': datetime.now().isoformat()
             }
         else:

@@ -1,0 +1,2943 @@
+1
+{
+"record_number": 1,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Los Angeles Homeless Services Authority (LAHSA)",
+"service_name": "Coordinated Entry - Adults",
+"display_name": "Los Angeles Homeless Services Authority (LAHSA) - Coordinated Entry - Adults",
+"official_website": "https://www.lahsa.org",
+"category": "housing_navigation",
+"subcategory": "coordinated_entry",
+"cost": "Free",
+"claimed_program": true,
+"last_reviewed": "2025-11-20",
+"description": "Los Angeles Homeless Services Authority provides housing support to adults who are homeless or unstably housed in Los Angeles County. This program provides referrals to adult shelters and access to housing resources. LAHSA is the lead agency in the Los Angeles Continuum of Care and coordinates housing and services for homeless families and individuals in Los Angeles County. Intake coordination connects clients with appropriate access points and housing resources based on need.",
+"services_offered": [
+"Help Find Housing",
+"Navigating the System",
+"Help Hotlines"
+],
+"people_served": [
+"Anyone In Need",
+"Adults 18+",
+"Individuals",
+"Homeless",
+"Near Homeless",
+"In Crisis",
+"Emergency"
+],
+"eligibility": [
+"This program helps people who are older than 17 years old.",
+"This program serves those who are homeless or unstably housed in Los Angeles County."
+],
+"languages": [
+"English",
+"Spanish"
+],
+"coverage_area": "Los Angeles County, CA",
+"next_steps": [
+{
+"type": "call",
+"phone": "213-225-6581",
+"instruction": "Call to get services."
+},
+{
+"type": "call",
+"phone": "818-908-1199",
+"instruction": "Call nearest location to get services."
+}
+],
+"special_contact_hours": {
+"Sunday": "Open 24 Hours",
+"Monday": "Open 24 Hours",
+"Tuesday": "Open 24 Hours",
+"Wednesday": "Open 24 Hours",
+"Thursday": "Open 24 Hours",
+"Friday": "Open 24 Hours",
+"Saturday": "Open 24 Hours"
+},
+"locations": [
+{
+"location_name": "ILCSC - Van Nuys Training House",
+"distance_miles": 0.96,
+"address": "14151 Haynes Street",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91401",
+"phone": "818-908-1199",
+"notes": "SPA-1",
+"hours": {
+"Monday": "8:00 AM - 4:30 PM PDT",
+"Tuesday": "8:00 AM - 4:30 PM PDT",
+"Wednesday": "8:00 AM - 4:30 PM PDT",
+"Thursday": "8:00 AM - 4:30 PM PDT",
+"Friday": "8:00 AM - 4:30 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "ILCSC - Van Nuys Service Office",
+"distance_miles": 1.13,
+"address": "14354 Haynes Street",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91401",
+"phone": "818-908-9525",
+"notes": "SPA-1",
+"hours": {
+"Monday": "8:00 AM - 4:30 PM PDT",
+"Tuesday": "8:00 AM - 4:30 PM PDT",
+"Wednesday": "8:00 AM - 4:30 PM PDT",
+"Thursday": "8:00 AM - 4:30 PM PDT",
+"Friday": "8:00 AM - 4:30 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Hope of the Valley",
+"distance_miles": 2.69,
+"address": "11839 Sherman Way",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91605",
+"phone": "818-301-7988",
+"notes": "SPA-2",
+"hours": {
+"Monday": "8:00 AM - 4:30 PM PDT",
+"Tuesday": "8:00 AM - 4:30 PM PDT",
+"Wednesday": "8:00 AM - 4:30 PM PDT",
+"Thursday": "8:00 AM - 4:30 PM PDT",
+"Friday": "8:00 AM - 4:30 PM PDT",
+"Saturday": "8:00 AM - 1:00 PM PDT",
+"Sunday": "Closed"
+}
+}
+],
+"cmsx_notes": "Do not treat this as a generic LAHSA record. This is the adult Coordinated Entry access service. Store provider_name separately from service_name. Mark as needs_review until verified by staff before client referral.",
+"active": true
+}
+
+2
+{
+"record_number": 5,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "A New Way Of Life Reentry Project",
+"service_name": "Re-Entry Housing Services",
+"display_name": "A New Way Of Life Reentry Project - Re-Entry Housing Services",
+"official_website": "http://anewwayoflife.org/housing/",
+"category": "reentry_housing",
+"subcategory": "transitional_housing",
+"cost": "Sliding Scale",
+"claimed_program": true,
+"last_reviewed": "2025-11-21",
+"description": "A New Way Of Life Reentry Project provides supportive transitional housing to formerly incarcerated women. The program helps women reunite with their children, work toward self-sufficiency, and receive support with life stabilization, public assistance, legal/court obligations, sobriety, employment, housing searches, and leadership skills.",
+"services_offered": [
+"Short-Term Housing",
+"Help Find Housing",
+"Substance Abuse Counseling",
+"Financial Assistance",
+"Understand Government Programs",
+"Navigating the System",
+"Help Fill Out Forms",
+"Help Find Work"
+],
+"people_served": [
+"All Ages",
+"Female",
+"Criminal Justice History"
+],
+"eligibility": [
+"This program helps formerly incarcerated women."
+],
+"languages": [
+"English",
+"Spanish"
+],
+"coverage_area": [
+"Los Angeles County, CA",
+"Orange County, CA",
+"Riverside County, CA",
+"San Bernardino County, CA",
+"Ventura County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "323-563-3575",
+"instruction": "Call to apply."
+}
+],
+"locations": [
+{
+"location_name": "A New Way Of Life Mailing Address",
+"location_type": "Admin-Only Location",
+"address": "",
+"city": "",
+"state": "CA",
+"zip": "",
+"phone": "323-563-3575",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Obtaining IDs",
+"Obtaining Social Security cards",
+"Applying for public assistance",
+"Dealing with outstanding debts, including child support",
+"Court appearances and meeting parole/probation conditions",
+"Sobriety support",
+"Regaining child custody",
+"Employment support",
+"Housing searches",
+"Leadership skills"
+],
+"rent_notes": "Rent is 30% of income. If a participant has no income upon arrival, they may still be eligible for services.",
+"related_programs_from_provider": [
+"Policy Program",
+"Family Reunification Program",
+"Free Legal Clinic"
+],
+"cmsx_notes": "Strong referral resource for formerly incarcerated women needing transitional housing and reentry support. Mark as needs_review before direct referral because housing availability and intake requirements may change. This should appear under Reentry Housing, Transitional Housing, Criminal Justice History, Women, and Housing Navigation.",
+"active": true
+}
+reentry
+women
+criminal justice history
+transitional housing
+public assistance
+probation/parole support
+family reunification
+employment support
+housing search
+
+3
+{
+"record_number": 9,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Libertana Home Health",
+"service_name": "California Community Transitions (CCT) Program",
+"display_name": "Libertana Home Health - California Community Transitions (CCT) Program",
+"official_website": "https://www.libertana.com/california-community-transitions",
+"category": "disability_housing",
+"subcategory": "community_transition",
+"cost": "Accepts Childcare Subsidies",
+"claimed_program": true,
+"last_reviewed": "2026-02-24",
+"description": "California Community Transitions (CCT) is a program for Medi-Cal residents who reside in a nursing home for at least 90 days after their Medicare days. Libertana helps residents move to other housing options, such as independent living or the Assisted Living Waiver program.",
+"services_offered": [
+"Help Find Housing"
+],
+"people_served": [
+"Adults 18+",
+"All Disabilities",
+"Treatment Phases",
+"Facing End Of Life",
+"Chronic Illness",
+"Individuals",
+"Families",
+"Benefit Recipients",
+"Caregivers"
+],
+"eligibility": [
+"This program helps older adults and adults with disabilities.",
+"Must be a Medi-Cal resident that has resided in a nursing home for at least 90 days post Medicare days."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Fresno County, CA",
+"Los Angeles County, CA",
+"Orange County, CA",
+"Riverside County, CA",
+"San Bernardino County, CA",
+"San Diego County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "800-750-1444",
+"instruction": "Call to get more info."
+},
+{
+"type": "email",
+"instruction": "Email to get more info."
+}
+],
+"locations": [
+{
+"location_name": "Libertana",
+"distance_miles": 2.08,
+"address": "5805 Sepulveda Boulevard, Suite 605",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91411",
+"phone": "800-750-1444",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_details": [
+"Helps participants find other housing options.",
+"Independent living track may include help finding housing, including Section 8.",
+"May assist with basic home setup, paying security deposit and first month’s rent.",
+"For Assisted Living Waiver participants, Libertana may help find an RCFE and refer the client to its CCA.",
+"Libertana follows participants for one full year after transition to help ensure independence in the community."
+],
+"related_programs_from_provider": [
+"HCBA Waiver Agency",
+"Assisted Living"
+],
+"cmsx_notes": "Strong referral resource for Medi-Cal clients in nursing facilities who need transition planning into independent living, Section 8-related housing options, or Assisted Living Waiver placement. This should be tagged for disability housing, Medi-Cal, nursing facility transition, assisted living waiver, chronic illness, caregiver support, and benefit recipients. Mark needs_review before referral because CCT eligibility and county availability should be confirmed.",
+"active": true
+}
+disability_housing
+community_transition
+medi_cal
+nursing_facility_transition
+assisted_living_waiver
+older_adults
+chronic_illness
+benefit_recipients
+caregiver_support
+housing_navigation
+
+4
+{
+"record_number": 11,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Tarzana Treatment Centers, Inc. (TTC)",
+"service_name": "Tarzana Treatment Center Services/Community Counseling",
+"display_name": "Tarzana Treatment Centers, Inc. (TTC) - Community Counseling / Residential Treatment Services",
+"official_website": "https://www.tarzanatc.org/services/community-counseling/",
+"category": "residential_treatment",
+"subcategory": "community_counseling_sober_living",
+"cost": "Sliding Scale",
+"claimed_program": true,
+"last_reviewed": "2025-11-20",
+"description": "Tarzana Treatment Centers provides comprehensive health care and treatment services for mental health and substance use concerns. Services include medical detoxification, residential alcohol and drug treatment, outpatient alcohol and drug treatment, sober living housing, family counseling, individual counseling, HIV/AIDS services, family medical care, women’s services, court-related programs, domestic violence services, and couples counseling. Services may address depression, anxiety, stress, anger, impulsivity, grief, abuse, trauma, family problems, identity issues, substance abuse, relationship issues, and quality of life concerns.",
+"services_offered": [
+"Sober Living",
+"Detox",
+"Residential Treatment",
+"Family Counseling",
+"Individual Counseling",
+"Outpatient Treatment",
+"Prevent & Treat",
+"HIV Treatment",
+"Mental Health Care",
+"After School Care"
+],
+"people_served": [
+"Anyone In Need",
+"All Ages",
+"Mentally Incapacitated",
+"Individuals",
+"Families",
+"Spouses",
+"Depression"
+],
+"eligibility": [
+"Anyone can access this program.",
+"Please provide age and insurance, if applicable, along with the referral."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA",
+"Orange County, CA",
+"Riverside County, CA",
+"San Bernardino County, CA",
+"Ventura County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "888-777-8565",
+"instruction": "Call to schedule an appointment."
+},
+{
+"type": "email",
+"email": "[treatment@tarzanatc.org](mailto:treatment@tarzanatc.org)",
+"instruction": "Email to get more info."
+}
+],
+"locations": [
+{
+"location_name": "Tarzana Treatment Centers, Inc.",
+"location_type": "Admin-Only Location",
+"address": "",
+"city": "",
+"state": "CA",
+"zip": "",
+"phone": "888-777-8565",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Tarzana Treatment Centers Reseda",
+"distance_miles": 6.27,
+"address": "7101 Baird Avenue",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91335",
+"phone": "818-342-5897",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Tarzana Treatment Centers",
+"distance_miles": 6.31,
+"address": "18700 Oxnard Street",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91356",
+"phone": "818-654-3950",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Medical detoxification",
+"Residential alcohol and drug treatment services",
+"Outpatient alcohol and drug treatment services",
+"Youth services",
+"Sober living housing",
+"After care",
+"Family counseling",
+"Mental health services",
+"HIV/AIDS services",
+"Family medical care",
+"Court related programs",
+"Women’s services",
+"Domestic violence services",
+"Individual counseling",
+"Couples counseling"
+],
+"related_programs_from_provider": [
+"Addiction: Intensive Adult Outpatient Program",
+"TTC Youth Services",
+"HIV/AIDS Medical Care",
+"Adult Intensive Outpatient Treatment (IOP)",
+"Adult Medications for Addiction Treatment (MAT Services)",
+"Recovery Bridge Housing",
+"Adult Residential Alcohol and Drug Treatment Program"
+],
+"cmsx_notes": "This should not be stored as a generic housing placement resource. It is primarily a behavioral health and substance-use treatment provider with residential treatment, sober living, recovery bridge housing, outpatient treatment, counseling, MAT, youth services, and medical services. Useful for discharge planning, SUD referrals, sober living/recovery housing referrals, residential treatment referrals, and mental health linkage. Mark needs_review before referral because level of care, insurance, availability, and admission criteria must be confirmed.",
+"active": true
+}
+sud_treatment
+residential_treatment
+sober_living
+detox
+outpatient_treatment
+iop
+mat
+mental_health
+community_counseling
+recovery_bridge_housing
+family_counseling
+court_related
+domestic_violence_services
+hiv_aids_services
+sliding_scale
+
+5
+{
+"record_number": 12,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "El Nido Family Centers",
+"service_name": "El Nido Family Centers' Pacoima FamilySource Center",
+"display_name": "El Nido Family Centers - Pacoima FamilySource Center",
+"official_website": "https://www.elnidofamilycenters.org/",
+"category": "case_management_resource",
+"subcategory": "family_source_center",
+"cost": "Free",
+"claimed_program": true,
+"last_reviewed": "2026-05-11",
+"description": "El Nido Family Centers' Pacoima FamilySource Center is a collaborative one-stop community center designed to assist low-income residents in the City of Los Angeles to become self-sufficient by increasing family income and academic achievement for youth and adults. Services include benefits support, housing-related assistance, food resources, financial coaching, tax preparation, tutoring, college preparation, career preparation, employment services, diapers, and CalFresh application assistance.",
+"services_offered": [
+"Food Pantry",
+"Help Find Housing",
+"Help Pay For Housing",
+"Baby Supplies",
+"Clothing",
+"Help Pay For Transit",
+"Mental Health Care",
+"Financial Assistance",
+"Government Benefits",
+"Financial Education",
+"Tax Preparation",
+"Community Support Services",
+"More Education",
+"Case Management"
+],
+"people_served": [
+"Anyone In Need",
+"All Ages"
+],
+"eligibility": [
+"Anyone can access this program."
+],
+"languages": [
+"English",
+"Spanish"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "818-896-7776",
+"instruction": "Call to get more info."
+}
+],
+"locations": [
+{
+"location_name": "El Nido Family Centers Pacoima FamilySource Center",
+"distance_miles": 6.61,
+"address": "11243 Glenoaks Boulevard, Suite 417",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91331",
+"phone": "818-896-7776",
+"email": "[info@elnidofamilycenters.org](mailto:info@elnidofamilycenters.org)",
+"website": "https://www.elnidofamilycenters.org/",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"VITA tax preparation",
+"College preparation and support",
+"LAUSD-PSA counseling",
+"Tutoring",
+"Financial coaching and financial literacy workshops",
+"Career preparation",
+"Employment services",
+"Diapers",
+"Non-perishable food",
+"CalFresh application assistance",
+"Housing search support",
+"Housing payment assistance",
+"Mental health care",
+"Government benefits support",
+"Case management"
+],
+"related_programs_from_provider": [
+"El Nido Family Centers' Select Home Visiting Program",
+"El Nido Family Centers' Teen Family Services",
+"El Nido Family Centers Farmers Market",
+"El Nido Family Centers' Gang Reduction and Youth Development (GRYD) Program",
+"El Nido Family Centers' South LA FamilySource Center",
+"El Nido Family Centers Family Visitation Center & Safe Child Custody Exchange",
+"El Nido Family Centers' Early Head Start",
+"El Nido Family Centers' Supportive Services at Jordan Downs"
+],
+"cmsx_notes": "Strong general case-management and family resource referral. This is not a dedicated housing placement program, but it supports housing search, housing payment assistance, CalFresh, food, diapers, employment, tax prep, financial coaching, government benefits, mental health care, and case management. Best used for low-income families, benefits linkage, food/diaper support, and broad stabilization needs. Mark needs_review before referral because specific service availability and intake requirements may change.",
+"active": true
+}
+family_source_center
+case_management
+housing_navigation
+rental_assistance
+food_pantry
+calfresh
+diapers
+benefits_support
+financial_assistance
+tax_prep
+employment_services
+mental_health
+low_income
+family_support
+english_spanish
+
+6
+{
+"record_number": 14,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "LA Family Housing",
+"service_name": "LA Family Housing Eligibility Screening",
+"display_name": "LA Family Housing - Eligibility Screening",
+"official_website": "https://lafh.org/",
+"category": "housing_navigation",
+"subcategory": "eligibility_screening_case_management",
+"cost": "Free",
+"claimed_program": true,
+"last_reviewed": "2026-03-01",
+"description": "LA Family Housing is a nonprofit homeless services agency that connects families with minors and single adults experiencing homelessness or at risk of homelessness to services such as temporary shelter, financial assistance for rent or rental arrears, housing-focused case management, housing advice, navigation services, and help paying for housing.",
+"services_offered": [
+"Help Pay For Housing",
+"Temporary Shelter",
+"Help Find Housing",
+"Housing Advice",
+"Navigating The System",
+"Case Management"
+],
+"people_served": [
+"Adults",
+"Children",
+"Seniors",
+"Homeless",
+"Near Homeless",
+"Limited English"
+],
+"eligibility": [
+"This program helps people with income at or below 50% of federal poverty guidelines.",
+"Must reside in SPA 2: San Fernando Valley, Burbank, Santa Clarita Valley, or Glendale."
+],
+"languages": [
+"English",
+"Spanish"
+],
+"coverage_area": [
+"91040",
+"91042",
+"91046",
+"91201",
+"91202",
+"91203",
+"91204",
+"91205",
+"91206",
+"91207",
+"91208",
+"91210",
+"91214",
+"91301",
+"91302",
+"91303",
+"91304",
+"91306",
+"91307",
+"91310",
+"91311",
+"91316",
+"91321",
+"91322",
+"91324",
+"91325",
+"91326",
+"91330",
+"91331",
+"91335",
+"91356",
+"91361",
+"91362",
+"91364",
+"91367",
+"91384",
+"91386",
+"91387",
+"91390",
+"91401",
+"91402",
+"91403",
+"91405",
+"91406",
+"91411",
+"91423",
+"91436",
+"91501",
+"91502",
+"91504",
+"91505",
+"91506",
+"91521",
+"91522",
+"91523",
+"91601",
+"91602",
+"91604",
+"91605",
+"91606",
+"91607",
+"91608"
+],
+"coverage_notes": "Serves SPA 2, including San Fernando Valley, Burbank, Santa Clarita Valley, and Glendale.",
+"next_steps": [
+{
+"type": "application",
+"instruction": "Start application through the program page."
+},
+{
+"type": "call",
+"phone": "818-255-2766",
+"instruction": "Call for more information about services."
+}
+],
+"locations": [
+{
+"location_name": "LA Family Housing",
+"location_type": "Admin-Only Location",
+"address": "",
+"city": "",
+"state": "CA",
+"zip": "",
+"phone": "818-255-2766",
+"website": "https://lafh.org/",
+"hours": {
+"Monday": "8:00 AM - 5:30 PM PDT",
+"Tuesday": "8:00 AM - 5:30 PM PDT",
+"Wednesday": "8:00 AM - 5:30 PM PDT",
+"Thursday": "8:00 AM - 5:30 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Eligibility screening",
+"Case management",
+"Housing navigation",
+"Temporary shelter linkage",
+"Financial assistance for rent",
+"Rental arrears support",
+"Housing-focused case management",
+"Support for families with minors",
+"Support for single adults experiencing homelessness",
+"Support for people at risk of homelessness"
+],
+"cmsx_notes": "Strong referral resource for SPA-2 clients experiencing homelessness or at risk of homelessness. This should appear under Housing Navigation, Eligibility Screening, Case Management, Temporary Shelter, Rental Assistance, and Homeless Services. This is not a guaranteed placement resource. Staff should verify eligibility, coverage ZIP, current application process, and availability before referral.",
+"active": true
+}
+housing_navigation
+eligibility_screening
+case_management
+homeless_services
+temporary_shelter
+rental_assistance
+rental_arrears
+spa_2
+san_fernando_valley
+burbank
+glendale
+santa_clarita
+families
+single_adults
+limited_english
+english_spanish
+
+7
+{
+"record_number": 15,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "NOHO Home Alliance",
+"service_name": "Homeless Services",
+"display_name": "NOHO Home Alliance - Homeless Services",
+"official_website": "https://nohohome.org/access-service/",
+"category": "case_management_resource",
+"subcategory": "homeless_drop_in_access_center",
+"cost": "Free",
+"claimed_program": false,
+"last_reviewed": "2025-11-22",
+"description": "NOHO Home Alliance provides pop-up drop-in access centers for people experiencing homelessness in North Hollywood, Studio City, and nearby neighborhoods. Services include showers, clothing, toiletries, hot meals, electronics charging, movies, bag lunch, medical care through Northeast Valley Medical Center, housing referrals through LA Family Housing, document support, mail services, and case management. Access center locations may change, so clients should check the provider website for current locations.",
+"services_offered": [
+"Meals",
+"Help Find Housing",
+"Clothing",
+"Personal Care Items",
+"Personal Hygiene",
+"Help Find Healthcare",
+"Navigating The System",
+"Case Management",
+"Identification Recovery"
+],
+"people_served": [
+"All Ages",
+"Individuals",
+"Families",
+"Homeless",
+"Near Homeless"
+],
+"eligibility": [
+"Follow the next steps to find out if this program has eligibility criteria."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "location",
+"instruction": "Contact or go to the nearest location to get services."
+},
+{
+"type": "call",
+"phone": "818-762-2909",
+"instruction": "Call to get more info."
+}
+],
+"locations": [
+{
+"location_name": "St. Matthew's Lutheran Church",
+"distance_miles": 3.68,
+"address": "11031 Camarillo Street",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91602",
+"phone": "818-762-2909",
+"notes": "The shower truck is only available on Wednesdays.",
+"hours": {
+"Monday": "8:30 AM - 12:30 PM PDT",
+"Tuesday": "Closed",
+"Wednesday": "8:30 AM - 12:30 PM PDT",
+"Thursday": "Closed",
+"Friday": "Closed",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "MCC/UCC Church in the Valley",
+"distance_miles": 3.99,
+"address": "5730 Cahuenga Boulevard",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91601",
+"phone": "818-762-2909",
+"hours": {
+"Monday": "Closed",
+"Tuesday": "Closed",
+"Wednesday": "Closed",
+"Thursday": "Closed",
+"Friday": "8:00 AM - 12:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Showers",
+"Clothing",
+"Toiletries",
+"Two hot meals",
+"Electronics charging",
+"Movies",
+"Bag lunch",
+"Medical care through Northeast Valley Medical Center",
+"Housing referrals through LA Family Housing",
+"Document support",
+"Mail services",
+"Case management"
+],
+"cmsx_notes": "Useful immediate-stabilization referral for clients experiencing homelessness or near homelessness in North Hollywood, Studio City, and nearby areas. This is not a housing placement provider, but it is valuable for hygiene, meals, mail, document support, medical linkage, LA Family Housing referrals, and case management. Locations and hours routinely change, so staff must verify the current access site before sending a client.",
+"active": true
+}
+homeless_services
+drop_in_center
+access_center
+showers
+meals
+clothing
+hygiene
+mail_services
+document_support
+case_management
+medical_linkage
+housing_referrals
+la_family_housing
+north_hollywood
+studio_city
+free
+needs_hours_verification
+
+8
+{
+"record_number": 16,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Walden Family Services",
+"service_name": "Transitional Housing Placement and Foster Care Program",
+"display_name": "Walden Family Services - Transitional Housing Placement and Foster Care Program",
+"official_website": "https://waldenfamily.org/programs/transitional-housing-placement-foster-care-program/",
+"category": "transitional_housing",
+"subcategory": "foster_youth_transitional_housing",
+"cost": "Free",
+"claimed_program": true,
+"last_reviewed": "2025-11-21",
+"description": "Walden Family Services' Transitional Housing Plus Foster Care Program provides youth with a stable living environment where they can learn the skills needed to live independently in the community. The program helps youth decide where to live, cover rent and utilities, provide basic home furnishings, and work with Walden social workers to create structure and set realistic goals. Individual and group therapy support youth with issues such as domestic violence, substance abuse, anger management, relationship issues, and other everyday stressors. Crisis intervention and emergency support are available 24 hours a day, 7 days a week.",
+"services_offered": [
+"Residential Housing",
+"Short-Term Housing",
+"Meals",
+"Counseling",
+"Group Therapy",
+"Individual Counseling",
+"Financial Education",
+"Navigating The System",
+"Help Find Work"
+],
+"people_served": [
+"Young Adults",
+"Teens",
+"Foster Youth",
+"Homeless",
+"Near Homeless",
+"Low-Income"
+],
+"eligibility": [
+"This program helps people who are 18 to 21 years old.",
+"Must be finishing high school or an equivalency program, enrolled at least half-time in a college or vocational program, have a documented medical condition, or work at least 80 hours a month."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA",
+"Riverside County, CA",
+"San Diego County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "619-584-5777",
+"instruction": "Call to get more info."
+}
+],
+"locations": [
+{
+"location_name": "Walden Family Services - Los Angeles County",
+"distance_miles": 4.15,
+"address": "6345 Balboa Boulevard, Suite 130",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91316",
+"phone": "818-365-3665",
+"fax": "818-349-3636",
+"website": "https://waldenfamily.org/programs/transitional-housing-placement-foster-care-program/",
+"hours": {
+"Monday": "8:30 AM - 5:00 PM PDT",
+"Tuesday": "8:30 AM - 5:00 PM PDT",
+"Wednesday": "8:30 AM - 5:00 PM PDT",
+"Thursday": "8:30 AM - 5:00 PM PDT",
+"Friday": "8:30 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Walden Family Services - Riverside County",
+"distance_miles": 61.71,
+"address": "3576 Arlington Avenue, Suite 105",
+"city": "Riverside",
+"state": "CA",
+"zip": "92506",
+"phone": "951-788-5905",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Walden Family Services - San Diego County",
+"distance_miles": 120.21,
+"address": "8525 Gibbs Drive, Suite 100",
+"city": "San Diego",
+"state": "CA",
+"zip": "92123",
+"phone": "619-584-5777",
+"fax": "619-584-5757",
+"website": "https://waldenfamily.org/programs/transitional-housing-placement-foster-care-program/",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Transitional housing",
+"Rent and utility support",
+"Basic home furnishings",
+"Independent living skill development",
+"Social worker support",
+"Goal setting",
+"Individual therapy",
+"Group therapy",
+"Domestic violence support",
+"Substance abuse support",
+"Anger management support",
+"Relationship issue support",
+"Crisis intervention",
+"24/7 emergency support",
+"Financial education",
+"Employment support",
+"System navigation"
+],
+"related_programs_from_provider": [
+"Foster Care and Adoption",
+"Extended Care/Aftercare Youth Program",
+"Extended Care/Aftercare"
+],
+"cmsx_notes": "Strong referral resource for foster youth and young adults ages 18 to 21 who need transitional housing, independent living support, rent/utility assistance, therapy, employment help, and crisis support. This should be tagged for foster youth, young adults, transitional housing, independent living, homelessness prevention, and low-income support. Mark needs_review before referral because county eligibility, opening availability, and THP+FC requirements should be confirmed.",
+"active": true
+}
+transitional_housing
+foster_youth
+young_adults
+ages_18_21
+independent_living
+homeless
+near_homeless
+low_income
+rent_support
+utilities_support
+therapy
+group_therapy
+employment_support
+financial_education
+crisis_support
+los_angeles_county
+riverside_county
+san_diego_county
+
+9
+{
+"record_number": 19,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Hope the Mission",
+"service_name": "Shepherd's House",
+"display_name": "Hope the Mission - Shepherd's House",
+"official_website": "https://hopethemission.org/our-programs/shelters/family-shelters/",
+"category": "transitional_housing",
+"subcategory": "family_shelter_single_mothers",
+"cost": "Free",
+"claimed_program": true,
+"last_reviewed": "2025-11-22",
+"description": "Hope the Mission's Shepherd's House provides residential shelter for single mothers and their children who are transitioning from homelessness. The program is described as a 28-bed, 90-day family crisis shelter located in Pacoima for families with children and can house 10 families nightly.",
+"services_offered": [
+"Residential Housing",
+"Short-Term Housing"
+],
+"people_served": [
+"All Ages",
+"Families",
+"With Children",
+"Homeless",
+"Mothers"
+],
+"eligibility": [
+"This program serves single mothers with children."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "818-392-0020",
+"instruction": "Call to get more info."
+},
+{
+"type": "website",
+"url": "https://hopethemission.org/our-programs/shelters/family-shelters/",
+"instruction": "Go to the program's website to get more info."
+}
+],
+"locations": [
+{
+"location_name": "Hope the Mission",
+"location_type": "Admin-Only Location",
+"address": "",
+"city": "",
+"state": "CA",
+"zip": "",
+"phone": "818-392-0020",
+"email": "[info@hopethemission.org](mailto:info@hopethemission.org)",
+"hours": {
+"Monday": "8:30 AM - 5:00 PM PDT",
+"Tuesday": "8:30 AM - 5:00 PM PDT",
+"Wednesday": "8:30 AM - 5:00 PM PDT",
+"Thursday": "8:30 AM - 5:00 PM PDT",
+"Friday": "8:30 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Mailing Address",
+"location_type": "Admin-Only Location",
+"address": "",
+"city": "",
+"state": "CA",
+"zip": "",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Residential shelter",
+"Short-term housing",
+"Family crisis shelter",
+"Support for single mothers",
+"Support for children",
+"Homelessness transition support"
+],
+"related_programs_from_provider": [
+"John E. White House of Hope",
+"Thrift Stores",
+"Food for the Hungry",
+"Homeless Services Navigation Center",
+"The HELP Center"
+],
+"cmsx_notes": "Strong referral resource for single mothers with children who are experiencing homelessness and need short-term residential family shelter. This is not general adult shelter and should be tagged specifically for families, single mothers, children, homelessness, short-term housing, and family crisis shelter. Mark needs_review before referral because availability, admission requirements, and location details must be confirmed.",
+"active": true
+}
+family_shelter
+single_mothers
+mothers_with_children
+homeless_families
+short_term_housing
+residential_housing
+family_crisis_shelter
+los_angeles_county
+hope_the_mission
+free
+needs_availability_check
+
+10
+{
+"record_number": 21,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "The Help Group",
+"service_name": "Residential Services - Project Six Adult Residential Program",
+"display_name": "The Help Group - Project Six Adult Residential Program",
+"official_website": "https://www.thehelpgroup.org/program/project-six-2/",
+"category": "disability_housing",
+"subcategory": "adult_residential_care",
+"cost": "Reduced Cost",
+"claimed_program": false,
+"last_reviewed": "2025-11-19",
+"description": "The Help Group's Project Six Adult Residential Program is dedicated to improving the quality of life of adults with developmental disabilities by endorsing choices and protecting rights. The program provides residential housing, daily life skills support, medication management, residential care, therapy services, psychiatric evaluation, community-based instruction, academic tutoring, self-care and daily living groups, independent living skills programming, vocational exploration, parent support and training, and access to on-site recreation and life enrichment spaces.",
+"services_offered": [
+"Residential Housing",
+"Daily Life Skills",
+"Medication Management",
+"Residential Care"
+],
+"people_served": [
+"Adults",
+"Young Adults",
+"Teens",
+"Seniors",
+"Developmental Disability"
+],
+"eligibility": [
+"Follow the next steps to find out if this program has eligibility criteria."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "818-267-2624",
+"instruction": "Call to get more info."
+}
+],
+"locations": [
+{
+"location_name": "The Help Group",
+"distance_miles": 0.87,
+"address": "13130 Burbank Boulevard",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91401",
+"phone": "818-781-0360",
+"website": "https://www.thehelpgroup.org/program/project-six-2/",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Individual therapy",
+"Family therapy",
+"Group therapy",
+"Social skills training",
+"Psychiatric evaluation",
+"Medication management",
+"Community-based instruction",
+"Academic tutoring",
+"Self-care and daily living groups",
+"Independent living skills program",
+"Vocational exploration",
+"Parent support and training",
+"On-site kitchen",
+"Art room",
+"Music room",
+"Workout room",
+"Gym",
+"Computer access",
+"Outside recreation area"
+],
+"related_programs_from_provider": [
+"Workability Program",
+"Wraparound Program",
+"Outpatient Services - CalWORK",
+"Mental Health Treatment"
+],
+"cmsx_notes": "Useful referral resource for adults and transition-age clients with developmental disabilities who need structured residential care, daily living skills support, medication management, therapy, and independent living skill development. This is not standard homeless housing or sober living. It should be categorized under Disability Housing, Adult Residential Care, Developmental Disability, Daily Living Skills, and Medication Management. Mark needs_review before referral because eligibility, payer requirements, Regional Center involvement, admission criteria, and availability must be confirmed.",
+"active": true
+}
+disability_housing
+adult_residential_care
+developmental_disability
+daily_living_skills
+medication_management
+residential_care
+independent_living_skills
+therapy
+psychiatric_evaluation
+vocational_exploration
+regional_center_review
+reduced_cost
+needs_eligibility_verification
+
+10
+
+{
+"record_number": 25,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Village Family Services",
+"service_name": "The Village Drop-In Center",
+"display_name": "Village Family Services - The Village Drop-In Center",
+"official_website": "https://www.thevillagefs.org/dropin-center",
+"category": "case_management_resource",
+"subcategory": "youth_drop_in_center",
+"cost": "Free",
+"claimed_program": false,
+"last_reviewed": "2025-11-19",
+"description": "The Village Drop-In Center provides a safe, welcoming environment for homeless youth. Staff work seven days a week to create tailor-made plans that support youth on a path to independence and wellness. Services include drop-in center access, behavioral health services, food and showers, housing navigation and assistance, education support, tutoring and literacy, employment support and coaching, resume workshops, and job placement.",
+"services_offered": [
+"Meals",
+"Help Find Housing",
+"Clothes For Work",
+"Personal Hygiene",
+"Mental Health Care",
+"Community Support Services",
+"Navigating The System",
+"Resume Development",
+"Help Find Work",
+"Job Placement"
+],
+"people_served": [
+"Young Adults",
+"Teens",
+"Foster Youth",
+"Homeless",
+"LGBTQIA+"
+],
+"eligibility": [
+"This program helps people who are 16 to 24 years old.",
+"This program is designed for young people at risk of experiencing homelessness."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "location",
+"instruction": "Contact or go to the nearest location to get services."
+}
+],
+"locations": [
+{
+"location_name": "Drop-in Center for Homeless Youth",
+"distance_miles": 1.38,
+"address": "6801 Coldwater Canyon Avenue",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91605",
+"website": "https://www.thevillagefs.org/dropin-center",
+"hours": {
+"Monday": "9:30 AM - 3:30 PM PDT",
+"Tuesday": "9:30 AM - 3:30 PM PDT",
+"Wednesday": "9:30 AM - 3:30 PM PDT",
+"Thursday": "9:30 AM - 3:30 PM PDT",
+"Friday": "9:30 AM - 3:30 PM PDT",
+"Saturday": "9:00 AM - 3:00 PM PDT",
+"Sunday": "9:00 AM - 3:00 PM PDT"
+}
+}
+],
+"program_supports": [
+"Drop-in center",
+"Behavioral health services",
+"Food",
+"Showers",
+"Housing navigation and assistance",
+"Education support",
+"Tutoring and literacy",
+"Employment support and coaching",
+"Resume workshops",
+"Job placement",
+"Community support services",
+"Mental health care",
+"Support for homeless youth",
+"Support for foster youth",
+"Support for LGBTQIA+ youth"
+],
+"related_programs_from_provider": [
+"Full-Service Partnership (FSP)"
+],
+"cmsx_notes": "Strong youth stabilization referral for clients ages 16 to 24 who are homeless or at risk of homelessness, including foster youth and LGBTQIA+ youth. This is not a housing placement program, but it supports housing navigation, meals, showers, behavioral health, employment help, education support, resume development, and job placement. Useful for young clients needing immediate drop-in support and case-management linkage. Mark needs_review before referral because walk-in procedures, phone contact, and current service availability should be confirmed.",
+"active": true
+}
+youth_services
+drop_in_center
+homeless_youth
+ages_16_24
+foster_youth
+lgbtqia_youth
+housing_navigation
+meals
+showers
+behavioral_health
+mental_health
+employment_support
+resume_development
+job_placement
+education_support
+case_management_resource
+free
+open_weekends
+needs_contact_verification
+
+11
+{
+"record_number": 27,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Bonum Foundation",
+"service_name": "Care Coordination (Case Management)",
+"display_name": "Bonum Foundation - Care Coordination (Case Management)",
+"official_website": "https://www.bonumfoundation.org/",
+"category": "case_management_resource",
+"subcategory": "healthcare_care_coordination",
+"cost": "Free",
+"claimed_program": true,
+"last_reviewed": "2026-05-06",
+"description": "Bonum Foundation provides navigation, guidance, and coordination to help low-income individuals and families identify and access resources that meet their needs. The program offers care coordination, one-on-one support, consultation and planning, help navigating systems, and support finding, arranging, and managing services such as physical therapy, durable medical equipment, hospital discharges, mobility assistance and safety products, healthcare services for chronic illnesses, food insecurity resources, and public benefits.",
+"services_offered": [
+"Case Management",
+"Navigating The System",
+"One-On-One Support",
+"Help Find Housing",
+"Help Find Healthcare",
+"Understand Government Programs"
+],
+"people_served": [
+"Adults",
+"Seniors",
+"All Disabilities",
+"Limited Mobility",
+"Female",
+"LGBTQIA+",
+"Male",
+"Transgender Or Non-Binary",
+"Hospitalized",
+"Cancer",
+"Dementia",
+"Seizures",
+"Terminal Illness",
+"Infectious Disease",
+"Neuromuscular Disease",
+"Chronic Illness",
+"Genetic Disorder",
+"Diabetes",
+"Asthma",
+"Memory Loss",
+"Individuals",
+"Families",
+"Low-Income",
+"Uninsured"
+],
+"eligibility": [
+"Individuals with chronic disabilities.",
+"They have Medi-Cal and Medicare.",
+"If under 50, they have Medicare.",
+"This program targets low-income families without financial support, Medicare, or insurance coverage."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA",
+"Orange County, CA",
+"Riverside County, CA",
+"San Bernardino County, CA",
+"Ventura County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "818-940-0330",
+"instruction": "Call to apply."
+},
+{
+"type": "email",
+"email": "[intake@bonumfoundation.org](mailto:intake@bonumfoundation.org)",
+"instruction": "Email to get more info."
+},
+{
+"type": "application",
+"instruction": "Start application through the program page."
+}
+],
+"locations": [
+{
+"location_name": "Bonum Foundation",
+"address": "",
+"city": "",
+"state": "CA",
+"zip": "",
+"phone": "833-282-6686",
+"email": "[intake@bonumfoundation.org](mailto:intake@bonumfoundation.org)",
+"website": "https://www.bonumfoundation.org/",
+"hours": {
+"Monday": "9:00 AM - 5:30 PM PDT",
+"Tuesday": "9:00 AM - 5:30 PM PDT",
+"Wednesday": "9:00 AM - 5:30 PM PDT",
+"Thursday": "9:00 AM - 5:30 PM PDT",
+"Friday": "9:00 AM - 5:30 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Care coordination",
+"One-on-one support",
+"Consultation and planning",
+"Help navigating the system",
+"Physical therapy coordination",
+"Durable medical equipment support",
+"Hospital discharge support",
+"Mobility assistance and safety products",
+"Healthcare services for chronic illnesses",
+"Food insecurity support",
+"Public benefits support",
+"Help finding healthcare",
+"Help finding housing",
+"Government program navigation"
+],
+"related_programs_from_provider": [
+"Incontinence Supplies for Ventura County Residents",
+"Incontinence Supplies",
+"Durable Medical Equipment (DME)"
+],
+"cmsx_notes": "Useful referral resource for clients with chronic illness, disability, limited mobility, hospital discharge needs, DME needs, public benefits needs, food insecurity, and care coordination needs. This should not be categorized as a direct housing provider. It belongs under Care Coordination, Case Management Resource, Healthcare Navigation, Benefits Navigation, Disability Support, and DME Support. Mark needs_review before referral because eligibility language is somewhat broad and may require confirmation.",
+"active": true
+}
+case_management_resource
+care_coordination
+healthcare_navigation
+benefits_navigation
+disability_support
+chronic_illness
+limited_mobility
+dme
+hospital_discharge
+food_insecurity
+public_benefits
+low_income
+uninsured
+medi_cal
+medicare
+housing_navigation
+needs_eligibility_verification
+
+12
+
+{
+"record_number": 29,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Neighborhood Legal Services of Los Angeles County (NLSLA)",
+"service_name": "Housing Program",
+"display_name": "Neighborhood Legal Services of Los Angeles County (NLSLA) - Housing Program",
+"official_website": "https://www.nlsla.org/services/housing/",
+"category": "legal_aid",
+"subcategory": "housing_rights_eviction_foreclosure",
+"cost": "Free",
+"claimed_program": false,
+"last_reviewed": "2026-03-13",
+"description": "Neighborhood Legal Services of Los Angeles County's Housing Program provides services designed to promote safe and affordable housing for individuals and families throughout the community. The program assists homeowners and renters experiencing legal difficulty through legal advice and counsel, legal representation and litigation, eviction prevention, mortgage counseling, housing education, public housing navigation, foreclosure counseling, advocacy and legal aid, and referrals to partner HUD-certified agencies.",
+"services_offered": [
+"Housing Advice",
+"Foreclosure Counseling",
+"Public Housing",
+"Navigating The System",
+"Advocacy & Legal Aid",
+"Representation",
+"Foreclosure Counseling"
+],
+"people_served": [
+"Adults 18+",
+"Individuals",
+"Families",
+"Home Owners",
+"Home Renters"
+],
+"eligibility": [
+"Follow the next steps to find out if this program has eligibility criteria."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "800-433-6251",
+"instruction": "Call to get more info."
+}
+],
+"locations": [
+{
+"location_name": "Pacoima",
+"distance_miles": 5.94,
+"address": "13327 Van Nuys Boulevard",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91331",
+"phone": "800-433-6251",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Glendale",
+"distance_miles": 11.28,
+"address": "1102 East Chevy Chase Drive",
+"city": "Glendale",
+"state": "CA",
+"zip": "91205",
+"phone": "800-433-6251",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "El Monte",
+"distance_miles": 22.29,
+"address": "9354 Telstar Avenue",
+"city": "El Monte",
+"state": "CA",
+"zip": "91731",
+"phone": "800-433-6251",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Legal advice and counsel",
+"Legal representation and litigation",
+"Eviction prevention",
+"Mortgage counseling",
+"Housing education",
+"Referrals to partner HUD-certified agencies",
+"Foreclosure counseling",
+"Public housing navigation",
+"Advocacy and legal aid",
+"Representation for renters",
+"Representation for homeowners"
+],
+"related_programs_from_provider": [
+"Domestic Violence and Family Law",
+"Eviction Legal Assistance",
+"Immigration Services"
+],
+"cmsx_notes": "Strong legal referral resource for clients dealing with eviction risk, unsafe housing, landlord issues, foreclosure, mortgage problems, public housing issues, or housing-related legal difficulty. This is not a housing placement resource. It should appear under Legal Aid, Tenant Rights, Housing Advice, Eviction Prevention, Foreclosure Counseling, Public Housing, and Homeowner/Renter Legal Support. Mark needs_review before referral because eligibility, intake availability, and office procedures should be confirmed.",
+"active": true
+}
+
+legal_aid
+tenant_rights
+housing_advice
+eviction_prevention
+foreclosure_counseling
+mortgage_counseling
+public_housing
+representation
+advocacy
+home_renters
+home_owners
+los_angeles_county
+free
+needs_intake_verification
+
+13
+
+{
+"record_number": 32,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Abused Women And Children Inc",
+"service_name": "Victim's Services",
+"display_name": "Abused Women And Children Inc - Victim's Services",
+"official_website": "http://abusedwomenandchildren.org/",
+"category": "victim_services",
+"subcategory": "domestic_violence_transitional_housing",
+"cost": "Reduced Cost",
+"claimed_program": false,
+"last_reviewed": "2025-11-21",
+"description": "Abused Women And Children Inc provides support to individuals, women, and children experiencing life crises. Services include counseling, training and education, transitional housing, referrals, public awareness, advocacy, networking, case advocacy, children's programs, and housing assistance.",
+"services_offered": [
+"Short-Term Housing",
+"Counseling",
+"Navigating The System",
+"Skills & Training",
+"Advocacy & Legal Aid"
+],
+"people_served": [
+"Children",
+"Individuals",
+"Abuse Or Neglect Survivors",
+"Female"
+],
+"eligibility": [
+"Follow the next steps to find out if this program has eligibility criteria."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "800-876-5690",
+"instruction": "Call to get more info."
+}
+],
+"locations": [
+{
+"location_name": "Mailing Address",
+"location_type": "Admin-Only Location",
+"address": "",
+"city": "",
+"state": "CA",
+"zip": "",
+"phone": "800-876-5690",
+"website": "http://abusedwomenandchildren.org/",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Case advocacy",
+"Children's programs",
+"Housing assistance",
+"Transitional housing",
+"Counseling",
+"Training and education",
+"Referrals",
+"Public awareness",
+"Advocacy",
+"Networking",
+"Legal aid connection",
+"System navigation"
+],
+"cmsx_notes": "Potentially useful referral for women, children, and abuse or neglect survivors needing short-term housing support, counseling, advocacy, legal aid connection, and crisis-related support. This should be tagged under Victim Services, Domestic Violence Support, Transitional Housing, Women and Children, Advocacy, and Legal Aid. Mark needs_review before referral because the program is unclaimed, eligibility criteria are not listed, the address is admin-only, and current service availability should be verified by phone.",
+"active": true
+}
+
+victim_services
+domestic_violence_support
+abuse_survivors
+women
+children
+short_term_housing
+transitional_housing
+housing_assistance
+counseling
+case_advocacy
+legal_aid
+system_navigation
+reduced_cost
+admin_only_location
+needs_phone_verification
+
+14
+{
+"record_number": 33,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Los Angeles County Department of Public Social Services (DPSS)",
+"service_name": "Temporary Homeless Assistance",
+"display_name": "Los Angeles County DPSS - Temporary Homeless Assistance",
+"official_website": "https://dpss.lacounty.gov/en/cash/calworks/homeless.html",
+"category": "rental_assistance",
+"subcategory": "temporary_shelter_payments",
+"cost": "Free",
+"claimed_program": false,
+"last_reviewed": "2026-02-24",
+"description": "Temporary Homeless Assistance provides temporary shelter payments to homeless families while they are looking for permanent housing. The program provides financial assistance for temporary shelter payments. Temporary HA may provide payments in increments for up to 16 consecutive calendar days. Eligible families may receive $85 per day for a family of up to four, and $15 per day for each additional person, up to a maximum of $145 per day. CalWORKs applicants fleeing domestic violence may receive a lump sum payment equal to 16 days of Temporary HA on the day of application and may be eligible for an additional 16 days of payment whether or not their application has been approved or denied.",
+"services_offered": [
+"Help Pay For Housing"
+],
+"people_served": [
+"All Ages",
+"Families",
+"Homeless",
+"Domestic Violence Survivors"
+],
+"eligibility": [
+"Must be apparently eligible for CalWORKs or be CalWORKs approved.",
+"Must meet the homeless definition.",
+"Must not have more than $100.00 in liquid resources.",
+"Must be actively searching for permanent housing."
+],
+"documents_required": [
+"Verification for the housing search",
+"Verification of shelter expenditures"
+],
+"documents_last_updated": "2026-02-23",
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "location",
+"instruction": "Contact or go to the nearest location to get more info."
+},
+{
+"type": "location",
+"instruction": "Contact or go to the nearest location to apply."
+}
+],
+"locations": [
+{
+"location_name": "East Valley - 11",
+"distance_miles": 2.22,
+"address": "7555 Van Nuys Boulevard",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91405",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Rancho Park - 60",
+"distance_miles": 9.88,
+"address": "11110 West Pico Boulevard",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "90064",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Glendale - 02",
+"distance_miles": 9.9,
+"address": "4680 San Fernando Road",
+"city": "Glendale",
+"state": "CA",
+"zip": "91204",
+"phone": "818-701-8200",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Temporary shelter payments",
+"Financial assistance for temporary housing",
+"CalWORKs-linked homeless assistance",
+"Support for homeless families",
+"Support for families fleeing domestic violence",
+"Housing search support",
+"Emergency temporary shelter funding"
+],
+"related_programs_from_provider": [
+"Cash Assistance Program for Immigrants (CAPI)",
+"Moving Assistance (MA) Program",
+"4-Month Rental Assistance Program (RA)",
+"Greater Avenues for Independence (GAIN)",
+"Homeless Case Management Program",
+"Emergency Assistance to Prevent Eviction (EAPE) Program",
+"In-Home Supportive Services (IHSS)",
+"General Relief (GR)",
+"Black Infant Health (BIH) Program"
+],
+"cmsx_notes": "Important DPSS benefits resource for homeless families, CalWORKs applicants/participants, and domestic violence survivors needing temporary shelter payments while searching for permanent housing. This is not a housing provider. It should be categorized under Rental Assistance, Emergency Shelter Payments, CalWORKs, DPSS, Homeless Families, and Domestic Violence Survivors. Staff should verify CalWORKs eligibility, homeless status, liquid resource limit, housing search documentation, shelter expenditure documentation, and nearest DPSS office before referral.",
+"active": true
+}
+
+dpss
+calworks
+temporary_homeless_assistance
+temporary_shelter_payments
+rental_assistance
+emergency_housing_assistance
+homeless_families
+domestic_violence_survivors
+housing_search
+benefits_navigation
+documents_required
+los_angeles_county
+free
+needs_eligibility_verification
+
+15
+
+{
+"record_number": 41,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Painted Brain",
+"service_name": "Enhanced Care Management (ECM)",
+"display_name": "Painted Brain - Enhanced Care Management (ECM)",
+"official_website": "https://paintedbrain.org/",
+"category": "case_management_resource",
+"subcategory": "enhanced_care_management",
+"cost": "Free",
+"claimed_program": true,
+"last_reviewed": "2026-05-21",
+"description": "Painted Brain's Enhanced Care Management (ECM) program provides whole-person care coordination for people facing multiple challenges. The program helps connect clients to medical, mental health, housing, food, transportation, community support, and benefit resources. Clients are supported by a Peer Lead Care Manager who coordinates communication between healthcare providers, helps navigate complex healthcare systems, connects clients to housing, food, transportation, and community resources, advocates for client needs, provides regular check-ins, offers emotional support, and helps build self-management skills.",
+"services_offered": [
+"Psychiatric Emergency Services",
+"Nutrition Education",
+"Help Find Housing",
+"Housing Advice",
+"Addiction & Recovery",
+"Health Education",
+"In-Home Support",
+"Mental Health Care",
+"Peer Support",
+"Support Groups",
+"Virtual Support",
+"Interview Training"
+],
+"people_served": [
+"Anyone In Need",
+"All Ages",
+"Veterans",
+"Immigrants",
+"Refugees",
+"Undocumented",
+"Criminal Justice History",
+"All Disabilities",
+"California Wildfires 2025",
+"Dropouts",
+"Students",
+"Employed",
+"Retirement",
+"Unemployed",
+"Female",
+"LGBTQIA+",
+"Male",
+"Transgender Or Non-Binary",
+"Foster Youth",
+"Pregnant",
+"Chronic Illness",
+"Autism",
+"Individuals",
+"Families",
+"Homeless",
+"Near Homeless",
+"Runaways",
+"Benefit Recipients",
+"Low-Income",
+"Uninsured",
+"Underinsured",
+"Limited English",
+"African American",
+"Asian",
+"Latino",
+"Native American",
+"Caregivers",
+"Spouses",
+"Dependents",
+"Fathers",
+"Mothers",
+"Parents",
+"Trauma Survivors",
+"Abuse Or Neglect Survivors",
+"Domestic Violence Survivors",
+"Sexual Assault Survivors",
+"In Crisis",
+"Depression",
+"Bipolar",
+"Suicidal Thoughts",
+"Brain Injury",
+"Anxiety",
+"Eating Disorder",
+"PTSD",
+"All Mental Health",
+"Substance Dependency",
+"Dual Diagnosis"
+],
+"eligibility": [
+"Anyone can access these services."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"CA"
+],
+"next_steps": [
+{
+"type": "website",
+"url": "https://paintedbrain.org/",
+"instruction": "Contact on their website to get services."
+}
+],
+"locations": [
+{
+"location_name": "Community Center",
+"location_type": "Admin-Only Location",
+"address": "",
+"city": "",
+"state": "CA",
+"zip": "",
+"phone": "",
+"website": "https://paintedbrain.org/",
+"hours": {
+"Monday": "11:00 AM - 4:00 PM PDT",
+"Tuesday": "Closed",
+"Wednesday": "11:00 AM - 4:00 PM PDT",
+"Thursday": "12:00 PM - 5:00 PM PDT",
+"Friday": "Closed",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Enhanced Care Management",
+"Peer Lead Care Manager support",
+"Healthcare provider coordination",
+"Healthcare system navigation",
+"Housing resource connection",
+"Food resource connection",
+"Transportation resource connection",
+"Community resource linkage",
+"Client advocacy",
+"Regular check-ins",
+"Emotional support",
+"Self-management skill building",
+"Unified care plan",
+"Mental health support",
+"Substance use recovery support",
+"Medical care coordination",
+"Early intervention before small issues become emergencies"
+],
+"client_challenges_supported": [
+"Mental health struggles",
+"Chronic physical conditions",
+"Housing instability",
+"Unemployment",
+"Substance use recovery",
+"Legal issues",
+"Social and family services needs",
+"No transportation to vital appointments",
+"Getting lost in the shuffle"
+],
+"cmsx_notes": "Strong referral resource for clients who need whole-person care coordination, especially clients with mental health concerns, chronic illness, housing instability, substance use recovery needs, legal issues, transportation barriers, unemployment, benefits needs, and complex healthcare systems. This is not a housing placement provider, but it can support housing navigation as part of ECM. Best categorized under Case Management Resource, Enhanced Care Management, Mental Health Care, Peer Support, Healthcare Navigation, Housing Navigation, and Whole-Person Care. Mark needs_review before referral because ECM eligibility, payer requirements, service availability, and referral process should be confirmed.",
+"active": true
+}
+
+enhanced_care_management
+ecm
+case_management_resource
+whole_person_care
+peer_support
+mental_health
+dual_diagnosis
+substance_use_recovery
+housing_navigation
+healthcare_navigation
+benefits_navigation
+transportation_support
+food_resources
+community_support
+chronic_illness
+homeless
+near_homeless
+low_income
+uninsured
+underinsured
+lgbtqia
+veterans
+immigrants
+reentry
+trauma_survivors
+domestic_violence_survivors
+needs_eligibility_verification
+
+16
+
+{
+"record_number": 45,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Harbor Recuperative Care (HRC)",
+"service_name": "Recuperative Care Shelter",
+"display_name": "Harbor Recuperative Care (HRC) - Recuperative Care Shelter",
+"official_website": "https://www.harborcares.org/residents",
+"category": "medical_respite",
+"subcategory": "recuperative_care_shelter",
+"cost": "Free",
+"claimed_program": true,
+"last_reviewed": "2025-11-22",
+"description": "Harbor Care Center offers 30 beds of shelter for injured or ill homeless adults nearing release from hospitals. The goal of Harbor Care Center is to assist recently discharged individuals in their recovery by providing shelter, housing-focused case management, nourishing food, and support with transitioning from recuperative care into more permanent housing.",
+"services_offered": [
+"Help Find Housing",
+"Short-Term Housing",
+"Medical Care",
+"Case Management",
+"Residential Care"
+],
+"people_served": [
+"Adults 18+",
+"Limited Mobility",
+"Post-Treatment",
+"Chronic Illness",
+"Individuals",
+"Homeless",
+"Near Homeless"
+],
+"eligibility": [
+"This program helps people who are older than 17 years old.",
+"Must be homeless or temporarily homeless.",
+"Must be referred by hospital case worker.",
+"Must be cleared of all active communicable diseases/exclusions including COVID-19.",
+"If uninsured, must have at least one month supply of all prescribed medications.",
+"Must be able to self-represent, self-medicate with minimal help, and have recovering bodily functions.",
+"Must understand, be willing, and be compliant with all HRC Rules & Regulations.",
+"Must be compliant with all medical and psychiatric treatments.",
+"Must ambulate without need for supervision or monitoring, using an assistive device or not.",
+"Must be discharge ready per hospital policies and protocol."
+],
+"documents_required": [
+{
+"type": "Written Referral",
+"details": "Discharge orders including diagnosis, dietary orders, follow-up scheduled appointments, plan of care, and discharge prescriptions. If medical procedures are indicated, attach the plan in place such as home health visits, clinic appointments, physical therapy visits, etc. Social worker evaluation is required."
+}
+],
+"documents_last_updated": "2022-09-26",
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "818-925-1451",
+"instruction": "Call to apply."
+}
+],
+"locations": [
+{
+"location_name": "Harbor Care Center",
+"distance_miles": 6.81,
+"address": "11134 Sepulveda Boulevard",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91345",
+"phone": "818-925-1451",
+"website": "https://www.harborcares.org/residents",
+"hours": {
+"Monday": "Open 24 Hours",
+"Tuesday": "Open 24 Hours",
+"Wednesday": "Open 24 Hours",
+"Thursday": "Open 24 Hours",
+"Friday": "Open 24 Hours",
+"Saturday": "Open 24 Hours",
+"Sunday": "Open 24 Hours"
+}
+}
+],
+"program_supports": [
+"Residential care in specialized hospital beds",
+"Intensive case management",
+"Housing location services",
+"Weekly resident assessment",
+"Daily vitals",
+"Transportation to and from appointments",
+"Life skills",
+"Daily wound care",
+"Medication assistance",
+"Three meals a day",
+"Seven days a week support",
+"Connection to mental health services",
+"Connection to medical services",
+"Transition support from recuperative care to permanent housing"
+],
+"referral_notes": "Hospital staff or hospital case workers may refer clients through the online application, by calling admissions, or by downloading and returning the referral form by email or fax.",
+"cmsx_notes": "High-value referral resource for homeless or temporarily homeless adults being discharged from hospitals who need medical respite, recuperative care, wound care, medication support, case management, housing location services, and transition support into permanent housing. This should be tagged under Medical Respite, Recuperative Care, Hospital Discharge, Homeless Adults, Post-Treatment, Chronic Illness, Limited Mobility, and Housing Navigation. Mark needs_review before referral because hospital case worker referral, discharge readiness, communicable disease clearance, medication supply, and required documents must be confirmed.",
+"active": true
+}
+
+medical_respite
+recuperative_care
+hospital_discharge
+homeless_adults
+temporary_homeless
+post_treatment
+chronic_illness
+limited_mobility
+wound_care
+medication_assistance
+case_management
+housing_navigation
+short_term_housing
+residential_care
+hospital_referral_required
+documents_required
+open_24_hours
+needs_referral_verification
+
+17
+{
+"record_number": 46,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Foundation For Women Warriors",
+"service_name": "Warrior Assistance",
+"display_name": "Foundation For Women Warriors - Warrior Assistance",
+"official_website": "https://foundationforwomenwarriors.org/programs/warrior-assistance/",
+"category": "financial_assistance",
+"subcategory": "veteran_emergency_assistance",
+"cost": "Free",
+"claimed_program": false,
+"last_reviewed": "2026-02-24",
+"description": "Foundation For Women Warriors' Warrior Assistance program provides women veterans with immediate grants to cover rent and emergency expenses such as medical bills, utility bills, and other necessities.",
+"services_offered": [
+"Emergency Payments",
+"Help Pay For Healthcare",
+"Help Pay For Housing",
+"Help Pay For Utilities"
+],
+"people_served": [
+"Adults 18+",
+"Veterans",
+"Female",
+"Near Homeless",
+"Mothers",
+"Emergency"
+],
+"eligibility": [
+"This program serves female veterans that have been honorably discharged from the Army, Navy, Marine Corps, Air Force, Coast Guard, National Guard, or other Armed Services of the United States of America.",
+"Veterans must currently be residents of Southern California.",
+"Must be in good health and able to care for their personal and financial needs and be financially sustainable.",
+"Must be employed, going to school, or working with a Foundation for Women Warriors-approved employment organization."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Imperial County, CA",
+"Los Angeles County, CA",
+"Orange County, CA",
+"Riverside County, CA",
+"San Bernardino County, CA",
+"San Diego County, CA",
+"Santa Barbara County, CA",
+"Ventura County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "310-733-2450",
+"extension": "1",
+"instruction": "Call to get more info."
+},
+{
+"type": "website",
+"url": "https://foundationforwomenwarriors.org/programs/warrior-assistance/",
+"instruction": "Contact on their website to get more info."
+}
+],
+"locations": [
+{
+"location_name": "North Hollywood Office",
+"distance_miles": 3.5,
+"address": "5062 Lankershim Boulevard #3013",
+"city": "Los Angeles",
+"state": "CA",
+"zip": "91601",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Foundation for Women Warriors",
+"distance_miles": 99.46,
+"address": "1185 Park Center Drive, Suite R",
+"city": "Vista",
+"state": "CA",
+"zip": "92081",
+"phone": "310-733-2450",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Emergency financial assistance",
+"Rent assistance",
+"Medical bill assistance",
+"Utility bill assistance",
+"Support for other necessities",
+"Support for women veterans",
+"Support for veteran mothers",
+"Homelessness prevention",
+"Crisis stabilization"
+],
+"related_programs_from_provider": [
+"Childcare Assistance"
+],
+"cmsx_notes": "Useful referral resource for women veterans in Southern California who need emergency financial assistance for rent, healthcare expenses, utilities, and other urgent needs. This is not a housing provider, but it can help prevent homelessness or stabilize a near-homeless client. Best tagged under Veteran Assistance, Women Veterans, Emergency Payments, Housing Cost Assistance, Utility Assistance, Healthcare Cost Assistance, and Homelessness Prevention. Mark needs_review before referral because eligibility, grant availability, documentation, and application requirements should be confirmed.",
+"active": true
+}
+
+veteran_assistance
+women_veterans
+financial_assistance
+emergency_payments
+rent_assistance
+utility_assistance
+healthcare_cost_assistance
+homelessness_prevention
+near_homeless
+mothers
+southern_california
+free
+needs_grant_availability_check
+
+18
+
+{
+"record_number": 57,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "Lutheran Social Services of Southern California (LSSSC)",
+"service_name": "Permanent Supportive/Rapid Re-Housing",
+"display_name": "Lutheran Social Services of Southern California (LSSSC) - Permanent Supportive/Rapid Re-Housing",
+"official_website": "https://www.lsssc.org/transitional-services/",
+"category": "housing_navigation",
+"subcategory": "rapid_rehousing_permanent_supportive_housing",
+"cost": "Free",
+"claimed_program": true,
+"last_reviewed": "2026-05-30",
+"description": "Lutheran Social Services of Southern California provides transitional housing and support services to help individuals and families lead more stable lives. This program includes low-barrier affordable housing, healthcare support, and supportive services. Services may include help paying for housing, help finding housing, short-term housing, help finding work, help paying for healthcare, medical care, mental health care, financial education, and education support.",
+"services_offered": [
+"Help Pay For Housing",
+"Help Find Housing",
+"Short-Term Housing",
+"Help Find Work",
+"Help Pay For Healthcare",
+"Medical Care",
+"Mental Health Care",
+"Financial Education",
+"More Education"
+],
+"people_served": [
+"Anyone In Need",
+"All Ages",
+"Homeless",
+"Near Homeless",
+"Benefit Recipients",
+"Low-Income"
+],
+"eligibility": [
+"Follow the next steps to find out if this program has eligibility criteria."
+],
+"languages": [
+"English",
+"Spanish"
+],
+"coverage_area": [
+"Los Angeles County, CA",
+"Riverside County, CA",
+"San Bernardino County, CA",
+"Ventura County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "562-599-1321",
+"instruction": "Call the nearest location to get more info."
+},
+{
+"type": "call",
+"phone": "877-577-7267",
+"instruction": "Call to get more info."
+}
+],
+"locations": [
+{
+"location_name": "Lutheran Social Services of Southern California - South Bay/Long Beach",
+"distance_miles": 30.31,
+"address": "1611 Pine Avenue",
+"city": "Long Beach",
+"state": "CA",
+"zip": "90813",
+"phone": "562-599-1321",
+"email": "[lbsinfo@lsssc.org](mailto:lbsinfo@lsssc.org)",
+"fax": "562-599-1321",
+"hours": {
+"Monday": "9:00 AM - 4:00 PM PDT",
+"Tuesday": "9:00 AM - 4:00 PM PDT",
+"Wednesday": "9:00 AM - 4:00 PM PDT",
+"Thursday": "9:00 AM - 4:00 PM PDT",
+"Friday": "9:00 AM - 4:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Lutheran Social Services of Southern California - Riverside County",
+"distance_miles": 61.67,
+"address": "6857 Indiana Avenue",
+"city": "Riverside",
+"state": "CA",
+"zip": "92506",
+"phone": "951-689-8447",
+"email": "[rcinfo@lsssc.org](mailto:rcinfo@lsssc.org)",
+"fax": "951-687-7299",
+"website": "https://www.lsssc.org/transitional-services/",
+"notes": "This location currently only offers Rapid Rehousing Services. Contact the office via phone or email for more information.",
+"hours": {
+"Monday": "8:30 AM - 5:30 PM PDT",
+"Tuesday": "8:30 AM - 5:30 PM PDT",
+"Wednesday": "8:30 AM - 5:30 PM PDT",
+"Thursday": "8:30 AM - 5:30 PM PDT",
+"Friday": "8:30 AM - 5:30 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "Central City Lutheran Mission",
+"distance_miles": 64.89,
+"address": "1354 North G Street",
+"city": "San Bernardino",
+"state": "CA",
+"zip": "92405",
+"phone": "909-381-6921",
+"email": "[cclminfo@lsssc.org](mailto:cclminfo@lsssc.org)",
+"fax": "909-381-5417",
+"hours": {
+"Monday": "9:00 AM - 11:00 AM PDT",
+"Tuesday": "9:00 AM - 3:00 PM PDT",
+"Wednesday": "9:00 AM - 11:00 AM PDT",
+"Thursday": "9:00 AM - 3:00 PM PDT",
+"Friday": "9:00 AM - 3:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Low-barrier affordable housing",
+"Supportive services",
+"Help paying for housing",
+"Help finding housing",
+"Short-term housing",
+"Rapid rehousing",
+"Permanent supportive housing support",
+"Healthcare support",
+"Medical care linkage",
+"Mental health care linkage",
+"Financial education",
+"Education support",
+"Employment support",
+"Support for benefit recipients",
+"Support for low-income individuals and families"
+],
+"related_programs_from_provider": [
+"Housing Referrals",
+"Food Pantry",
+"Case Management - Orange County",
+"Transportation Assistance",
+"Referral Services",
+"Housing Counseling",
+"Success First",
+"Rental Assistance",
+"Student Assistance Program"
+],
+"cmsx_notes": "Useful housing stabilization referral for homeless, near-homeless, low-income, and benefit-recipient clients who may need rapid rehousing, permanent supportive housing linkage, short-term housing support, housing payment assistance, healthcare linkage, mental health care, financial education, and employment support. This should be tagged under Rapid Re-Housing, Permanent Supportive Housing, Housing Navigation, Rental Assistance, Case Management, Medical/Mental Health Linkage, and Low-Income Support. Mark needs_review before referral because eligibility, county availability, office-specific service offerings, and referral requirements should be confirmed.",
+"active": true
+}
+
+rapid_rehousing
+permanent_supportive_housing
+housing_navigation
+help_pay_for_housing
+short_term_housing
+low_barrier_housing
+supportive_services
+rental_assistance
+homeless
+near_homeless
+low_income
+benefit_recipients
+medical_care_linkage
+mental_health_care
+employment_support
+financial_education
+english_spanish
+needs_county_availability_check
+
+19
+{
+"record_number": 64,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "AIDS Project Los Angeles (APLA) Health",
+"service_name": "Housing Support Services",
+"display_name": "APLA Health - Housing Support Services",
+"official_website": "https://aplahealth.org/services/housing-support-services/",
+"category": "housing_navigation",
+"subcategory": "hiv_aids_housing_support",
+"cost": "Reduced Cost",
+"claimed_program": true,
+"last_reviewed": "2026-05-14",
+"description": "APLA Health's Housing Support Services program assists people living with HIV/AIDS who are experiencing homelessness, at risk of homelessness, or need assistance maintaining or retaining current housing. Housing specialists help clients acquire, finance, and maintain affordable and appropriate housing. Services include housing plans, housing assistance applications, moving into housing, tenant rights education, affordable supportive housing referrals, and liaison support between clients, property owners, and case managers.",
+"services_offered": [
+"Residential Housing",
+"Navigating The System",
+"One-On-One Support",
+"Help Find Housing",
+"Housing Advice",
+"Mediation"
+],
+"people_served": [
+"All Ages",
+"LGBTQIA+",
+"HIV/AIDS",
+"Individuals",
+"Families",
+"Homeless",
+"Near Homeless"
+],
+"eligibility": [
+"Follow the next steps to find out if this program has eligibility criteria."
+],
+"languages": [
+"English",
+"Spanish"
+],
+"coverage_area": [
+"Los Angeles County, CA",
+"Orange County, CA",
+"Riverside County, CA",
+"San Bernardino County, CA",
+"Ventura County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "213-201-1637",
+"instruction": "Call to schedule an appointment."
+},
+{
+"type": "email",
+"email": "[bbrown@apla.org](mailto:bbrown@apla.org)",
+"instruction": "Email to schedule an appointment."
+}
+],
+"locations": [
+{
+"location_name": "West Hollywood Office",
+"location_type": "Admin-Only Location",
+"phone": "213-201-1450",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "APLA Health and Wellness",
+"location_type": "Admin-Only Location",
+"phone": "213-201-1600",
+"hours": {
+"Monday": "7:00 AM - 9:00 PM PDT",
+"Tuesday": "7:00 AM - 10:00 PM PDT",
+"Wednesday": "7:00 AM - 10:00 PM PDT",
+"Thursday": "7:00 AM - 10:00 PM PDT",
+"Friday": "7:00 AM - 8:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "The David Geffen Center",
+"location_type": "Admin-Only Location",
+"phone": "213-201-1600",
+"hours": {
+"Monday": "7:30 AM - 9:00 PM PDT",
+"Tuesday": "7:30 AM - 10:00 PM PDT",
+"Wednesday": "7:30 AM - 10:00 PM PDT",
+"Thursday": "7:30 AM - 10:00 PM PDT",
+"Friday": "7:30 AM - 8:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Formulating housing plans",
+"Assisting clients with housing assistance applications",
+"Moving clients into housing",
+"Tenant rights and responsibilities education",
+"Referrals for additional supportive housing services",
+"Liaison support between clients, property owners, and case managers",
+"Housing acquisition support",
+"Housing financing support",
+"Housing retention support",
+"Affordable housing support",
+"Mediation",
+"One-on-one housing support"
+],
+"related_programs_from_provider": [
+"HIV Medical Care",
+"Vance North Necessities of Life Program (NOLP)",
+"Dental Care",
+"Party Wise Crystal Methamphetamine Program",
+"Mental Healthcare",
+"HIV Testing",
+"Clientline",
+"Sexually Transmitted Disease (STD) Screening & Treatment",
+"Primary Care"
+],
+"cmsx_notes": "Strong specialized housing support resource for clients living with HIV/AIDS who are homeless, near homeless, or at risk of losing housing. This is not an emergency shelter or general housing placement resource. It should be tagged for HIV/AIDS, LGBTQIA+, housing navigation, housing retention, tenant rights, affordable housing referrals, mediation, case-manager coordination, and supportive services. Mark needs_review before referral because eligibility, documentation, appointment requirements, and housing availability should be confirmed.",
+"active": true
+}
+
+This one is **HIV/AIDS housing support and housing case management**, not a general shelter listing. It should be categorized under **housing_navigation / HIV housing support**, with tags for mediation, housing plans, tenant rights, affordable housing referrals, and case-manager coordination.
+
+{
+"record_number": 64,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "AIDS Project Los Angeles (APLA) Health",
+"service_name": "Housing Support Services",
+"display_name": "APLA Health - Housing Support Services",
+"official_website": "[https://aplahealth.org/services/housing-support-services/](https://aplahealth.org/services/housing-support-services/)",
+"category": "housing_navigation",
+"subcategory": "hiv_aids_housing_support",
+"cost": "Reduced Cost",
+"claimed_program": true,
+"last_reviewed": "2026-05-14",
+"description": "APLA Health's Housing Support Services program assists people living with HIV/AIDS who are experiencing homelessness, at risk of homelessness, or need assistance maintaining or retaining current housing. Housing specialists help clients acquire, finance, and maintain affordable and appropriate housing. Services include housing plans, housing assistance applications, moving into housing, tenant rights education, affordable supportive housing referrals, and liaison support between clients, property owners, and case managers.",
+"services_offered": [
+"Residential Housing",
+"Navigating The System",
+"One-On-One Support",
+"Help Find Housing",
+"Housing Advice",
+"Mediation"
+],
+"people_served": [
+"All Ages",
+"LGBTQIA+",
+"HIV/AIDS",
+"Individuals",
+"Families",
+"Homeless",
+"Near Homeless"
+],
+"eligibility": [
+"Follow the next steps to find out if this program has eligibility criteria."
+],
+"languages": [
+"English",
+"Spanish"
+],
+"coverage_area": [
+"Los Angeles County, CA",
+"Orange County, CA",
+"Riverside County, CA",
+"San Bernardino County, CA",
+"Ventura County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "213-201-1637",
+"instruction": "Call to schedule an appointment."
+},
+{
+"type": "email",
+"email": "[bbrown@apla.org](mailto:bbrown@apla.org)",
+"instruction": "Email to schedule an appointment."
+}
+],
+"locations": [
+{
+"location_name": "West Hollywood Office",
+"location_type": "Admin-Only Location",
+"phone": "213-201-1450",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "APLA Health and Wellness",
+"location_type": "Admin-Only Location",
+"phone": "213-201-1600",
+"hours": {
+"Monday": "7:00 AM - 9:00 PM PDT",
+"Tuesday": "7:00 AM - 10:00 PM PDT",
+"Wednesday": "7:00 AM - 10:00 PM PDT",
+"Thursday": "7:00 AM - 10:00 PM PDT",
+"Friday": "7:00 AM - 8:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+},
+{
+"location_name": "The David Geffen Center",
+"location_type": "Admin-Only Location",
+"phone": "213-201-1600",
+"hours": {
+"Monday": "7:30 AM - 9:00 PM PDT",
+"Tuesday": "7:30 AM - 10:00 PM PDT",
+"Wednesday": "7:30 AM - 10:00 PM PDT",
+"Thursday": "7:30 AM - 10:00 PM PDT",
+"Friday": "7:30 AM - 8:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Formulating housing plans",
+"Assisting clients with housing assistance applications",
+"Moving clients into housing",
+"Tenant rights and responsibilities education",
+"Referrals for additional supportive housing services",
+"Liaison support between clients, property owners, and case managers",
+"Housing acquisition support",
+"Housing financing support",
+"Housing retention support",
+"Affordable housing support",
+"Mediation",
+"One-on-one housing support"
+],
+"related_programs_from_provider": [
+"HIV Medical Care",
+"Vance North Necessities of Life Program (NOLP)",
+"Dental Care",
+"Party Wise Crystal Methamphetamine Program",
+"Mental Healthcare",
+"HIV Testing",
+"Clientline",
+"Sexually Transmitted Disease (STD) Screening & Treatment",
+"Primary Care"
+],
+"cmsx_notes": "Strong specialized housing support resource for clients living with HIV/AIDS who are homeless, near homeless, or at risk of losing housing. This is not an emergency shelter or general housing placement resource. It should be tagged for HIV/AIDS, LGBTQIA+, housing navigation, housing retention, tenant rights, affordable housing referrals, mediation, case-manager coordination, and supportive services. Mark needs_review before referral because eligibility, documentation, appointment requirements, and housing availability should be confirmed.",
+"active": true
+}
+
+CMSX tags:
+
+```text
+hiv_aids
+housing_support
+housing_navigation
+housing_retention
+affordable_housing
+tenant_rights
+mediation
+case_management_coordination
+lgbtqia
+homeless
+near_homeless
+families
+individuals
+english_spanish
+reduced_cost
+apla_health
+needs_eligibility_verification
+```
+
+
+20
+{
+"record_number": 65,
+"source": "findhelp_detail_page",
+"verification_status": "needs_review",
+"provider_name": "New Horizons",
+"service_name": "Residential & Community Living",
+"display_name": "New Horizons - Residential & Community Living",
+"official_website": "https://newhorizons-sfv.org/programs/residential/residential-community-living/",
+"category": "disability_housing",
+"subcategory": "supported_residential_living",
+"cost": "Reduced Cost",
+"claimed_program": false,
+"last_reviewed": "2025-11-21",
+"description": "New Horizons' Residential and Community Living programs help adults with developmental disabilities get the most out of their living experience, whether they are living in one of the organization's residential homes or in a place of their own. The program supports clients with locating appropriate living arrangements, menu planning, budgeting, money management, daily living skills, and independent living support. New Horizons residential homes support clients in small, family-like settings located throughout the San Fernando Valley area of Los Angeles. Each home has dedicated staff available 24 hours a day to assist residents with basic needs while helping them build independent living skills.",
+"services_offered": [
+"Residential Housing",
+"Support Network",
+"Financial Education"
+],
+"people_served": [
+"Adults",
+"Young Adults",
+"Seniors",
+"Developmental Disability"
+],
+"eligibility": [
+"Follow the next steps to find out if this program has eligibility criteria."
+],
+"languages": [
+"English"
+],
+"coverage_area": [
+"Los Angeles County, CA"
+],
+"next_steps": [
+{
+"type": "call",
+"phone": "818-894-9301",
+"instruction": "Call to get more info."
+},
+{
+"type": "email",
+"email": "[mveals@newhorizons-sfv.org](mailto:mveals@newhorizons-sfv.org)",
+"instruction": "Email to get more info."
+}
+],
+"locations": [
+{
+"location_name": "New Horizons, Inc",
+"distance_miles": 4.28,
+"address": "15725 Parthenia Street",
+"city": "North Hills",
+"state": "CA",
+"zip": "91343",
+"phone": "818-894-9301",
+"email": "[mveals@newhorizons-sfv.org](mailto:mveals@newhorizons-sfv.org)",
+"fax": "818-891-3267",
+"website": "https://newhorizons-sfv.org/programs/residential/residential-community-living/",
+"hours": {
+"Monday": "8:00 AM - 5:00 PM PDT",
+"Tuesday": "8:00 AM - 5:00 PM PDT",
+"Wednesday": "8:00 AM - 5:00 PM PDT",
+"Thursday": "8:00 AM - 5:00 PM PDT",
+"Friday": "8:00 AM - 5:00 PM PDT",
+"Saturday": "Closed",
+"Sunday": "Closed"
+}
+}
+],
+"program_supports": [
+"Residential housing",
+"Community living support",
+"Supported living in residential homes",
+"Support for clients living independently",
+"Locating appropriate living arrangements",
+"Menu planning",
+"Budgeting",
+"Money management",
+"Daily living skills",
+"Independent living skills",
+"24-hour staff support in residential homes",
+"Support for basic needs",
+"Small family-like residential settings",
+"Support for healthy and safe living environments"
+],
+"related_programs_from_provider": [
+"Supported Employment",
+"Employment Services Program"
+],
+"cmsx_notes": "Useful referral resource for adults, young adults, and seniors with developmental disabilities who need residential living, community living support, independent living skills, budgeting, money management, and 24-hour staff-supported residential homes. This is not homeless shelter, sober living, or general affordable housing. It should be tagged under Disability Housing, Developmental Disability, Supported Residential Living, Independent Living Skills, and Regional Center/Eligibility Review. Mark needs_review before referral because eligibility, payer/funding source, Regional Center involvement, waitlist status, and residential availability must be confirmed.",
+"active": true
+}
+disability_housing
+developmental_disability
+supported_residential_living
+community_living
+residential_homes
+independent_living_skills
+daily_living_skills
+budgeting
+money_management
+menu_planning
+support_network
+financial_education
+san_fernando_valley
+north_hills
+reduced_cost
+regional_center_review
+needs_availability_check
+

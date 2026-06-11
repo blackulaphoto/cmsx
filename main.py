@@ -294,6 +294,15 @@ except Exception as e:
     logger.warning(f"Services module not loaded: {e}")
 
 try:
+    from backend.modules.resource_library.routes import router as resource_library_router
+    app.include_router(resource_library_router, prefix="/api/resources", tags=["resource-library"])
+    loaded_modules["resource_library"] = "loaded"
+    logger.info("Resource Library module loaded successfully")
+except Exception as e:
+    loaded_modules["resource_library"] = f"error: {e}"
+    logger.warning(f"Resource Library module not loaded: {e}")
+
+try:
     from backend.modules.jobs.routes import router as jobs_router
     app.include_router(jobs_router, prefix="/api/jobs", tags=["jobs"])
     loaded_modules["jobs"] = "loaded"
@@ -353,6 +362,20 @@ async def seed_sober_living_directory():
             logger.info("Sober living directory already has listings — seed skipped")
     except Exception as e:
         logger.error(f"Sober living directory seed failed: {e}")
+
+@app.on_event("startup")
+async def seed_resource_library():
+    """Auto-seed Resource Library with first batch of resources if DB is empty."""
+    try:
+        from backend.modules.resource_library.seed_data import run_seed
+        from backend.modules.resource_library.database import get_resource_count
+        if get_resource_count() == 0:
+            result = run_seed()
+            logger.info(f"Resource Library seeded: {result['inserted']} inserted, {result['skipped']} skipped")
+        else:
+            logger.info(f"Resource Library already has {get_resource_count()} records — seed skipped")
+    except Exception as e:
+        logger.error(f"Resource Library seed failed: {e}")
 
 try:
     from backend.modules.reminders.routes import router as reminders_router
