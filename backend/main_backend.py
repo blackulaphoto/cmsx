@@ -142,6 +142,14 @@ except ImportError as e:
     logger.warning(f"Sober living module not available: {e}")
     SOBER_LIVING_AVAILABLE = False
 
+# Import sober living directory module
+try:
+    from modules.sober_living_directory.routes import router as sober_living_directory_router, get_directory_db, get_importer as get_sld_importer
+    SOBER_LIVING_DIRECTORY_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Sober living directory module not available: {e}")
+    SOBER_LIVING_DIRECTORY_AVAILABLE = False
+
 # Import group facilitation module
 try:
     from modules.groups.routes import router as groups_router
@@ -290,6 +298,31 @@ class NewUnifiedPlatform:
             logger.info("[CHECK] Sober living module integrated")
         else:
             logger.warning("[WARNING] Sober living module not available")
+
+        # Include sober living directory module if available
+        if SOBER_LIVING_DIRECTORY_AVAILABLE:
+            self.app.include_router(sober_living_directory_router, prefix="/api/sober-living-directory")
+            logger.info("[CHECK] Sober living directory module integrated")
+            # Auto-seed from committed Excel file if the directory DB is empty
+            try:
+                _sld_db = get_directory_db()
+                if not _sld_db.list_listings({}):
+                    _excel_path = Path(__file__).parent.parent / "CA_Sober_Living_Directory.xlsx"
+                    if _excel_path.exists():
+                        _importer = get_sld_importer()
+                        _summary = _importer.import_file(
+                            file_name=_excel_path.name,
+                            content=_excel_path.read_bytes(),
+                            source_name="CA Sober Living Directory",
+                            source_type="spreadsheet_import",
+                        )
+                        logger.info("[CHECK] Sober living directory auto-seeded: %s listings created", _summary.get("listings_created", 0))
+                    else:
+                        logger.warning("[WARNING] CA_Sober_Living_Directory.xlsx not found at %s", _excel_path)
+            except Exception as _e:
+                logger.error("[ERROR] Sober living directory auto-seed failed: %s", _e)
+        else:
+            logger.warning("[WARNING] Sober living directory module not available")
 
         # Include group facilitation module if available
         if GROUPS_AVAILABLE:
