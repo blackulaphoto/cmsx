@@ -457,35 +457,45 @@ def _format_provider_result(
 
 
 def _query_medi_cal(city: str, search: str, specialty: str, limit: int) -> List[Dict[str, Any]]:
-    with _connect(VIRGIL_DB_PATH) as conn:
-        clauses = ["1=1"]
-        params: List[Any] = []
-        _append_city_clause(clauses, params, "city", city)
-        if specialty:
-            clauses.append("LOWER(COALESCE(specialties, '')) LIKE ?")
-            params.append(f"%{specialty.lower()}%")
-        if search:
-            search_pattern = f"%{search.lower()}%"
-            clauses.append(
-                "("
-                "LOWER(COALESCE(providerName, '')) LIKE ? OR "
-                "LOWER(COALESCE(facilityName, '')) LIKE ? OR "
-                "LOWER(COALESCE(specialties, '')) LIKE ?"
-                ")"
-            )
-            params.extend([search_pattern, search_pattern, search_pattern])
+    try:
+        conn_ctx = _connect(VIRGIL_DB_PATH)
+    except Exception:
+        return []
+    try:
+        with conn_ctx as conn:
+            clauses = ["1=1"]
+            params: List[Any] = []
+            _append_city_clause(clauses, params, "city", city)
+            if specialty:
+                clauses.append("LOWER(COALESCE(specialties, '')) LIKE ?")
+                params.append(f"%{specialty.lower()}%")
+            if search:
+                search_pattern = f"%{search.lower()}%"
+                clauses.append(
+                    "("
+                    "LOWER(COALESCE(providerName, '')) LIKE ? OR "
+                    "LOWER(COALESCE(facilityName, '')) LIKE ? OR "
+                    "LOWER(COALESCE(specialties, '')) LIKE ?"
+                    ")"
+                )
+                params.extend([search_pattern, search_pattern, search_pattern])
 
-        rows = conn.execute(
-            f"""
-            SELECT id, providerName, facilityName, address, city, state, zipCode, phone,
-                   specialties, languagesSpoken, networks, medicalGroups,
-                   hospitalAffiliations, boardCertifications, isVerified
-            FROM medi_cal_providers
-            WHERE {' AND '.join(clauses)}
-            LIMIT ?
-            """,
-            [*params, max(limit * 8, 100)],
-        ).fetchall()
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT id, providerName, facilityName, address, city, state, zipCode, phone,
+                           specialties, languagesSpoken, networks, medicalGroups,
+                           hospitalAffiliations, boardCertifications, isVerified
+                    FROM medi_cal_providers
+                    WHERE {' AND '.join(clauses)}
+                    LIMIT ?
+                    """,
+                    [*params, max(limit * 8, 100)],
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+    except Exception:
+        return []
 
     merged_results: Dict[tuple[str, str, str], Dict[str, Any]] = {}
     for row in rows:
@@ -599,30 +609,36 @@ def _query_medi_cal(city: str, search: str, specialty: str, limit: int) -> List[
 
 
 def _query_dental_urgent(city: str, search: str, limit: int) -> List[Dict[str, Any]]:
-    with _connect(VIRGIL_DB_PATH) as conn:
-        clauses = ["LOWER(COALESCE(type, '')) = 'dental'"]
-        params: List[Any] = []
-        _append_city_clause(clauses, params, "address", city)
-        if search:
-            pattern = f"%{search.lower()}%"
-            clauses.append(
-                "("
-                "LOWER(COALESCE(name, '')) LIKE ? OR "
-                "LOWER(COALESCE(description, '')) LIKE ?"
-                ")"
-            )
-            params.extend([pattern, pattern])
+    try:
+        with _connect(VIRGIL_DB_PATH) as conn:
+            clauses = ["LOWER(COALESCE(type, '')) = 'dental'"]
+            params: List[Any] = []
+            _append_city_clause(clauses, params, "address", city)
+            if search:
+                pattern = f"%{search.lower()}%"
+                clauses.append(
+                    "("
+                    "LOWER(COALESCE(name, '')) LIKE ? OR "
+                    "LOWER(COALESCE(description, '')) LIKE ?"
+                    ")"
+                )
+                params.extend([pattern, pattern])
 
-        rows = conn.execute(
-            f"""
-            SELECT id, name, description, address, phone, website
-            FROM resources
-            WHERE {' AND '.join(clauses)}
-            ORDER BY CASE WHEN LOWER(COALESCE(description, '')) LIKE '%urgent%' THEN 0 ELSE 1 END, name ASC
-            LIMIT ?
-            """,
-            [*params, limit],
-        ).fetchall()
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT id, name, description, address, phone, website
+                    FROM resources
+                    WHERE {' AND '.join(clauses)}
+                    ORDER BY CASE WHEN LOWER(COALESCE(description, '')) LIKE '%urgent%' THEN 0 ELSE 1 END, name ASC
+                    LIMIT ?
+                    """,
+                    [*params, limit],
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+    except Exception:
+        return []
 
     return [
         _format_provider_result(
@@ -641,48 +657,54 @@ def _query_dental_urgent(city: str, search: str, limit: int) -> List[Dict[str, A
 
 
 def _query_treatment_centers(city: str, search: str, limit: int, private_only: bool = False, mat_only: bool = False) -> List[Dict[str, Any]]:
-    with _connect(VIRGIL_DB_PATH) as conn:
-        clauses = ["isPublished = 1", "LOWER(COALESCE(type, '')) != 'sober_living'"]
-        params: List[Any] = []
+    try:
+        with _connect(VIRGIL_DB_PATH) as conn:
+            clauses = ["isPublished = 1", "LOWER(COALESCE(type, '')) != 'sober_living'"]
+            params: List[Any] = []
 
-        _append_city_clause(clauses, params, "city", city)
+            _append_city_clause(clauses, params, "city", city)
 
-        if private_only:
-            clauses.append("acceptsPrivateInsurance = 1")
+            if private_only:
+                clauses.append("acceptsPrivateInsurance = 1")
 
-        if mat_only:
-            clauses.append(
-                "("
-                "LOWER(COALESCE(name, '')) LIKE ? OR "
-                "LOWER(COALESCE(description, '')) LIKE ? OR "
-                "LOWER(COALESCE(servicesOffered, '')) LIKE ? OR "
-                "LOWER(COALESCE(type, '')) LIKE ?"
-                ")"
-            )
-            params.extend(["%suboxone%", "%suboxone%", "%suboxone%", "%detox%"])
-        elif search:
-            pattern = f"%{search.lower()}%"
-            clauses.append(
-                "("
-                "LOWER(COALESCE(name, '')) LIKE ? OR "
-                "LOWER(COALESCE(description, '')) LIKE ? OR "
-                "LOWER(COALESCE(servicesOffered, '')) LIKE ? OR "
-                "LOWER(COALESCE(type, '')) LIKE ?"
-                ")"
-            )
-            params.extend([pattern, pattern, pattern, pattern])
+            if mat_only:
+                clauses.append(
+                    "("
+                    "LOWER(COALESCE(name, '')) LIKE ? OR "
+                    "LOWER(COALESCE(description, '')) LIKE ? OR "
+                    "LOWER(COALESCE(servicesOffered, '')) LIKE ? OR "
+                    "LOWER(COALESCE(type, '')) LIKE ?"
+                    ")"
+                )
+                params.extend(["%suboxone%", "%suboxone%", "%suboxone%", "%detox%"])
+            elif search:
+                pattern = f"%{search.lower()}%"
+                clauses.append(
+                    "("
+                    "LOWER(COALESCE(name, '')) LIKE ? OR "
+                    "LOWER(COALESCE(description, '')) LIKE ? OR "
+                    "LOWER(COALESCE(servicesOffered, '')) LIKE ? OR "
+                    "LOWER(COALESCE(type, '')) LIKE ?"
+                    ")"
+                )
+                params.extend([pattern, pattern, pattern, pattern])
 
-        rows = conn.execute(
-            f"""
-            SELECT id, name, type, address, city, zipCode, phone, website, description,
-                   servesPopulation, acceptsMediCal, acceptsPrivateInsurance, servicesOffered, priceRange
-            FROM treatment_centers
-            WHERE {' AND '.join(clauses)}
-            ORDER BY city ASC, name ASC
-            LIMIT ?
-            """,
-            [*params, limit],
-        ).fetchall()
+            try:
+                rows = conn.execute(
+                    f"""
+                    SELECT id, name, type, address, city, zipCode, phone, website, description,
+                           servesPopulation, acceptsMediCal, acceptsPrivateInsurance, servicesOffered, priceRange
+                    FROM treatment_centers
+                    WHERE {' AND '.join(clauses)}
+                    ORDER BY city ASC, name ASC
+                    LIMIT ?
+                    """,
+                    [*params, limit],
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return []
+    except Exception:
+        return []
 
     results = []
     for row in rows:

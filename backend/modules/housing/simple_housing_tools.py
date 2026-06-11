@@ -135,6 +135,18 @@ class HousingResourceTools:
                 }
             }
 
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Sober living DB table not available: {e}")
+            return {
+                'success': True,
+                'results': [],
+                'total_count': 0,
+                'pagination': {
+                    'current_page': page, 'per_page': per_page,
+                    'total_results': 0, 'total_pages': 1,
+                    'has_next_page': False, 'has_prev_page': False,
+                },
+            }
         except Exception as e:
             logger.error(f"Sober living search error: {e}", exc_info=True)
             return {
@@ -216,6 +228,18 @@ class HousingResourceTools:
                 }
             }
 
+        except sqlite3.OperationalError as e:
+            logger.warning(f"Housing programs DB table not available: {e}")
+            return {
+                'success': True,
+                'results': [],
+                'total_count': 0,
+                'pagination': {
+                    'current_page': page, 'per_page': per_page,
+                    'total_results': 0, 'total_pages': 1,
+                    'has_next_page': False, 'has_prev_page': False,
+                },
+            }
         except Exception as e:
             logger.error(f"Housing programs search error: {e}", exc_info=True)
             return {

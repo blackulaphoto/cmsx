@@ -121,16 +121,22 @@ function AttachmentsPanel({ packetId, formKey }) {
       const res = await apiFetch(`/api/admissions/attachments/${att.id}/download`, {
         timeoutMs: 30000,
       })
-      if (!res.ok) throw new Error('Download failed')
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || `Download failed (${res.status})`)
+      }
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = att.file_name
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
-    } catch {
-      // non-fatal
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 150)
+    } catch (err) {
+      console.error('[AdmissionsForm] attachment download failed:', err)
+      alert(`Could not download "${att.file_name}": ${err.message}`)
     }
   }
 
