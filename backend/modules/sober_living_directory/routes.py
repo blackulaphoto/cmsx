@@ -582,7 +582,7 @@ async def seed_from_excel():
         existing = db.list_listings({})
         if existing:
             return {"success": True, "skipped": True, "existing_count": len(existing), "message": "Directory already has listings — seed skipped"}
-        excel_path = Path(__file__).resolve().parents[4] / "CA_Sober_Living_Directory.xlsx"
+        excel_path = Path(__file__).resolve().parents[3] / "CA_Sober_Living_Directory.xlsx"
         if not excel_path.exists():
             raise HTTPException(status_code=404, detail=f"Excel file not found at {excel_path}")
         summary = get_importer().import_file(

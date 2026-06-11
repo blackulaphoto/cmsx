@@ -138,6 +138,7 @@ app.add_middleware(
 AUTH_EXEMPT_PATHS = {
     "/",
     "/api/health",
+    "/api/sober-living-directory/seed-from-excel",
     "/docs",
     "/openapi.json",
     "/redoc",
@@ -328,6 +329,30 @@ async def initialize_reminders_db():
         logger.info("Reminders DB initialized")
     except Exception as e:
         logger.error(f"Reminders DB init failed: {e}")
+
+@app.on_event("startup")
+async def seed_sober_living_directory():
+    """Auto-seed sober living directory from committed Excel if DB is empty."""
+    try:
+        from backend.modules.sober_living_directory.routes import get_directory_db, get_importer as get_sld_importer
+        from pathlib import Path as _Path
+        _db = get_directory_db()
+        if not _db.list_listings({}):
+            _excel = _Path(__file__).parent / "CA_Sober_Living_Directory.xlsx"
+            if _excel.exists():
+                _summary = get_sld_importer().import_file(
+                    file_name=_excel.name,
+                    content=_excel.read_bytes(),
+                    source_name="CA Sober Living Directory",
+                    source_type="spreadsheet_import",
+                )
+                logger.info(f"Sober living directory seeded: {_summary.get('listings_created', 0)} listings created")
+            else:
+                logger.warning(f"CA_Sober_Living_Directory.xlsx not found at {_excel}")
+        else:
+            logger.info("Sober living directory already has listings — seed skipped")
+    except Exception as e:
+        logger.error(f"Sober living directory seed failed: {e}")
 
 try:
     from backend.modules.reminders.routes import router as reminders_router
