@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Briefcase, Search, MapPin, Bookmark, ExternalLink, User,
+  Briefcase, Search, Bookmark, ExternalLink, User,
   Package, ShoppingBag, Truck, UtensilsCrossed, Camera, Building2,
   Wrench, GraduationCap, Users, FileText, CheckSquare, Car, ClipboardList,
+  AlertCircle,
 } from 'lucide-react'
 import ClientSelector from '../components/ClientSelector'
 import LocationSelector from '../components/LocationSelector'
-import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
 import {
   clientLocation,
@@ -17,11 +17,20 @@ import {
   getTreatmentPlanContext,
 } from '../utils/clientOperationalContext'
 
+// ── Craigslist region resolver ─────────────────────────────────────────────
 const CRAIGSLIST_JOB_REGIONS = [
-  { match: ['los angeles', 'hollywood', 'van nuys', 'panorama city', 'north hollywood', 'burbank', 'glendale', 'pasadena', 'santa monica', 'venice', 'culver city', 'inglewood', 'compton', 'downey', 'whittier', 'long beach', 'torrance', 'gardena', 'hawthorne'], base: 'https://losangeles.craigslist.org' },
-  { match: ['anaheim', 'santa ana', 'orange'], base: 'https://orangecounty.craigslist.org' },
-  { match: ['riverside', 'san bernardino'], base: 'https://inlandempire.craigslist.org' },
-  { match: ['lancaster', 'palmdale'], base: 'https://losangeles.craigslist.org' },
+  {
+    match: [
+      'los angeles', 'hollywood', 'van nuys', 'panorama city', 'north hollywood',
+      'burbank', 'glendale', 'pasadena', 'santa monica', 'venice', 'culver city',
+      'inglewood', 'compton', 'downey', 'whittier', 'long beach', 'torrance',
+      'gardena', 'hawthorne',
+    ],
+    base: 'https://losangeles.craigslist.org',
+  },
+  { match: ['anaheim', 'santa ana', 'orange'],      base: 'https://orangecounty.craigslist.org' },
+  { match: ['riverside', 'san bernardino'],          base: 'https://inlandempire.craigslist.org' },
+  { match: ['lancaster', 'palmdale'],                base: 'https://losangeles.craigslist.org'   },
 ]
 
 function resolveCraigslistBase(loc) {
@@ -30,58 +39,71 @@ function resolveCraigslistBase(loc) {
   return region?.base || 'https://losangeles.craigslist.org'
 }
 
+// ── Category tiles ────────────────────────────────────────────────────────
 const JOB_CATEGORY_TILES = [
-  { id: 'delivery',    label: 'Delivery',       keywords: 'delivery driver courier non CDL driver',            icon: Truck,         gradient: 'from-amber-500 to-orange-600' },
-  { id: 'warehouse',   label: 'Warehouse',      keywords: 'warehouse associate picker packer material handler', icon: Package,       gradient: 'from-emerald-500 to-green-600' },
-  { id: 'food-service',label: 'Food Service',   keywords: 'dishwasher line cook food service worker',          icon: UtensilsCrossed,gradient: 'from-cyan-500 to-blue-600' },
-  { id: 'retail',      label: 'Retail',         keywords: 'retail associate cashier sales associate',          icon: ShoppingBag,   gradient: 'from-pink-500 to-rose-600' },
-  { id: 'office',      label: 'Office',         keywords: 'office assistant receptionist data entry',          icon: Building2,     gradient: 'from-sky-500 to-cyan-600' },
-  { id: 'maintenance', label: 'Maintenance',    keywords: 'janitor custodian maintenance technician',          icon: Wrench,        gradient: 'from-slate-500 to-slate-700' },
-  { id: 'photography', label: 'Photography',    keywords: 'photographer photo assistant studio assistant',     icon: Camera,        gradient: 'from-violet-500 to-purple-600' },
-  { id: 'entry-level', label: 'Entry Level',    keywords: 'entry level no experience paid training',           icon: GraduationCap, gradient: 'from-indigo-500 to-blue-600' },
-  { id: 'staffing',    label: 'Staffing / Temp',keywords: 'staffing agency temp agency immediate hire',        icon: Users,         gradient: 'from-teal-500 to-emerald-600' },
+  { id: 'delivery',    label: 'Delivery',        keywords: 'delivery driver courier non CDL driver',             icon: Truck,          gradient: 'from-amber-500 to-orange-600'  },
+  { id: 'warehouse',   label: 'Warehouse',       keywords: 'warehouse associate picker packer material handler',  icon: Package,        gradient: 'from-emerald-500 to-green-600' },
+  { id: 'food-service',label: 'Food Service',    keywords: 'dishwasher line cook food service worker',           icon: UtensilsCrossed, gradient: 'from-cyan-500 to-blue-600'     },
+  { id: 'retail',      label: 'Retail',          keywords: 'retail associate cashier sales associate',           icon: ShoppingBag,    gradient: 'from-pink-500 to-rose-600'     },
+  { id: 'office',      label: 'Office',          keywords: 'office assistant receptionist data entry',           icon: Building2,      gradient: 'from-sky-500 to-cyan-600'      },
+  { id: 'maintenance', label: 'Maintenance',     keywords: 'janitor custodian maintenance technician',           icon: Wrench,         gradient: 'from-slate-500 to-slate-700'   },
+  { id: 'photography', label: 'Photography',     keywords: 'photographer photo assistant studio assistant',      icon: Camera,         gradient: 'from-violet-500 to-purple-600' },
+  { id: 'entry-level', label: 'Entry Level',     keywords: 'entry level no experience paid training',            icon: GraduationCap,  gradient: 'from-indigo-500 to-blue-600'   },
+  { id: 'staffing',    label: 'Staffing / Temp', keywords: 'staffing agency temp agency immediate hire',         icon: Users,          gradient: 'from-teal-500 to-emerald-600'  },
 ]
 
-const JOB_BOARDS = [
-  { id: 'indeed',       name: 'Indeed',        description: 'Largest US job board',                    gradient: 'from-blue-600 to-blue-700'    },
-  { id: 'craigslist',   name: 'Craigslist',    description: 'Local listings, often immediate hire',    gradient: 'from-purple-600 to-purple-700' },
-  { id: 'caljobs',      name: 'CalJOBS',       description: 'California state workforce system',       gradient: 'from-red-600 to-red-700'      },
-  { id: 'google',       name: 'Google Jobs',   description: 'Aggregates results across all sites',     gradient: 'from-green-600 to-green-700'  },
-  { id: 'ziprecruiter', name: 'ZipRecruiter',  description: 'Fast apply, many local openings',         gradient: 'from-orange-600 to-orange-700'},
-  { id: 'snagajob',     name: 'Snagajob',      description: 'Hourly and part-time focused',            gradient: 'from-yellow-600 to-amber-600' },
-  { id: 'simplyhired',  name: 'SimplyHired',   description: 'Aggregator with salary estimates',        gradient: 'from-teal-600 to-teal-700'    },
-  { id: 'linkedin',     name: 'LinkedIn Jobs', description: 'Professional network, larger employers',  gradient: 'from-sky-600 to-sky-700'      },
-  { id: 'glassdoor',    name: 'Glassdoor',     description: 'Reviews + salary data with listings',     gradient: 'from-emerald-600 to-emerald-700'},
-  { id: 'monster',      name: 'Monster',       description: 'Broad listings, entry level friendly',    gradient: 'from-violet-600 to-violet-700' },
+// ── Primary boards — direct search deep-links verified to work ─────────────
+// URL pattern notes:
+//   Indeed       q= and l= params: stable since 2012, accepts %20 or +
+//   Craigslist   /search/jjj?query= : jjj is the jobs category slug
+//   Google       standard search — triggers "Jobs" panel for job-title queries
+//   LinkedIn     /jobs/search/?keywords=&location=: public jobs search, no login required
+//   ZipRecruiter /jobs-search?search=&location=: stable deep-link
+const PRIMARY_BOARDS = [
+  { id: 'indeed',       name: 'Indeed',        description: 'Largest US job board',                  gradient: 'from-blue-600 to-blue-700'    },
+  { id: 'craigslist',   name: 'Craigslist',    description: 'Local listings, often immediate hire',   gradient: 'from-purple-600 to-purple-700' },
+  { id: 'google',       name: 'Google Jobs',   description: 'Aggregates results across all sites',   gradient: 'from-green-600 to-green-700'  },
+  { id: 'linkedin',     name: 'LinkedIn Jobs', description: 'Professional network, larger employers', gradient: 'from-sky-600 to-sky-700'      },
+  { id: 'ziprecruiter', name: 'ZipRecruiter',  description: 'Fast apply, many local openings',        gradient: 'from-orange-600 to-orange-700' },
+]
+
+// ── Manual boards — site homepages only (deep links not reliable) ───────────
+// CalJOBS: ASP.NET form, ignores GET params for keyword search
+// Glassdoor: JS-routed; sc.keyword param not honored on direct nav
+// Monster: redesigned site; old /jobs/search?q= pattern redirects to homepage
+// Snagajob: React SPA, ignores query params on cold load
+// SimplyHired: deep links trigger CAPTCHA on external referrer
+const MANUAL_BOARDS = [
+  { id: 'caljobs',     name: 'CalJOBS',     description: 'California state workforce system', url: 'https://www.caljobs.ca.gov',             gradient: 'from-red-600 to-red-700'        },
+  { id: 'glassdoor',   name: 'Glassdoor',   description: 'Reviews + salary data',             url: 'https://www.glassdoor.com/Job/index.htm', gradient: 'from-emerald-600 to-emerald-700' },
+  { id: 'monster',     name: 'Monster',     description: 'Broad listings across industries',  url: 'https://www.monster.com',                gradient: 'from-violet-600 to-violet-700'   },
+  { id: 'snagajob',    name: 'Snagajob',    description: 'Hourly and part-time focused',      url: 'https://www.snagajob.com',               gradient: 'from-yellow-600 to-amber-600'   },
+  { id: 'simplyhired', name: 'SimplyHired', description: 'Aggregator with salary estimates',  url: 'https://www.simplyhired.com',            gradient: 'from-teal-600 to-teal-700'      },
 ]
 
 const CASE_MANAGER_TOOLS = [
-  { icon: ClipboardList, label: 'Application Tracker',    description: 'Log job applications and follow-up dates.' },
-  { icon: CheckSquare,   label: 'Resume Checklist',       description: 'Review client resume before applying.' },
-  { icon: FileText,      label: 'Interview Prep',         description: 'Common interview questions and tips.' },
-  { icon: Briefcase,     label: 'Documents Needed',       description: 'ID, work authorization, employer paperwork.' },
-  { icon: Car,           label: 'Transportation Notes',   description: 'Check commute from client address to job site.' },
+  { icon: ClipboardList, label: 'Application Tracker',  description: 'Log job applications and follow-up dates.' },
+  { icon: CheckSquare,   label: 'Resume Checklist',     description: 'Review client resume before applying.'     },
+  { icon: FileText,      label: 'Interview Prep',       description: 'Common interview questions and tips.'      },
+  { icon: Briefcase,     label: 'Documents Needed',     description: 'ID, work authorization, employer paperwork.' },
+  { icon: Car,           label: 'Transportation Notes', description: 'Check commute from client address to job site.' },
 ]
 
-function buildBoardUrls(keywords, location, lowBarrier) {
-  const base = (keywords || '').trim() || 'jobs'
-  const kw   = lowBarrier ? `${base} entry level` : base
-  const loc  = (location || 'Los Angeles, CA').trim()
-  const q    = encodeURIComponent(kw)
-  const l    = encodeURIComponent(loc)
-  const clBase = resolveCraigslistBase(loc)
+// ── URL builder — primary boards only ─────────────────────────────────────
+function buildPrimaryUrls(keywords, location, lowBarrier) {
+  const base    = (keywords || '').trim() || 'jobs'
+  const kw      = lowBarrier ? `${base} entry level` : base
+  const loc     = (location  || 'Los Angeles, CA').trim()
+  const q       = encodeURIComponent(kw)
+  const l       = encodeURIComponent(loc)
+  const clBase  = resolveCraigslistBase(loc)
 
   return {
     indeed:       `https://www.indeed.com/jobs?q=${q}&l=${l}`,
     craigslist:   `${clBase}/search/jjj?query=${q}&sort=date`,
-    caljobs:      `https://www.caljobs.ca.gov/vosnet/jobseeker/jobsearch/quicksearch.aspx?pu=1&searchkeywords=${q}&locationstring=${l}`,
     google:       `https://www.google.com/search?q=${encodeURIComponent(`${kw} jobs ${loc}`)}`,
-    ziprecruiter: `https://www.ziprecruiter.com/jobs-search?search=${q}&location=${l}`,
-    snagajob:     `https://www.snagajob.com/jobs/?keyword=${q}&location=${l}`,
-    simplyhired:  `https://www.simplyhired.com/search?q=${q}&l=${l}`,
     linkedin:     `https://www.linkedin.com/jobs/search/?keywords=${q}&location=${l}`,
-    glassdoor:    `https://www.glassdoor.com/Job/jobs.htm?sc.keyword=${q}&locT=C&locName=${l}`,
-    monster:      `https://www.monster.com/jobs/search?q=${q}&where=${l}`,
+    ziprecruiter: `https://www.ziprecruiter.com/jobs-search?search=${q}&location=${l}`,
   }
 }
 
@@ -89,23 +111,24 @@ function buildStaffingUrls(location) {
   const loc = (location || 'Los Angeles, CA').trim()
   const l   = encodeURIComponent(loc)
   return [
-    { label: 'Staffing agency jobs',    url: `https://www.indeed.com/jobs?q=${encodeURIComponent('staffing agency')}&l=${l}` },
-    { label: 'Temp agency jobs',        url: `https://www.indeed.com/jobs?q=${encodeURIComponent('temp agency')}&l=${l}` },
-    { label: `Day labor near ${loc}`,   url: `https://www.google.com/search?q=${encodeURIComponent(`day labor jobs ${loc}`)}` },
+    { label: 'Staffing agency jobs', url: `https://www.indeed.com/jobs?q=${encodeURIComponent('staffing agency')}&l=${l}` },
+    { label: 'Temp agency jobs',     url: `https://www.indeed.com/jobs?q=${encodeURIComponent('temp agency')}&l=${l}` },
+    { label: `Day labor near ${loc}`,url: `https://www.google.com/search?q=${encodeURIComponent(`day labor jobs ${loc}`)}` },
   ]
 }
 
+// ── Component ──────────────────────────────────────────────────────────────
 function Jobs() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [selectedClient, setSelectedClient] = useState(null)
-  const [keywords, setKeywords] = useState(searchParams.get('keywords') || '')
-  const [location, setLocation]   = useState(searchParams.get('location') || 'Los Angeles, CA')
+  const [selectedClient,  setSelectedClient]  = useState(null)
+  const [keywords,  setKeywords]  = useState(searchParams.get('keywords') || '')
+  const [location,  setLocation]  = useState(searchParams.get('location') || 'Los Angeles, CA')
   const [lowBarrier, setLowBarrier] = useState(searchParams.get('lowBarrier') === 'true')
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('jobCategory') || '')
   const [savedJobs, setSavedJobs] = useState([])
   const [activeTab, setActiveTab] = useState('search')
 
-  // ── Client loading ─────────────────────────────────────────────────────────
+  // ── Client loading ─────────────────────────────────────────────────────
   useEffect(() => {
     const clientId = searchParams.get('client')
     if (!clientId || selectedClient?.client_id === clientId) return
@@ -119,12 +142,12 @@ function Jobs() {
     else setSavedJobs([])
   }, [selectedClient?.client_id])
 
-  // Auto-suggest keywords / location from client context
+  // Auto-fill from client context
   useEffect(() => {
     if (!selectedClient?.client_id) return
-    const intake       = getIntakeContext(selectedClient)
+    const intake        = getIntakeContext(selectedClient)
     const treatmentPlan = getTreatmentPlanContext(selectedClient)
-    const needKeys     = getNeedKeys(selectedClient)
+    const needKeys      = getNeedKeys(selectedClient)
     const goalText = [
       ...(Array.isArray(treatmentPlan.goals) ? treatmentPlan.goals : []),
       intake.goals,
@@ -132,10 +155,10 @@ function Jobs() {
 
     setKeywords(prev => {
       if (prev) return prev
-      if (goalText.includes('warehouse'))                                     return 'warehouse associate picker packer'
-      if (goalText.includes('office') || goalText.includes('administrative')) return 'office assistant receptionist'
-      if (goalText.includes('food') || goalText.includes('restaurant'))       return 'dishwasher line cook food service'
-      if (needKeys.has('job_search'))                                         return 'entry level no experience paid training'
+      if (goalText.includes('warehouse'))                                      return 'warehouse associate picker packer'
+      if (goalText.includes('office') || goalText.includes('administrative'))  return 'office assistant receptionist'
+      if (goalText.includes('food')   || goalText.includes('restaurant'))      return 'dishwasher line cook food service'
+      if (needKeys.has('job_search'))                                          return 'entry level no experience paid training'
       return prev
     })
     setLocation(prev =>
@@ -146,7 +169,6 @@ function Jobs() {
     if (intake.prior_convictions || needKeys.has('job_search')) setLowBarrier(true)
   }, [selectedClient?.client_id])
 
-  // ── Saved jobs ─────────────────────────────────────────────────────────────
   const fetchSavedJobs = async (clientId) => {
     try {
       const resp = await apiFetch(`/api/jobs/saved/${clientId}`)
@@ -158,11 +180,11 @@ function Jobs() {
     }
   }
 
-  // ── URL generation (pure, no API calls) ───────────────────────────────────
-  const boardUrls    = useMemo(() => buildBoardUrls(keywords, location, lowBarrier),    [keywords, location, lowBarrier])
-  const staffingLinks = useMemo(() => buildStaffingUrls(location),                       [location])
+  // ── URL derivation — pure, no API calls ───────────────────────────────
+  const primaryUrls  = useMemo(() => buildPrimaryUrls(keywords, location, lowBarrier), [keywords, location, lowBarrier])
+  const staffingLinks = useMemo(() => buildStaffingUrls(location), [location])
 
-  // ── Category selection — fills keyword field only, no API call ─────────────
+  // ── Category selection ─────────────────────────────────────────────────
   const applyCategory = (cat) => {
     setKeywords(cat.keywords)
     setSelectedCategory(cat.id)
@@ -201,7 +223,7 @@ function Jobs() {
     }, { replace: true })
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 animate-fade-in">
       {/* Background blobs */}
@@ -223,7 +245,9 @@ function Jobs() {
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-emerald-200 to-blue-200 bg-clip-text text-transparent">
                   Job Search Hub
                 </h1>
-                <p className="text-gray-300 text-lg">Find employment opportunities — verify requirements directly on each job board</p>
+                <p className="text-gray-300 text-lg">
+                  Find employment opportunities — verify requirements directly on each job board
+                </p>
               </div>
             </div>
           </div>
@@ -253,13 +277,13 @@ function Jobs() {
             )}
           </div>
 
-          {/* ── Main card with tabs ── */}
+          {/* ── Main card ── */}
           <div className="bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl shadow-purple-500/10">
             {/* Tab bar */}
             <div className="flex border-b border-white/10">
               {[
-                { id: 'search', label: 'Job Search Hub', icon: Search,   gradient: 'from-emerald-500 to-blue-500' },
-                { id: 'saved',  label: 'Saved Jobs',     icon: Bookmark, gradient: 'from-purple-500 to-pink-500'  },
+                { id: 'search', label: 'Job Search Hub', icon: Search,   gradient: 'from-emerald-500 to-blue-500'  },
+                { id: 'saved',  label: 'Saved Jobs',     icon: Bookmark, gradient: 'from-purple-500 to-pink-500'   },
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -278,9 +302,10 @@ function Jobs() {
             </div>
 
             <div className="p-8">
-              {/* ════════════════ SEARCH TAB ════════════════ */}
+              {/* ══════════ SEARCH TAB ══════════ */}
               {activeTab === 'search' && (
                 <div className="space-y-12">
+
                   {/* ── Search parameters ── */}
                   <section>
                     <div className="flex items-center gap-3 mb-3">
@@ -331,7 +356,7 @@ function Jobs() {
                       </div>
                     </div>
 
-                    {/* Keyword + Location inputs */}
+                    {/* Keyword + Location */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-3">Job Title / Keywords</label>
@@ -341,11 +366,13 @@ function Jobs() {
                             type="text"
                             value={keywords}
                             onChange={e => setKeywords(e.target.value)}
-                            onBlur={() => setSearchParams(prev => {
-                              const next = new URLSearchParams(prev)
-                              next.set('keywords', keywords)
-                              return next
-                            }, { replace: true })}
+                            onBlur={() =>
+                              setSearchParams(prev => {
+                                const next = new URLSearchParams(prev)
+                                next.set('keywords', keywords)
+                                return next
+                              }, { replace: true })
+                            }
                             placeholder="e.g. delivery driver, dishwasher, warehouse"
                             className="w-full pl-12 pr-4 py-4 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-white placeholder-gray-400 transition-all duration-300 hover:bg-white/15"
                             data-testid="job-keywords"
@@ -384,17 +411,17 @@ function Jobs() {
                     </label>
                   </section>
 
-                  {/* ── Job board launcher ── */}
+                  {/* ── Primary boards — search trusted job boards ── */}
                   <section>
-                    <h2 className="text-2xl font-bold text-white mb-2">Open Job Boards</h2>
+                    <h2 className="text-2xl font-bold text-white mb-2">Search trusted job boards</h2>
                     <p className="text-gray-400 text-sm mb-6">
-                      Each button opens that site in a new tab with your current keyword and location applied.
+                      Each button opens that site in a new tab with your keyword and location applied.
                     </p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                      {JOB_BOARDS.map(board => (
+                      {PRIMARY_BOARDS.map(board => (
                         <button
                           key={board.id}
-                          onClick={() => window.open(boardUrls[board.id], '_blank', 'noopener,noreferrer')}
+                          onClick={() => window.open(primaryUrls[board.id], '_blank', 'noopener,noreferrer')}
                           className="group flex flex-col items-start gap-2 p-5 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-white/30 hover:bg-white/10 transition-all duration-300 hover:scale-[1.03] hover:shadow-xl text-left"
                           data-testid={`open-${board.id}`}
                         >
@@ -431,6 +458,37 @@ function Jobs() {
                     </div>
                   </section>
 
+                  {/* ── Manual boards — open and search manually ── */}
+                  <section>
+                    <h2 className="text-xl font-bold text-white mb-2">Open and search manually</h2>
+                    <p className="text-gray-400 text-sm mb-2">
+                      These sites do not support reliable search deep links. Open the site and enter your search terms directly.
+                    </p>
+                    <div className="flex items-start gap-2 mb-5 p-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+                      <AlertCircle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <p className="text-amber-200/80 text-xs leading-relaxed">
+                        Some job boards block deep links or change their search URLs frequently. CMSX only generates direct links for boards with stable, verified search pages.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                      {MANUAL_BOARDS.map(board => (
+                        <button
+                          key={board.id}
+                          onClick={() => window.open(board.url, '_blank', 'noopener,noreferrer')}
+                          className="group flex flex-col items-start gap-2 p-5 bg-white/5 backdrop-blur-sm rounded-2xl border border-white/10 hover:border-white/25 hover:bg-white/10 transition-all duration-300 hover:scale-[1.02] text-left opacity-80 hover:opacity-100"
+                          data-testid={`open-${board.id}`}
+                        >
+                          <div className={`p-2 bg-gradient-to-r ${board.gradient} rounded-xl mb-1 opacity-70 group-hover:opacity-100 transition-opacity`}>
+                            <ExternalLink className="h-5 w-5 text-white" />
+                          </div>
+                          <span className="text-white font-semibold text-sm">{board.name}</span>
+                          <span className="text-gray-400 text-xs leading-snug">{board.description}</span>
+                          <span className="text-xs text-gray-500 italic">Search manually</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
                   {/* ── Case Manager Tools ── */}
                   <section>
                     <h2 className="text-xl font-bold text-white mb-2">Case Manager Tools</h2>
@@ -456,7 +514,7 @@ function Jobs() {
                 </div>
               )}
 
-              {/* ════════════════ SAVED JOBS TAB ════════════════ */}
+              {/* ══════════ SAVED JOBS TAB ══════════ */}
               {activeTab === 'saved' && (
                 <div>
                   <div className="flex items-center justify-between mb-8">

@@ -165,57 +165,92 @@ print("\n[Job Search Hub — URL Generation]")
 
 import urllib.parse as _uparse
 
-def _build_board_urls(keywords, location, low_barrier=False):
+# Primary boards: direct search deep-links. Must encode keyword + location.
+# Uses quote() to match JS encodeURIComponent (space → %20, not +).
+def _build_primary_urls(keywords, location, low_barrier=False):
     base = (keywords or "").strip() or "jobs"
     kw   = f"{base} entry level" if low_barrier else base
     loc  = (location or "Los Angeles, CA").strip()
-    q    = _uparse.quote_plus(kw)
-    l    = _uparse.quote_plus(loc)
+    q    = _uparse.quote(kw,  safe="")
+    l    = _uparse.quote(loc, safe="")
     return {
         "indeed":       f"https://www.indeed.com/jobs?q={q}&l={l}",
         "craigslist":   f"https://losangeles.craigslist.org/search/jjj?query={q}&sort=date",
-        "caljobs":      f"https://www.caljobs.ca.gov/vosnet/jobseeker/jobsearch/quicksearch.aspx?pu=1&searchkeywords={q}&locationstring={l}",
-        "google":       f"https://www.google.com/search?q={_uparse.quote_plus(kw + ' jobs ' + loc)}",
-        "ziprecruiter": f"https://www.ziprecruiter.com/jobs-search?search={q}&location={l}",
-        "snagajob":     f"https://www.snagajob.com/jobs/?keyword={q}&location={l}",
-        "simplyhired":  f"https://www.simplyhired.com/search?q={q}&l={l}",
+        "google":       f"https://www.google.com/search?q={_uparse.quote(kw + ' jobs ' + loc, safe='')}",
         "linkedin":     f"https://www.linkedin.com/jobs/search/?keywords={q}&location={l}",
-        "glassdoor":    f"https://www.glassdoor.com/Job/jobs.htm?sc.keyword={q}&locT=C&locName={l}",
-        "monster":      f"https://www.monster.com/jobs/search?q={q}&where={l}",
+        "ziprecruiter": f"https://www.ziprecruiter.com/jobs-search?search={q}&location={l}",
     }
+
+# Manual boards: homepage links only, no keyword/location encoded.
+_MANUAL_BOARD_URLS = {
+    "caljobs":     "https://www.caljobs.ca.gov",
+    "glassdoor":   "https://www.glassdoor.com/Job/index.htm",
+    "monster":     "https://www.monster.com",
+    "snagajob":    "https://www.snagajob.com",
+    "simplyhired": "https://www.simplyhired.com",
+}
+
+_PRIMARY_DOMAINS = {
+    "indeed":       "indeed.com",
+    "craigslist":   "craigslist.org",
+    "google":       "google.com",
+    "linkedin":     "linkedin.com",
+    "ziprecruiter": "ziprecruiter.com",
+}
+
+# Boards where location appears in URL as a query param
+_LOCATION_IN_URL_BOARDS = {"indeed", "linkedin", "ziprecruiter"}
+# (Craigslist encodes location via regional subdomain; Google bakes it into q=)
 
 def _check_url_generation():
-    start = time.time()
+    start  = time.time()
     errors = []
-    urls = _build_board_urls("photographer", "Los Angeles")
 
-    # keyword must be encoded in each URL
-    for board, url in urls.items():
-        encoded = "photographer" in url or "photographer" in _uparse.unquote_plus(url)
-        if not encoded:
-            errors.append(f"{board}: keyword not found in URL")
+    test_cases = [
+        ("photographer",  "Los Angeles"),
+        ("office assistant", "Van Nuys"),
+        ("warehouse",     "Burbank"),
+    ]
 
-    # location must be encoded in non-google urls
-    for board in ("indeed", "caljobs", "ziprecruiter", "snagajob", "simplyhired", "linkedin", "glassdoor", "monster"):
-        url = urls[board]
-        decoded = _uparse.unquote_plus(url)
-        if "los angeles" not in decoded.lower():
-            errors.append(f"{board}: location not found in URL")
+    for kw, loc in test_cases:
+        urls = _build_primary_urls(kw, loc)
 
-    # domains must be correct
-    domain_map = {
-        "indeed": "indeed.com", "craigslist": "craigslist.org",
-        "caljobs": "caljobs.ca.gov", "google": "google.com",
-        "ziprecruiter": "ziprecruiter.com", "snagajob": "snagajob.com",
-        "simplyhired": "simplyhired.com", "linkedin": "linkedin.com",
-        "glassdoor": "glassdoor.com", "monster": "monster.com",
-    }
-    for board, domain in domain_map.items():
-        if domain not in urls[board]:
-            errors.append(f"{board}: expected domain '{domain}' not in URL")
+        for board, url in urls.items():
+            decoded = _uparse.unquote(url)
+
+            # Domain check
+            if _PRIMARY_DOMAINS[board] not in url:
+                errors.append(f"[{kw}/{loc}] {board}: domain '{_PRIMARY_DOMAINS[board]}' missing")
+                continue
+
+            # Keyword must appear (decoded)
+            if kw.lower() not in decoded.lower():
+                errors.append(f"[{kw}/{loc}] {board}: keyword '{kw}' not in URL")
+
+            # Location must appear for relevant boards
+            if board in _LOCATION_IN_URL_BOARDS and loc.lower() not in decoded.lower():
+                errors.append(f"[{kw}/{loc}] {board}: location '{loc}' not in URL")
+
+            # Sanity: no literal 'undefined' / 'null' / empty params / double ??
+            for bad in ("undefined", "null"):
+                if bad in url:
+                    errors.append(f"[{kw}/{loc}] {board}: '{bad}' in URL")
+            if "??" in url or "&&" in url or url.endswith("&") or url.endswith("?"):
+                errors.append(f"[{kw}/{loc}] {board}: malformed URL (double ?? or &&)")
+            if "=&" in url or "=?" in url or "= " in url:
+                errors.append(f"[{kw}/{loc}] {board}: empty or unencoded query param")
+
+    # Manual boards: just validate they are well-formed HTTPS URLs with no junk
+    for board, url in _MANUAL_BOARD_URLS.items():
+        if not url.startswith("https://"):
+            errors.append(f"manual {board}: must start with https://")
+        for bad in ("undefined", "null", " "):
+            if bad in url:
+                errors.append(f"manual {board}: '{bad}' in URL")
 
     elapsed = time.time() - start
-    label = "URL generation: photographer + Los Angeles → 10 boards"
+    combos  = len(test_cases)
+    label   = f"URL generation: {combos} combos × 5 primary boards + 5 manual boards"
     if errors:
         print(f"  {FAIL}  [---] [{elapsed:.1f}s]  {label}")
         for e in errors:
