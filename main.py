@@ -83,15 +83,43 @@ from backend.auth.service import auth_service
 async def lifespan(app: FastAPI):
     # Startup
     try:
-        # Initialize search coordinator
         from backend.search.coordinator import get_coordinator
-        coordinator = get_coordinator()
+        get_coordinator()
         logger.info("Search coordinator initialized successfully")
     except Exception as e:
         logger.error(f"Failed to initialize search coordinator: {e}")
-    
+
+    # Seed: base Resource Library (idempotent — only runs when DB is empty)
+    try:
+        from backend.modules.resource_library.seed_data import run_seed as _rl_seed
+        from backend.modules.resource_library.database import get_resource_count
+        if get_resource_count() == 0:
+            result = _rl_seed()
+            logger.info(f"Resource Library seeded: {result['inserted']} inserted, {result['skipped']} skipped")
+        else:
+            logger.info(f"Resource Library already has {get_resource_count()} records — seed skipped")
+    except Exception as e:
+        logger.error(f"Resource Library seed failed: {e}")
+
+    # Seed: food resources batch 1 (idempotent — deduplicates by provider_name + service_name)
+    try:
+        from backend.modules.resource_library.food_seed import run_seed as _food_seed
+        result = _food_seed()
+        if result.get("error"):
+            logger.error(f"Food seed error: {result['error']}")
+        elif result["inserted"] > 0:
+            logger.info(
+                f"Food seed: {result['inserted']} imported "
+                f"({result['verified']} verified, {result['needs_review']} needs_review), "
+                f"{result['skipped']} skipped, {result['total_in_db']} total in DB"
+            )
+        else:
+            logger.info(f"Food seed: all {result['skipped']} records already exist — skipped")
+    except Exception as e:
+        logger.error(f"Food resources seed failed: {e}")
+
     yield
-    
+
     # Shutdown (if needed)
     logger.info("Application shutting down")
 
