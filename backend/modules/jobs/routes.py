@@ -25,6 +25,118 @@ logger = logging.getLogger(__name__)
 # Create FastAPI router
 router = APIRouter(tags=["jobs"])
 
+# ── Low-barrier annotation ────────────────────────────────────────────────────
+# Positive signals that suggest a posting is accessible to applicants with
+# limited credentials or criminal justice history.
+_LB_POSITIVE = [
+    "entry level", "no experience required", "no experience needed",
+    "no degree required", "no degree needed",
+    "immediate hire", "immediate opening", "start immediately",
+    "paid training", "we train", "will train",
+    "temp agency", "staffing agency", "temp-to-hire", "temp to hire",
+    "warehouse", "food service", "janitorial", "general labor",
+    "delivery helper", "retail associate", "dishwasher", "line cook",
+    "porter", "cleaner", "construction laborer",
+]
+
+# Phrases that explicitly signal a fair-chance / second-chance employer.
+# Only these may be used to assert the posting is background-friendly.
+_LB_FAIR_CHANCE = [
+    "fair chance", "second chance", "background friendly",
+    "fair chance employer", "fair-chance employer",
+    "ban the box", "reentry", "re-entry",
+]
+
+# Risk/barrier signals → badge label
+_LB_RISK: dict = {
+    "background check required": "Background Check Mentioned",
+    "clean background required": "Background Check Mentioned",
+    "clean background": "Background Check Mentioned",
+    "fingerprinting required": "Background Check Mentioned",
+    "security clearance": "Clearance Risk",
+    "government contract": "Clearance Risk",
+    "school district": "Clearance Risk",
+    "banking": "Clearance Risk",
+    "financial services": "Clearance Risk",
+    "healthcare clearance": "Clearance Risk",
+    "caregiver clearance": "Clearance Risk",
+    "law enforcement": "Clearance Risk",
+    "clean driving record required": "Driving Record Mentioned",
+    "clean driving record": "Driving Record Mentioned",
+    "dmv record required": "Driving Record Mentioned",
+    "motor vehicle record": "Driving Record Mentioned",
+    "security guard card": "License Required",
+    "professional license required": "License Required",
+    "licensed and certified": "License Required",
+}
+
+# Positive badge signals → badge label
+_LB_POSITIVE_BADGES: dict = {
+    "entry level": "Entry Level",
+    "no experience": "No Experience Listed",
+    "no degree": "No Degree Listed",
+    "paid training": "Paid Training",
+    "we train": "Paid Training",
+    "will train": "Paid Training",
+    "immediate hire": "Immediate Hire",
+    "immediately": "Immediate Hire",
+    "temp agency": "Temp/Staffing",
+    "staffing agency": "Temp/Staffing",
+    "temp-to-hire": "Temp/Staffing",
+    "temp to hire": "Temp/Staffing",
+}
+
+
+def _annotate_low_barrier(jobs: list) -> list:
+    """Annotate each job dict with low_barrier_score, badges, risk_flags,
+    and explicitly_fair_chance.  Does NOT remove or reorder jobs."""
+    for job in jobs:
+        text = " ".join([
+            (job.get("title") or ""),
+            (job.get("description") or ""),
+            (job.get("provider") or ""),
+            (job.get("source") or ""),
+        ]).lower()
+
+        score = 0
+        explicitly_fair_chance = False
+        risk_flags: list = []
+        badges: list = []
+        seen_badge_labels: set = set()
+
+        for phrase in _LB_FAIR_CHANCE:
+            if phrase in text:
+                explicitly_fair_chance = True
+                score += 30
+                break
+
+        for phrase in _LB_POSITIVE:
+            if phrase in text:
+                score += 5
+
+        # Risk badges (unique by label)
+        for phrase, label in _LB_RISK.items():
+            if phrase in text and label not in seen_badge_labels:
+                risk_flags.append(phrase)
+                seen_badge_labels.add(label)
+                badges.append({"label": label, "type": "risk"})
+
+        # Positive badges (unique by label)
+        for phrase, label in _LB_POSITIVE_BADGES.items():
+            if phrase in text and label not in seen_badge_labels:
+                seen_badge_labels.add(label)
+                badges.append({"label": label, "type": "positive"})
+
+        job["low_barrier_score"] = min(100, score)
+        job["explicitly_fair_chance"] = explicitly_fair_chance
+        job["risk_flags"] = risk_flags
+        job["badges"] = badges
+        # Keep legacy fields so old clients don't break
+        job["background_friendly"] = explicitly_fair_chance
+        job["background_friendly_score"] = 75 if explicitly_fair_chance else 0
+
+    return jobs
+
 # Pydantic models
 class JobSearchRequest(BaseModel):
     keywords: str
@@ -183,11 +295,14 @@ async def get_search_results(search_id: str = Query(..., description="Search ID 
 async def search_jobs_quick(
     keywords: str = Query("", description="Job search keywords"),
     location: str = Query("Los Angeles, CA", description="Job search location"),
-    background_friendly: bool = Query(False, description="Filter for background-friendly jobs"),
+    # `low_barrier` replaces the deprecated `background_friendly` param.
+    # Both are accepted; neither filters results — annotation is always applied.
+    low_barrier: bool = Query(False, description="Hint to surface fewer-barrier jobs first"),
+    background_friendly: bool = Query(False, description="Deprecated alias for low_barrier"),
     page: int = Query(1, description="Page number (starts from 1)", ge=1),
     per_page: int = Query(10, description="Results per page (max 40)", ge=1, le=40)
 ):
-    """Quick job search with real-time results and pagination"""
+    """Quick job search with real-time results and low-barrier annotation"""
     try:
         if not keywords:
             return {
@@ -206,8 +321,8 @@ async def search_jobs_quick(
                     "end_index": 0
                 }
             }
-        
-        logger.info(f"Quick Job Search: '{keywords}' in '{location}' (page {page}, per_page {per_page}, background_friendly: {background_friendly})")
+
+        logger.info(f"Quick Job Search: '{keywords}' in '{location}' (page {page}, per_page {per_page})")
 
         # Use new paginated search system
         coordinator = get_coordinator()
@@ -218,9 +333,11 @@ async def search_jobs_quick(
             total = result['pagination']['total_results']
             logger.info(f"Job search successful: '{keywords}' → {total} results via {source} (page {page})")
 
+            annotated_jobs = _annotate_low_barrier(result['results'])
+
             return {
                 "success": True,
-                "jobs": result['results'],
+                "jobs": annotated_jobs,
                 "total_count": result['pagination']['total_results'],
                 "query_used": result.get('query_used', keywords),
                 "source": source,
@@ -259,7 +376,8 @@ async def search_jobs_quick(
 async def search_jobs_scrapers(
     keywords: str = Query("", description="Job search keywords"),
     location: str = Query("Los Angeles, CA", description="Job search location"),
-    background_friendly: bool = Query(False, description="Filter for background-friendly jobs only"),
+    low_barrier: bool = Query(False, description="Hint to surface fewer-barrier jobs first"),
+    background_friendly: bool = Query(False, description="Deprecated alias for low_barrier"),
     page: int = Query(1, description="Page number (starts from 1)", ge=1),
     per_page: int = Query(10, description="Results per page (max 40)", ge=1, le=40),
     sources: Optional[str] = Query(None, description="Comma-separated list of scrapers to use (craigslist,builtinla,government,city_la)")
@@ -289,15 +407,15 @@ async def search_jobs_scrapers(
         if sources:
             source_list = [s.strip() for s in sources.split(',') if s.strip()]
         
-        logger.info(f"Scraper Job Search: '{keywords}' in '{location}' (page {page}, per_page {per_page}, sources: {source_list}, background_friendly: {background_friendly})")
-        
+        logger.info(f"Scraper Job Search: '{keywords}' in '{location}' (page {page}, per_page {per_page}, sources: {source_list})")
+
         # Use scraper search manager
         result = await scraper_search_manager.search_jobs(
             keywords=keywords,
             location=location,
             sources=source_list,
             max_results=per_page * 10,  # Get more results for better pagination
-            background_friendly_only=background_friendly,
+            background_friendly_only=False,  # Never filter — annotate instead
             page=page,
             strict_matching=True,
             per_page=per_page
@@ -350,9 +468,11 @@ async def search_jobs_scrapers(
                 }
                 transformed_jobs.append(transformed_job)
             
+            annotated_jobs = _annotate_low_barrier(transformed_jobs)
+
             return {
                 "success": True,
-                "jobs": transformed_jobs,
+                "jobs": annotated_jobs,
                 "total_count": result['pagination']['total_results'],
                 "source": result['source'],
                 "pagination": result['pagination'],
@@ -427,7 +547,8 @@ async def get_search_details(search_id: str):
 async def search_jobs_ai(
     keywords: str = Query("", description="Job search keywords"),
     location: str = Query("Los Angeles, CA", description="Job search location"),
-    background_friendly: bool = Query(False, description="Filter for background-friendly jobs"),
+    low_barrier: bool = Query(False, description="Deprecated — annotation is always applied"),
+    background_friendly: bool = Query(False, description="Deprecated alias for low_barrier"),
     page: int = Query(1, description="Page number (starts from 1)", ge=1),
     per_page: int = Query(10, description="Results per page (max 40)", ge=1, le=40)
 ):
@@ -452,7 +573,7 @@ async def search_jobs_ai(
         # Use new paginated search system
         coordinator = get_coordinator()
         
-        logger.info(f"💼 AI Job Search: '{keywords}' in '{location}' (page {page}, per_page {per_page}, background_friendly: {background_friendly})")
+        logger.info(f"AI Job Search: '{keywords}' in '{location}' (page {page}, per_page {per_page})")
         
         # Perform paginated job search
         result = await coordinator.search_jobs(keywords, location, page, per_page)
@@ -474,7 +595,6 @@ async def search_jobs_ai(
                 "search_parameters": {
                     "keywords": keywords,
                     "location": location,
-                    "background_friendly": background_friendly,
                     "page": page,
                     "per_page": per_page
                 }
@@ -595,7 +715,8 @@ async def scrapers_health_check():
 async def search_jobs_simple(
     keywords: str = Query("", description="Job search keywords"),
     location: str = Query("Los Angeles, CA", description="Job search location"),
-    background_friendly: bool = Query(False, description="Filter for background-friendly jobs"),
+    low_barrier: bool = Query(False, description="Deprecated — annotation is always applied"),
+    background_friendly: bool = Query(False, description="Deprecated alias for low_barrier"),
     max_results: int = Query(20, description="Maximum number of results")
 ):
     """Simple, working job search using direct API calls"""

@@ -42,7 +42,7 @@ function Jobs() {
   const [searchForm, setSearchForm] = useState({
     keywords: searchParams.get('keywords') || '',
     location: searchParams.get('location') || 'Los Angeles',
-    backgroundFriendly: searchParams.get('backgroundFriendly') === 'true',
+    lowBarrier: searchParams.get('lowBarrier') === 'true',
     jobType: 'all',
     experienceLevel: 'all',
     searchType: searchParams.get('searchType') || 'general'  // 'general' or 'specific'
@@ -110,13 +110,13 @@ function Jobs() {
         ? 'office assistant'
         : goalText.includes('food') || goalText.includes('restaurant')
           ? 'food service'
-          : 'background friendly entry level'
+          : 'entry level jobs'
 
     setSearchForm((prev) => ({
       ...prev,
       keywords: prev.keywords || (needKeys.has('job_search') ? suggestedKeywords : prev.keywords),
       location: prev.location === 'Los Angeles' ? clientLocation(selectedClient, prev.location) : prev.location,
-      backgroundFriendly: prev.backgroundFriendly || Boolean(intake.prior_convictions || needKeys.has('job_search')),
+      lowBarrier: prev.lowBarrier || Boolean(intake.prior_convictions || needKeys.has('job_search')),
     }))
   }, [selectedClient?.client_id])
 
@@ -133,11 +133,6 @@ function Jobs() {
     const keywords = (searchForm.keywords || 'jobs').trim()
     const base = resolveCraigslistJobsBase(location)
     const queryParts = [keywords]
-
-    if (searchForm.backgroundFriendly) {
-      queryParts.push('second chance')
-      queryParts.push('felony friendly')
-    }
 
     const craigslistParams = new URLSearchParams({
       query: queryParts.join(' '),
@@ -206,21 +201,21 @@ function Jobs() {
       const params = new URLSearchParams({
         keywords: effectiveForm.keywords || 'jobs',
         location: effectiveForm.location || 'Los Angeles, CA',
-        background_friendly: String(!!effectiveForm.backgroundFriendly),
+        low_barrier: String(!!effectiveForm.lowBarrier),
         page: String(page),
         per_page: String(pagination.perPage)
       })
-      
+
       // Add sources parameter for scraper search
       if (effectiveForm.searchType === 'specific') {
         params.set('sources', 'craigslist,builtinla,government,city_la')
       }
-      
+
       // Update URL parameters for bookmarking
       const newSearchParams = new URLSearchParams(searchParams)
       newSearchParams.set('keywords', effectiveForm.keywords || 'jobs')
       newSearchParams.set('location', effectiveForm.location || 'Los Angeles, CA')
-      newSearchParams.set('backgroundFriendly', String(!!effectiveForm.backgroundFriendly))
+      newSearchParams.set('lowBarrier', String(!!effectiveForm.lowBarrier))
       newSearchParams.set('searchType', effectiveForm.searchType)
       newSearchParams.set('page', String(page))
       if (selectedCategory) {
@@ -264,9 +259,11 @@ function Jobs() {
             description: result.description || 'See job posting',
             requirements: result.metadata?.requirements || ['Visit the job posting for specific requirements'],
             benefits: result.metadata?.benefits || ['Visit the job posting for benefits information'],
-            backgroundFriendly: (result.background_friendly_score || 0) >= 60,
-            backgroundScore: result.background_friendly_score ?? null,
-            isSecondChance: (result.background_friendly_score || 0) >= 60,
+            // Low-barrier annotation from backend
+            lowBarrierScore: result.low_barrier_score ?? 0,
+            explicitlyFairChance: result.explicitly_fair_chance ?? false,
+            badges: result.badges || [],
+            riskFlags: result.risk_flags || [],
             url: result.url || result.link,
             isScraped: result.metadata?.scraped || false,
             contactInfo: result.metadata?.contact_info || {
@@ -274,8 +271,13 @@ function Jobs() {
               email: 'Visit job posting'
             }
           }))
-          
-          setJobs(transformedJobs)
+
+          // When "fewer barriers" is on, sort higher-scoring jobs to the top
+          const sortedJobs = effectiveForm.lowBarrier
+            ? [...transformedJobs].sort((a, b) => (b.lowBarrierScore || 0) - (a.lowBarrierScore || 0))
+            : transformedJobs
+
+          setJobs(sortedJobs)
           const searchTypeLabel = effectiveForm.searchType === 'general' ? 'job sites' : 'specific listings'
           toast.success(`Found ${data.pagination.total_results.toLocaleString()} ${searchTypeLabel} (showing page ${page})`)
         } else {
@@ -481,7 +483,7 @@ function Jobs() {
 
   const stats = [
     { icon: Briefcase, label: 'Available Jobs', value: jobs.length.toString(), variant: 'primary' },
-    { icon: Star, label: 'Background Friendly', value: jobs.filter(j => j.backgroundFriendly).length.toString(), variant: 'success' },
+    { icon: Star, label: 'Fewer Listed Barriers', value: jobs.filter(j => (j.lowBarrierScore || 0) >= 10).length.toString(), variant: 'success' },
     { icon: Bookmark, label: 'Saved Jobs', value: savedJobs.length.toString(), variant: 'secondary' },
     { icon: Clock, label: 'Recent Postings', value: jobs.filter(j => j.posted.includes('1 day') || j.posted.includes('2 days')).length.toString(), variant: 'warning' },
   ]
@@ -507,7 +509,7 @@ function Jobs() {
                 <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-emerald-200 to-blue-200 bg-clip-text text-transparent">
                   Job Search
                 </h1>
-                <p className="text-gray-300 text-lg">Find background-friendly employment opportunities</p>
+                <p className="text-gray-300 text-lg">Find employment opportunities — verify requirements before applying</p>
               </div>
             </div>
           </div>
@@ -710,14 +712,19 @@ function Jobs() {
                       <label className="flex items-center group cursor-pointer">
                         <input
                           type="checkbox"
-                          checked={searchForm.backgroundFriendly}
-                          onChange={(e) => setSearchForm(prev => ({ ...prev, backgroundFriendly: e.target.checked }))}
-                          className="mr-4 h-5 w-5 text-yellow-500 focus:ring-yellow-400 border-gray-400 rounded bg-white/10"
-                          data-testid="background-friendly-filter"
+                          checked={searchForm.lowBarrier}
+                          onChange={(e) => setSearchForm(prev => ({ ...prev, lowBarrier: e.target.checked }))}
+                          className="mr-4 h-5 w-5 text-emerald-500 focus:ring-emerald-400 border-gray-400 rounded bg-white/10"
+                          data-testid="low-barrier-filter"
                         />
-                        <span className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors">
-                          Background-friendly employers only
-                        </span>
+                        <div>
+                          <span className="text-sm font-medium text-gray-300 group-hover:text-white transition-colors">
+                            Prioritize fewer listed barriers
+                          </span>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            Sorts results by low-barrier signals. Verify hiring requirements before applying.
+                          </p>
+                        </div>
                       </label>
                     </div>
 
@@ -810,12 +817,28 @@ function Jobs() {
                                         Direct Scrape
                                       </span>
                                     )}
-                                    {job.backgroundScore >= 60 && (
-                                      <span className="px-3 py-1 bg-gradient-to-r from-yellow-500/20 to-amber-500/20 text-yellow-300 text-xs font-medium rounded-full border border-yellow-500/30">
-                                        Background Friendly ({job.backgroundScore})
+                                    {job.explicitlyFairChance && (
+                                      <span className="px-3 py-1 bg-gradient-to-r from-teal-500/20 to-emerald-500/20 text-teal-300 text-xs font-medium rounded-full border border-teal-500/30">
+                                        Fair Chance Employer
                                       </span>
                                     )}
                                   </div>
+                                  {job.badges?.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                      {job.badges.map((badge, bi) => (
+                                        <span
+                                          key={bi}
+                                          className={`px-2.5 py-1 text-xs font-medium rounded-full border ${
+                                            badge.type === 'risk'
+                                              ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                              : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                          }`}
+                                        >
+                                          {badge.label}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
                                   <p className="text-xl text-emerald-400 font-semibold mb-3 group-hover:text-emerald-300 transition-colors">{job.company}</p>
                                   <div className="flex items-center gap-6 text-sm text-gray-300 mb-4">
                                     <span className="flex items-center gap-2">
@@ -994,7 +1017,7 @@ function Jobs() {
 
                       {!!linkResources.background_friendly_searches?.length && (
                         <div>
-                          <h3 className="text-xl font-bold text-white mb-4">Background-Friendly Search Variations</h3>
+                          <h3 className="text-xl font-bold text-white mb-4">Low-Barrier Search Variations</h3>
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             {linkResources.background_friendly_searches.map((searchLink, index) => (
                               <div key={`${searchLink.platform}-${index}`} className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/20 rounded-2xl p-5">
