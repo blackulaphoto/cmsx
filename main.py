@@ -377,6 +377,25 @@ async def seed_resource_library():
     except Exception as e:
         logger.error(f"Resource Library seed failed: {e}")
 
+@app.on_event("startup")
+async def seed_food_resources():
+    """Import food resources batch 1 — idempotent, deduplicates by provider_name + service_name."""
+    try:
+        from backend.modules.resource_library.food_seed import run_seed as food_run_seed
+        result = food_run_seed()
+        if result.get("error"):
+            logger.error(f"Food seed error: {result['error']}")
+        elif result["inserted"] > 0:
+            logger.info(
+                f"Food seed: {result['inserted']} imported "
+                f"({result['verified']} verified, {result['needs_review']} needs_review), "
+                f"{result['skipped']} skipped, {result['total_in_db']} total in DB"
+            )
+        else:
+            logger.info(f"Food seed: all {result['skipped']} records already exist — skipped")
+    except Exception as e:
+        logger.error(f"Food resources seed failed: {e}")
+
 try:
     from backend.modules.reminders.routes import router as reminders_router
     app.include_router(reminders_router, prefix="/api/reminders", tags=["reminders"])
