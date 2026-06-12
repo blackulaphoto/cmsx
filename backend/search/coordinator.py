@@ -71,7 +71,12 @@ class SimpleSearchCoordinator:
         )
         
         # NEW: Jobs-specific CSE for better job search results
-        self.google_jobs_cse_id = self._normalize_key(os.getenv("GOOGLE_JOBS_CSE_ID", "b5088b7b14bdb4f11"))
+        # Falls back to the general CSE so jobs search works even without a dedicated GOOGLE_JOBS_CSE_ID
+        self.google_jobs_cse_id = self._normalize_key(
+            os.getenv("GOOGLE_JOBS_CSE_ID")
+            or os.getenv("GOOGLE_CSE_ID")
+            or os.getenv("CUSTOM_SEARCH_ENGINE_ID")
+        )
         
         # NEW: Housing-specific CSE for real rental listings
         self.google_housing_cse_id = self._normalize_key(os.getenv("GOOGLE_HOUSING_CSE_ID", "268132a59ec674755"))
@@ -83,13 +88,27 @@ class SimpleSearchCoordinator:
         self.blocked_google_cse_ids: Dict[str, str] = {}
         self.job_search_memory_cache: Dict[str, Dict[str, Any]] = {}
         logger.info(f"SerpAPI Key: {'Loaded' if self.serper_api_key else 'Missing'}")
-        
-        # Debug API key loading
-        logger.info(f"Google API Key: {'Loaded' if self.google_api_key else 'Missing'}")
-        logger.info(f"Services CSE ID: {'Loaded' if self.google_cse_id else 'Missing'}")
-        logger.info(f"Jobs CSE ID: {'Loaded' if self.google_jobs_cse_id else 'Missing'}")
+
+        # Config validation — log warnings for missing critical providers at startup
+        logger.info(f"Google API Key: {'Loaded' if self.google_api_key else 'MISSING — Google CSE disabled'}")
+        logger.info(f"Services CSE ID: {'Loaded' if self.google_cse_id else 'MISSING — services search will fail'}")
+        logger.info(f"Jobs CSE ID: {'Loaded (dedicated)' if os.getenv('GOOGLE_JOBS_CSE_ID') else 'Using general CSE fallback — set GOOGLE_JOBS_CSE_ID for best results'}")
+        logger.info(f"Effective Jobs CSE ID: {'Loaded' if self.google_jobs_cse_id else 'MISSING — job search will return empty results'}")
         logger.info(f"Housing CSE ID: {'Loaded' if self.google_housing_cse_id else 'Missing'}")
         logger.info(f"OpenAI API Key: {'Loaded' if self.openai_api_key else 'Missing'}")
+
+        if not self.google_api_key:
+            logger.warning("GOOGLE_API_KEY is not set — Google Custom Search is completely disabled")
+        if not self.google_jobs_cse_id:
+            logger.warning(
+                "No jobs CSE is configured (GOOGLE_JOBS_CSE_ID / GOOGLE_CSE_ID / CUSTOM_SEARCH_ENGINE_ID all missing) "
+                "— job search will only work if SERPAPI_API_KEY is set and has quota"
+            )
+        if not self.serper_api_key and not self.google_jobs_cse_id:
+            logger.error(
+                "CRITICAL: Neither SerpAPI nor any Google CSE is configured — "
+                "job search will always return empty results"
+            )
         
         # Initialize cache database
         self._init_cache_db()
@@ -707,7 +726,7 @@ class SimpleSearchCoordinator:
             }
             
             logger.info(f"Google Custom Search query: '{search_query}' using CSE: {cse_id}")
-            response = requests.get(url, params=params, timeout=10)
+            response = requests.get(url, params=params, timeout=5)
             if response.status_code == 403:
                 payload = response.json()
                 if self._is_google_permission_block(response=response, payload=payload):
@@ -737,97 +756,6 @@ class SimpleSearchCoordinator:
         except Exception as e:
             logger.error(f"Google Custom Search error with CSE {cse_id}: {e}")
             return []
-    
-    async def _paginated_google_search(self, query: str, cse_id: str, page: int = 1, per_page: int = 10):
-        """
-        Perform paginated Google Custom Search API calls
-        Google CSE supports max 10 results per call, so we make multiple calls if needed
-        """
-        try:
-            import requests
-
-            if not self.google_api_key or not cse_id:
-                return {
-                    'items': [],
-                    'total_results': 0,
-                    'actual_returned': 0,
-                    'error': 'Google Custom Search credentials not available'
-                }
-            
-            # Validate parameters
-            page = max(1, page)
-            per_page = min(max(1, per_page), 40)  # Max 40 results (4 API calls)
-            
-            # Calculate how many API calls we need
-            calls_needed = min(3, (per_page + 9) // 10)  # Max 3 calls, ceiling division
-            
-            all_items = []
-            total_results_estimate = 0
-            
-            # Calculate starting position for the requested page
-            start_index = (page - 1) * per_page + 1
-            
-            logger.info(f"Paginated search: page {page}, per_page {per_page}, start_index {start_index}")
-            
-            # Make multiple API calls to get enough results
-            for call_num in range(calls_needed):
-                # Calculate start position for this API call
-                api_start = start_index + (call_num * 10)
-                
-                # Google CSE has a limit of 100 results total
-                if api_start > 100:
-                    logger.warning(f"Reached Google CSE limit (start={api_start})")
-                    break
-                
-                url = "https://www.googleapis.com/customsearch/v1"
-                params = {
-                    'key': self.google_api_key,
-                    'cx': cse_id,
-                    'q': query,
-                    'start': api_start,
-                    'num': 10  # Always request 10 per API call
-                }
-                
-                logger.info(f"API call {call_num + 1}/{calls_needed}: start={api_start}")
-                
-                response = requests.get(url, params=params, timeout=10)
-                response.raise_for_status()
-                
-                data = response.json()
-                items = data.get('items', [])
-                
-                # Get total results estimate from first call
-                if call_num == 0:
-                    search_info = data.get('searchInformation', {})
-                    total_results_estimate = int(search_info.get('totalResults', '0'))
-                    logger.info(f"Total results estimate: {total_results_estimate}")
-                
-                all_items.extend(items)
-                
-                # If we got fewer than 10 results, we've reached the end
-                if len(items) < 10:
-                    logger.info(f"Reached end of results (got {len(items)} items)")
-                    break
-            
-            # Trim results to exactly what was requested
-            trimmed_items = all_items[:per_page]
-            
-            logger.info(f"Paginated search complete: {len(trimmed_items)} items returned")
-            
-            return {
-                'items': trimmed_items,
-                'total_results': total_results_estimate,
-                'actual_returned': len(trimmed_items)
-            }
-            
-        except Exception as e:
-            logger.error(f"Paginated Google search error: {e}")
-            return {
-                'items': [],
-                'total_results': 0,
-                'actual_returned': 0,
-                'error': str(e)
-            }
     
     def _google_places_search(self, query: str, location: str) -> List[Dict]:
         """Google Places API search"""
@@ -1495,7 +1423,37 @@ class SimpleSearchCoordinator:
         return "; ".join(reasons)
     
     async def search_jobs(self, query: str, location: str = None, page: int = 1, per_page: int = 10):
-        """Search for jobs using dedicated Jobs CSE with pagination support"""
+        """Search jobs with a 6.5-second hard cap so the frontend never hangs."""
+        page = max(1, page)
+        per_page = min(max(1, per_page), 40)
+        _empty_pagination = {
+            "current_page": page, "per_page": per_page, "total_results": 0,
+            "total_pages": 0, "has_next_page": False, "has_prev_page": False,
+            "start_index": 0, "end_index": 0,
+        }
+        try:
+            return await asyncio.wait_for(
+                self._search_jobs_impl(query, location, page, per_page),
+                timeout=6.5,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Job search timed out for '%s' in '%s'", query, location)
+            return {
+                "success": False, "query": query, "location": location, "results": [],
+                "source": "timeout", "error": "Search timed out — please try again.",
+                "degraded": True, "warning": "Search cancelled after 6.5 s.",
+                "pagination": _empty_pagination,
+            }
+        except Exception as e:
+            logger.error("Job search crashed for '%s': %s", query, e)
+            return {
+                "success": False, "query": query, "location": location, "results": [],
+                "source": "error", "error": str(e),
+                "degraded": True, "warning": None, "pagination": _empty_pagination,
+            }
+
+    async def _search_jobs_impl(self, query: str, location: str = None, page: int = 1, per_page: int = 10):
+        """Core job search logic called by search_jobs."""
         try:
             # Validate pagination parameters
             page = max(1, page)  # Ensure page is at least 1
@@ -1561,7 +1519,7 @@ class SimpleSearchCoordinator:
                     )
                     serp_fallback = self._serpapi_paginated_search(job_query, location, page, per_page)
                     serp_items = self._filter_job_results(serp_fallback.get("results", []))
-                    serp_items = self._filter_job_results_by_location(serp_items, location, strict=True)
+                    serp_items = self._filter_job_results_by_location(serp_items, location, strict=False)
                     serp_items = self._rank_job_results_for_exact_relevance(serp_items, query, location)
                     for item in serp_items:
                         if self._is_generic_job_results_page({
@@ -1601,7 +1559,7 @@ class SimpleSearchCoordinator:
                     )
                     serp_fallback = self._serpapi_paginated_search(job_query, "California", page, per_page)
                     serp_items = self._filter_job_results(serp_fallback.get("results", []))
-                    serp_items = self._filter_job_results_by_location(serp_items, "CA", strict=True)
+                    serp_items = self._filter_job_results_by_location(serp_items, "CA", strict=False)
                     serp_items = self._rank_job_results_for_exact_relevance(serp_items, query, location)
                     for item in serp_items:
                         if self._is_generic_job_results_page({
@@ -1745,7 +1703,11 @@ class SimpleSearchCoordinator:
             
             # Format results for API compatibility
             formatted_results = []
-            filtered_items = self._filter_job_results(paginated_results.get('items', []))
+            all_cse_items = paginated_results.get('items', [])
+            # Try domain-filtered results first; if the whitelist eliminates everything, use all CSE results
+            filtered_items = self._filter_job_results(all_cse_items)
+            if not filtered_items:
+                filtered_items = all_cse_items
             filtered_items = self._filter_job_results_by_location(filtered_items, location, strict=False)
             filtered_items = self._rank_job_results_for_exact_relevance(filtered_items, query, location)
             for item in filtered_items:
@@ -1755,10 +1717,12 @@ class SimpleSearchCoordinator:
                     "company_name": item.get("company_name", ""),
                 }):
                     continue
+                item_link = item.get('link', '')
                 formatted_results.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
-                    'link': item.get('link', ''),
+                    'link': item_link,
+                    'url': item_link,
                     'source': 'google_jobs_cse'
                 })
             
@@ -1821,13 +1785,15 @@ class SimpleSearchCoordinator:
                     "company_name": item.get("company_name", ""),
                 }):
                     continue
+                fallback_link = item.get('link', '')
                 formatted_results.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
-                    'link': item.get('link', ''),
+                    'link': fallback_link,
+                    'url': fallback_link,
                     'source': 'google_general_cse_fallback'
                 })
-            
+
             # Calculate pagination metadata
             total_results = paginated_results.get('total_results', len(formatted_results))
             total_pages = max(1, (total_results + per_page - 1) // per_page)
@@ -2222,13 +2188,15 @@ class SimpleSearchCoordinator:
             # Format results
             formatted_results = []
             for item in paginated_results['items']:
+                housing_link = item.get('link', '')
                 formatted_results.append({
                     'title': item.get('title', ''),
                     'description': item.get('snippet', ''),
-                    'link': item.get('link', ''),
+                    'link': housing_link,
+                    'url': housing_link,
                     'source': 'google_general_cse_fallback'
                 })
-            
+
             # Calculate pagination metadata
             total_results = paginated_results.get('total_results', len(formatted_results))
             total_pages = max(1, (total_results + per_page - 1) // per_page)
@@ -2814,7 +2782,7 @@ class SimpleSearchCoordinator:
                 "api_key": self.serper_api_key
             }
 
-            response = requests.get("https://serpapi.com/search.json", params=params, timeout=10)
+            response = requests.get("https://serpapi.com/search.json", params=params, timeout=5)
             response.raise_for_status()
             data = response.json()
             return {"results": data.get("organic_results", []), "error": None}
@@ -2961,7 +2929,7 @@ class SimpleSearchCoordinator:
                     "from_cache": True,
                 }
 
-            requested_limit = 100
+            requested_limit = min(per_page * 2, 20)
             listings: List[Dict[str, Any]] = []
             seen_ids = set()
             next_page_token = None
@@ -2978,7 +2946,7 @@ class SimpleSearchCoordinator:
                 if next_page_token:
                     params["next_page_token"] = next_page_token
 
-                response = requests.get("https://serpapi.com/search.json", params=params, timeout=15)
+                response = requests.get("https://serpapi.com/search.json", params=params, timeout=5)
                 response.raise_for_status()
                 data = response.json()
                 page_results = data.get("jobs_results", []) or []
@@ -3069,8 +3037,8 @@ class SimpleSearchCoordinator:
                 }
                 
                 logger.info(f"API call {call_num + 1}/{calls_needed}: start={api_start}")
-                
-                response = requests.get(url, params=params, timeout=10)
+
+                response = requests.get(url, params=params, timeout=5)
                 if response.status_code == 403:
                     data = response.json()
                     if self._is_google_permission_block(response=response, payload=data):
