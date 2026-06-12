@@ -208,19 +208,22 @@ async def search_jobs_quick(
             }
         
         logger.info(f"Quick Job Search: '{keywords}' in '{location}' (page {page}, per_page {per_page}, background_friendly: {background_friendly})")
-        
+
         # Use new paginated search system
         coordinator = get_coordinator()
         result = await coordinator.search_jobs(keywords, location, page, per_page)
-        
+
         if result['success']:
-            logger.info(f"Job search successful: {result['pagination']['total_results']} total results, page {page}")
-            
+            source = result['source']
+            total = result['pagination']['total_results']
+            logger.info(f"Job search successful: '{keywords}' → {total} results via {source} (page {page})")
+
             return {
                 "success": True,
                 "jobs": result['results'],
                 "total_count": result['pagination']['total_results'],
-                "source": result['source'],
+                "query_used": result.get('query_used', keywords),
+                "source": source,
                 "degraded": result.get('degraded', False),
                 "warning": result.get('warning'),
                 "pagination": result['pagination'],

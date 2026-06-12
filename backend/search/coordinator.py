@@ -1155,24 +1155,32 @@ class SimpleSearchCoordinator:
             path = (urlparse(link).path or "").lower()
 
             score = 0
+            keyword_hit = False
             for term in query_terms:
                 if term in title:
                     score += 10
+                    keyword_hit = True
                 elif term in combined:
                     score += 3
+                    keyword_hit = True
 
-            if requested_city and requested_city in combined:
-                score += 8
-
-            if any(hostname.endswith(domain) for domain in employer_domains):
-                score += 18
-            if any(hostname.endswith(domain) for domain in aggregator_domains):
-                score -= 4
-
-            if any(marker in path for marker in ["/job", "/jobs", "/careers", "/career", "/apply", "/position"]):
-                score += 6
-            if any(marker in path for marker in ["/browse", "/company", "/companies", "/salaries"]):
-                score -= 8
+            # Only apply domain/location boosts for results that actually match the keyword.
+            # Without this guard a warehouse job on lever.co (+18 domain) outscores a
+            # photographer job on indeed.com (+6) even when searching "photographer".
+            if keyword_hit or not query_terms:
+                if requested_city and requested_city in combined:
+                    score += 8
+                if any(hostname.endswith(domain) for domain in employer_domains):
+                    score += 18
+                if any(hostname.endswith(domain) for domain in aggregator_domains):
+                    score -= 4
+                if any(marker in path for marker in ["/job", "/jobs", "/careers", "/career", "/apply", "/position"]):
+                    score += 6
+                if any(marker in path for marker in ["/browse", "/company", "/companies", "/salaries"]):
+                    score -= 8
+            else:
+                # No keyword match at all — push to bottom so relevant results lead
+                score -= 30
 
             if "no experience" in combined or "entry level" in combined:
                 score += 3
@@ -1590,6 +1598,7 @@ class SimpleSearchCoordinator:
                     return {
                         "success": True,
                         "query": query,
+                        "query_used": query,
                         "location": location,
                         "results": job_results[:per_page],
                         "total_count": len(job_results[:per_page]),
@@ -1640,6 +1649,7 @@ class SimpleSearchCoordinator:
                     return {
                         "success": True,
                         "query": query,
+                        "query_used": query,
                         "location": location,
                         "results": job_results,
                         "total_count": len(job_results),
