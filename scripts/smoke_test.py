@@ -162,11 +162,84 @@ results.append(check(
 
 # ── Job Search ───────────────────────────────────────────────────
 print("\n[Job Search]")
-results.append(check(
-    get("/api/jobs/search/quick?keywords=delivery+driver&location=Los+Angeles&per_page=5",
-        "GET /api/jobs/search/quick?keywords=delivery+driver"),
-    expect_results=True
-))
+
+# Basic reachability — common keywords across several Craigslist-style categories
+_job_spot_checks = [
+    ("delivery+driver",   "transport"),
+    ("office+assistant",  "admin / office"),
+    ("food+service",      "food / bev / hosp"),
+    ("retail+sales",      "retail / wholesale"),
+    ("maintenance",       "skilled trade / craft"),
+]
+for kw, cat in _job_spot_checks:
+    results.append(check(
+        get(f"/api/jobs/search/quick?keywords={kw}&location=Los+Angeles&per_page=5",
+            f"GET /api/jobs/search/quick?keywords={kw} [{cat}]"),
+        expect_results=True
+    ))
+
+# Relevance regression check — photographer results must surface photographer content
+_photo_result = get(
+    "/api/jobs/search/quick?keywords=photographer&location=Los+Angeles&per_page=5",
+    "GET /api/jobs/search/quick?keywords=photographer [art / media / design]"
+)
+_PHOTO_TERMS = {"photographer", "photography", "photo", "camera", "studio", "imaging", "media", "creative"}
+
+def _check_photographer_relevance(result):
+    if not result["ok"]:
+        icon = FAIL
+        note = f"HTTP {result['status']} - {result.get('error', '')}"
+        ok = False
+    else:
+        data = result["data"]
+        query_used = (data.get("query_used") or "").lower()
+        jobs = data.get("jobs") or []
+
+        # Verify query_used echoes the right keyword
+        if query_used and "photographer" not in query_used:
+            icon = FAIL
+            note = f"query_used='{query_used}' — backend did not search for 'photographer'"
+            ok = False
+        else:
+            # Check whether top results contain at least one photography-related term
+            relevant = 0
+            top_titles = []
+            for job in jobs[:5]:
+                text = " ".join([
+                    (job.get("title") or ""),
+                    (job.get("description") or ""),
+                    (job.get("provider") or ""),
+                    (job.get("source") or ""),
+                ]).lower()
+                top_titles.append(job.get("title") or "(no title)")
+                if any(t in text for t in _PHOTO_TERMS):
+                    relevant += 1
+
+            n = len(jobs)
+            if relevant > 0:
+                icon = PASS
+                note = f"{n} results, {relevant}/{min(n,5)} relevant to 'photographer'"
+                ok = True
+            elif n == 0:
+                icon = WARN
+                note = "0 results — check SerpAPI key / quota"
+                ok = True
+            else:
+                icon = WARN
+                note = (
+                    f"{n} results but none of top {min(n,5)} contain photography terms — "
+                    "ranking regression likely. Top titles: " +
+                    " | ".join(top_titles[:5])
+                )
+                ok = True  # WARN not FAIL so deploy isn't blocked
+
+    t = f"{result['elapsed']:.1f}s"
+    print(f"  {icon}  [{result['status']:3d}] [{t:>5}]  {result['label']}")
+    if icon != PASS:
+        print(f"         -> {note}")
+    return ok
+
+results.append(_check_photographer_relevance(_photo_result))
 
 # ── Admissions ───────────────────────────────────────────────────
 print("\n[Admissions]")
