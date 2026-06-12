@@ -115,7 +115,10 @@ async def api_services_search(
                 # Use user text if meaningful; fall back to category keyword so "Housing" tile still matches
                 generic_terms = {'services', 'social services', 'service'}
                 rl_text = search_query if search_query and search_query.lower() not in generic_terms else None
-                if not rl_text and category and category not in ('all', ''):
+                # When a direct RL category mapping exists, let the category filter drive matching.
+                # Adding a hyphenated category name as text (e.g. "youth foster") fails against
+                # RL tags that use underscores (e.g. "foster_youth"), producing 0 results.
+                if not rl_text and not rl_cat and category and category not in ('all', ''):
                     rl_text = category.replace('-', ' ')
                 rl_result = rl_search(
                     search=rl_text,
@@ -230,7 +233,32 @@ async def api_services_search(
                 "timestamp": datetime.now().isoformat(),
             }
 
-        # STEP 3: Fallback to external APIs (SerpAPI / Google CSE)
+        # STEP 3: External API fallback — only for broad / no-category searches.
+        # For specific category searches Virgil + RL is the definitive answer.
+        # The coordinator internally calls Virgil without a category filter and
+        # returns every record (show-all mode), which pollutes category results.
+        if category and category not in ('all', '', None):
+            return {
+                "success": True,
+                "service_providers": rl_providers,
+                "total_count": rl_total,
+                "pagination": {
+                    "current_page": page,
+                    "per_page": per_page,
+                    "total_results": rl_total,
+                    "total_pages": max(1, (rl_total + per_page - 1) // per_page) if rl_total else 1,
+                    "has_next_page": False,
+                    "has_prev_page": page > 1,
+                    "start_index": 1 if rl_total > 0 else 0,
+                    "end_index": min(rl_total, per_page),
+                },
+                "source": "resource_library" if rl_providers else "none",
+                "source_label": "Internal Resource Library" if rl_providers else "No results found",
+                "degraded": False,
+                "warning": None if rl_providers else f"No resources found for category '{category}'",
+                "timestamp": datetime.now().isoformat(),
+            }
+
         coordinator = get_coordinator()
         result = await coordinator.search_services(search_query, location_param, page, per_page)
 

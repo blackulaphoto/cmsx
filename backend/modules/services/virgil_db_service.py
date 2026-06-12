@@ -149,35 +149,233 @@ class VirgilServiceDatabase:
         return mapping.get(normalized)
 
     def _category_filters(self, category: Optional[str]) -> Dict[str, Any]:
+        """Map CMSX frontend category IDs to Virgil St DB filter parameters.
+
+        keyword_terms: OR'd LIKE conditions applied to name+description (resources)
+                       or name+description+servicesOffered (treatment_centers).
+        include_treatment_keyword_search: when True, keyword_terms also filter
+                       the treatment_centers table (use for categories where
+                       SUD facilities may explicitly serve that population).
+        """
         normalized = self._normalize_category(category)
+        _empty = {
+            'resource_types': set(),
+            'treatment_types': set(),
+            'meeting_types': set(),
+            'include_medical': False,
+            'medical_terms': [],
+            'keyword_terms': [],
+            'include_treatment_keyword_search': False,
+        }
         category_map = {
-            'mental-health': {
-                'resource_types': set(),
-                'treatment_types': set(),
-                'meeting_types': set(),
-                'include_medical': True,
-                'medical_terms': ['psychiatry', 'mental', 'behavior', 'counsel', 'therapy'],
-            },
-            'substance-abuse': {
-                'resource_types': set(),
-                'treatment_types': {'residential', 'outpatient'},
-                'meeting_types': {'aa', 'na', 'smart', 'cma'},
-                'include_medical': False,
-                'medical_terms': [],
-            },
+            # ── Housing ──────────────────────────────────────────────────
             'housing': {
                 'resource_types': {'housing', 'shelter'},
                 'treatment_types': {'sober_living'},
                 'meeting_types': set(),
                 'include_medical': False,
                 'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
             },
+            # ── Benefits ─────────────────────────────────────────────────
+            'benefits': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': [
+                    'calfresh', 'calworks', 'dpss', 'general relief', 'cash aid',
+                    'snap', 'ebt', 'capi', 'rental assistance', 'voucher',
+                    'public benefit', 'benefits navigation',
+                ],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Medical ───────────────────────────────────────────────────
+            'medical': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': True,
+                'medical_terms': ['primary', 'family', 'internal', 'general practice',
+                                  'urgent care', 'pediatric', 'surgery'],
+                'keyword_terms': ['recuperative', 'respite care', 'primary care', 'urgent care'],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Dental ────────────────────────────────────────────────────
+            'dental': {
+                'resource_types': {'dental'},
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Mental Health ─────────────────────────────────────────────
+            'mental-health': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': True,
+                'medical_terms': ['psychiatry', 'mental', 'behavior', 'counsel', 'therapy', 'psychology'],
+                'keyword_terms': ['mental health', 'behavioral health', 'peer support', 'counseling'],
+                'include_treatment_keyword_search': False,
+            },
+            # ── SUD / Recovery ────────────────────────────────────────────
+            'sud-recovery': {
+                'resource_types': set(),
+                'treatment_types': {'residential', 'outpatient'},
+                'meeting_types': {'aa', 'na', 'smart', 'cma'},
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Legal Aid ─────────────────────────────────────────────────
+            'legal-aid': {
+                'resource_types': {'legal'},
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Food ──────────────────────────────────────────────────────
+            'food': {
+                'resource_types': {'food'},
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Transportation ────────────────────────────────────────────
             'transportation': {
                 'resource_types': {'transportation'},
                 'treatment_types': set(),
                 'meeting_types': set(),
                 'include_medical': False,
                 'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Employment ────────────────────────────────────────────────
+            'employment': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': ['employment', 'job training', 'workforce', 'vocational',
+                                  'resume', 'career', 'job placement', 'gain program'],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Documents / ID ────────────────────────────────────────────
+            'documents-id': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': ['identification', 'birth certificate', 'dmv',
+                                  'vital record', 'id recovery', 'document assist'],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Crisis ────────────────────────────────────────────────────
+            'crisis': {
+                'resource_types': {'shelter'},
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': ['crisis', 'emergency shelter', 'crisis line', '988', 'hotline'],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Veterans ──────────────────────────────────────────────────
+            'veterans': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': ['veteran', 'hud-vash', 'armed forces', 'military service'],
+                'include_treatment_keyword_search': True,
+            },
+            # ── Disability / IHSS ─────────────────────────────────────────
+            'disability-ihss': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': ['ihss', 'in-home supportive', 'disability',
+                                  'developmental disability', 'assisted living waiver'],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Family / Parenting ────────────────────────────────────────
+            'family-parenting': {
+                'resource_types': {'parenting_classes', 'couples_counseling'},
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': ['family support', 'parenting', 'childcare', 'family reunif'],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Youth / Foster ────────────────────────────────────────────
+            'youth-foster': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': ['foster youth', 'transitional age youth', 'tay', 'homeless youth'],
+                'include_treatment_keyword_search': True,
+            },
+            # ── Reentry ───────────────────────────────────────────────────
+            'reentry': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': ['reentry', 're-entry', 'formerly incarcerated',
+                                  'criminal justice', 'parole', 'probation'],
+                'include_treatment_keyword_search': True,
+            },
+            # ── Domestic Violence / Victim Services ───────────────────────
+            'domestic-violence': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': ['domestic violence', 'victim services', 'abuse survivor',
+                                  'dv shelter', 'sexual assault', 'intimate partner'],
+                'include_treatment_keyword_search': False,
+            },
+            # ── Legacy / backward-compat IDs ─────────────────────────────
+            'substance-abuse': {
+                'resource_types': set(),
+                'treatment_types': {'residential', 'outpatient'},
+                'meeting_types': {'aa', 'na', 'smart', 'cma'},
+                'include_medical': False,
+                'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
+            },
+            'mental_health': {
+                'resource_types': set(),
+                'treatment_types': set(),
+                'meeting_types': set(),
+                'include_medical': True,
+                'medical_terms': ['psychiatry', 'mental', 'behavior', 'counsel', 'therapy'],
+                'keyword_terms': ['mental health', 'counseling', 'psychiatry'],
+                'include_treatment_keyword_search': False,
             },
             'dental-care': {
                 'resource_types': {'dental'},
@@ -185,6 +383,8 @@ class VirgilServiceDatabase:
                 'meeting_types': set(),
                 'include_medical': False,
                 'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
             },
             'couples-counseling': {
                 'resource_types': {'couples_counseling'},
@@ -192,6 +392,8 @@ class VirgilServiceDatabase:
                 'meeting_types': set(),
                 'include_medical': False,
                 'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
             },
             'parenting-classes': {
                 'resource_types': {'parenting_classes'},
@@ -199,6 +401,8 @@ class VirgilServiceDatabase:
                 'meeting_types': set(),
                 'include_medical': False,
                 'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
             },
             'hygiene-services': {
                 'resource_types': {'hygiene'},
@@ -206,6 +410,8 @@ class VirgilServiceDatabase:
                 'meeting_types': set(),
                 'include_medical': False,
                 'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
             },
             'education': {
                 'resource_types': {'legal'},
@@ -213,6 +419,8 @@ class VirgilServiceDatabase:
                 'meeting_types': set(),
                 'include_medical': False,
                 'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
             },
             'support-groups': {
                 'resource_types': {'food'},
@@ -220,15 +428,11 @@ class VirgilServiceDatabase:
                 'meeting_types': {'aa', 'na', 'smart', 'cma'},
                 'include_medical': False,
                 'medical_terms': [],
+                'keyword_terms': [],
+                'include_treatment_keyword_search': False,
             },
         }
-        return category_map.get(normalized, {
-            'resource_types': set(),
-            'treatment_types': set(),
-            'meeting_types': set(),
-            'include_medical': False,
-            'medical_terms': [],
-        })
+        return category_map.get(normalized, _empty)
 
     def _score_result_for_category(self, result: Dict[str, Any], category: Optional[str]) -> Tuple[int, str]:
         normalized = self._normalize_category(category)
@@ -299,8 +503,17 @@ class VirgilServiceDatabase:
             treatment_filter_active = bool(normalized_population or normalized_insurance)
 
             has_category_filter = bool(normalized_category)
-            include_resources = not has_category_filter or bool(category_filters['resource_types'])
-            include_treatment = not has_category_filter or bool(category_filters['treatment_types'])
+            has_keyword_terms = bool(category_filters.get('keyword_terms'))
+            include_resources = (
+                not has_category_filter
+                or bool(category_filters['resource_types'])
+                or has_keyword_terms
+            )
+            include_treatment = (
+                not has_category_filter
+                or bool(category_filters['treatment_types'])
+                or (has_keyword_terms and category_filters.get('include_treatment_keyword_search', False))
+            )
             include_meetings = not treatment_filter_active and (
                 bool(category_filters['meeting_types']) or any(
                 term in query.lower() for term in ['meeting', 'aa', 'na', 'support', 'group']
@@ -918,12 +1131,29 @@ class VirgilServiceDatabase:
         category_filters = category_filters or self._category_filters(category)
         resource_types = category_filters.get('resource_types') or set()
 
+        # Category filter: resource types (exact) OR keyword terms (LIKE) — OR'd together,
+        # then AND'd with any user text search terms.
+        category_filter_clauses = []
+        category_filter_params: list = []
+
         if resource_types:
             type_clause = " OR ".join(["LOWER(type) = ?"] * len(resource_types))
-            where_clauses.append(f"({type_clause})")
-            params.extend(sorted(resource_types))
+            category_filter_clauses.append(f"({type_clause})")
+            category_filter_params.extend(sorted(resource_types))
 
-        if search_terms:  # Specific search
+        keyword_terms = (category_filters or {}).get('keyword_terms') or []
+        if keyword_terms:
+            kw_parts = []
+            for term in keyword_terms:
+                kw_parts.append("(LOWER(name) LIKE ? OR LOWER(description) LIKE ?)")
+                category_filter_params.extend([f"%{term}%", f"%{term}%"])
+            category_filter_clauses.append(f"({' OR '.join(kw_parts)})")
+
+        if category_filter_clauses:
+            where_clauses.append(f"({' OR '.join(category_filter_clauses)})")
+            params.extend(category_filter_params)
+
+        if search_terms:
             term_clauses = []
             for term in search_terms:
                 term_clauses.append("(LOWER(name) LIKE ? OR LOWER(type) LIKE ? OR LOWER(description) LIKE ?)")
@@ -933,7 +1163,7 @@ class VirgilServiceDatabase:
 
         if where_clauses:
             where_sql = " AND ".join(where_clauses)
-        else:  # Show all
+        else:
             where_sql = "1=1"
 
         sql = f"""
@@ -983,10 +1213,27 @@ class VirgilServiceDatabase:
         category_filters = category_filters or self._category_filters(category)
         treatment_types = category_filters.get('treatment_types') or set()
 
+        # Category filter: treatment types (exact) OR keyword terms (LIKE) — OR'd together,
+        # then AND'd with population/insurance/user-text filters.
+        category_filter_clauses = []
+        category_filter_params: list = []
+
         if treatment_types:
             type_clause = " OR ".join(["LOWER(type) = ?"] * len(treatment_types))
-            where_clauses.append(f"({type_clause})")
-            params.extend(sorted(treatment_types))
+            category_filter_clauses.append(f"({type_clause})")
+            category_filter_params.extend(sorted(treatment_types))
+
+        keyword_terms = (category_filters or {}).get('keyword_terms') or []
+        if keyword_terms:
+            kw_parts = []
+            for term in keyword_terms:
+                kw_parts.append("(LOWER(name) LIKE ? OR LOWER(description) LIKE ? OR LOWER(servicesOffered) LIKE ?)")
+                category_filter_params.extend([f"%{term}%", f"%{term}%", f"%{term}%"])
+            category_filter_clauses.append(f"({' OR '.join(kw_parts)})")
+
+        if category_filter_clauses:
+            where_clauses.append(f"({' OR '.join(category_filter_clauses)})")
+            params.extend(category_filter_params)
 
         if population:
             where_clauses.append("LOWER(COALESCE(servesPopulation, '')) = ?")
@@ -997,7 +1244,7 @@ class VirgilServiceDatabase:
         elif insurance_type == 'private':
             where_clauses.append("acceptsPrivateInsurance = 1")
 
-        if search_terms:  # Specific search
+        if search_terms:
             term_clauses = []
             for term in search_terms:
                 term_clauses.append("(LOWER(name) LIKE ? OR LOWER(type) LIKE ? OR LOWER(description) LIKE ? OR LOWER(servicesOffered) LIKE ?)")
@@ -1007,7 +1254,7 @@ class VirgilServiceDatabase:
 
         if where_clauses:
             where_sql = " AND ".join(where_clauses)
-        else:  # Show all
+        else:
             where_sql = "1=1"
 
         sql = f"""

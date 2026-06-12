@@ -192,9 +192,9 @@ def search_resources(
 
     if category:
         conditions.append(
-            "(primary_category = ? OR secondary_categories LIKE ? OR pathways LIKE ?)"
+            "(primary_category = ? OR secondary_categories LIKE ? OR pathways LIKE ? OR tags LIKE ?)"
         )
-        params += [category, f'%"{category}"%', f'%"{category}"%']
+        params += [category, f'%"{category}"%', f'%"{category}"%', f'%"{category}"%']
 
     if pathway:
         conditions.append("pathways LIKE ?")
