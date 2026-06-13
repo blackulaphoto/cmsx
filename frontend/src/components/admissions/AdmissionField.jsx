@@ -142,15 +142,23 @@ export default function AdmissionField({ field, value, error, onChange }) {
       />
     )
   } else if (type === 'select') {
+    // bg-white/5 (transparent) causes invisible option text in native OS dropdowns.
+    // Use a solid dark background so the browser can render option rows correctly.
+    const selectClass = [
+      'w-full bg-gray-900 border rounded-lg px-3 py-2 text-sm text-white',
+      'focus:outline-none focus:ring-1 focus:ring-cyan-500/50 transition-colors appearance-none',
+      '[color-scheme:dark]',
+      error ? 'border-red-500/50' : 'border-white/10 focus:border-cyan-500/40',
+    ].join(' ')
     input = (
       <select
         value={value || ''}
         onChange={(e) => onChange(e.target.value)}
-        className={baseInput + ' appearance-none [color-scheme:dark]'}
+        className={selectClass}
       >
-        <option value="">— Select —</option>
+        <option value="" style={{ background: '#111827', color: '#e5e7eb' }}>— Select —</option>
         {options.map((opt) => (
-          <option key={opt} value={opt}>{opt}</option>
+          <option key={opt} value={opt} style={{ background: '#111827', color: '#e5e7eb' }}>{opt}</option>
         ))}
       </select>
     )
