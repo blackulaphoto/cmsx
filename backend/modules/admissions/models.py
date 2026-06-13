@@ -29,6 +29,7 @@ ALLOWED_REVIEW_STATUSES = {
 class StartPacketPayload(BaseModel):
     client_id: str = Field(..., min_length=1)
     client_name: str = Field(..., min_length=1)
+    shared_profile: Dict[str, Any] = Field(default_factory=dict)
 
 
 class UpdateFormStatusPayload(BaseModel):

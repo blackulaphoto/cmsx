@@ -1,48 +1,184 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   ClipboardCheck,
-  Zap,
   ArrowLeft,
   ArrowRight,
   Info,
   AlertCircle,
   Loader2,
+  UserPlus,
+  Users,
 } from 'lucide-react'
 import { apiFetch } from '../api/config'
 import ClientSelector from '../components/ClientSelector'
+import { useAuth } from '../contexts/AuthContext'
+import { buildSharedProfile, buildSharedProfileFromClient } from '../utils/admissionsProfile'
+
+const EMPTY_NEW_CLIENT = {
+  first_name: '',
+  last_name: '',
+  date_of_birth: '',
+  phone: '',
+  email: '',
+  address: '',
+  city: '',
+  state: 'CA',
+  zip_code: '',
+  emergency_contact_name: '',
+  emergency_contact_phone: '',
+  emergency_contact_relationship: '',
+  intake_date: '',
+  program_type: '',
+  insurance_provider: '',
+  insurance_plan_name: '',
+  insurance_member_id: '',
+}
+
+function OptionCard({ active, icon: Icon, title, description, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        'flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors',
+        active
+          ? 'bg-cyan-500/12 border-cyan-500/30'
+          : 'bg-white/4 border-white/10 hover:bg-white/6',
+      ].join(' ')}
+    >
+      <div className={`rounded-xl p-2 ${active ? 'bg-cyan-500/20' : 'bg-white/8'}`}>
+        <Icon className={`h-4 w-4 ${active ? 'text-cyan-200' : 'text-gray-300'}`} />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-white">{title}</p>
+        <p className="mt-1 text-xs leading-relaxed text-gray-400">{description}</p>
+      </div>
+    </button>
+  )
+}
+
+function Field({ label, required = false, children }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-medium text-gray-300">
+        {label}
+        {required && <span className="ml-1 text-rose-400">*</span>}
+      </span>
+      {children}
+    </label>
+  )
+}
+
+const inputClassName =
+  'w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-cyan-500/40 focus:border-cyan-500/30 transition-colors'
 
 export default function AdmissionsNew() {
   const navigate = useNavigate()
+  const { profile } = useAuth()
+  const [mode, setMode] = useState('existing')
   const [selectedClient, setSelectedClient] = useState(null)
+  const [newClient, setNewClient] = useState(EMPTY_NEW_CLIENT)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+
+  const sharedProfilePreview = useMemo(() => {
+    if (mode === 'existing') {
+      return selectedClient ? buildSharedProfileFromClient(selectedClient) : {}
+    }
+    return buildSharedProfile({
+      first_name: newClient.first_name,
+      last_name: newClient.last_name,
+      date_of_birth: newClient.date_of_birth,
+      phone: newClient.phone,
+      email: newClient.email,
+      address: newClient.address,
+      city: newClient.city,
+      state: newClient.state,
+      zip: newClient.zip_code,
+      emergency_contact_name: newClient.emergency_contact_name,
+      emergency_contact_phone: newClient.emergency_contact_phone,
+      emergency_contact_relationship: newClient.emergency_contact_relationship,
+      admission_date: newClient.intake_date,
+      program: newClient.program_type,
+      insurance_provider: newClient.insurance_provider,
+      insurance_plan_name: newClient.insurance_plan_name,
+      insurance_member_id: newClient.insurance_member_id,
+    })
+  }, [mode, newClient, selectedClient])
 
   const handleClientSelect = (client) => {
     setSelectedClient(client)
     setError(null)
   }
 
-  const handleStartPacket = async () => {
-    if (!selectedClient?.client_id) {
-      setError('Please select a client first.')
-      return
+  const handleNewClientChange = (field, value) => {
+    setNewClient((current) => ({ ...current, [field]: value }))
+    setError(null)
+  }
+
+  const createClientFromAdmissions = async () => {
+    if (!newClient.first_name.trim() || !newClient.last_name.trim()) {
+      throw new Error('First name and last name are required to create a client from Admissions.')
     }
+
+    const response = await apiFetch('/api/clients', {
+      method: 'POST',
+      body: JSON.stringify({
+        first_name: newClient.first_name.trim(),
+        last_name: newClient.last_name.trim(),
+        date_of_birth: newClient.date_of_birth || null,
+        phone: newClient.phone || null,
+        email: newClient.email || null,
+        address: newClient.address || null,
+        city: newClient.city || null,
+        state: newClient.state || 'CA',
+        zip_code: newClient.zip_code || null,
+        emergency_contact_name: newClient.emergency_contact_name || null,
+        emergency_contact_phone: newClient.emergency_contact_phone || null,
+        emergency_contact_relationship: newClient.emergency_contact_relationship || null,
+        intake_date: newClient.intake_date || null,
+        program_type: newClient.program_type || null,
+        case_manager_id: profile?.case_manager_id || 'cm_admissions',
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.detail || `Client creation failed (${response.status})`)
+    }
+    return data.client
+  }
+
+  const handleStartPacket = async () => {
     setLoading(true)
     setError(null)
     try {
+      const client =
+        mode === 'existing'
+          ? selectedClient
+          : await createClientFromAdmissions()
+
+      if (!client?.client_id) {
+        throw new Error('Admissions could not resolve a client record for this packet.')
+      }
+
+      const sharedProfile = mode === 'existing'
+        ? buildSharedProfileFromClient(client)
+        : sharedProfilePreview
+
       const res = await apiFetch('/api/admissions/packets', {
         method: 'POST',
         body: JSON.stringify({
-          client_id: selectedClient.client_id,
-          client_name: `${selectedClient.first_name || ''} ${selectedClient.last_name || ''}`.trim(),
+          client_id: client.client_id,
+          client_name: client.full_name || `${client.first_name || ''} ${client.last_name || ''}`.trim(),
+          shared_profile: sharedProfile,
         }),
       })
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || `Server error ${res.status}`)
+        throw new Error(data.detail || `Admissions packet start failed (${res.status})`)
       }
-      navigate(`/admissions/${selectedClient.client_id}`)
+      navigate(`/admissions/${client.client_id}`)
     } catch (err) {
       setError(err.message || 'Failed to start admission packet.')
     } finally {
@@ -50,116 +186,250 @@ export default function AdmissionsNew() {
     }
   }
 
+  const canStart =
+    mode === 'existing'
+      ? Boolean(selectedClient?.client_id)
+      : Boolean(newClient.first_name.trim() && newClient.last_name.trim())
+
   return (
     <div className="min-h-screen p-4 sm:p-6 lg:p-8">
-      <div className="max-w-2xl mx-auto space-y-6">
-
-        {/* Back link */}
+      <div className="mx-auto max-w-4xl space-y-6">
         <Link
           to="/admissions"
-          className="inline-flex items-center gap-1.5 text-sm text-gray-400 hover:text-white transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm text-gray-400 transition-colors hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Admissions
         </Link>
 
-        {/* Header */}
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 shadow-lg shadow-cyan-500/25">
+          <div className="rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 p-2.5 shadow-lg shadow-cyan-500/25">
             <ClipboardCheck className="h-6 w-6 text-white" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-white">Start Full Admission</h1>
             <p className="text-sm text-gray-400">
-              Select a client to open or create their admissions packet
+              Open the advanced intake packet for an existing client or create a new client directly here.
             </p>
           </div>
         </div>
 
-        {/* Info banner */}
-        <div className="flex items-start gap-3 p-4 rounded-xl bg-cyan-500/10 border border-cyan-500/20">
-          <Info className="h-4 w-4 text-cyan-400 mt-0.5 flex-shrink-0" />
-          <p className="text-sm text-cyan-200 leading-relaxed">
-            The Full Admission Packet tracks all required forms, consents, signatures, and
-            clinical screenings in CMSX. If a packet already exists for the selected client,
-            it will be reopened — no duplicate is created.
+        <div className="flex items-start gap-3 rounded-xl border border-cyan-500/20 bg-cyan-500/10 p-4">
+          <Info className="mt-0.5 h-4 w-4 flex-shrink-0 text-cyan-400" />
+          <p className="text-sm leading-relaxed text-cyan-200">
+            Quick Intake remains available, but it is no longer required. Admissions now seeds the full packet and shared client autofill directly.
           </p>
         </div>
 
-        {/* Client selector card */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-          <h2 className="text-sm font-semibold text-white">Select Client</h2>
-
-          <ClientSelector
-            selectedClientId={null}
-            onClientSelect={handleClientSelect}
-            showCreateNew={true}
-            showViewDashboard={false}
-            placeholder="Search for an existing client…"
+        <div className="grid gap-4 md:grid-cols-2">
+          <OptionCard
+            active={mode === 'existing'}
+            icon={Users}
+            title="Select Existing Client"
+            description="Attach the packet to an existing CMSX client and autofill from that profile."
+            onClick={() => setMode('existing')}
           />
-
-          {selectedClient && (
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-white/8 border border-white/15">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 flex items-center justify-center text-white font-semibold text-sm flex-shrink-0">
-                {(selectedClient.first_name?.[0] || '?').toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">
-                  {selectedClient.first_name} {selectedClient.last_name}
-                </p>
-                <p className="text-xs text-gray-400 truncate">
-                  ID: {selectedClient.client_id}
-                  {selectedClient.date_of_birth ? ` · DOB: ${selectedClient.date_of_birth}` : ''}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {error && (
-            <div className="flex items-center gap-2 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300">
-              <AlertCircle className="h-4 w-4 flex-shrink-0" />
-              {error}
-            </div>
-          )}
-
-          <button
-            onClick={handleStartPacket}
-            disabled={!selectedClient || loading}
-            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed hover:from-cyan-400 hover:to-blue-500 transition-all duration-300 shadow-lg shadow-cyan-500/20 hover:shadow-cyan-500/35"
-          >
-            {loading ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <ClipboardCheck className="h-4 w-4" />
-            )}
-            {loading ? 'Opening packet…' : 'Open Admission Packet'}
-            {!loading && <ArrowRight className="h-4 w-4 ml-auto" />}
-          </button>
+          <OptionCard
+            active={mode === 'new'}
+            icon={UserPlus}
+            title="Create New Client"
+            description="Capture core demographics here, create the client automatically, and continue the full packet."
+            onClick={() => setMode('new')}
+          />
         </div>
 
-        {/* Quick intake alt path */}
-        <div className="bg-white/3 border border-white/8 rounded-2xl p-5">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-lg bg-gradient-to-r from-yellow-500 to-orange-500 flex-shrink-0">
-              <Zap className="h-4 w-4 text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white mb-1">Need to create a new client first?</p>
-              <p className="text-xs text-gray-400 mb-3">
-                Use Quick Intake to add a client to CMSX, then come back here to start their full admission packet.
+        {mode === 'existing' ? (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Use information from selected client</h2>
+              <p className="mt-1 text-xs text-gray-400">
+                Selecting a client preloads packet demographics, contact information, and any existing core profile data.
               </p>
-              <Link
-                to="/case-management"
-                className="inline-flex items-center gap-1.5 text-xs text-orange-300 hover:text-orange-200 transition-colors"
-              >
-                <Zap className="h-3 w-3" />
-                Open Quick Intake in Case Management
-                <ArrowRight className="h-3 w-3" />
-              </Link>
+            </div>
+
+            <ClientSelector
+              selectedClientId={null}
+              onClientSelect={handleClientSelect}
+              showCreateNew={false}
+              showViewDashboard={false}
+              placeholder="Search for an existing client..."
+            />
+
+            {selectedClient && (
+              <div className="flex items-center gap-3 rounded-xl border border-white/15 bg-white/8 p-3">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 text-sm font-semibold text-white">
+                  {(selectedClient.first_name?.[0] || '?').toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-white">
+                    {selectedClient.first_name} {selectedClient.last_name}
+                  </p>
+                  <p className="truncate text-xs text-gray-400">
+                    ID: {selectedClient.client_id}
+                    {selectedClient.date_of_birth ? ` · DOB: ${selectedClient.date_of_birth}` : ''}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 space-y-5">
+            <div>
+              <h2 className="text-sm font-semibold text-white">Create new client in Admissions</h2>
+              <p className="mt-1 text-xs text-gray-400">
+                The client record is created from this intake flow, then the full packet opens with the same shared profile data.
+              </p>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="First name" required>
+                <input
+                  value={newClient.first_name}
+                  onChange={(event) => handleNewClientChange('first_name', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Last name" required>
+                <input
+                  value={newClient.last_name}
+                  onChange={(event) => handleNewClientChange('last_name', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Date of birth">
+                <input
+                  type="date"
+                  value={newClient.date_of_birth}
+                  onChange={(event) => handleNewClientChange('date_of_birth', event.target.value)}
+                  className={`${inputClassName} [color-scheme:dark]`}
+                />
+              </Field>
+              <Field label="Admission date">
+                <input
+                  type="date"
+                  value={newClient.intake_date}
+                  onChange={(event) => handleNewClientChange('intake_date', event.target.value)}
+                  className={`${inputClassName} [color-scheme:dark]`}
+                />
+              </Field>
+              <Field label="Phone">
+                <input
+                  value={newClient.phone}
+                  onChange={(event) => handleNewClientChange('phone', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Email">
+                <input
+                  value={newClient.email}
+                  onChange={(event) => handleNewClientChange('email', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Address">
+                <input
+                  value={newClient.address}
+                  onChange={(event) => handleNewClientChange('address', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Program">
+                <input
+                  value={newClient.program_type}
+                  onChange={(event) => handleNewClientChange('program_type', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="City">
+                <input
+                  value={newClient.city}
+                  onChange={(event) => handleNewClientChange('city', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="State">
+                <input
+                  value={newClient.state}
+                  onChange={(event) => handleNewClientChange('state', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="ZIP">
+                <input
+                  value={newClient.zip_code}
+                  onChange={(event) => handleNewClientChange('zip_code', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Emergency contact">
+                <input
+                  value={newClient.emergency_contact_name}
+                  onChange={(event) => handleNewClientChange('emergency_contact_name', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Emergency contact phone">
+                <input
+                  value={newClient.emergency_contact_phone}
+                  onChange={(event) => handleNewClientChange('emergency_contact_phone', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Emergency relationship">
+                <input
+                  value={newClient.emergency_contact_relationship}
+                  onChange={(event) => handleNewClientChange('emergency_contact_relationship', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Insurance provider">
+                <input
+                  value={newClient.insurance_provider}
+                  onChange={(event) => handleNewClientChange('insurance_provider', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Plan name">
+                <input
+                  value={newClient.insurance_plan_name}
+                  onChange={(event) => handleNewClientChange('insurance_plan_name', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
+              <Field label="Policy / member ID">
+                <input
+                  value={newClient.insurance_member_id}
+                  onChange={(event) => handleNewClientChange('insurance_member_id', event.target.value)}
+                  className={inputClassName}
+                />
+              </Field>
             </div>
           </div>
+        )}
+
+        {error && (
+          <div className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-300">
+            <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            {error}
+          </div>
+        )}
+
+        <div className="rounded-2xl border border-white/10 bg-white/4 p-5">
+          <p className="text-sm font-medium text-white">Autofill packet fields from client profile</p>
+          <p className="mt-1 text-xs text-gray-400">
+            Shared identity, contact, insurance, emergency contact, program, and admission date values will preload across the packet. Form-specific edits stay local unless you explicitly refresh them from the shared profile.
+          </p>
         </div>
 
+        <button
+          onClick={handleStartPacket}
+          disabled={!canStart || loading}
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 px-4 py-3 text-sm font-medium text-white shadow-lg shadow-cyan-500/20 transition-all duration-300 hover:from-cyan-400 hover:to-blue-500 hover:shadow-cyan-500/35 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
+          {loading ? 'Opening packet...' : mode === 'existing' ? 'Open Admission Packet' : 'Create Client and Open Packet'}
+          {!loading && <ArrowRight className="ml-auto h-4 w-4" />}
+        </button>
       </div>
     </div>
   )

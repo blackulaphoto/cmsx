@@ -1,14 +1,24 @@
 import logging
 import os
+import sqlite3
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
+from backend.api.clients import (
+    build_client_sync_payload,
+    ensure_core_clients_schema,
+    get_database_connection,
+    normalize_client_record,
+    propagate_client_to_modules,
+)
 from backend.auth.authorization import effective_case_manager_id
 from backend.auth.service import require_authenticated_user
+from backend.shared.database.railway_postgres import upsert_client_to_postgres
 
 from .database import _resolve_attachment_path
 from .store_factory import admissions_store
@@ -24,6 +34,13 @@ from .models import (
     UpdateFinancialCoordinationPayload,
     UpdateFormStatusPayload,
     UpdateReviewPayload,
+)
+from .profile import (
+    apply_profile_defaults,
+    build_shared_profile,
+    build_shared_profile_from_client,
+    extract_profile_updates,
+    merge_shared_profile,
 )
 from .summary import build_operational_summary, bust_summary_cache
 from .template_parser import parse_template
@@ -53,6 +70,75 @@ _ALLOWED_ATTACHMENT_TYPES = {
 }
 
 
+def _load_client_shared_profile(client_id: str) -> dict:
+    try:
+        with get_database_connection("core_clients", "READ_ONLY") as conn:
+            ensure_core_clients_schema(conn)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+            row = cursor.fetchone()
+    except Exception as exc:
+        logger.warning("[ADMISSIONS] could not load client profile seed for %s: %s", client_id, exc)
+        return {}
+    if row is None:
+        return {}
+    return build_shared_profile_from_client(normalize_client_record(row))
+
+
+def _sync_packet_profile_to_client(client_id: str, shared_profile: dict) -> None:
+    client_updates = {
+        "first_name": shared_profile.get("first_name"),
+        "last_name": shared_profile.get("last_name"),
+        "date_of_birth": shared_profile.get("date_of_birth"),
+        "phone": shared_profile.get("phone"),
+        "email": shared_profile.get("email"),
+        "address": shared_profile.get("address"),
+        "city": shared_profile.get("city"),
+        "state": shared_profile.get("state"),
+        "zip_code": shared_profile.get("zip"),
+        "emergency_contact_name": shared_profile.get("emergency_contact_name"),
+        "emergency_contact_phone": shared_profile.get("emergency_contact_phone"),
+        "emergency_contact_relationship": shared_profile.get("emergency_contact_relationship"),
+        "program_type": shared_profile.get("program"),
+        "intake_date": shared_profile.get("admission_date"),
+    }
+    client_updates = {key: value for key, value in client_updates.items() if value not in (None, "")}
+    if not client_updates:
+        return
+
+    with get_database_connection("core_clients", "ADMIN") as conn:
+        ensure_core_clients_schema(conn)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+        existing = cursor.fetchone()
+        if existing is None:
+            return
+
+        client_updates["updated_at"] = datetime.now().isoformat()
+        set_clause = ", ".join(f"{column} = ?" for column in client_updates.keys())
+        cursor.execute(
+            f"UPDATE clients SET {set_clause} WHERE client_id = ?",
+            [*client_updates.values(), client_id],
+        )
+        conn.commit()
+
+    with get_database_connection("core_clients", "READ_ONLY") as conn:
+        ensure_core_clients_schema(conn)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
+        updated_row = cursor.fetchone()
+
+    if updated_row is None:
+        return
+    normalized_client = normalize_client_record(updated_row)
+    client_sync_payload = build_client_sync_payload(normalized_client)
+    integration_results = propagate_client_to_modules(client_id, client_sync_payload)
+    upsert_client_to_postgres(client_data=client_sync_payload, integration_results=integration_results)
+
+
 # ── Templates ─────────────────────────────────────────────────────────────────
 
 @router.get("/templates")
@@ -78,10 +164,15 @@ async def start_or_get_packet(payload: StartPacketPayload, request: Request):
     current_user = require_authenticated_user(request)
     case_manager_id = effective_case_manager_id(current_user, None) or current_user.case_manager_id
     try:
+        shared_profile = merge_shared_profile(
+            _load_client_shared_profile(payload.client_id),
+            build_shared_profile(payload.shared_profile),
+        )
         packet = admissions_store.get_or_create_packet(
             client_id=payload.client_id,
-            client_name=payload.client_name,
+            client_name=shared_profile.get("full_name") or payload.client_name,
             case_manager_id=case_manager_id,
+            shared_profile=shared_profile,
         )
         return {"success": True, "packet": packet}
     except Exception as exc:
@@ -200,6 +291,17 @@ async def get_packet_by_client(client_id: str, request: Request):
     packet = admissions_store.get_packet_by_client(client_id)
     if not packet:
         raise HTTPException(status_code=404, detail="No admissions packet found for this client")
+    # If the packet's shared_profile is empty, seed it from the client record.
+    # This handles packets created before the autofill feature was deployed.
+    if not any(v for v in (packet.get("shared_profile") or {}).values() if v):
+        seed = _load_client_shared_profile(client_id)
+        if seed and any(v for v in seed.values() if v):
+            try:
+                updated = admissions_store.update_packet_profile(packet["id"], seed)
+                if updated:
+                    packet = updated
+            except Exception as exc:
+                logger.warning("[ADMISSIONS] could not seed empty shared_profile for %s: %s", client_id, exc)
     return {"success": True, "packet": packet}
 
 
@@ -240,14 +342,24 @@ async def update_form_status(
 @router.get("/packets/{packet_id}/forms/{form_key}/response")
 async def get_form_response(packet_id: str, form_key: str, request: Request):
     require_authenticated_user(request)
+    packet = admissions_store.get_packet_by_id(packet_id)
+    if not packet:
+        raise HTTPException(status_code=404, detail="Packet not found")
     response = admissions_store.get_form_response(packet_id, form_key)
+    response_data = apply_profile_defaults(
+        (response or {}).get("response_data") or {},
+        packet.get("shared_profile") or {},
+    )
+    response_payload = response or {
+        "packet_id": packet_id,
+        "form_key": form_key,
+        "response_data": {},
+    }
+    response_payload["response_data"] = response_data
     return {
         "success": True,
-        "response": response or {
-            "packet_id": packet_id,
-            "form_key": form_key,
-            "response_data": {},
-        },
+        "response": response_payload,
+        "shared_profile": packet.get("shared_profile") or {},
     }
 
 
@@ -264,8 +376,26 @@ async def save_form_response(
         raise HTTPException(status_code=404, detail="Packet not found")
     try:
         saved = admissions_store.save_form_response(packet_id, form_key, payload.response_data)
+        profile_updates = extract_profile_updates(form_key, payload.response_data)
+        shared_profile = merge_shared_profile(packet.get("shared_profile") or {}, profile_updates)
+        if shared_profile != (packet.get("shared_profile") or {}):
+            packet = admissions_store.update_packet_profile(packet_id, shared_profile) or packet
+            if packet.get("client_id"):
+                try:
+                    _sync_packet_profile_to_client(packet["client_id"], shared_profile)
+                except Exception as exc:
+                    logger.warning("[ADMISSIONS] client profile sync skipped for %s: %s", packet["client_id"], exc)
         bust_summary_cache(packet.get("client_id", ""))
-        return {"success": True, "response": saved}
+        effective_response = apply_profile_defaults(
+            saved.get("response_data") or {},
+            (packet.get("shared_profile") or shared_profile),
+        )
+        saved["response_data"] = effective_response
+        return {
+            "success": True,
+            "response": saved,
+            "shared_profile": packet.get("shared_profile") or shared_profile,
+        }
     except Exception as exc:
         logger.exception(f"[ADMISSIONS] Failed to save response {packet_id}/{form_key}: {exc}")
         raise HTTPException(status_code=500, detail="Failed to save form response")

@@ -52,6 +52,7 @@ _COLUMN_MIGRATIONS = [
     "ALTER TABLE admission_packet_forms ADD COLUMN reviewed_by TEXT",
     "ALTER TABLE admission_packet_forms ADD COLUMN started_at TEXT",
     "ALTER TABLE admissions_financial_coordination ADD COLUMN last_updated_by TEXT",
+    "ALTER TABLE admission_packets ADD COLUMN shared_profile_json TEXT NOT NULL DEFAULT '{}'",
 ]
 
 
@@ -137,6 +138,7 @@ class AdmissionsStore:
                     case_manager_id TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'In Progress',
                     progress_percent INTEGER NOT NULL DEFAULT 0,
+                    shared_profile_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -288,7 +290,11 @@ class AdmissionsStore:
     # ── Packet operations ──────────────────────────────────────────────
 
     def get_or_create_packet(
-        self, client_id: str, client_name: str, case_manager_id: str
+        self,
+        client_id: str,
+        client_name: str,
+        case_manager_id: str,
+        shared_profile: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         with self._db() as conn:
             row = conn.execute(
@@ -296,22 +302,34 @@ class AdmissionsStore:
             ).fetchone()
 
             if row:
-                packet = dict(row)
+                packet = self._packet_row_to_dict(row)
                 packet["forms"] = self._get_forms(conn, packet["id"])
                 packet["progress_percent"] = _calc_progress(packet["forms"])
                 conn.execute(
-                    "UPDATE admission_packets SET progress_percent = ? WHERE id = ?",
-                    (packet["progress_percent"], packet["id"]),
+                    "UPDATE admission_packets SET progress_percent = ?, updated_at = ? WHERE id = ?",
+                    (packet["progress_percent"], _now(), packet["id"]),
                 )
+                if shared_profile:
+                    packet = self.update_packet_profile(packet["id"], shared_profile, conn=conn)
                 return packet
 
             packet_id = str(uuid.uuid4())
             now = _now()
             conn.execute(
                 """INSERT INTO admission_packets
-                   (id, client_id, client_name, case_manager_id, status, progress_percent, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?)""",
-                (packet_id, client_id, client_name, case_manager_id, "In Progress", 0, now, now),
+                   (id, client_id, client_name, case_manager_id, status, progress_percent, shared_profile_json, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (
+                    packet_id,
+                    client_id,
+                    client_name,
+                    case_manager_id,
+                    "In Progress",
+                    0,
+                    json.dumps(shared_profile or {}),
+                    now,
+                    now,
+                ),
             )
             self._seed_forms(conn, packet_id, now)
             forms = self._get_forms(conn, packet_id)
@@ -322,6 +340,7 @@ class AdmissionsStore:
                 "case_manager_id": case_manager_id,
                 "status": "In Progress",
                 "progress_percent": 0,
+                "shared_profile": shared_profile or {},
                 "created_at": now,
                 "updated_at": now,
                 "forms": forms,
@@ -334,12 +353,12 @@ class AdmissionsStore:
             ).fetchone()
             if not row:
                 return None
-            packet = dict(row)
+            packet = self._packet_row_to_dict(row)
             packet["forms"] = self._get_forms(conn, packet["id"])
             packet["progress_percent"] = _calc_progress(packet["forms"])
             conn.execute(
-                "UPDATE admission_packets SET progress_percent = ? WHERE id = ?",
-                (packet["progress_percent"], packet["id"]),
+                "UPDATE admission_packets SET progress_percent = ?, updated_at = ? WHERE id = ?",
+                (packet["progress_percent"], _now(), packet["id"]),
             )
             return packet
 
@@ -395,14 +414,59 @@ class AdmissionsStore:
             ).fetchone()
             if not row:
                 return None
-            packet = dict(row)
+            packet = self._packet_row_to_dict(row)
             packet["forms"] = self._get_forms(conn, packet["id"])
             packet["progress_percent"] = _calc_progress(packet["forms"])
             conn.execute(
-                "UPDATE admission_packets SET progress_percent = ? WHERE id = ?",
-                (packet["progress_percent"], packet["id"]),
+                "UPDATE admission_packets SET progress_percent = ?, updated_at = ? WHERE id = ?",
+                (packet["progress_percent"], _now(), packet["id"]),
             )
             return packet
+
+    def update_packet_profile(
+        self,
+        packet_id: str,
+        shared_profile: Dict[str, Any],
+        conn: Optional[sqlite3.Connection] = None,
+    ) -> Optional[Dict[str, Any]]:
+        now = _now()
+        if conn is not None:
+            return self._update_packet_profile(conn, packet_id, shared_profile, now)
+        with self._db() as managed_conn:
+            return self._update_packet_profile(managed_conn, packet_id, shared_profile, now)
+
+    def _update_packet_profile(
+        self,
+        conn: sqlite3.Connection,
+        packet_id: str,
+        shared_profile: Dict[str, Any],
+        now: str,
+    ) -> Optional[Dict[str, Any]]:
+        client_name = (shared_profile or {}).get("full_name") or None
+        if client_name:
+            conn.execute(
+                """
+                UPDATE admission_packets
+                SET shared_profile_json = ?, client_name = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(shared_profile or {}), client_name, now, packet_id),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE admission_packets
+                SET shared_profile_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(shared_profile or {}), now, packet_id),
+            )
+        row = conn.execute("SELECT * FROM admission_packets WHERE id = ?", (packet_id,)).fetchone()
+        if not row:
+            return None
+        packet = self._packet_row_to_dict(row)
+        packet["forms"] = self._get_forms(conn, packet_id)
+        return packet
 
     # ── Form response operations ───────────────────────────────────────
 
@@ -864,6 +928,16 @@ class AdmissionsStore:
         # Ensure Phase 5 columns have safe defaults for pre-migration rows
         if not d.get("review_status"):
             d["review_status"] = "Not Reviewed"
+        return d
+
+    @staticmethod
+    def _packet_row_to_dict(row: sqlite3.Row | Dict[str, Any]) -> Dict[str, Any]:
+        d = dict(row)
+        raw_profile = d.pop("shared_profile_json", "{}")
+        try:
+            d["shared_profile"] = json.loads(raw_profile or "{}")
+        except (TypeError, ValueError):
+            d["shared_profile"] = {}
         return d
 
     @staticmethod

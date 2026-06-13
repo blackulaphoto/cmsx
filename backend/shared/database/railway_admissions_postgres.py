@@ -28,6 +28,7 @@ def ensure_postgres_admissions_tables() -> None:
                     case_manager_id TEXT NOT NULL,
                     status TEXT NOT NULL DEFAULT 'In Progress',
                     progress_percent INTEGER NOT NULL DEFAULT 0,
+                    shared_profile_json TEXT NOT NULL DEFAULT '{}',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -38,6 +39,12 @@ def ensure_postgres_admissions_tables() -> None:
             text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_rw_adm_packets_client "
                 "ON railway_admission_packets(client_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "ALTER TABLE railway_admission_packets "
+                "ADD COLUMN IF NOT EXISTS shared_profile_json TEXT NOT NULL DEFAULT '{}'"
             )
         )
         conn.execute(

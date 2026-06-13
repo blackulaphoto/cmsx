@@ -118,7 +118,11 @@ class PostgresAdmissionsStore(AdmissionsStore):
     # ── Packet operations ──────────────────────────────────────────────────────
 
     def get_or_create_packet(
-        self, client_id: str, client_name: str, case_manager_id: str
+        self,
+        client_id: str,
+        client_name: str,
+        case_manager_id: str,
+        shared_profile: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         with self._db() as conn:
             row = conn.execute(
@@ -127,16 +131,18 @@ class PostgresAdmissionsStore(AdmissionsStore):
             ).mappings().first()
 
             if row:
-                packet = dict(row)
+                packet = self._packet_row_to_dict(dict(row))
                 packet["forms"] = self._get_forms(conn, packet["id"])
                 packet["progress_percent"] = _calc_progress(packet["forms"])
                 conn.execute(
                     text(
                         "UPDATE railway_admission_packets "
-                        "SET progress_percent = :p WHERE id = :id"
+                        "SET progress_percent = :p, updated_at = :u WHERE id = :id"
                     ),
-                    {"p": packet["progress_percent"], "id": packet["id"]},
+                    {"p": packet["progress_percent"], "u": _now(), "id": packet["id"]},
                 )
+                if shared_profile:
+                    packet = self.update_packet_profile(packet["id"], shared_profile, conn=conn)
                 return packet
 
             packet_id = str(uuid.uuid4())
@@ -146,10 +152,10 @@ class PostgresAdmissionsStore(AdmissionsStore):
                     """
                     INSERT INTO railway_admission_packets
                        (id, client_id, client_name, case_manager_id,
-                        status, progress_percent, created_at, updated_at)
+                        status, progress_percent, shared_profile_json, created_at, updated_at)
                     VALUES
                        (:id, :client_id, :client_name, :case_manager_id,
-                        :status, :progress_percent, :created_at, :updated_at)
+                        :status, :progress_percent, :shared_profile_json, :created_at, :updated_at)
                     """
                 ),
                 {
@@ -159,6 +165,7 @@ class PostgresAdmissionsStore(AdmissionsStore):
                     "case_manager_id": case_manager_id,
                     "status": "In Progress",
                     "progress_percent": 0,
+                    "shared_profile_json": json.dumps(shared_profile or {}),
                     "created_at": now,
                     "updated_at": now,
                 },
@@ -172,6 +179,7 @@ class PostgresAdmissionsStore(AdmissionsStore):
                 "case_manager_id": case_manager_id,
                 "status": "In Progress",
                 "progress_percent": 0,
+                "shared_profile": shared_profile or {},
                 "created_at": now,
                 "updated_at": now,
                 "forms": forms,
@@ -185,15 +193,15 @@ class PostgresAdmissionsStore(AdmissionsStore):
             ).mappings().first()
             if not row:
                 return None
-            packet = dict(row)
+            packet = self._packet_row_to_dict(dict(row))
             packet["forms"] = self._get_forms(conn, packet["id"])
             packet["progress_percent"] = _calc_progress(packet["forms"])
             conn.execute(
                 text(
                     "UPDATE railway_admission_packets "
-                    "SET progress_percent = :p WHERE id = :id"
+                    "SET progress_percent = :p, updated_at = :u WHERE id = :id"
                 ),
-                {"p": packet["progress_percent"], "id": packet["id"]},
+                {"p": packet["progress_percent"], "u": _now(), "id": packet["id"]},
             )
             return packet
 
@@ -205,17 +213,72 @@ class PostgresAdmissionsStore(AdmissionsStore):
             ).mappings().first()
             if not row:
                 return None
-            packet = dict(row)
+            packet = self._packet_row_to_dict(dict(row))
             packet["forms"] = self._get_forms(conn, packet["id"])
             packet["progress_percent"] = _calc_progress(packet["forms"])
             conn.execute(
                 text(
                     "UPDATE railway_admission_packets "
-                    "SET progress_percent = :p WHERE id = :id"
+                    "SET progress_percent = :p, updated_at = :u WHERE id = :id"
                 ),
-                {"p": packet["progress_percent"], "id": packet["id"]},
+                {"p": packet["progress_percent"], "u": _now(), "id": packet["id"]},
             )
             return packet
+
+    def update_packet_profile(
+        self,
+        packet_id: str,
+        shared_profile: Dict[str, Any],
+        conn=None,
+    ) -> Optional[Dict[str, Any]]:
+        now = _now()
+        if conn is not None:
+            return self._update_packet_profile(conn, packet_id, shared_profile, now)
+        with self._db() as managed_conn:
+            return self._update_packet_profile(managed_conn, packet_id, shared_profile, now)
+
+    def _update_packet_profile(self, conn, packet_id: str, shared_profile: Dict[str, Any], now: str):
+        full_name = (shared_profile or {}).get("full_name") or None
+        params = {
+            "packet_id": packet_id,
+            "shared_profile_json": json.dumps(shared_profile or {}),
+            "updated_at": now,
+            "client_name": full_name,
+        }
+        if full_name:
+            conn.execute(
+                text(
+                    """
+                    UPDATE railway_admission_packets
+                    SET shared_profile_json = :shared_profile_json,
+                        client_name = :client_name,
+                        updated_at = :updated_at
+                    WHERE id = :packet_id
+                    """
+                ),
+                params,
+            )
+        else:
+            conn.execute(
+                text(
+                    """
+                    UPDATE railway_admission_packets
+                    SET shared_profile_json = :shared_profile_json,
+                        updated_at = :updated_at
+                    WHERE id = :packet_id
+                    """
+                ),
+                params,
+            )
+        row = conn.execute(
+            text("SELECT * FROM railway_admission_packets WHERE id = :id"),
+            {"id": packet_id},
+        ).mappings().first()
+        if not row:
+            return None
+        packet = self._packet_row_to_dict(dict(row))
+        packet["forms"] = self._get_forms(conn, packet_id)
+        return packet
 
     # ── Form status ────────────────────────────────────────────────────────────
 

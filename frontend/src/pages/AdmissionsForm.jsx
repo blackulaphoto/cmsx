@@ -20,6 +20,12 @@ import {
 } from 'lucide-react'
 import { apiFetch, apiUrl } from '../api/config'
 import AdmissionFormRenderer from '../components/admissions/AdmissionFormRenderer'
+import {
+  PROFILE_META_KEY,
+  applySharedProfile,
+  getTouchedFields,
+  withProfileMeta,
+} from '../utils/admissionsProfile'
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
@@ -367,6 +373,8 @@ export default function AdmissionsForm() {
   const [packet, setPacket] = useState(null)
   const [template, setTemplate] = useState(null)
   const [responseData, setResponseData] = useState({})
+  const [sharedProfile, setSharedProfile] = useState({})
+  const [touchedFields, setTouchedFields] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -403,6 +411,8 @@ export default function AdmissionsForm() {
       if (responseRes.ok) {
         const rd = await responseRes.json()
         setResponseData(rd.response?.response_data || {})
+        setSharedProfile(rd.shared_profile || packetData.packet.shared_profile || {})
+        setTouchedFields(getTouchedFields(rd.response?.response_data || {}))
       }
     } catch (err) {
       setError(err.message || 'Failed to load form.')
@@ -417,6 +427,7 @@ export default function AdmissionsForm() {
 
   const handleFieldChange = (fieldName, val) => {
     setResponseData((prev) => ({ ...prev, [fieldName]: val }))
+    setTouchedFields((prev) => ({ ...prev, [fieldName]: true }))
     if (validationErrors[fieldName]) {
       setValidationErrors((prev) => {
         const next = { ...prev }
@@ -434,12 +445,20 @@ export default function AdmissionsForm() {
     try {
       const res = await apiFetch(
         `/api/admissions/packets/${packet.id}/forms/${form_key}/response`,
-        { method: 'PUT', body: JSON.stringify({ response_data: responseData }) }
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            response_data: withProfileMeta(responseData, touchedFields),
+          }),
+        }
       )
+      const d = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
         throw new Error(d.detail || 'Save failed')
       }
+      setResponseData(d.response?.response_data || responseData)
+      setSharedProfile(d.shared_profile || sharedProfile)
+      setTouchedFields(getTouchedFields(d.response?.response_data || {}))
       // Bump status to In Progress if still Not Started (also sets started_at on backend)
       const formEntry = packet.forms?.find((f) => f.form_key === form_key)
       if (formEntry?.status === 'Not Started') {
@@ -479,7 +498,12 @@ export default function AdmissionsForm() {
     try {
       await apiFetch(
         `/api/admissions/packets/${packet.id}/forms/${form_key}/response`,
-        { method: 'PUT', body: JSON.stringify({ response_data: responseData }) }
+        {
+          method: 'PUT',
+          body: JSON.stringify({
+            response_data: withProfileMeta(responseData, touchedFields),
+          }),
+        }
       )
       const formEntry = packet.forms?.find((f) => f.form_key === form_key)
       const nextStatus = formEntry?.requires_signature ? 'Needs Signature' : 'Completed'
@@ -502,6 +526,32 @@ export default function AdmissionsForm() {
         forms: prev.forms.map((f) => f.form_key === form_key ? { ...f, ...updatedForm } : f),
       }))
     }
+  }
+
+  const handleRefreshFromProfile = () => {
+    const current = withProfileMeta(responseData, touchedFields)
+    // Apply only to blank / untouched fields first
+    const safeResult = applySharedProfile(current, sharedProfile, { overwrite: false })
+    // Apply to all fields (including touched) to detect conflicts
+    const fullResult = applySharedProfile(current, sharedProfile, { overwrite: true })
+
+    // Check whether any touched field would get a different value from the profile
+    const hasTouchedConflicts = Object.keys({ ...safeResult, ...fullResult })
+      .filter((k) => k !== PROFILE_META_KEY)
+      .some((k) => safeResult[k] !== fullResult[k])
+
+    let finalResult
+    if (hasTouchedConflicts) {
+      const confirmed = window.confirm(
+        'Some fields you edited manually will be replaced with values from the client profile. Replace them?'
+      )
+      finalResult = confirmed ? fullResult : safeResult
+    } else {
+      finalResult = safeResult
+    }
+
+    setResponseData(finalResult)
+    setTouchedFields(getTouchedFields(finalResult))
   }
 
   // ── Loading / error states ─────────────────────────────────────────────────
@@ -663,6 +713,15 @@ export default function AdmissionsForm() {
                 <Save className="h-4 w-4" />
               )}
               {saving ? 'Saving…' : saveSuccess ? 'Saved' : 'Save Draft'}
+            </button>
+
+            <button
+              onClick={handleRefreshFromProfile}
+              disabled={saving || completing}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm text-gray-200 border border-white/15 bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ArrowLeft className="h-4 w-4 rotate-180" />
+              Refresh from profile
             </button>
 
             <button
