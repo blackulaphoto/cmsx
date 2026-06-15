@@ -79,6 +79,13 @@ class ProgressRecord(BaseModel):
     outcome: str = "Completed"
     notes: str = ""
 
+class ReminderUpdate(BaseModel):
+    reminder_text: Optional[str] = None
+    due_date: Optional[str] = None
+    priority: Optional[str] = None
+    reminder_type: Optional[str] = None
+
+
 class ReminderCreate(BaseModel):
     client_id: str
     reminder_text: str
@@ -896,6 +903,57 @@ async def complete_task(task_id: str):
     except Exception as e:
         logger.error(f"Failed to complete task {task_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to complete task: {str(e)}")
+
+@router.patch("/{reminder_id}")
+async def update_reminder(reminder_id: str, request: ReminderUpdate):
+    """Update title, due_date, priority, or reminder_type on an active reminder."""
+    try:
+        updated = _repo.update_active_reminder(
+            reminder_id,
+            message=request.reminder_text,
+            due_date=request.due_date,
+            priority=request.priority,
+            reminder_type=request.reminder_type,
+        )
+        if not updated:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        return {"success": True, "reminder_id": reminder_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update reminder {reminder_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update reminder: {str(e)}")
+
+
+@router.delete("/{reminder_id}")
+async def delete_reminder(reminder_id: str):
+    """Permanently delete an active reminder."""
+    try:
+        deleted = _repo.delete_active_reminder(reminder_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        return {"success": True, "reminder_id": reminder_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete reminder {reminder_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete reminder: {str(e)}")
+
+
+@router.post("/{reminder_id}/reopen")
+async def reopen_reminder(reminder_id: str):
+    """Reopen a completed active reminder, setting it back to Active."""
+    try:
+        updated = _repo.reopen_active_reminder(reminder_id)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Reminder not found")
+        return {"success": True, "reminder_id": reminder_id, "status": "Active"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reopen reminder {reminder_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to reopen reminder: {str(e)}")
+
 
 @router.post("/{reminder_id}/complete")
 async def complete_reminder(reminder_id: str):

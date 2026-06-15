@@ -1024,6 +1024,112 @@ def create_active_reminder(
     return reminder_id
 
 
+def update_active_reminder(
+    reminder_id: str,
+    message: Optional[str] = None,
+    due_date: Optional[str] = None,
+    priority: Optional[str] = None,
+    reminder_type: Optional[str] = None,
+) -> bool:
+    """Update editable fields on an active reminder. Returns True if a row was changed."""
+    updates: Dict[str, Any] = {}
+    if message is not None:
+        updates["message"] = message
+    if due_date is not None:
+        updates["due_date"] = due_date
+    if priority is not None:
+        updates["priority"] = priority
+    if reminder_type is not None:
+        updates["reminder_type"] = reminder_type
+    if not updates:
+        return True
+
+    if use_postgres():
+        try:
+            from sqlalchemy import text
+            set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+            updates["reminder_id"] = reminder_id
+            with _pg_conn() as conn:
+                result = conn.execute(
+                    text(f"UPDATE railway_active_reminders SET {set_clause} WHERE reminder_id = :reminder_id"),
+                    updates,
+                )
+                if result.rowcount > 0:
+                    return True
+        except Exception as exc:
+            logger.warning("Postgres update_active_reminder failed (%s), using SQLite", exc)
+
+    try:
+        set_clause = ", ".join(f"{k} = ?" for k in updates if k != "reminder_id_placeholder")
+        # Re-build without the pg key
+        fields = {k: v for k, v in updates.items() if k != "reminder_id"}
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        values = list(fields.values()) + [reminder_id]
+        with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+            cur = conn.execute(
+                f"UPDATE active_reminders SET {set_clause} WHERE reminder_id = ?",
+                values,
+            )
+            return cur.rowcount > 0
+    except Exception as exc:
+        logger.warning("SQLite update_active_reminder failed: %s", exc)
+        return False
+
+
+def delete_active_reminder(reminder_id: str) -> bool:
+    """Permanently delete an active reminder. Returns True if a row was removed."""
+    if use_postgres():
+        try:
+            from sqlalchemy import text
+            with _pg_conn() as conn:
+                result = conn.execute(
+                    text("DELETE FROM railway_active_reminders WHERE reminder_id = :rid"),
+                    {"rid": reminder_id},
+                )
+                if result.rowcount > 0:
+                    return True
+        except Exception as exc:
+            logger.warning("Postgres delete_active_reminder failed (%s), using SQLite", exc)
+
+    try:
+        with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+            cur = conn.execute(
+                "DELETE FROM active_reminders WHERE reminder_id = ?",
+                (reminder_id,),
+            )
+            return cur.rowcount > 0
+    except Exception as exc:
+        logger.warning("SQLite delete_active_reminder failed: %s", exc)
+        return False
+
+
+def reopen_active_reminder(reminder_id: str) -> bool:
+    """Set a completed active reminder back to Active."""
+    if use_postgres():
+        try:
+            from sqlalchemy import text
+            with _pg_conn() as conn:
+                result = conn.execute(
+                    text("UPDATE railway_active_reminders SET status = 'Active' WHERE reminder_id = :rid"),
+                    {"rid": reminder_id},
+                )
+                if result.rowcount > 0:
+                    return True
+        except Exception as exc:
+            logger.warning("Postgres reopen_active_reminder failed (%s), using SQLite", exc)
+
+    try:
+        with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+            cur = conn.execute(
+                "UPDATE active_reminders SET status = 'Active' WHERE reminder_id = ?",
+                (reminder_id,),
+            )
+            return cur.rowcount > 0
+    except Exception as exc:
+        logger.warning("SQLite reopen_active_reminder failed: %s", exc)
+        return False
+
+
 def complete_active_reminder(reminder_id: str) -> bool:
     """Mark an active reminder as Completed. Returns True if a row was updated."""
     if use_postgres():

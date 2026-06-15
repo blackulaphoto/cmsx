@@ -3,7 +3,8 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Calendar, Clock, CheckCircle, AlertCircle, TrendingUp, Bell,
   Search, Filter, Sparkles, Zap, Brain, Star, PlusCircle, ArrowRight,
-  AlertTriangle, ChevronDown, ChevronRight, ListChecks, X, Tag, FileText, User
+  AlertTriangle, ChevronDown, ChevronRight, ListChecks, X, Tag, FileText, User,
+  Pencil, Trash2, RotateCcw
 } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import ClientSelector from '../components/ClientSelector'
@@ -62,7 +63,24 @@ const BUCKET_META = {
   },
 }
 
-function TaskCard({ task, onComplete, onStart }) {
+function categoryLabel(rawType) {
+  if (!rawType || rawType === 'task') return null
+  // "manual" was the pre-fix default — display as General
+  if (rawType === 'manual') return 'General'
+  const found = TASK_TYPES.find(t => t.value === rawType)
+  if (found) return `${found.icon} ${found.label}`
+  return rawType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function formatDue(dueDate) {
+  if (!dueDate) return null
+  // Extract date and optional time from ISO string
+  const [datePart, timePart] = String(dueDate).split('T')
+  const time = timePart ? timePart.slice(0, 5) : null
+  return time ? `${datePart} at ${time}` : datePart
+}
+
+function TaskCard({ task, onComplete, onStart, onEdit, onDelete, onReopen }) {
   const priorityStyles = {
     high: 'bg-red-500/20 text-red-300 border border-red-500/30',
     medium: 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30',
@@ -71,6 +89,8 @@ function TaskCard({ task, onComplete, onStart }) {
   }
 
   const isCompleted = String(task.status).toLowerCase() === 'completed'
+  const isReminder = task.source === 'active_reminder'
+  const cat = categoryLabel(task.task_type || task.reminder_type)
   const contextTags = [...new Set([
     task.source_label,
     task.module ? String(task.module).replaceAll('_', ' ') : '',
@@ -78,7 +98,7 @@ function TaskCard({ task, onComplete, onStart }) {
   ].filter(Boolean))]
 
   return (
-    <div className={`group flex items-center gap-4 p-5 border rounded-xl transition-all duration-200 hover:scale-[1.01] ${
+    <div className={`group flex items-start gap-4 p-5 border rounded-xl transition-all duration-200 hover:scale-[1.01] ${
       isCompleted
         ? 'border-green-500/40 bg-gradient-to-r from-green-500/15 to-emerald-500/10'
         : 'border-white/15 bg-gradient-to-br from-white/8 to-white/3 hover:border-white/25'
@@ -94,11 +114,9 @@ function TaskCard({ task, onComplete, onStart }) {
         </div>
         <p className="text-sm text-gray-400">
           <span className="text-cyan-300 font-medium">{task.client_name}</span>
-          {task.task_type && task.task_type !== 'task' && (
-            <> · <span className="text-purple-300">{task.task_type}</span></>
-          )}
+          {cat && <> · <span className="text-purple-300">{cat}</span></>}
           {task.due_date && (
-            <> · <span className="text-gray-500">Due {task.due_date}</span></>
+            <> · <span className="text-gray-500">Due {formatDue(task.due_date)}</span></>
           )}
         </p>
         {task.description && task.description !== task.title && (
@@ -124,41 +142,64 @@ function TaskCard({ task, onComplete, onStart }) {
         )}
       </div>
 
-      <div className="flex gap-2 flex-shrink-0">
+      <div className="flex flex-col gap-2 flex-shrink-0 items-end">
         {!isCompleted && (
-          <>
+          <div className="flex gap-2">
             <button
               onClick={() => onStart(task)}
               className="px-4 py-2 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-lg text-sm font-medium transition-all hover:scale-105"
             >
-              <span className="flex items-center gap-1.5">
-                <Zap size={13} />
-                Start
-              </span>
+              <span className="flex items-center gap-1.5"><Zap size={13} />Start</span>
             </button>
             <button
               onClick={() => onComplete(task)}
               className="px-4 py-2 bg-white/8 border border-white/15 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/15 hover:text-white transition-all"
             >
-              <span className="flex items-center gap-1.5">
-                <CheckCircle size={13} />
-                Done
-              </span>
+              <span className="flex items-center gap-1.5"><CheckCircle size={13} />Done</span>
             </button>
-          </>
+          </div>
         )}
         {isCompleted && (
-          <span className="px-4 py-2 bg-green-500/15 text-green-300 rounded-lg text-sm font-medium border border-green-500/25 flex items-center gap-1.5">
-            <CheckCircle size={13} />
-            Completed
-          </span>
+          <div className="flex gap-2">
+            <span className="px-4 py-2 bg-green-500/15 text-green-300 rounded-lg text-sm font-medium border border-green-500/25 flex items-center gap-1.5">
+              <CheckCircle size={13} />Completed
+            </span>
+            {isReminder && (
+              <button
+                onClick={() => onReopen(task)}
+                title="Reopen task"
+                className="px-3 py-2 bg-white/8 border border-white/15 text-gray-400 rounded-lg text-sm hover:bg-amber-500/15 hover:text-amber-300 hover:border-amber-500/30 transition-all"
+              >
+                <RotateCcw size={13} />
+              </button>
+            )}
+          </div>
+        )}
+        {/* Edit / Delete — only for active_reminder tasks */}
+        {isReminder && (
+          <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={() => onEdit(task)}
+              title="Edit task"
+              className="p-1.5 rounded-lg text-gray-500 hover:text-cyan-300 hover:bg-cyan-500/10 transition-all"
+            >
+              <Pencil size={13} />
+            </button>
+            <button
+              onClick={() => onDelete(task)}
+              title="Delete task"
+              className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
         )}
       </div>
     </div>
   )
 }
 
-function BucketSection({ bucketKey, tasks, onComplete, onStart, defaultOpen = true }) {
+function BucketSection({ bucketKey, tasks, onComplete, onStart, onEdit, onDelete, onReopen, defaultOpen = true }) {
   const [open, setOpen] = useState(defaultOpen)
   const meta = BUCKET_META[bucketKey]
   if (!meta || tasks.length === 0) return null
@@ -189,6 +230,9 @@ function BucketSection({ bucketKey, tasks, onComplete, onStart, defaultOpen = tr
               task={task}
               onComplete={onComplete}
               onStart={onStart}
+              onEdit={onEdit}
+              onDelete={onDelete}
+              onReopen={onReopen}
             />
           ))}
         </div>
@@ -230,7 +274,8 @@ const QUICK_TEMPLATES = [
 ]
 
 function CreateTaskModal({ onClose, onCreated, caseManagerId }) {
-  const today = new Date().toISOString().split('T')[0]
+  const _now = new Date()
+  const today = `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(_now.getDate()).padStart(2, '0')}`
   const [form, setForm] = useState({
     client: null,
     title: '',
@@ -238,6 +283,7 @@ function CreateTaskModal({ onClose, onCreated, caseManagerId }) {
     task_type: 'general',
     priority: 'Medium',
     due_date: today,
+    due_time: '',
   })
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState({})
@@ -275,7 +321,7 @@ function CreateTaskModal({ onClose, onCreated, caseManagerId }) {
         body: JSON.stringify({
           client_id: form.client.client_id,
           reminder_text: form.title.trim(),
-          due_date: form.due_date,
+          due_date: form.due_time ? `${form.due_date}T${form.due_time}` : form.due_date,
           priority: form.priority,
           case_manager_id: caseManagerId,
           reminder_type: form.task_type,
@@ -424,18 +470,31 @@ function CreateTaskModal({ onClose, onCreated, caseManagerId }) {
             </div>
           </div>
 
-          {/* Due date */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
-              <Calendar size={14} /> Due date <span className="text-red-400">*</span>
-            </label>
-            <input
-              type="date"
-              value={form.due_date}
-              onChange={e => set('due_date', e.target.value)}
-              className={inputCls(errors.due_date)}
-            />
-            {errors.due_date && <p className="mt-1 text-xs text-red-400">{errors.due_date}</p>}
+          {/* Due date + time */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+                <Calendar size={14} /> Due date <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="date"
+                value={form.due_date}
+                onChange={e => set('due_date', e.target.value)}
+                className={inputCls(errors.due_date)}
+              />
+              {errors.due_date && <p className="mt-1 text-xs text-red-400">{errors.due_date}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+                <Clock size={14} /> Time <span className="text-gray-500 font-normal">(optional)</span>
+              </label>
+              <input
+                type="time"
+                value={form.due_time}
+                onChange={e => set('due_time', e.target.value)}
+                className={inputCls(false)}
+              />
+            </div>
           </div>
 
           {/* Actions */}
@@ -456,6 +515,211 @@ function CreateTaskModal({ onClose, onCreated, caseManagerId }) {
                 <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
               ) : (
                 <><PlusCircle size={16} /> Create Task</>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function EditTaskModal({ task, onClose, onUpdated }) {
+  const parseDueParts = (raw) => {
+    if (!raw) return { date: '', time: '' }
+    const [datePart, timePart] = String(raw).split('T')
+    return { date: datePart || '', time: timePart ? timePart.slice(0, 5) : '' }
+  }
+  const { date: initDate, time: initTime } = parseDueParts(task.due_date)
+
+  const [form, setForm] = useState({
+    title: task.title || '',
+    description: task.description || '',
+    task_type: task.task_type || task.reminder_type || 'general',
+    priority: task.priority || 'Medium',
+    due_date: initDate,
+    due_time: initTime,
+  })
+  const [saving, setSaving] = useState(false)
+  const [errors, setErrors] = useState({})
+  const titleRef = useRef(null)
+
+  useEffect(() => { titleRef.current?.focus() }, [])
+
+  const set = (k, v) => {
+    setForm(f => ({ ...f, [k]: v }))
+    setErrors(e => ({ ...e, [k]: undefined }))
+  }
+
+  const validate = () => {
+    const e = {}
+    if (!form.title.trim()) e.title = 'Task title is required'
+    if (!form.due_date) e.due_date = 'Due date is required'
+    setErrors(e)
+    return Object.keys(e).length === 0
+  }
+
+  const handleSubmit = async (ev) => {
+    ev.preventDefault()
+    if (!validate()) return
+    setSaving(true)
+    try {
+      const res = await apiFetch(`/api/reminders/${encodeURIComponent(task.task_id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reminder_text: form.title.trim(),
+          due_date: form.due_time ? `${form.due_date}T${form.due_time}` : form.due_date,
+          priority: form.priority,
+          reminder_type: form.task_type,
+        }),
+      })
+      if (!res.ok) throw new Error('Server error')
+      toast.success('Task updated')
+      onUpdated()
+      onClose()
+    } catch {
+      toast.error('Failed to update task')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputCls = (err) =>
+    `w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-all ${err ? 'border-red-500/60' : 'border-white/20'}`
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-2xl bg-gradient-to-br from-slate-800 via-slate-800 to-slate-900 border border-white/20 rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[95vh] overflow-y-auto"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl">
+              <Pencil size={20} className="text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Edit Task</h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                <span className="text-cyan-300">{task.client_name}</span>
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-xl transition-colors text-gray-400 hover:text-white">
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+              <FileText size={14} /> Task title <span className="text-red-400">*</span>
+            </label>
+            <input
+              ref={titleRef}
+              type="text"
+              value={form.title}
+              onChange={e => set('title', e.target.value)}
+              className={inputCls(errors.title)}
+              maxLength={200}
+            />
+            {errors.title && <p className="mt-1 text-xs text-red-400">{errors.title}</p>}
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-gray-300 mb-2">
+              Context / notes <span className="text-gray-500 font-normal">(optional)</span>
+            </label>
+            <textarea
+              value={form.description}
+              onChange={e => set('description', e.target.value)}
+              rows={3}
+              className={inputCls(false) + ' resize-none'}
+              maxLength={1000}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+                <Tag size={14} /> Category
+              </label>
+              <select
+                value={form.task_type}
+                onChange={e => set('task_type', e.target.value)}
+                className={inputCls(false)}
+              >
+                {TASK_TYPES.map(t => (
+                  <option key={t.value} value={t.value} className="bg-slate-800">
+                    {t.icon}  {t.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+                <AlertTriangle size={14} /> Priority
+              </label>
+              <select
+                value={form.priority}
+                onChange={e => set('priority', e.target.value)}
+                className={inputCls(false)}
+              >
+                <option value="Critical" className="bg-slate-800">🚨 Critical</option>
+                <option value="High"     className="bg-slate-800">🔴 High</option>
+                <option value="Medium"   className="bg-slate-800">🟡 Medium</option>
+                <option value="Low"      className="bg-slate-800">🟢 Low</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+                <Calendar size={14} /> Due date <span className="text-red-400">*</span>
+              </label>
+              <input
+                type="date"
+                value={form.due_date}
+                onChange={e => set('due_date', e.target.value)}
+                className={inputCls(errors.due_date)}
+              />
+              {errors.due_date && <p className="mt-1 text-xs text-red-400">{errors.due_date}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
+                <Clock size={14} /> Time <span className="text-gray-500 font-normal">(optional)</span>
+              </label>
+              <input
+                type="time"
+                value={form.due_time}
+                onChange={e => set('due_time', e.target.value)}
+                className={inputCls(false)}
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-3 bg-white/8 border border-white/15 text-gray-300 rounded-xl font-medium hover:bg-white/15 hover:text-white transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white rounded-xl font-semibold transition-all hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-2"
+            >
+              {saving ? (
+                <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving…</>
+              ) : (
+                <><Pencil size={16} /> Save Changes</>
               )}
             </button>
           </div>
@@ -506,6 +770,7 @@ function SmartDaily() {
   const [selectedFilter, setSelectedFilter] = useState('all')
   const [selectedClient, setSelectedClient] = useState(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [editingTask, setEditingTask] = useState(null)
 
   const fetchData = async () => {
     if (!caseManagerId) return
@@ -605,6 +870,33 @@ function SmartDaily() {
 
     // Refresh to get updated AI summary and accurate counts from the server
     fetchData()
+  }
+
+  const handleEdit = (task) => {
+    setEditingTask(task)
+  }
+
+  const handleDelete = async (task) => {
+    if (!window.confirm(`Delete "${task.title}"? This cannot be undone.`)) return
+    try {
+      const res = await apiFetch(`/api/reminders/${encodeURIComponent(task.task_id)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Server error')
+      toast.success('Task deleted')
+      fetchData()
+    } catch {
+      toast.error('Failed to delete task')
+    }
+  }
+
+  const handleReopen = async (task) => {
+    try {
+      const res = await apiFetch(`/api/reminders/${encodeURIComponent(task.task_id)}/reopen`, { method: 'POST' })
+      if (!res.ok) throw new Error('Server error')
+      toast.success('Task reopened')
+      fetchData()
+    } catch {
+      toast.error('Failed to reopen task')
+    }
   }
 
   // Flatten all tasks for search/filter
@@ -798,6 +1090,9 @@ function SmartDaily() {
                 tasks={activeBuckets.overdue || []}
                 onComplete={handleComplete}
                 onStart={handleStart}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onReopen={handleReopen}
                 defaultOpen
               />
               {/* Today — always expanded */}
@@ -806,6 +1101,9 @@ function SmartDaily() {
                 tasks={activeBuckets.today || []}
                 onComplete={handleComplete}
                 onStart={handleStart}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onReopen={handleReopen}
                 defaultOpen
               />
               {/* Next 3 days — expanded */}
@@ -814,6 +1112,9 @@ function SmartDaily() {
                 tasks={activeBuckets.next_3_days || []}
                 onComplete={handleComplete}
                 onStart={handleStart}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onReopen={handleReopen}
                 defaultOpen
               />
               {/* Treatment plan needs - expanded */}
@@ -822,6 +1123,9 @@ function SmartDaily() {
                 tasks={activeBuckets.treatment_plan || []}
                 onComplete={handleComplete}
                 onStart={handleStart}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onReopen={handleReopen}
                 defaultOpen
               />
               {/* This week — collapsed by default */}
@@ -830,6 +1134,9 @@ function SmartDaily() {
                 tasks={activeBuckets.this_week || []}
                 onComplete={handleComplete}
                 onStart={handleStart}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onReopen={handleReopen}
                 defaultOpen={false}
               />
               {/* High priority no date — collapsed */}
@@ -838,6 +1145,9 @@ function SmartDaily() {
                 tasks={activeBuckets.high_priority_no_date || []}
                 onComplete={handleComplete}
                 onStart={handleStart}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onReopen={handleReopen}
                 defaultOpen={false}
               />
               {/* "Later" tasks not shown by default — they're not priorities */}
@@ -876,6 +1186,13 @@ function SmartDaily() {
           onClose={() => setShowCreateModal(false)}
           onCreated={() => { setLoading(true); fetchData() }}
           caseManagerId={caseManagerId}
+        />
+      )}
+      {editingTask && (
+        <EditTaskModal
+          task={editingTask}
+          onClose={() => setEditingTask(null)}
+          onUpdated={() => { setEditingTask(null); fetchData() }}
         />
       )}
     </div>
