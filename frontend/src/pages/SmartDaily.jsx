@@ -510,8 +510,9 @@ function SmartDaily() {
   const fetchData = async () => {
     if (!caseManagerId) return
     try {
+      const clientDate = new Date().toISOString().split('T')[0]
       const [prioritizedRes, dashboardRes] = await Promise.all([
-        apiFetch(`/api/reminders/prioritized/${caseManagerId}`),
+        apiFetch(`/api/reminders/prioritized/${caseManagerId}?date=${clientDate}`),
         apiFetch(`/api/reminders/smart-dashboard/${caseManagerId}`),
       ])
 
@@ -564,18 +565,21 @@ function SmartDaily() {
     const source = task.source || ''
     const taskId = task.task_id
 
-    // Optimistically update UI
-    setBuckets(prev => {
-      const next = { ...prev }
-      for (const key of Object.keys(next)) {
-        next[key] = next[key].map(t =>
-          t.task_id === taskId ? { ...t, status: 'completed' } : t
-        )
-      }
-      return next
-    })
-    setCompletedCount(c => c + 1)
-    setTotalActive(a => Math.max(0, a - 1))
+    // Guard: only run optimistic update when we have a real ID to match against.
+    // Without this check undefined === undefined matches every task and bulk-completes all.
+    if (taskId) {
+      setBuckets(prev => {
+        const next = { ...prev }
+        for (const key of Object.keys(next)) {
+          next[key] = next[key].map(t =>
+            t.task_id === taskId ? { ...t, status: 'completed' } : t
+          )
+        }
+        return next
+      })
+      setCompletedCount(c => c + 1)
+      setTotalActive(a => Math.max(0, a - 1))
+    }
 
     if ((source === 'intelligent_task' || source === 'workspace_task') && taskId) {
       try {
@@ -596,6 +600,9 @@ function SmartDaily() {
     } else {
       toast.success('Task marked complete')
     }
+
+    // Refresh to get updated AI summary and accurate counts from the server
+    fetchData()
   }
 
   // Flatten all tasks for search/filter
@@ -610,9 +617,10 @@ function SmartDaily() {
         const matchSearch = !searchTerm ||
           String(task.title || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
           String(task.client_name || '').toLowerCase().includes(searchTerm.toLowerCase())
+        const taskCategory = String(task.task_type || task.reminder_type || '').toLowerCase()
         const matchFilter = selectedFilter === 'all' ||
           String(task.priority || '').toLowerCase() === selectedFilter ||
-          String(task.task_type || '').toLowerCase().includes(selectedFilter) ||
+          taskCategory.includes(selectedFilter) ||
           String(task.module || '').toLowerCase().includes(selectedFilter) ||
           String(task.need_key || '').toLowerCase().includes(selectedFilter) ||
           String(task.task_source || task.source || '').toLowerCase().includes(selectedFilter)
@@ -625,12 +633,17 @@ function SmartDaily() {
   const activeBuckets = filteredBuckets()
   const hasAnyTask = Object.values(activeBuckets).some(arr => arr.length > 0)
   const visibleTasks = Object.values(activeBuckets).flat()
-  const clientScopedCounts = activeClientId
+
+  // Stats always reflect the full client scope, not the current filter/search selection
+  const rawClientTasks = activeClientId
+    ? Object.values(buckets).flat().filter(t => t.client_id === activeClientId)
+    : null
+  const clientScopedCounts = rawClientTasks
     ? {
-        today: activeBuckets.today?.length || 0,
-        overdue: activeBuckets.overdue?.length || 0,
-        totalActive: visibleTasks.filter((task) => String(task.status || '').toLowerCase() !== 'completed').length,
-        completed: visibleTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed').length,
+        today: (buckets.today || []).filter(t => t.client_id === activeClientId).length,
+        overdue: (buckets.overdue || []).filter(t => t.client_id === activeClientId).length,
+        totalActive: rawClientTasks.filter((task) => String(task.status || '').toLowerCase() !== 'completed').length,
+        completed: rawClientTasks.filter((task) => String(task.status || '').toLowerCase() === 'completed').length,
       }
     : null
 

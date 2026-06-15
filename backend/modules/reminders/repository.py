@@ -608,14 +608,22 @@ def get_today_tasks(case_manager_id: str) -> List[Dict[str, Any]]:
         return tasks
 
 
-def get_prioritized_tasks(case_manager_id: str) -> Dict[str, Any]:
+def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = None) -> Dict[str, Any]:
     """
     Return tasks bucketed into overdue / today / next_3_days / this_week /
     treatment_plan / high_priority_no_date / later, plus an AI summary string.
+    Pass client_date (YYYY-MM-DD) to use the client's local date for bucketing
+    instead of the server's UTC date.today().
     """
     all_tasks = list_tasks_for_case_manager(case_manager_id)
 
-    today = date.today()
+    if client_date:
+        try:
+            today = datetime.strptime(client_date, "%Y-%m-%d").date()
+        except ValueError:
+            today = date.today()
+    else:
+        today = date.today()
     in_3_days = today + timedelta(days=3)
     in_7_days = today + timedelta(days=7)
 
@@ -658,6 +666,10 @@ def get_prioritized_tasks(case_manager_id: str) -> Dict[str, Any]:
         r.setdefault("client_name", name_map.get(r.get("client_id", ""), "Unknown"))
         r.setdefault("source", "active_reminder")
         r.setdefault("title", r.get("message", ""))
+        # Map reminder_id → task_id so the frontend completion handler can target the right row
+        r.setdefault("task_id", r.get("reminder_id", ""))
+        # Map reminder_type → task_type so the category filter works
+        r.setdefault("task_type", r.get("reminder_type", ""))
         r["priority_score"] = _task_priority_score(r, today)
         r.setdefault("priority_reason", _priority_reason(r, today))
 

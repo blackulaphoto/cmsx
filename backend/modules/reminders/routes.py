@@ -85,6 +85,8 @@ class ReminderCreate(BaseModel):
     due_date: Optional[str] = None
     case_manager_id: Optional[str] = None
     priority: str = "Medium"
+    reminder_type: Optional[str] = "general"
+    description: Optional[str] = ""
 
 # =============================================================================
 # API ROUTES
@@ -113,7 +115,7 @@ async def create_reminder(request: ReminderCreate):
         reminder_id = _repo.create_active_reminder(
             client_id=request.client_id,
             case_manager_id=case_manager_id,
-            reminder_type="manual",
+            reminder_type=request.reminder_type or "general",
             message=request.reminder_text,
             priority=request.priority,
             due_date=request.due_date,
@@ -911,13 +913,14 @@ async def complete_reminder(reminder_id: str):
 
 
 @router.get("/prioritized/{case_manager_id}")
-async def get_prioritized_tasks(case_manager_id: str):
+async def get_prioritized_tasks(case_manager_id: str, date: Optional[str] = Query(None)):
     """
     Return tasks bucketed by priority: overdue, today, next_3_days, this_week,
     high_priority_no_date, and later.  Delegates to repository (Postgres-first).
+    Accepts optional ?date=YYYY-MM-DD so the client's local date is used for bucketing.
     """
     try:
-        result = _repo.get_prioritized_tasks(case_manager_id)
+        result = _repo.get_prioritized_tasks(case_manager_id, client_date=date)
         return result
     except Exception as e:
         logger.error(f"Error generating prioritized tasks: {e}")
