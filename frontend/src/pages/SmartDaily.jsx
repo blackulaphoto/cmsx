@@ -510,7 +510,9 @@ function SmartDaily() {
   const fetchData = async () => {
     if (!caseManagerId) return
     try {
-      const clientDate = new Date().toISOString().split('T')[0]
+      // Use local date (not UTC) so overnight UTC offset doesn't shift the bucket boundaries
+      const now = new Date()
+      const clientDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
       const [prioritizedRes, dashboardRes] = await Promise.all([
         apiFetch(`/api/reminders/prioritized/${caseManagerId}?date=${clientDate}`),
         apiFetch(`/api/reminders/smart-dashboard/${caseManagerId}`),
