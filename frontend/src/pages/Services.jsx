@@ -40,25 +40,25 @@ function Services() {
   })
 
   const serviceCategories = [
-    { id: 'all',               name: 'All Resources',                  icon: Building2,     gradient: 'from-gray-500 to-gray-600',         bgGradient: 'from-gray-500/20 to-gray-600/20',         borderColor: 'border-gray-500/30' },
-    { id: 'housing',           name: 'Housing',                        icon: Home,          gradient: 'from-green-500 to-emerald-600',      bgGradient: 'from-green-500/20 to-emerald-600/20',     borderColor: 'border-green-500/30' },
-    { id: 'benefits',          name: 'Benefits',                       icon: DollarSign,    gradient: 'from-lime-500 to-green-600',         bgGradient: 'from-lime-500/20 to-green-600/20',        borderColor: 'border-lime-500/30' },
-    { id: 'medical',           name: 'Medical',                        icon: Activity,      gradient: 'from-red-500 to-rose-600',           bgGradient: 'from-red-500/20 to-rose-600/20',          borderColor: 'border-red-500/30' },
-    { id: 'dental',            name: 'Dental',                         icon: Sparkles,      gradient: 'from-rose-500 to-pink-600',          bgGradient: 'from-rose-500/20 to-pink-600/20',         borderColor: 'border-rose-500/30' },
-    { id: 'mental-health',     name: 'Mental Health',                  icon: Heart,         gradient: 'from-pink-500 to-rose-600',          bgGradient: 'from-pink-500/20 to-rose-600/20',         borderColor: 'border-pink-500/30' },
-    { id: 'sud-recovery',      name: 'SUD / Recovery',                 icon: Shield,        gradient: 'from-blue-500 to-indigo-600',        bgGradient: 'from-blue-500/20 to-indigo-600/20',       borderColor: 'border-blue-500/30' },
-    { id: 'legal-aid',         name: 'Legal Aid',                      icon: Scale,         gradient: 'from-amber-500 to-orange-600',       bgGradient: 'from-amber-500/20 to-orange-600/20',      borderColor: 'border-amber-500/30' },
-    { id: 'food',              name: 'Food',                           icon: ShoppingCart,  gradient: 'from-orange-500 to-amber-600',       bgGradient: 'from-orange-500/20 to-amber-600/20',      borderColor: 'border-orange-500/30' },
-    { id: 'transportation',    name: 'Transportation',                 icon: Car,           gradient: 'from-yellow-500 to-amber-600',       bgGradient: 'from-yellow-500/20 to-amber-600/20',      borderColor: 'border-yellow-500/30' },
-    { id: 'employment',        name: 'Employment',                     icon: Briefcase,     gradient: 'from-teal-500 to-cyan-600',          bgGradient: 'from-teal-500/20 to-cyan-600/20',         borderColor: 'border-teal-500/30' },
-    { id: 'documents-id',      name: 'Documents / ID',                 icon: FileText,      gradient: 'from-cyan-500 to-sky-600',           bgGradient: 'from-cyan-500/20 to-sky-600/20',          borderColor: 'border-cyan-500/30' },
-    { id: 'crisis',            name: 'Crisis',                         icon: AlertTriangle, gradient: 'from-red-600 to-red-700',            bgGradient: 'from-red-600/20 to-red-700/20',           borderColor: 'border-red-600/30' },
-    { id: 'veterans',          name: 'Veterans',                       icon: Flag,          gradient: 'from-indigo-500 to-blue-600',        bgGradient: 'from-indigo-500/20 to-blue-600/20',       borderColor: 'border-indigo-500/30' },
-    { id: 'disability-ihss',   name: 'Disability / IHSS',              icon: Users,         gradient: 'from-violet-500 to-purple-600',      bgGradient: 'from-violet-500/20 to-purple-600/20',     borderColor: 'border-violet-500/30' },
-    { id: 'family-parenting',  name: 'Family / Parenting',             icon: Baby,          gradient: 'from-fuchsia-500 to-pink-600',       bgGradient: 'from-fuchsia-500/20 to-pink-600/20',      borderColor: 'border-fuchsia-500/30' },
-    { id: 'youth-foster',      name: 'Youth / Foster',                 icon: GraduationCap, gradient: 'from-purple-500 to-violet-600',      bgGradient: 'from-purple-500/20 to-violet-600/20',     borderColor: 'border-purple-500/30' },
-    { id: 'reentry',           name: 'Reentry',                        icon: RefreshCw,     gradient: 'from-sky-500 to-cyan-600',           bgGradient: 'from-sky-500/20 to-cyan-600/20',          borderColor: 'border-sky-500/30' },
-    { id: 'domestic-violence', name: 'Domestic Violence / Victim Svcs',icon: Heart,         gradient: 'from-rose-600 to-pink-700',          bgGradient: 'from-rose-600/20 to-pink-700/20',         borderColor: 'border-rose-600/30' },
+    { id: 'all',               name: 'All Resources',                  icon: Building2,     gradient: 'from-slate-400 to-slate-500'    },
+    { id: 'housing',           name: 'Housing',                        icon: Home,          gradient: 'from-blue-500 to-blue-600'      },
+    { id: 'benefits',          name: 'Benefits',                       icon: DollarSign,    gradient: 'from-emerald-500 to-green-600'  },
+    { id: 'medical',           name: 'Medical',                        icon: Activity,      gradient: 'from-rose-500 to-red-600'       },
+    { id: 'dental',            name: 'Dental',                         icon: Sparkles,      gradient: 'from-cyan-400 to-sky-500'       },
+    { id: 'mental-health',     name: 'Mental Health',                  icon: Heart,         gradient: 'from-violet-500 to-purple-600'  },
+    { id: 'sud-recovery',      name: 'SUD / Recovery',                 icon: Shield,        gradient: 'from-blue-600 to-indigo-600'    },
+    { id: 'legal-aid',         name: 'Legal Aid',                      icon: Scale,         gradient: 'from-indigo-500 to-indigo-600'  },
+    { id: 'food',              name: 'Food',                           icon: ShoppingCart,  gradient: 'from-amber-400 to-orange-500'   },
+    { id: 'transportation',    name: 'Transportation',                 icon: Car,           gradient: 'from-yellow-400 to-amber-500'   },
+    { id: 'employment',        name: 'Employment',                     icon: Briefcase,     gradient: 'from-sky-500 to-blue-500'       },
+    { id: 'documents-id',      name: 'Documents / ID',                 icon: FileText,      gradient: 'from-cyan-500 to-teal-500'      },
+    { id: 'crisis',            name: 'Crisis',                         icon: AlertTriangle, gradient: 'from-red-500 to-rose-600'       },
+    { id: 'veterans',          name: 'Veterans',                       icon: Flag,          gradient: 'from-blue-700 to-indigo-700'    },
+    { id: 'disability-ihss',   name: 'Disability / IHSS',              icon: Users,         gradient: 'from-violet-500 to-purple-500'  },
+    { id: 'family-parenting',  name: 'Family / Parenting',             icon: Baby,          gradient: 'from-fuchsia-500 to-pink-500'   },
+    { id: 'youth-foster',      name: 'Youth / Foster',                 icon: GraduationCap, gradient: 'from-purple-500 to-violet-500'  },
+    { id: 'reentry',           name: 'Reentry',                        icon: RefreshCw,     gradient: 'from-teal-500 to-cyan-500'      },
+    { id: 'domestic-violence', name: 'Domestic Violence / Victim Svcs',icon: Heart,         gradient: 'from-rose-500 to-pink-500'      },
   ]
 
   const searchServices = async (query = '', category = 'all', page = pagination.currentPage) => {
@@ -307,20 +307,20 @@ function Services() {
                 <button
                   key={category.id}
                   onClick={() => handleCategoryChange(category.id)}
-                  className={`group flex flex-col items-center gap-3 p-4 rounded-xl transition-all duration-300 transform hover:scale-105 ${
+                  className={`group flex flex-col items-center gap-3 p-4 rounded-xl transition-all duration-200 ${
                     activeCategory === category.id
-                      ? `bg-gradient-to-r ${category.gradient} text-white shadow-lg`
-                      : `bg-gradient-to-r ${category.bgGradient} backdrop-blur-sm border ${category.borderColor} text-gray-300 hover:text-white hover:bg-white/20`
+                      ? 'bg-slate-700/90 border border-teal-400/60 text-white shadow-lg shadow-teal-500/20 scale-[1.03]'
+                      : 'bg-slate-800/75 border border-white/[0.09] text-slate-300 hover:text-white hover:bg-slate-700/70 hover:border-white/20 hover:-translate-y-0.5 hover:shadow-md hover:shadow-black/40'
                   }`}
                 >
-                  <div className={`p-2 rounded-lg transition-all duration-300 ${
-                    activeCategory === category.id 
-                      ? 'bg-white/20' 
-                      : 'bg-white/10 group-hover:bg-white/20'
+                  <div className={`p-2 rounded-lg bg-gradient-to-br ${category.gradient} transition-all duration-200 ${
+                    activeCategory === category.id
+                      ? 'opacity-100 shadow-sm'
+                      : 'opacity-75 group-hover:opacity-95'
                   }`}>
-                    <category.icon size={20} />
+                    <category.icon size={18} className="text-white" />
                   </div>
-                  <span className="text-xs font-medium text-center leading-tight">{category.name}</span>
+                  <span className="text-xs font-semibold text-center leading-tight tracking-wide">{category.name}</span>
                 </button>
               ))}
             </div>
