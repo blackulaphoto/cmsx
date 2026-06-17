@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Bell,
+  Check,
   CheckCircle2,
+  ChevronDown,
   ExternalLink,
   Loader2,
   Megaphone,
@@ -81,29 +83,120 @@ function EmptyState({ onCreate }) {
   )
 }
 
+function ParticipantPicker({ members, loading, selected, onChange }) {
+  const [open, setOpen] = useState(false)
+  const selectedIds = new Set(selected.map((member) => member.user_id))
+
+  const toggle = (member) => {
+    if (selectedIds.has(member.user_id)) {
+      onChange(selected.filter((item) => item.user_id !== member.user_id))
+    } else {
+      onChange([...selected, { user_id: member.user_id, display_name: member.display_name }])
+    }
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="input-field flex w-full items-center justify-between gap-2 text-left"
+      >
+        <span className="truncate text-sm">
+          {selected.length === 0
+            ? <span className="text-slate-500">Select team members</span>
+            : `${selected.length} selected`}
+        </span>
+        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {selected.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {selected.map((member) => (
+            <span key={member.user_id} className="inline-flex items-center gap-1 rounded-full bg-cyan-500/15 px-2 py-0.5 text-xs text-cyan-100">
+              {member.display_name}
+              <button type="button" onClick={() => toggle(member)} className="text-cyan-200 hover:text-white">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {open && (
+        <div className="absolute z-20 mt-2 max-h-56 w-full overflow-y-auto rounded-lg border border-white/10 bg-slate-900 p-1 shadow-2xl">
+          {loading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-cyan-300" />
+            </div>
+          ) : members.length === 0 ? (
+            <div className="px-3 py-4 text-center text-xs text-slate-400">No other team members found.</div>
+          ) : (
+            members.map((member) => {
+              const checked = selectedIds.has(member.user_id)
+              return (
+                <button
+                  type="button"
+                  key={member.user_id}
+                  onClick={() => toggle(member)}
+                  className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm hover:bg-white/5"
+                >
+                  <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${checked ? 'border-cyan-400 bg-cyan-500 text-white' : 'border-white/20'}`}>
+                    {checked && <Check className="h-3 w-3" />}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-slate-100">{member.display_name}</span>
+                  {member.role === 'admin' && (
+                    <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-300">Supervisor</span>
+                  )}
+                </button>
+              )
+            })
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function NewThreadModal({ clients, currentUser, onClose, onCreated }) {
   const [form, setForm] = useState({
     thread_type: 'direct_message',
     title: '',
     client_id: '',
     purpose: '',
-    participant_text: '',
     initial_message: '',
   })
+  const [participants, setParticipants] = useState([])
+  const [teamMembers, setTeamMembers] = useState([])
+  const [teamLoading, setTeamLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const isAdmin = currentUser?.role === 'admin'
   const selectedClient = clients.find((client) => client.client_id === form.client_id)
 
+  useEffect(() => {
+    let cancelled = false
+    const loadTeam = async () => {
+      setTeamLoading(true)
+      try {
+        const result = await messagesAPI.listCaseManagers()
+        if (!cancelled) setTeamMembers(result.case_managers || [])
+      } catch (error) {
+        if (!cancelled) {
+          setTeamMembers([])
+          toast.error(error?.message || 'Failed to load team members')
+        }
+      } finally {
+        if (!cancelled) setTeamLoading(false)
+      }
+    }
+    loadTeam()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const set = (key) => (event) => {
     setForm((current) => ({ ...current, [key]: event.target.value }))
-  }
-
-  const buildParticipants = () => {
-    return form.participant_text
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean)
-      .map((value) => ({ user_id: value, display_name: value }))
   }
 
   const handleCreate = async () => {
@@ -111,7 +204,7 @@ function NewThreadModal({ clients, currentUser, onClose, onCreated }) {
       toast.error('Only supervisors/admins can create announcements')
       return
     }
-    if (form.thread_type === 'direct_message' && !form.participant_text.trim()) {
+    if (form.thread_type === 'direct_message' && participants.length === 0) {
       toast.error('Direct messages need a staff recipient')
       return
     }
@@ -126,7 +219,7 @@ function NewThreadModal({ clients, currentUser, onClose, onCreated }) {
         title: form.title.trim() || undefined,
         client_id: form.thread_type === 'client_thread' ? form.client_id : undefined,
         purpose: form.purpose.trim() || undefined,
-        participants: buildParticipants(),
+        participants: form.thread_type === 'announcement' ? [] : participants,
         initial_message: form.initial_message.trim() || undefined,
       }
       const result = await messagesAPI.createThread(payload)
@@ -196,15 +289,20 @@ function NewThreadModal({ clients, currentUser, onClose, onCreated }) {
           )}
 
           {form.thread_type !== 'announcement' && (
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-400">Participants</span>
-              <input
-                className="input-field w-full"
-                value={form.participant_text}
-                onChange={set('participant_text')}
-                placeholder="Comma-separated staff user IDs or case manager IDs"
+            <div className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-400">
+                {form.thread_type === 'direct_message' ? 'Recipients' : 'Participants'}
+              </span>
+              <ParticipantPicker
+                members={teamMembers}
+                loading={teamLoading}
+                selected={participants}
+                onChange={setParticipants}
               />
-            </label>
+              <p className="mt-1.5 text-[11px] text-slate-500">
+                You are added automatically. Pick one or more team members to include.
+              </p>
+            </div>
           )}
 
           <label className="block">

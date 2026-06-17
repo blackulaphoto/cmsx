@@ -222,6 +222,7 @@ export const API_ENDPOINTS = {
     threadMessages: (id) => `/api/messages/threads/${id}/messages`,
     markRead: (id) => `/api/messages/threads/${id}/read`,
     unreadCount: '/api/messages/unread-count',
+    caseManagers: '/api/messages/case-managers',
   }
 }
 
@@ -352,7 +353,8 @@ export const messagesAPI = {
     body: JSON.stringify({ body })
   }),
   markRead: (id) => apiCall(API_ENDPOINTS.messages.markRead(id), { method: 'PATCH' }),
-  unreadCount: () => apiCall(API_ENDPOINTS.messages.unreadCount)
+  unreadCount: () => apiCall(API_ENDPOINTS.messages.unreadCount),
+  listCaseManagers: () => apiCall(API_ENDPOINTS.messages.caseManagers)
 }
 
 export default {

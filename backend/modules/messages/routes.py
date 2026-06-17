@@ -212,6 +212,44 @@ async def mark_thread_read(
     return {"success": True, "read": db.mark_read(thread_id, _user_id(user), _display_name(user))}
 
 
+@router.get("/case-managers")
+async def list_case_managers(request: Request) -> Dict[str, Any]:
+    """Active staff/case managers for the participant picker, keyed by case_manager_id.
+
+    Reads the same auth.db user_profiles table the supervisor dashboard uses, so the
+    Messenger team list stays in sync with who actually exists. The current user is
+    excluded because they are auto-added to every thread they create.
+    """
+    user = require_authenticated_user(request)
+    current_id = _user_id(user)
+    members: List[Dict[str, str]] = []
+    try:
+        with sqlite3.connect(DB_DIR / "auth.db") as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT case_manager_id, full_name, role
+                FROM user_profiles
+                WHERE is_active = 1 AND TRIM(COALESCE(case_manager_id, '')) <> ''
+                ORDER BY full_name COLLATE NOCASE
+                """
+            ).fetchall()
+        for row in rows:
+            cm_id = (row["case_manager_id"] or "").strip()
+            if not cm_id or cm_id == current_id:
+                continue
+            members.append(
+                {
+                    "user_id": cm_id,
+                    "display_name": row["full_name"] or cm_id,
+                    "role": row["role"] or "case_manager",
+                }
+            )
+    except Exception:  # pragma: no cover - auth.db unavailable in some local setups
+        members = []
+    return {"success": True, "case_managers": members}
+
+
 @router.get("/unread-count")
 async def unread_count(
     request: Request,
