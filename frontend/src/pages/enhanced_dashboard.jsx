@@ -59,6 +59,12 @@ const EnhancedDashboard = () => {
     approved_cases: 0,
     denied_cases: 0
   })
+  const [reminderSummary, setReminderSummary] = useState({
+    today: 0,
+    overdue: 0,
+    next_3_days: 0,
+    total_active: 0
+  })
 
   // ClickUp-style component states
   // Ensure notes is always defined as an array
@@ -99,6 +105,7 @@ const EnhancedDashboard = () => {
     if (!caseManagerId) return
     fetchDashboardStats()
     fetchFmlaSummary()
+    fetchReminderSummary()
     loadClickUpData()
   }, [caseManagerId])
 
@@ -138,6 +145,28 @@ const EnhancedDashboard = () => {
       }
     } catch (error) {
       console.error('Failed to load FMLA summary:', error)
+    }
+  }
+
+  const fetchReminderSummary = async () => {
+    try {
+      // Use local date (not UTC) so overnight offset doesn't shift bucket boundaries
+      const now = new Date()
+      const clientDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const response = await apiFetch(`/api/reminders/prioritized/${encodeURIComponent(caseManagerId)}?date=${clientDate}`)
+      if (!response.ok) {
+        throw new Error('Failed to load reminder summary')
+      }
+      const data = await response.json()
+      const counts = data.counts || {}
+      setReminderSummary({
+        today: counts.today || 0,
+        overdue: counts.overdue || 0,
+        next_3_days: counts.next_3_days || 0,
+        total_active: data.total_active || 0
+      })
+    } catch (error) {
+      console.error('Failed to load reminder summary:', error)
     }
   }
 
@@ -761,6 +790,41 @@ const EnhancedDashboard = () => {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Daily Reminders band — mirrors the FMLA Tracker band styling */}
+          <div className="rounded-3xl border border-cyan-500/20 bg-gradient-to-r from-cyan-500/10 via-slate-900/30 to-blue-500/10 backdrop-blur-xl p-6 mb-12">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs uppercase tracking-[0.2em] text-cyan-200">
+                  <Calendar className="h-4 w-4" />
+                  Smart Daily
+                </div>
+                <h2 className="mt-4 text-2xl font-bold text-white">Daily Reminders</h2>
+                <p className="mt-2 max-w-2xl text-sm text-slate-300">
+                  Court dates, appointments, paperwork deadlines, and follow-up tasks.
+                </p>
+              </div>
+              <Link
+                to="/smart-dashboard"
+                className="inline-flex items-center justify-center rounded-xl bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+              >
+                Open Smart Daily
+              </Link>
+            </div>
+            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {[
+                { label: 'Due Today', value: reminderSummary.today, to: '/smart-dashboard' },
+                { label: 'Overdue', value: reminderSummary.overdue, to: '/smart-dashboard' },
+                { label: 'Next 3 Days', value: reminderSummary.next_3_days, to: '/smart-dashboard' },
+                { label: 'Total Active', value: reminderSummary.total_active, to: '/smart-dashboard' }
+              ].map((item) => (
+                <Link key={item.label} to={item.to} className="rounded-2xl border border-white/10 bg-black/20 p-4 transition hover:-translate-y-0.5 hover:bg-white/10">
+                  <div className="text-3xl font-bold text-white">{item.value}</div>
+                  <div className="mt-2 text-sm text-slate-300">{item.label}</div>
+                </Link>
+              ))}
             </div>
           </div>
 
