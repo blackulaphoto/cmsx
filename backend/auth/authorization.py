@@ -13,6 +13,56 @@ from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 CORE_CLIENTS_DB = DB_DIR / "core_clients.db"
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Phase 2 route classification (documentation + test reference).
+#
+# This is the explicit record of which housing/jobs/resume endpoints handle
+# tenant/client data (and therefore carry the require_user + assert_client_access
+# guard) versus which are global/cross-org-by-design and intentionally exempt.
+# Keep this in sync with the actual route decorators; the guard-coverage test
+# asserts the guarded set matches reality so the doc cannot silently drift.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Client-data endpoints guarded in Phase 2 (require_user + assert_client_access).
+# Listed as "METHOD prefix+path" for readability.
+TENANCY_GUARDED_ROUTES = {
+    "POST /api/housing/application",
+    "GET /api/housing/applications/{client_id}",
+    "POST /api/jobs/save",
+    "GET /api/jobs/saved/{client_id}",
+    "POST /api/resume/profile",
+    "GET /api/resume/profile/{client_id}",
+    "GET /api/resume/resumes/{client_id}",
+    "GET /api/resume/list/{client_id}",
+    "POST /api/resume/create",
+    "POST /api/resume/apply-job",
+    "GET /api/resume/applications/{client_id}",
+}
+
+# Mixed routes: global search/reference UNLESS a client_id is supplied, in which
+# case the client-specific branch is guarded with assert_client_access.
+TENANCY_MIXED_ROUTES = {
+    "GET /api/housing/case-manager-search",
+    "POST /api/housing/case-manager-search",
+    "GET /api/housing/case-manager-dashboard",
+    "POST /api/resume/rewrite-profile",
+    "POST /api/resume/import",
+}
+
+# Global / cross-org-exempt by design (public search, reference, health, docs).
+# Documented as families rather than every path.
+TENANCY_CROSS_ORG_EXEMPT = {
+    "housing: search/reference/stats (/, /search, /types, /counties, /cities, "
+    "/sober-living, /programs, /resource/{id}, /background-friendly, /emergency, /statistics)",
+    "jobs: search/status/health (/search*, root, /search/ai, /simple_search, "
+    "/health, /scrapers/health, /search/links, /cleanup)",
+    "resume: root and /health",
+    "services: all routes (client-data lives in the guarded case_management module)",
+    "resource_library, sober_living_directory, public provider directories",
+    "platform: /api/health, /docs, /openapi.json, /redoc",
+}
+
+
 def _connect_core_clients() -> sqlite3.Connection:
     conn = sqlite3.connect(CORE_CLIENTS_DB)
     conn.row_factory = sqlite3.Row

@@ -522,6 +522,29 @@ def require_authenticated_user(request: Request) -> AuthenticatedUser:
     return auth_service.resolve_request_user(request)
 
 
+def require_user(request: Request) -> AuthenticatedUser:
+    """Phase 2 guard: resolve the authenticated request user.
+
+    Thin wrapper over the existing request-user resolution. It introduces no
+    new auth system and does not change the global middleware — it simply gives
+    route handlers an explicit guard call (and the hook where org/ownership
+    enforcement attaches via assert_client_access).
+    """
+    return auth_service.resolve_request_user(request)
+
+
+def require_org_admin(request: Request) -> AuthenticatedUser:
+    """Phase 2 placeholder guard for future org-admin routes.
+
+    Not wired to any UI/endpoint yet. Accepts either an org admin (org_role)
+    or an existing platform admin (role) so it is safe to adopt later.
+    """
+    user = require_user(request)
+    if user.org_role != ORG_ADMIN_ROLE and not user.is_admin:
+        raise HTTPException(status_code=403, detail="Organization admin required")
+    return user
+
+
 def require_role(user: AuthenticatedUser, allowed_roles: Iterable[str]) -> None:
     allowed = set(allowed_roles)
     if user.role not in allowed:
