@@ -685,6 +685,14 @@ const ClientDashboard = () => {
                 <span className={`px-4 py-2 rounded-xl text-sm font-medium ${getStatusColor(client.case_status)}`}>
                   {client.case_status}
                 </span>
+                <Link
+                  to="/messages"
+                  className="group flex items-center gap-2 rounded-xl border border-cyan-400/30 bg-cyan-500/15 px-4 py-3 text-sm font-medium text-cyan-100 transition-all duration-300 hover:border-cyan-300/50 hover:bg-cyan-500/25"
+                  title="Open client-linked message threads"
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  Messages
+                </Link>
                 <button
                   onClick={handleOpenEdit}
                   className="group p-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white rounded-xl transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-blue-500/25"

@@ -35,6 +35,7 @@ import AIChat from './pages/AIChat'
 import Services from './pages/Services'
 import SmartDaily from './pages/SmartDaily'
 import Jobs from './pages/Jobs'
+import Messages from './pages/Messages'
 import SupervisorDashboard from './pages/SupervisorDashboard'
 import AIAssistantPopup from './components/AIAssistant/AIAssistantPopup'
 // System administration and monitoring
@@ -106,6 +107,7 @@ function App() {
         <Route path="/documentation" element={<DocumentationCenter />} />
         <Route path="/ai-chat" element={<AIChat />} />
         <Route path="/services" element={<Services />} />
+        <Route path="/messages" element={<Messages />} />
         <Route path="/smart-dashboard" element={<SmartDaily />} />
               <Route path="/supervisor-dashboard" element={
                 <ProtectedRoute roles={['admin']}>

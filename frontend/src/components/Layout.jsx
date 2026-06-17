@@ -25,11 +25,13 @@ import {
   ClipboardCheck,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { messagesAPI } from '../api/config';
 
 const Layout = ({ children }) => {
   const location = useLocation();
   const { profile, logout } = useAuth();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
+  const [messagesUnreadCount, setMessagesUnreadCount] = useState(0);
   const canAccessSupervisorMode = profile?.role === 'admin';
   const displayName = profile?.full_name || 'Signed in user'
   const displayRole = canAccessSupervisorMode ? 'Admin / Supervisor' : 'Case Manager'
@@ -53,6 +55,7 @@ const Layout = ({ children }) => {
     { path: '/jobs', label: 'Jobs', icon: Briefcase, gradient: 'from-emerald-500 to-green-500' },
     { path: '/supervisor-dashboard', label: 'Supervisor', icon: BarChart3, gradient: 'from-cyan-500 to-blue-500' },
     { path: '/services', label: 'Services', icon: Building2, gradient: 'from-orange-500 to-amber-500' },
+    { path: '/messages', label: 'Messages', icon: MessageSquare, gradient: 'from-cyan-500 to-blue-500', badge: messagesUnreadCount },
     { path: '/ai-chat', label: 'AI Assistant', icon: MessageSquare, gradient: 'from-yellow-500 to-amber-500' },
     { path: '/smart-dashboard', label: 'Smart Daily', icon: Calendar, gradient: 'from-purple-500 to-pink-500' },
     { path: '/treatment-plan', label: 'Treatment Plan', icon: Brain, gradient: 'from-emerald-500 to-cyan-500' }
@@ -65,6 +68,28 @@ const Layout = ({ children }) => {
   useEffect(() => {
     setIsMoreOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadUnread = async () => {
+      try {
+        const result = await messagesAPI.unreadCount();
+        if (!cancelled) {
+          setMessagesUnreadCount(Number(result.unread_count || 0));
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setMessagesUnreadCount(0);
+        }
+      }
+    };
+    if (profile) {
+      loadUnread();
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [profile, location.pathname]);
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -119,6 +144,11 @@ const Layout = ({ children }) => {
                     <span className={`group-hover:text-purple-200 transition-colors duration-300 ${isActive ? 'text-white' : 'text-gray-300'}`}>
                       {item.label}
                     </span>
+                    {item.badge > 0 && (
+                      <span className="ml-0.5 rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                        {item.badge > 99 ? '99+' : item.badge}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -151,6 +181,11 @@ const Layout = ({ children }) => {
                               <IconComponent className="h-3 w-3 text-white" />
                             </div>
                             <span className="truncate">{item.label}</span>
+                            {item.badge > 0 && (
+                              <span className="ml-auto rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                                {item.badge > 99 ? '99+' : item.badge}
+                              </span>
+                            )}
                           </Link>
                         );
                       })}
@@ -162,6 +197,28 @@ const Layout = ({ children }) => {
 
             {/* User Menu */}
             <div className="flex min-w-0 items-center justify-end gap-2 lg:gap-3">
+              {/* Messenger */}
+              <Link
+                to="/messages"
+                aria-label="Messenger"
+                title="Messenger"
+                className="group relative cursor-pointer flex-shrink-0"
+              >
+                <div className={`p-2 rounded-lg backdrop-blur-sm border transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-cyan-500/25 ${
+                  location.pathname === '/messages'
+                    ? 'bg-white/15 border-white/30'
+                    : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                }`}>
+                  <MessageSquare className="h-4 w-4 text-white group-hover:text-cyan-200 transition-colors duration-300" />
+                </div>
+                {/* Unread Badge */}
+                {messagesUnreadCount > 0 && (
+                  <div className="absolute -top-1 -right-1 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-full min-w-4 h-4 px-1 text-[10px] flex items-center justify-center font-bold shadow-lg">
+                    {messagesUnreadCount > 99 ? '99+' : messagesUnreadCount}
+                  </div>
+                )}
+              </Link>
+
               {/* Notifications */}
               <div className="group relative hidden sm:block cursor-pointer flex-shrink-0">
                 <div className="p-2 rounded-lg bg-white/5 backdrop-blur-sm border border-white/10 transition-all duration-300 hover:bg-white/10 hover:border-white/20 hover:scale-110 hover:shadow-lg hover:shadow-orange-500/25">
@@ -211,6 +268,11 @@ const Layout = ({ children }) => {
                       <IconComponent className="h-3 w-3 text-white" />
                     </div>
                     <span>{item.label}</span>
+                    {item.badge > 0 && (
+                      <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                        {item.badge > 99 ? '99+' : item.badge}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

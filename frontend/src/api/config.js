@@ -214,6 +214,14 @@ export const API_ENDPOINTS = {
     videoById: (id) => `/api/groups/videos/${id}`,
     sessions: '/api/groups/sessions',
     sessionById: (id) => `/api/groups/sessions/${id}`,
+  },
+
+  messages: {
+    threads: '/api/messages/threads',
+    threadById: (id) => `/api/messages/threads/${id}`,
+    threadMessages: (id) => `/api/messages/threads/${id}/messages`,
+    markRead: (id) => `/api/messages/threads/${id}/read`,
+    unreadCount: '/api/messages/unread-count',
   }
 }
 
@@ -331,6 +339,22 @@ export const aiAPI = {
     })
 }
 
+export const messagesAPI = {
+  listThreads: () => apiCall(API_ENDPOINTS.messages.threads),
+  createThread: (threadData) => apiCall(API_ENDPOINTS.messages.threads, {
+    method: 'POST',
+    body: JSON.stringify(threadData)
+  }),
+  getThread: (id) => apiCall(API_ENDPOINTS.messages.threadById(id)),
+  listMessages: (id) => apiCall(API_ENDPOINTS.messages.threadMessages(id)),
+  sendMessage: (id, body) => apiCall(API_ENDPOINTS.messages.threadMessages(id), {
+    method: 'POST',
+    body: JSON.stringify({ body })
+  }),
+  markRead: (id) => apiCall(API_ENDPOINTS.messages.markRead(id), { method: 'PATCH' }),
+  unreadCount: () => apiCall(API_ENDPOINTS.messages.unreadCount)
+}
+
 export default {
   API_BASE_URL,
   API_ENDPOINTS,
@@ -338,5 +362,6 @@ export default {
   apiCall,
   apiFetch,
   clientsAPI,
-  aiAPI
+  aiAPI,
+  messagesAPI
 }

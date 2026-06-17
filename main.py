@@ -349,6 +349,15 @@ except Exception as e:
     logger.warning(f"Groups facilitation module not loaded: {e}")
 
 try:
+    from backend.modules.messages.routes import router as messages_router
+    app.include_router(messages_router, prefix="/api/messages", tags=["messages"])
+    loaded_modules["messages"] = "loaded"
+    logger.info("Messages module loaded successfully")
+except Exception as e:
+    loaded_modules["messages"] = f"error: {e}"
+    logger.warning(f"Messages module not loaded: {e}")
+
+try:
     from backend.modules.admissions.routes import router as admissions_router
     app.include_router(admissions_router, prefix="/api", tags=["admissions"])
     loaded_modules["admissions"] = "loaded"
