@@ -7,16 +7,27 @@ from __future__ import annotations
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from backend.shared.database.workspace_store import workspace_store
+from backend.auth.service import require_authenticated_user
+from backend.shared.tenancy import DEFAULT_ORG_ID, multi_tenant_enabled, resolve_org_id
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["rolodex"])
 
 DEFAULT_CASE_MANAGER_ID = "cm_001"
+
+
+def _rolodex_org_filter(request: Request) -> Optional[str]:
+    """Phase 3C rolodex (Option A): when multi-tenancy is on, scope the shared
+    rolodex to the caller's org; when off, return None so the existing global
+    DEFAULT_CASE_MANAGER_ID behavior is preserved exactly."""
+    if not multi_tenant_enabled():
+        return None
+    return resolve_org_id(require_authenticated_user(request))
 ROLEDEX_CATEGORIES = [
     "Treatment Centers",
     "Primary Care",
@@ -115,13 +126,16 @@ def _apply_filters(entries: List[dict], category: str, search: str, city: str, t
 
 @router.get("/rolodex")
 async def list_rolodex_entries(
+    request: Request,
     category: str = Query("All"),
     search: str = Query(""),
     city: str = Query(""),
     trusted_status: str = Query("All"),
 ):
     try:
-        entries = workspace_store.list_rolodex_entries(DEFAULT_CASE_MANAGER_ID)
+        entries = workspace_store.list_rolodex_entries(
+            DEFAULT_CASE_MANAGER_ID, org_id=_rolodex_org_filter(request)
+        )
         filtered = _apply_filters(entries, category.strip(), search.strip(), city.strip(), trusted_status.strip())
         return {
             "success": True,
@@ -145,9 +159,13 @@ async def get_rolodex_categories():
 
 
 @router.post("/rolodex")
-async def create_rolodex_entry(payload: RolodexEntryPayload):
+async def create_rolodex_entry(payload: RolodexEntryPayload, request: Request):
     try:
-        entry = workspace_store.create_rolodex_entry(DEFAULT_CASE_MANAGER_ID, _normalize_entry(payload))
+        entry = workspace_store.create_rolodex_entry(
+            DEFAULT_CASE_MANAGER_ID,
+            _normalize_entry(payload),
+            org_id=_rolodex_org_filter(request) or DEFAULT_ORG_ID,
+        )
         return {"success": True, "entry": entry}
     except HTTPException:
         raise
@@ -157,9 +175,11 @@ async def create_rolodex_entry(payload: RolodexEntryPayload):
 
 
 @router.put("/rolodex/{entry_id}")
-async def update_rolodex_entry(entry_id: str, payload: RolodexEntryPayload):
+async def update_rolodex_entry(entry_id: str, payload: RolodexEntryPayload, request: Request):
     try:
-        entry = workspace_store.update_rolodex_entry(entry_id, _normalize_entry(payload))
+        entry = workspace_store.update_rolodex_entry(
+            entry_id, _normalize_entry(payload), org_id=_rolodex_org_filter(request)
+        )
         if not entry:
             raise HTTPException(status_code=404, detail="Rolodex entry not found")
         return {"success": True, "entry": entry}
@@ -171,9 +191,9 @@ async def update_rolodex_entry(entry_id: str, payload: RolodexEntryPayload):
 
 
 @router.delete("/rolodex/{entry_id}")
-async def delete_rolodex_entry(entry_id: str):
+async def delete_rolodex_entry(entry_id: str, request: Request):
     try:
-        deleted = workspace_store.delete_rolodex_entry(entry_id)
+        deleted = workspace_store.delete_rolodex_entry(entry_id, org_id=_rolodex_org_filter(request))
         if not deleted:
             raise HTTPException(status_code=404, detail="Rolodex entry not found")
         return {"success": True}

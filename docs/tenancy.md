@@ -35,6 +35,12 @@ default) the app behaves as the existing single-agency product.
   flag is on — admin/supervisor means "all in my org"; cross-org `case_manager_id`
   params yield empty, cross-org `case_id` returns `404`. The `workspace_content.db`
   admin-bypass on notes/docs/bookmarks/resources is **deferred** to a later phase).
+- **Phase 3C — Workspace content** (`org_id` on dashboard items + rolodex, plus
+  defense-in-depth `org_id` on client-linked tables; backfilled to `org_default`.
+  When the flag is on, dashboard notes/docs/bookmarks/resources enforce org on the
+  admin-bypass by-id paths (cross-org → 404) and the rolodex becomes org-scoped
+  (each org its own shared rolodex). Client-linked tables keep relying on
+  `assert_client_access`. `documentation_brand_resources` enforcement is deferred).
 
 ## IMPORTANT: what Phase 2 does and does NOT do
 

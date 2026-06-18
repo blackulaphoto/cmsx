@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from backend.shared.database.workspace_store import workspace_store
 from backend.auth.service import ADMIN_ROLE, require_authenticated_user, require_role
 from backend.shared.db_path import DB_DIR as _DB_DIR
-from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
+from backend.shared.tenancy import DEFAULT_ORG_ID, multi_tenant_enabled, resolve_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,12 @@ def _render_pdf_bytes(doc: Dict[str, Any]) -> bytes:
 
 def _current_scope(request: Request) -> str:
     return require_authenticated_user(request).case_manager_id
+
+
+def _org_filter(user) -> Optional[str]:
+    """Phase 3C: the org_id to filter/stamp by, or None when multi-tenancy is
+    off (which preserves the existing single-agency behavior exactly)."""
+    return resolve_org_id(user) if multi_tenant_enabled() else None
 
 
 def _dict_connection(db_path: str) -> sqlite3.Connection:
@@ -390,7 +396,10 @@ def _get_supervisor_overview(org_id: Optional[str] = None) -> Dict[str, Any]:
 async def get_notes(request: Request):
     """Get all notes"""
     try:
-        notes = workspace_store.list_dashboard_items("dashboard_notes", _current_scope(request))
+        current_user = require_authenticated_user(request)
+        notes = workspace_store.list_dashboard_items(
+            "dashboard_notes", current_user.case_manager_id, org_id=_org_filter(current_user)
+        )
         for note in notes:
             note["pinned"] = bool(note.get("pinned"))
         return {"success": True, "notes": notes}
@@ -402,7 +411,11 @@ async def get_notes(request: Request):
 async def create_note(note: Note, request: Request):
     """Create a new note"""
     try:
-        new_note = workspace_store.create_dashboard_note(_current_scope(request), note.content, note.pinned)
+        current_user = require_authenticated_user(request)
+        org_id = _org_filter(current_user) or DEFAULT_ORG_ID
+        new_note = workspace_store.create_dashboard_note(
+            current_user.case_manager_id, note.content, note.pinned, org_id=org_id
+        )
         return {"success": True, "note": new_note}
     except Exception as e:
         logger.error(f"Error creating note: {e}")
@@ -413,10 +426,14 @@ async def update_note(note_id: str, note: Note, request: Request):
     """Update a note"""
     try:
         current_user = require_authenticated_user(request)
-        notes = workspace_store.list_dashboard_items("dashboard_notes", current_user.case_manager_id)
+        org_filter = _org_filter(current_user)
+        notes = workspace_store.list_dashboard_items(
+            "dashboard_notes", current_user.case_manager_id, org_id=org_filter
+        )
         if not any(item["id"] == note_id for item in notes) and not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Access denied")
-        updated = workspace_store.update_dashboard_note(note_id, note.content, note.pinned)
+        # Phase 3C: org-scope the write so admin bypass stays within-org.
+        updated = workspace_store.update_dashboard_note(note_id, note.content, note.pinned, org_id=org_filter)
         if not updated:
             raise HTTPException(status_code=404, detail="Note not found")
         return {"success": True, "note": updated}
@@ -431,11 +448,18 @@ async def delete_note(note_id: str, request: Request):
     """Delete a note"""
     try:
         current_user = require_authenticated_user(request)
-        notes = workspace_store.list_dashboard_items("dashboard_notes", current_user.case_manager_id)
+        org_filter = _org_filter(current_user)
+        notes = workspace_store.list_dashboard_items(
+            "dashboard_notes", current_user.case_manager_id, org_id=org_filter
+        )
         if not any(item["id"] == note_id for item in notes) and not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Access denied")
-        workspace_store.delete_dashboard_item("dashboard_notes", note_id)
+        # Phase 3C: org-scoped delete (cross-org admin bypass deletes nothing).
+        if not workspace_store.delete_dashboard_item("dashboard_notes", note_id, org_id=org_filter):
+            raise HTTPException(status_code=404, detail="Note not found")
         return {"success": True, "message": "Note deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting note: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -445,7 +469,10 @@ async def delete_note(note_id: str, request: Request):
 async def get_docs(request: Request):
     """Get all documents"""
     try:
-        docs = workspace_store.list_dashboard_items("dashboard_docs", _current_scope(request))
+        current_user = require_authenticated_user(request)
+        docs = workspace_store.list_dashboard_items(
+            "dashboard_docs", current_user.case_manager_id, org_id=_org_filter(current_user)
+        )
         return {"success": True, "docs": docs}
     except Exception as e:
         logger.error(f"Error getting docs: {e}")
@@ -455,7 +482,11 @@ async def get_docs(request: Request):
 async def create_doc(doc: Doc, request: Request):
     """Create a new document"""
     try:
-        new_doc = workspace_store.create_dashboard_doc(_current_scope(request), doc.title, doc.content, doc.url)
+        current_user = require_authenticated_user(request)
+        org_id = _org_filter(current_user) or DEFAULT_ORG_ID
+        new_doc = workspace_store.create_dashboard_doc(
+            current_user.case_manager_id, doc.title, doc.content, doc.url, org_id=org_id
+        )
         return {"success": True, "doc": new_doc}
     except Exception as e:
         logger.error(f"Error creating doc: {e}")
@@ -466,10 +497,13 @@ async def update_doc(doc_id: str, doc: Doc, request: Request):
     """Update a document"""
     try:
         current_user = require_authenticated_user(request)
-        docs = workspace_store.list_dashboard_items("dashboard_docs", current_user.case_manager_id)
+        org_filter = _org_filter(current_user)
+        docs = workspace_store.list_dashboard_items(
+            "dashboard_docs", current_user.case_manager_id, org_id=org_filter
+        )
         if not any(item["id"] == doc_id for item in docs) and not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Access denied")
-        updated = workspace_store.update_dashboard_doc(doc_id, doc.title, doc.content, doc.url)
+        updated = workspace_store.update_dashboard_doc(doc_id, doc.title, doc.content, doc.url, org_id=org_filter)
         if not updated:
             raise HTTPException(status_code=404, detail="Document not found")
         return {"success": True, "doc": updated}
@@ -486,6 +520,11 @@ async def download_doc(doc_id: str, request: Request, format: str = Query("pdf")
         current_user = require_authenticated_user(request)
         doc = workspace_store.get_dashboard_doc(doc_id)
         if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+        # Phase 3C: cross-org access -> 404 (no existence disclosure) before the
+        # owner/admin check; dormant when the flag is off.
+        org_filter = _org_filter(current_user)
+        if org_filter is not None and doc.get("org_id") != org_filter:
             raise HTTPException(status_code=404, detail="Document not found")
         if doc.get("case_manager_id") != current_user.case_manager_id and not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Access denied")
@@ -527,11 +566,17 @@ async def delete_doc(doc_id: str, request: Request):
     """Delete a document"""
     try:
         current_user = require_authenticated_user(request)
-        docs = workspace_store.list_dashboard_items("dashboard_docs", current_user.case_manager_id)
+        org_filter = _org_filter(current_user)
+        docs = workspace_store.list_dashboard_items(
+            "dashboard_docs", current_user.case_manager_id, org_id=org_filter
+        )
         if not any(item["id"] == doc_id for item in docs) and not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Access denied")
-        workspace_store.delete_dashboard_item("dashboard_docs", doc_id)
+        if not workspace_store.delete_dashboard_item("dashboard_docs", doc_id, org_id=org_filter):
+            raise HTTPException(status_code=404, detail="Document not found")
         return {"success": True, "message": "Document deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting doc: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -541,7 +586,10 @@ async def delete_doc(doc_id: str, request: Request):
 async def get_bookmarks(request: Request):
     """Get all bookmarks"""
     try:
-        bookmarks = workspace_store.list_dashboard_items("dashboard_bookmarks", _current_scope(request))
+        current_user = require_authenticated_user(request)
+        bookmarks = workspace_store.list_dashboard_items(
+            "dashboard_bookmarks", current_user.case_manager_id, org_id=_org_filter(current_user)
+        )
         return {"success": True, "bookmarks": bookmarks}
     except Exception as e:
         logger.error(f"Error getting bookmarks: {e}")
@@ -551,17 +599,19 @@ async def get_bookmarks(request: Request):
 async def create_bookmark(bookmark: Bookmark, request: Request):
     """Create a new bookmark"""
     try:
+        current_user = require_authenticated_user(request)
         try:
             domain = urlparse(bookmark.url).netloc
             favicon_url = f"https://www.google.com/s2/favicons?domain={domain}"
         except Exception:
             favicon_url = None
         new_bookmark = workspace_store.create_dashboard_bookmark(
-            _current_scope(request),
+            current_user.case_manager_id,
             bookmark.title,
             bookmark.url,
             bookmark.description,
             favicon_url,
+            org_id=_org_filter(current_user) or DEFAULT_ORG_ID,
         )
         return {"success": True, "bookmark": new_bookmark}
     except Exception as e:
@@ -573,11 +623,17 @@ async def delete_bookmark(bookmark_id: str, request: Request):
     """Delete a bookmark"""
     try:
         current_user = require_authenticated_user(request)
-        bookmarks = workspace_store.list_dashboard_items("dashboard_bookmarks", current_user.case_manager_id)
+        org_filter = _org_filter(current_user)
+        bookmarks = workspace_store.list_dashboard_items(
+            "dashboard_bookmarks", current_user.case_manager_id, org_id=org_filter
+        )
         if not any(item["id"] == bookmark_id for item in bookmarks) and not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Access denied")
-        workspace_store.delete_dashboard_item("dashboard_bookmarks", bookmark_id)
+        if not workspace_store.delete_dashboard_item("dashboard_bookmarks", bookmark_id, org_id=org_filter):
+            raise HTTPException(status_code=404, detail="Bookmark not found")
         return {"success": True, "message": "Bookmark deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting bookmark: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -587,7 +643,10 @@ async def delete_bookmark(bookmark_id: str, request: Request):
 async def get_resources(request: Request):
     """Get all resources"""
     try:
-        resources = workspace_store.list_dashboard_items("dashboard_resources", _current_scope(request))
+        current_user = require_authenticated_user(request)
+        resources = workspace_store.list_dashboard_items(
+            "dashboard_resources", current_user.case_manager_id, org_id=_org_filter(current_user)
+        )
         return {"success": True, "resources": resources}
     except Exception as e:
         logger.error(f"Error getting resources: {e}")
@@ -608,13 +667,15 @@ async def upload_resource(request: Request, file: UploadFile = File(...)):
             content = await file.read()
             buffer.write(content)
         
+        current_user = require_authenticated_user(request)
         new_resource = workspace_store.create_dashboard_resource(
-            _current_scope(request),
+            current_user.case_manager_id,
             resource_id=file_id,
             name=file.filename,
             size=len(content),
             content_type=file.content_type or "application/octet-stream",
             file_path=unique_filename,
+            org_id=_org_filter(current_user) or DEFAULT_ORG_ID,
         )
         return {"success": True, "resource": new_resource}
     except Exception as e:
@@ -629,9 +690,13 @@ async def download_resource(resource_id: str, request: Request):
         resource = workspace_store.get_dashboard_resource(resource_id)
         if not resource:
             raise HTTPException(status_code=404, detail="Resource not found")
+        # Phase 3C: cross-org access -> 404 before the owner/admin check.
+        org_filter = _org_filter(current_user)
+        if org_filter is not None and resource.get("org_id") != org_filter:
+            raise HTTPException(status_code=404, detail="Resource not found")
         if resource.get("case_manager_id") != current_user.case_manager_id and not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Access denied")
-        
+
         file_path = os.path.join(UPLOADS_DIR, resource["file_path"])
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail="File not found")
@@ -652,16 +717,22 @@ async def delete_resource(resource_id: str, request: Request):
     """Delete a resource"""
     try:
         current_user = require_authenticated_user(request)
+        org_filter = _org_filter(current_user)
         resource = workspace_store.get_dashboard_resource(resource_id)
         if resource:
+            # Phase 3C: cross-org access -> 404 before the owner/admin check.
+            if org_filter is not None and resource.get("org_id") != org_filter:
+                raise HTTPException(status_code=404, detail="Resource not found")
             if resource.get("case_manager_id") != current_user.case_manager_id and not current_user.is_admin:
                 raise HTTPException(status_code=403, detail="Access denied")
             file_path = os.path.join(UPLOADS_DIR, resource["file_path"])
             if os.path.exists(file_path):
                 os.remove(file_path)
-            workspace_store.delete_dashboard_item("dashboard_resources", resource_id)
-        
+            workspace_store.delete_dashboard_item("dashboard_resources", resource_id, org_id=org_filter)
+
         return {"success": True, "message": "Resource deleted"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting resource: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -671,11 +742,13 @@ async def delete_resource(resource_id: str, request: Request):
 async def get_dashboard_stats(request: Request):
     """Get dashboard component statistics"""
     try:
-        scope = _current_scope(request)
-        notes = workspace_store.list_dashboard_items("dashboard_notes", scope)
-        docs = workspace_store.list_dashboard_items("dashboard_docs", scope)
-        bookmarks = workspace_store.list_dashboard_items("dashboard_bookmarks", scope)
-        resources = workspace_store.list_dashboard_items("dashboard_resources", scope)
+        current_user = require_authenticated_user(request)
+        scope = current_user.case_manager_id
+        org_filter = _org_filter(current_user)
+        notes = workspace_store.list_dashboard_items("dashboard_notes", scope, org_id=org_filter)
+        docs = workspace_store.list_dashboard_items("dashboard_docs", scope, org_id=org_filter)
+        bookmarks = workspace_store.list_dashboard_items("dashboard_bookmarks", scope, org_id=org_filter)
+        resources = workspace_store.list_dashboard_items("dashboard_resources", scope, org_id=org_filter)
         
         stats = {
             "notes_count": len(notes),
