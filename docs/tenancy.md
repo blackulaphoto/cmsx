@@ -30,6 +30,11 @@ default) the app behaves as the existing single-agency product.
   reads/writes, and the `/case-managers` picker are org-scoped when the flag is on;
   **announcements are org-scoped** (not broadcast across customers); cross-org thread
   access returns `404`; cross-org participants are rejected, not silently dropped).
+- **Phase 3B — Dashboard aggregates** (no schema change; `/dashboard/stats`,
+  `/clients`, `/case/{id}`, and the supervisor `/overview` are org-scoped when the
+  flag is on — admin/supervisor means "all in my org"; cross-org `case_manager_id`
+  params yield empty, cross-org `case_id` returns `404`. The `workspace_content.db`
+  admin-bypass on notes/docs/bookmarks/resources is **deferred** to a later phase).
 
 ## IMPORTANT: what Phase 2 does and does NOT do
 

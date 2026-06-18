@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from backend.shared.database.workspace_store import workspace_store
 from backend.auth.service import ADMIN_ROLE, require_authenticated_user, require_role
 from backend.shared.db_path import DB_DIR as _DB_DIR
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -199,12 +200,20 @@ def _safe_count_query(conn: sqlite3.Connection, query: str, params: tuple = ()) 
         return 0
 
 
-def _load_case_manager_names() -> Dict[str, str]:
+def _load_case_manager_names(org_id: Optional[str] = None) -> Dict[str, str]:
     name_map: Dict[str, str] = {}
     try:
         with _dict_connection(str(_DB_DIR / "auth.db")) as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT case_manager_id, full_name FROM user_profiles WHERE is_active = 1")
+            # Phase 3B: scope the name map to one org when supplied (flag on);
+            # org_id=None preserves the prior all-orgs behavior.
+            if org_id is not None:
+                cursor.execute(
+                    "SELECT case_manager_id, full_name FROM user_profiles WHERE is_active = 1 AND org_id = ?",
+                    (org_id,),
+                )
+            else:
+                cursor.execute("SELECT case_manager_id, full_name FROM user_profiles WHERE is_active = 1")
             for row in cursor.fetchall():
                 if row["case_manager_id"]:
                     name_map[row["case_manager_id"]] = row["full_name"] or row["case_manager_id"]
@@ -213,14 +222,20 @@ def _load_case_manager_names() -> Dict[str, str]:
     return name_map
 
 
-def _get_supervisor_overview() -> Dict[str, Any]:
+def _get_supervisor_overview(org_id: Optional[str] = None) -> Dict[str, Any]:
     today = datetime.now().date().isoformat()
     cutoff = (datetime.now() - timedelta(days=7)).date().isoformat()
-    name_map = _load_case_manager_names()
+    name_map = _load_case_manager_names(org_id)
 
+    # Phase 3B: scope the core-client aggregate to one org when supplied. Because
+    # the per-case-manager and client_id sets become org-scoped here, the
+    # downstream reminders/benefits/legal/FMLA counts inherit org scoping without
+    # touching those module DBs. org_id=None preserves prior behavior exactly.
+    org_clause = "WHERE org_id = ?" if org_id is not None else ""
+    aggregate_params = (cutoff, org_id) if org_id is not None else (cutoff,)
     with _dict_connection(str(_DB_DIR / "core_clients.db")) as core_conn:
         core_cursor = core_conn.cursor()
-        core_cursor.execute("""
+        core_cursor.execute(f"""
             SELECT
                 COALESCE(NULLIF(TRIM(case_manager_id), ''), 'unassigned') AS case_manager_id,
                 COUNT(*) AS total_clients,
@@ -228,9 +243,10 @@ def _get_supervisor_overview() -> Dict[str, Any]:
                 SUM(CASE WHEN DATE(COALESCE(created_at, CURRENT_TIMESTAMP)) >= DATE(?) THEN 1 ELSE 0 END) AS recent_intakes,
                 SUM(CASE WHEN TRIM(COALESCE(barriers, '')) <> '' THEN 1 ELSE 0 END) AS clients_with_barriers
             FROM clients
+            {org_clause}
             GROUP BY COALESCE(NULLIF(TRIM(case_manager_id), ''), 'unassigned')
             ORDER BY total_clients DESC, case_manager_id
-        """, (cutoff,))
+        """, aggregate_params)
         manager_rows = core_cursor.fetchall()
 
     case_managers: List[Dict[str, Any]] = []
@@ -243,10 +259,16 @@ def _get_supervisor_overview() -> Dict[str, Any]:
         case_manager_id = row["case_manager_id"]
         with _dict_connection(str(_DB_DIR / "core_clients.db")) as core_conn:
             client_cursor = core_conn.cursor()
-            client_cursor.execute(
-                "SELECT client_id FROM clients WHERE COALESCE(NULLIF(TRIM(case_manager_id), ''), 'unassigned') = ?",
-                (case_manager_id,),
-            )
+            if org_id is not None:
+                client_cursor.execute(
+                    "SELECT client_id FROM clients WHERE COALESCE(NULLIF(TRIM(case_manager_id), ''), 'unassigned') = ? AND org_id = ?",
+                    (case_manager_id, org_id),
+                )
+            else:
+                client_cursor.execute(
+                    "SELECT client_id FROM clients WHERE COALESCE(NULLIF(TRIM(case_manager_id), ''), 'unassigned') = ?",
+                    (case_manager_id,),
+                )
             client_ids = [client_row["client_id"] for client_row in client_cursor.fetchall()]
 
         all_client_ids.extend(client_ids)
@@ -676,7 +698,10 @@ async def get_supervisor_overview(request: Request, supervisor_id: str = Query("
     try:
         current_user = require_authenticated_user(request)
         require_role(current_user, [ADMIN_ROLE])
-        overview = _get_supervisor_overview()
+        # Phase 3B: scope the team overview to the supervisor's org when the flag
+        # is on; None preserves prior all-orgs behavior.
+        org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
+        overview = _get_supervisor_overview(org_id)
         overview["supervisor_id"] = supervisor_id
         return {"success": True, "overview": overview}
     except Exception as e:

@@ -13,11 +13,17 @@ logger = logging.getLogger(__name__)
 core_client_service = CoreClientService()
 
 
-def _fetch_clients(case_manager_id: Optional[str]) -> List[Dict[str, Any]]:
+def _fetch_clients(case_manager_id: Optional[str], org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     if not case_manager_id:
-        return core_client_service.get_all_clients(limit=10000) or []
-    clients = core_client_service.get_clients_by_case_manager(case_manager_id)
-    return clients or []
+        clients = core_client_service.get_all_clients(limit=10000) or []
+    else:
+        clients = core_client_service.get_clients_by_case_manager(case_manager_id) or []
+    # Phase 3B multi-tenancy: filter by org only when an org_id is supplied
+    # (callers pass it only while MULTI_TENANT_ENABLED is true). org_id=None
+    # preserves the existing single-agency behavior exactly.
+    if org_id is not None:
+        clients = [c for c in clients if (c.get("org_id") or "") == org_id]
+    return clients
 
 
 def _is_active_client(client: Dict[str, Any]) -> bool:
@@ -60,12 +66,13 @@ def _build_dashboard_payload(case_manager_id: Optional[str], clients: List[Dict[
     }
 
 
-def get_dashboard_stats_from_db(case_manager_id: Optional[str] = None) -> Dict[str, Any]:
+def get_dashboard_stats_from_db(case_manager_id: Optional[str] = None, org_id: Optional[str] = None) -> Dict[str, Any]:
     """Return dashboard stats from the core client source of truth.
-    Pass None to get stats across all clients (admin overview).
+    Pass None for case_manager_id to get stats across all clients (admin overview).
+    Pass org_id to scope to a single org (Phase 3B); None preserves prior behavior.
     """
     try:
-        clients = _fetch_clients(case_manager_id)
+        clients = _fetch_clients(case_manager_id, org_id)
         return _build_dashboard_payload(case_manager_id, clients)
     except Exception as e:
         logger.error(f"Error getting dashboard stats from DB: {e}")
@@ -89,10 +96,12 @@ def get_dashboard_stats_from_db(case_manager_id: Optional[str] = None) -> Dict[s
         }
 
 
-def get_clients_from_db(case_manager_id: str) -> Dict[str, Any]:
-    """Return clients from the core client source of truth."""
+def get_clients_from_db(case_manager_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
+    """Return clients from the core client source of truth.
+    Pass org_id to scope to a single org (Phase 3B); None preserves prior behavior.
+    """
     try:
-        clients = _fetch_clients(case_manager_id)
+        clients = _fetch_clients(case_manager_id, org_id)
         return {
             "success": True,
             "case_manager_id": case_manager_id,
