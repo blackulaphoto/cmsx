@@ -47,6 +47,12 @@ default) the app behaves as the existing single-agency product.
   the expungement admin "see all" bypass is disabled under multi-tenancy so
   cross-org records are excluded. By-id / `client_id`-supplied paths keep relying
   on `assert_client_access`. Medical/Benefits/FMLA/UR are later 3D sub-phases).
+- **Phase 3D2 — Medical** (no schema change; reuses `get_client_ids_for_org`.
+  When the flag is on, `/appointments` and `/referrals` scope an admin's "see all"
+  to their org (and add org defense to the non-admin path) and filter the
+  client-name map by org. By-id / `client_id`-supplied paths keep relying on
+  `assert_client_access`. `active_reminders` is write-only here (no list/admin
+  route) and is left alone).
 
 ## IMPORTANT: what Phase 2 does and does NOT do
 

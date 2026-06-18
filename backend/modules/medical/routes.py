@@ -16,8 +16,9 @@ from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
-from backend.auth.authorization import assert_client_access
+from backend.auth.authorization import assert_client_access, get_client_ids_for_org
 from backend.auth.service import require_authenticated_user
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -417,11 +418,19 @@ def _get_case_manager_client_ids(case_manager_id: str) -> List[str]:
         return []
 
 
-def _get_client_name_map() -> Dict[str, str]:
+def _get_client_name_map(org_id: Optional[str] = None) -> Dict[str, str]:
     names: Dict[str, str] = {}
     try:
         with _connect(CORE_CLIENTS_DB_PATH) as conn:
-            rows = conn.execute("SELECT client_id, first_name, last_name FROM clients").fetchall()
+            # Phase 3D2: scope the name map to one org when supplied (flag on) so
+            # other-org client names are never loaded. None = prior behavior.
+            if org_id is not None:
+                rows = conn.execute(
+                    "SELECT client_id, first_name, last_name FROM clients WHERE org_id = ?",
+                    (org_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT client_id, first_name, last_name FROM clients").fetchall()
             for row in rows:
                 full_name = f"{(row['first_name'] or '').strip()} {(row['last_name'] or '').strip()}".strip()
                 names[row["client_id"]] = full_name or row["client_id"]
@@ -813,8 +822,10 @@ async def get_medical_appointments(request: Request, client_id: Optional[str] = 
     current_user = require_authenticated_user(request)
     if client_id:
         assert_client_access(current_user, client_id)
+    # Phase 3D2: org filter for the non-client_id (admin "all" / non-admin) paths.
+    org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
     _ensure_case_management_appointments_table()
-    client_names = _get_client_name_map()
+    client_names = _get_client_name_map(org_id)
 
     try:
         with _connect(CASE_MGMT_DB_PATH) as conn:
@@ -831,6 +842,16 @@ async def get_medical_appointments(request: Request, client_id: Optional[str] = 
             elif not current_user.is_admin:
                 query += " AND case_manager_id = ?"
                 params.append(current_user.case_manager_id)
+            # When the flag is on and no specific client was requested, scope the
+            # result to the caller's org (covers admin "all" and adds defense to
+            # the non-admin path). assert_client_access already covers client_id.
+            if org_id is not None and not client_id:
+                org_client_ids = get_client_ids_for_org(org_id)
+                if not org_client_ids:
+                    return {"success": True, "appointments": [], "total_count": 0}
+                placeholders = ",".join("?" for _ in org_client_ids)
+                query += f" AND client_id IN ({placeholders})"
+                params.extend(org_client_ids)
             query += " ORDER BY appointment_date ASC, appointment_time ASC"
             rows = conn.execute(query, params).fetchall()
 
@@ -967,8 +988,9 @@ async def get_medical_referrals(request: Request, client_id: Optional[str] = Que
     current_user = require_authenticated_user(request)
     if client_id:
         assert_client_access(current_user, client_id)
+    org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
     _ensure_medical_tables()
-    client_names = _get_client_name_map()
+    client_names = _get_client_name_map(org_id)
     try:
         with _connect(MEDICAL_DB_PATH) as conn:
             query = """
@@ -985,7 +1007,15 @@ async def get_medical_referrals(request: Request, client_id: Optional[str] = Que
             rows = conn.execute(query, params).fetchall()
 
         referrals = []
-        allowed_client_ids = None if current_user.is_admin else set(_get_case_manager_client_ids(current_user.case_manager_id))
+        # Phase 3D2: when the flag is on, admin "all" becomes "all in my org" and
+        # the non-admin set is org-filtered. Flag off -> prior behavior exactly.
+        if org_id is not None:
+            if current_user.is_admin:
+                allowed_client_ids = set(get_client_ids_for_org(org_id))
+            else:
+                allowed_client_ids = set(_get_case_manager_client_ids(current_user.case_manager_id)) & set(get_client_ids_for_org(org_id))
+        else:
+            allowed_client_ids = None if current_user.is_admin else set(_get_case_manager_client_ids(current_user.case_manager_id))
         for row in rows:
             if allowed_client_ids is not None and row["client_id"] not in allowed_client_ids:
                 continue
