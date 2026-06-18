@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import HTTPException
 
@@ -122,6 +122,28 @@ def get_client_org_id(client_id: str) -> Optional[str]:
     if not row:
         return None
     return (row["org_id"] or "").strip() or None
+
+
+def get_client_ids_for_org(org_id: str) -> List[str]:
+    """Return all client_ids belonging to an org (Phase 3D shared helper).
+
+    Used by clinical-domain list/summary endpoints to turn an admin "see all"
+    into "all clients in my org" when multi-tenancy is enabled. Defensive:
+    returns an empty list for a blank org_id or on any DB/query error, and on a
+    missing org_id column (pre-Phase-1 schema), so callers fail closed.
+    """
+    org = (org_id or "").strip()
+    if not org:
+        return []
+    try:
+        with _connect_core_clients() as conn:
+            rows = conn.execute(
+                "SELECT client_id FROM clients WHERE org_id = ?",
+                (org,),
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [row["client_id"] for row in rows if row["client_id"]]
 
 
 def assert_client_access(user: AuthenticatedUser, client_id: str) -> str:

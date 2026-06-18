@@ -21,8 +21,9 @@ from backend.shared.db_path import DB_DIR as _DB_DIR
 from .models import LegalCase, CourtDate, LegalDocument, LegalDatabase
 from .expungement_routes import router as expungement_router
 from .expungement_service import ExpungementEligibilityEngine
-from backend.auth.authorization import assert_client_access
+from backend.auth.authorization import assert_client_access, get_client_ids_for_org
 from backend.auth.service import ADMIN_ROLE, require_authenticated_user, require_role
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 # Create FastAPI router
 router = APIRouter(tags=["legal"])
@@ -139,14 +140,24 @@ def _build_conviction_data_from_case(case_row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
-def _get_client_name_map() -> Dict[str, str]:
-    """Load client_id -> full name mapping from core clients DB."""
+def _get_client_name_map(org_id: Optional[str] = None) -> Dict[str, str]:
+    """Load client_id -> full name mapping from core clients DB.
+
+    Phase 3D1: when org_id is supplied (flag on), scope the map to that org so
+    no other org's client names are loaded. None preserves prior behavior.
+    """
     name_map: Dict[str, str] = {}
     try:
         conn = sqlite3.connect(str(_DB_DIR / "core_clients.db"))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute("SELECT client_id, first_name, last_name FROM clients")
+        if org_id is not None:
+            cursor.execute(
+                "SELECT client_id, first_name, last_name FROM clients WHERE org_id = ?",
+                (org_id,),
+            )
+        else:
+            cursor.execute("SELECT client_id, first_name, last_name FROM clients")
         for row in cursor.fetchall():
             first_name = (row["first_name"] or "").strip()
             last_name = (row["last_name"] or "").strip()
@@ -163,7 +174,16 @@ def _get_client_name_map() -> Dict[str, str]:
 
 
 def _get_accessible_client_ids(current_user) -> Optional[List[str]]:
+    # Phase 3D1: when multi-tenancy is on, an admin's "see all" becomes "all
+    # clients in my org" (not None = all app data), and a non-admin's own-client
+    # set is additionally org-filtered. Flag off -> prior behavior exactly
+    # (admin None = all, non-admin = own case_manager's clients).
+    org_scoped = multi_tenant_enabled()
+    org_id = resolve_org_id(current_user) if org_scoped else None
+
     if current_user.is_admin:
+        if org_scoped:
+            return get_client_ids_for_org(org_id)
         return None
 
     conn: Optional[sqlite3.Connection] = None
@@ -171,10 +191,16 @@ def _get_accessible_client_ids(current_user) -> Optional[List[str]]:
         conn = sqlite3.connect(str(_DB_DIR / "core_clients.db"))
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
-        cursor.execute(
-            "SELECT client_id FROM clients WHERE case_manager_id = ?",
-            (current_user.case_manager_id,),
-        )
+        if org_scoped:
+            cursor.execute(
+                "SELECT client_id FROM clients WHERE case_manager_id = ? AND org_id = ?",
+                (current_user.case_manager_id, org_id),
+            )
+        else:
+            cursor.execute(
+                "SELECT client_id FROM clients WHERE case_manager_id = ?",
+                (current_user.case_manager_id,),
+            )
         return [row["client_id"] for row in cursor.fetchall() if row["client_id"]]
     except Exception as e:
         logger.warning(f"Unable to load accessible legal client scope: {e}")
@@ -263,7 +289,7 @@ async def get_legal_cases(request: Request, client_id: Optional[str] = Query(Non
         legal_db = get_legal_db()
         legal_db.connect()
         cursor = legal_db.connection.cursor()
-        name_map = _get_client_name_map()
+        name_map = _get_client_name_map(resolve_org_id(current_user) if multi_tenant_enabled() else None)
         accessible_client_ids = _get_accessible_client_ids(current_user)
 
         query = """
@@ -387,7 +413,7 @@ async def get_court_dates(request: Request, client_id: Optional[str] = Query(Non
         legal_db = get_legal_db()
         legal_db.connect()
         cursor = legal_db.connection.cursor()
-        name_map = _get_client_name_map()
+        name_map = _get_client_name_map(resolve_org_id(current_user) if multi_tenant_enabled() else None)
         accessible_client_ids = _get_accessible_client_ids(current_user)
         future_date = (datetime.now() + timedelta(days=days_ahead)).date().isoformat()
         today = datetime.now().date().isoformat()
@@ -537,7 +563,7 @@ async def get_legal_documents(request: Request, client_id: Optional[str] = Query
         legal_db.connect()
         cursor = legal_db.connection.cursor()
         _ensure_legal_document_schema(legal_db.connection)
-        name_map = _get_client_name_map()
+        name_map = _get_client_name_map(resolve_org_id(current_user) if multi_tenant_enabled() else None)
         accessible_client_ids = _get_accessible_client_ids(current_user)
 
         query = """

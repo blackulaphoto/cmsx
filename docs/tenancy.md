@@ -41,6 +41,12 @@ default) the app behaves as the existing single-agency product.
   admin-bypass by-id paths (cross-org → 404) and the rolodex becomes org-scoped
   (each org its own shared rolodex). Client-linked tables keep relying on
   `assert_client_access`. `documentation_brand_resources` enforcement is deferred).
+- **Phase 3D1 — Legal** (no schema change; shared `get_client_ids_for_org` helper.
+  When the flag is on, legal list endpoints (`/cases`, `/court-dates`, `/documents`)
+  scope an admin's "see all" to their org and filter the client-name map by org;
+  the expungement admin "see all" bypass is disabled under multi-tenancy so
+  cross-org records are excluded. By-id / `client_id`-supplied paths keep relying
+  on `assert_client_access`. Medical/Benefits/FMLA/UR are later 3D sub-phases).
 
 ## IMPORTANT: what Phase 2 does and does NOT do
 

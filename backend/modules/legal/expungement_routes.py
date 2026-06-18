@@ -19,6 +19,7 @@ from .expungement_service import (
 )
 from .expungement_models import ExpungementCase, ExpungementTask, ExpungementProcessStage
 from backend.auth.authorization import assert_client_access
+from backend.shared.tenancy import multi_tenant_enabled
 from backend.auth.service import ADMIN_ROLE, require_authenticated_user, require_role
 
 # Create FastAPI router
@@ -355,7 +356,10 @@ async def get_expungement_cases(request: Request, client_id: Optional[str] = Que
             try:
                 assert_client_access(current_user, case.client_id)
             except HTTPException:
-                if current_user.is_admin:
+                # Phase 3D1: the admin "see all" bypass is disabled when
+                # multi-tenancy is on, so a cross-org case (which fails the org
+                # check in assert_client_access) is excluded instead of shown.
+                if current_user.is_admin and not multi_tenant_enabled():
                     pass
                 else:
                     continue
@@ -438,7 +442,9 @@ async def get_expungement_tasks(
                 assert_client_access(current_user, task.client_id)
                 filtered_tasks.append(task.to_dict())
             except HTTPException:
-                if current_user.is_admin:
+                # Phase 3D1: admin bypass disabled under multi-tenancy so
+                # cross-org tasks are excluded.
+                if current_user.is_admin and not multi_tenant_enabled():
                     filtered_tasks.append(task.to_dict())
 
         if status:
