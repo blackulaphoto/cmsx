@@ -53,6 +53,11 @@ default) the app behaves as the existing single-agency product.
   client-name map by org. By-id / `client_id`-supplied paths keep relying on
   `assert_client_access`. `active_reminders` is write-only here (no list/admin
   route) and is left alone).
+- **Phase 3D3 — Benefits** (no schema change; reuses `get_client_ids_for_org`.
+  When the flag is on, `GET /applications` scopes an admin's "see all" to their
+  org and org-filters the non-admin set; the only list endpoint with the gap.
+  By-id / `client_id`-supplied paths keep relying on `assert_client_access`. No
+  `case_manager` query param and no separate summary/name-map helper exist here).
 
 ## IMPORTANT: what Phase 2 does and does NOT do
 
