@@ -11,6 +11,32 @@ from .service import AuthenticatedUser
 from backend.shared.db_path import DB_DIR
 from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 CORE_CLIENTS_DB = DB_DIR / "core_clients.db"
+AUTH_DB = DB_DIR / "auth.db"
+
+
+def get_org_for_user_id(user_id: str) -> Optional[str]:
+    """Resolve a participant/staff user_id to their org_id from user_profiles.
+
+    Messages identify users by ``case_manager_id or firebase_uid`` (see the
+    messages module's ``_user_id``), so both columns are checked. Returns None
+    when the user cannot be resolved or the column/table is absent (callers fail
+    closed on None when multi-tenancy is enabled).
+    """
+    uid = (user_id or "").strip()
+    if not uid:
+        return None
+    try:
+        with sqlite3.connect(AUTH_DB) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT org_id FROM user_profiles WHERE case_manager_id = ? OR firebase_uid = ? LIMIT 1",
+                (uid, uid),
+            ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row:
+        return None
+    return (row["org_id"] or "").strip() or None
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -6,10 +6,11 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from backend.auth.authorization import assert_client_access
+from backend.auth.authorization import assert_client_access, get_org_for_user_id
 from backend.auth.service import AuthenticatedUser, require_authenticated_user
 from backend.modules.messages.database import THREAD_TYPES, MessagesDatabase, get_messages_db
 from backend.shared.db_path import DB_DIR
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 router = APIRouter()
 
@@ -106,7 +107,10 @@ def _assert_can_access_thread(
     thread_id: str,
     user: AuthenticatedUser,
 ) -> Dict[str, Any]:
-    thread = db.get_thread_for_user(thread_id, _user_id(user), include_announcements=True)
+    # Org-scoped: cross-org access resolves to None -> 404 (no existence leak).
+    thread = db.get_thread_for_user(
+        thread_id, _user_id(user), include_announcements=True, org_id=resolve_org_id(user)
+    )
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
     return thread
@@ -118,7 +122,10 @@ async def list_threads(
     db: MessagesDatabase = Depends(get_messages_db),
 ) -> Dict[str, Any]:
     user = require_authenticated_user(request)
-    return {"success": True, "threads": db.list_threads(_user_id(user), include_announcements=True)}
+    return {
+        "success": True,
+        "threads": db.list_threads(_user_id(user), include_announcements=True, org_id=resolve_org_id(user)),
+    }
 
 
 @router.post("/threads")
@@ -136,10 +143,13 @@ async def create_thread(
     if thread_type == "direct_message" and not payload.participants:
         raise HTTPException(status_code=400, detail="Direct messages require a recipient")
 
+    user_org_id = resolve_org_id(user)
+
     client_name = None
     if thread_type == "client_thread":
         if not payload.client_id:
             raise HTTPException(status_code=400, detail="Client thread requires client_id")
+        # Phase 1 org check: cross-org client -> 404 (also enforces same-org).
         assert_client_access(user, payload.client_id)
         client = _get_client_summary(payload.client_id)
         if not client:
@@ -147,6 +157,23 @@ async def create_thread(
         client_name = client["client_name"]
 
     participants = _normalize_participants(user, payload)
+
+    # Phase 3A: when multi-tenancy is on, every requested participant must
+    # belong to the creator's org. Reject the whole creation if any participant
+    # is cross-org or unresolved — do NOT silently drop participants.
+    if multi_tenant_enabled():
+        creator_id = _user_id(user)
+        for participant in participants:
+            participant_id = participant["user_id"]
+            if participant_id == creator_id:
+                continue
+            participant_org = get_org_for_user_id(participant_id)
+            if participant_org != user_org_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Participant '{participant_id}' is not in your organization",
+                )
+
     thread = db.create_thread(
         thread_type=thread_type,
         title=_default_title(payload, client_name),
@@ -158,6 +185,7 @@ async def create_thread(
             "body": payload.initial_message.strip(),
             "sender_name": _display_name(user),
         } if payload.initial_message and payload.initial_message.strip() else None,
+        org_id=user_org_id,
     )
     return {"success": True, "thread": thread}
 
@@ -223,17 +251,33 @@ async def list_case_managers(request: Request) -> Dict[str, Any]:
     user = require_authenticated_user(request)
     current_id = _user_id(user)
     members: List[Dict[str, str]] = []
+    # Phase 3A: scope the picker to the caller's org when multi-tenancy is on so
+    # cross-org staff are neither enumerable nor addable. Flag off -> unchanged.
+    org_scoped = multi_tenant_enabled()
+    user_org_id = resolve_org_id(user)
     try:
         with sqlite3.connect(DB_DIR / "auth.db") as conn:
             conn.row_factory = sqlite3.Row
-            rows = conn.execute(
-                """
-                SELECT case_manager_id, full_name, role
-                FROM user_profiles
-                WHERE is_active = 1 AND TRIM(COALESCE(case_manager_id, '')) <> ''
-                ORDER BY full_name COLLATE NOCASE
-                """
-            ).fetchall()
+            if org_scoped:
+                rows = conn.execute(
+                    """
+                    SELECT case_manager_id, full_name, role
+                    FROM user_profiles
+                    WHERE is_active = 1 AND TRIM(COALESCE(case_manager_id, '')) <> ''
+                      AND org_id = ?
+                    ORDER BY full_name COLLATE NOCASE
+                    """,
+                    (user_org_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT case_manager_id, full_name, role
+                    FROM user_profiles
+                    WHERE is_active = 1 AND TRIM(COALESCE(case_manager_id, '')) <> ''
+                    ORDER BY full_name COLLATE NOCASE
+                    """
+                ).fetchall()
         for row in rows:
             cm_id = (row["case_manager_id"] or "").strip()
             if not cm_id or cm_id == current_id:
@@ -256,5 +300,8 @@ async def unread_count(
     db: MessagesDatabase = Depends(get_messages_db),
 ) -> Dict[str, Any]:
     user = require_authenticated_user(request)
-    return {"success": True, "unread_count": db.unread_count(_user_id(user), include_announcements=True)}
+    return {
+        "success": True,
+        "unread_count": db.unread_count(_user_id(user), include_announcements=True, org_id=resolve_org_id(user)),
+    }
 

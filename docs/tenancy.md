@@ -26,6 +26,10 @@ default) the app behaves as the existing single-agency product.
   documented route classification; client-data endpoints in housing/jobs/resume
   guarded with `require_user` + `assert_client_access`; mixed routes guard only the
   client-specific branch; global search/reference + services routes left exempt).
+- **Phase 3A — Messages** (`org_id` on `message_threads` only; threads, message
+  reads/writes, and the `/case-managers` picker are org-scoped when the flag is on;
+  **announcements are org-scoped** (not broadcast across customers); cross-org thread
+  access returns `404`; cross-org participants are rejected, not silently dropped).
 
 ## IMPORTANT: what Phase 2 does and does NOT do
 
