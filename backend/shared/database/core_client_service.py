@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 from pathlib import Path
 from backend.shared.database.railway_postgres import upsert_client_to_postgres
+from backend.shared.tenancy import DEFAULT_ORG_ID
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +21,68 @@ class CoreClientService:
     def __init__(self):
         from backend.shared.db_path import DB_DIR
         self.db_path = str(DB_DIR / "core_clients.db")
+        self._auth_db_path = str(DB_DIR / "auth.db")
         self._ensure_database_exists()
-    
+        self._migrate_tenancy_schema()
+        self._backfill_org_ids()
+
     def _ensure_database_exists(self):
         """Ensure the core_clients.db database exists"""
         if not Path(self.db_path).exists():
             raise FileNotFoundError(f"Core clients database not found: {self.db_path}")
+
+    def _migrate_tenancy_schema(self) -> None:
+        """Idempotently add org_id to core clients table (Phase mirror-client-tables)."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("ALTER TABLE clients ADD COLUMN org_id TEXT")
+                conn.commit()
+        except sqlite3.OperationalError:
+            pass  # column already exists
+
+    def _backfill_org_ids(self) -> None:
+        """Populate org_id for clients that have none, deriving from case_manager → user_profiles."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                rows = conn.execute(
+                    "SELECT client_id, case_manager_id FROM clients WHERE org_id IS NULL OR TRIM(org_id) = ''"
+                ).fetchall()
+            if not rows:
+                return
+
+            try:
+                with sqlite3.connect(self._auth_db_path) as auth_conn:
+                    auth_conn.row_factory = sqlite3.Row
+                    def _lookup(cm_id: str) -> str:
+                        if not cm_id:
+                            return DEFAULT_ORG_ID
+                        try:
+                            row = auth_conn.execute(
+                                "SELECT org_id FROM user_profiles WHERE case_manager_id = ? OR firebase_uid = ? LIMIT 1",
+                                (cm_id, cm_id),
+                            ).fetchone()
+                            return (row["org_id"] or "").strip() or DEFAULT_ORG_ID if row else DEFAULT_ORG_ID
+                        except Exception:
+                            return DEFAULT_ORG_ID
+
+                    with sqlite3.connect(self.db_path) as conn:
+                        for client_id, cm_id in rows:
+                            org = _lookup(cm_id or "")
+                            conn.execute(
+                                "UPDATE clients SET org_id = ? WHERE client_id = ?",
+                                (org, client_id),
+                            )
+                        conn.commit()
+            except sqlite3.OperationalError:
+                with sqlite3.connect(self.db_path) as conn:
+                    for client_id, _ in rows:
+                        conn.execute(
+                            "UPDATE clients SET org_id = ? WHERE client_id = ?",
+                            (DEFAULT_ORG_ID, client_id),
+                        )
+                    conn.commit()
+        except Exception as exc:
+            logger.warning(f"[CoreClientService] org_id backfill skipped: {exc}")
 
     def _sync_client_to_postgres(self, client_data: Dict[str, Any], operation: str) -> str:
         """Dual-write mirror into Railway Postgres without blocking SQLite path."""
@@ -103,21 +160,30 @@ class CoreClientService:
             logger.error(f"Error getting client {client_id}: {e}")
             return None
     
-    def get_all_clients(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
-        """Get all clients with pagination"""
-        
+    def get_all_clients(self, limit: int = 100, offset: int = 0, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get all clients with pagination, optionally scoped to an org."""
+
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT * FROM clients ORDER BY created_at DESC LIMIT ? OFFSET ?", (limit, offset))
+                if org_id:
+                    cursor.execute(
+                        "SELECT * FROM clients WHERE org_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                        (org_id, limit, offset),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT * FROM clients ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                        (limit, offset),
+                    )
                 rows = cursor.fetchall()
-                
+
                 # Get column names
                 cursor.execute("PRAGMA table_info(clients)")
                 columns = [col[1] for col in cursor.fetchall()]
-                
+
                 return [dict(zip(columns, row)) for row in rows]
-                
+
         except Exception as e:
             logger.error(f"Error getting all clients: {e}")
             return []
@@ -202,29 +268,38 @@ class CoreClientService:
                 'error': str(e)
             }
     
-    def search_clients(self, search_term: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """Search clients by name, email, or phone"""
-        
+    def search_clients(self, search_term: str, limit: int = 50, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Search clients by name, email, or phone, optionally scoped to an org."""
+
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                
+
                 search_pattern = f"%{search_term}%"
-                cursor.execute("""
-                    SELECT * FROM clients 
-                    WHERE first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ?
-                    ORDER BY created_at DESC 
-                    LIMIT ?
-                """, (search_pattern, search_pattern, search_pattern, search_pattern, limit))
-                
+                if org_id:
+                    cursor.execute(
+                        """SELECT * FROM clients
+                           WHERE (first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ?)
+                             AND org_id = ?
+                           ORDER BY created_at DESC LIMIT ?""",
+                        (search_pattern, search_pattern, search_pattern, search_pattern, org_id, limit),
+                    )
+                else:
+                    cursor.execute(
+                        """SELECT * FROM clients
+                           WHERE first_name LIKE ? OR last_name LIKE ? OR email LIKE ? OR phone LIKE ?
+                           ORDER BY created_at DESC LIMIT ?""",
+                        (search_pattern, search_pattern, search_pattern, search_pattern, limit),
+                    )
+
                 rows = cursor.fetchall()
-                
+
                 # Get column names
                 cursor.execute("PRAGMA table_info(clients)")
                 columns = [col[1] for col in cursor.fetchall()]
-                
+
                 return [dict(zip(columns, row)) for row in rows]
-                
+
         except Exception as e:
             logger.error(f"Error searching clients: {e}")
             return []

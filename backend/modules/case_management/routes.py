@@ -15,6 +15,7 @@ from .database import CaseManagementDatabase
 from backend.shared.database.workspace_store import workspace_store
 from backend.auth.authorization import assert_client_access, effective_case_manager_id
 from backend.auth.service import require_authenticated_user
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -201,13 +202,15 @@ async def get_clients(
         
         # Get clients from core database
         scoped_case_manager_id = effective_case_manager_id(current_user, case_manager_id)
+        # When multi-tenancy is on and no CM filter scopes the query, restrict to the caller's org.
+        _org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
         if scoped_case_manager_id:
             clients_data = core_service.get_clients_by_case_manager(scoped_case_manager_id)
         elif search:
-            clients_data = core_service.search_clients(search, limit=per_page)
+            clients_data = core_service.search_clients(search, limit=per_page, org_id=_org_id)
         else:
             offset = (page - 1) * per_page
-            clients_data = core_service.get_all_clients(limit=per_page, offset=offset)
+            clients_data = core_service.get_all_clients(limit=per_page, offset=offset, org_id=_org_id)
         
         # Apply additional filters if needed
         if risk_level:
