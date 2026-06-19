@@ -10,6 +10,8 @@ from uuid import uuid4
 logger = logging.getLogger(__name__)
 
 from backend.shared.db_path import DB_DIR as _DB_DIR
+from backend.auth.authorization import get_org_for_user_id
+from backend.shared.tenancy import DEFAULT_ORG_ID
 DB_PATH = _DB_DIR / "groups.db"
 
 
@@ -90,6 +92,7 @@ class GroupsDatabase:
                     video_ids_json TEXT DEFAULT '[]',
                     facilitator_notes TEXT DEFAULT '',
                     case_manager_id TEXT NOT NULL,
+                    org_id TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -140,6 +143,7 @@ class GroupsDatabase:
                     recurrence TEXT NOT NULL DEFAULT 'weekly',
                     is_active INTEGER NOT NULL DEFAULT 1,
                     created_by TEXT NOT NULL DEFAULT 'system',
+                    org_id TEXT,
                     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
@@ -170,6 +174,7 @@ class GroupsDatabase:
         # Safe migration for existing DBs that predate new columns
         self._migrate_notes_table()
         self._migrate_schedules_table()
+        self._migrate_tenancy_columns()
 
     def _migrate_notes_table(self) -> None:
         new_cols = [
@@ -188,6 +193,55 @@ class GroupsDatabase:
                         conn.execute(f"ALTER TABLE group_notes ADD COLUMN {col_name} {col_def}")
                     except Exception:
                         pass
+            conn.commit()
+
+    def _migrate_tenancy_columns(self) -> None:
+        """Idempotently add org_id to org-scoped tables and backfill."""
+        with self._connect() as conn:
+            for table in ("group_sessions", "group_schedules"):
+                existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+                if "org_id" not in existing:
+                    try:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN org_id TEXT")
+                    except Exception:
+                        pass
+                try:
+                    conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_org ON {table}(org_id)")
+                except Exception:
+                    pass
+            conn.commit()
+        self._backfill_tenancy()
+
+    def _backfill_tenancy(self) -> None:
+        """Derive org_id for untagged sessions and schedules."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT session_id, case_manager_id FROM group_sessions WHERE org_id IS NULL OR TRIM(org_id) = ''"
+            ).fetchall()
+            for row in rows:
+                org = get_org_for_user_id(row["case_manager_id"] or "") or DEFAULT_ORG_ID
+                conn.execute(
+                    "UPDATE group_sessions SET org_id = ? WHERE session_id = ?",
+                    (org, row["session_id"]),
+                )
+            conn.execute(
+                "UPDATE group_sessions SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+                (DEFAULT_ORG_ID,),
+            )
+
+            rows = conn.execute(
+                "SELECT schedule_id, created_by FROM group_schedules WHERE org_id IS NULL OR TRIM(org_id) = ''"
+            ).fetchall()
+            for row in rows:
+                org = get_org_for_user_id(row["created_by"] or "") or DEFAULT_ORG_ID
+                conn.execute(
+                    "UPDATE group_schedules SET org_id = ? WHERE schedule_id = ?",
+                    (org, row["schedule_id"]),
+                )
+            conn.execute(
+                "UPDATE group_schedules SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+                (DEFAULT_ORG_ID,),
+            )
             conn.commit()
 
     def _row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
@@ -454,8 +508,8 @@ class GroupsDatabase:
                 """INSERT INTO group_sessions
                    (session_id, title, topic_id, scheduled_date, scheduled_time,
                     location, group_type, status, playlist_ids_json, video_ids_json,
-                    facilitator_notes, case_manager_id, created_at, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    facilitator_notes, case_manager_id, org_id, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     session_id,
                     data["title"],
@@ -469,6 +523,7 @@ class GroupsDatabase:
                     json.dumps(data.get("video_ids", [])),
                     data.get("facilitator_notes", ""),
                     data["case_manager_id"],
+                    data.get("org_id"),
                     now,
                     now,
                 ),
@@ -501,9 +556,13 @@ class GroupsDatabase:
         case_manager_id: Optional[str] = None,
         status: Optional[str] = None,
         topic_id: Optional[str] = None,
+        org_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         query = "SELECT * FROM group_sessions WHERE 1=1"
         params: List[Any] = []
+        if org_id:
+            query += " AND org_id = ?"
+            params.append(org_id)
         if case_manager_id:
             query += " AND case_manager_id = ?"
             params.append(case_manager_id)
@@ -517,6 +576,13 @@ class GroupsDatabase:
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         return [self._row_to_dict(r) for r in rows]
+
+    def get_session_org(self, session_id: str) -> Optional[str]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT org_id FROM group_sessions WHERE session_id = ?", (session_id,)
+            ).fetchone()
+        return row["org_id"] if row else None
 
     def update_session(self, session_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         fields = []
@@ -732,10 +798,23 @@ class GroupsDatabase:
         row["schedule_days"] = days
         return row
 
-    def list_schedules(self) -> List[dict]:
+    def list_schedules(self, org_id: Optional[str] = None) -> List[dict]:
+        query = "SELECT * FROM group_schedules"
+        params: List[Any] = []
+        if org_id:
+            query += " WHERE org_id = ?"
+            params.append(org_id)
+        query += " ORDER BY title"
         with self._connect() as conn:
-            rows = conn.execute("SELECT * FROM group_schedules ORDER BY title").fetchall()
+            rows = conn.execute(query, params).fetchall()
             return [self._parse_schedule(dict(r)) for r in rows]
+
+    def get_schedule_org(self, schedule_id: str) -> Optional[str]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT org_id FROM group_schedules WHERE schedule_id = ?", (schedule_id,)
+            ).fetchone()
+        return row["org_id"] if row else None
 
     def create_schedule(self, data: dict) -> dict:
         schedule_id = str(uuid.uuid4())
@@ -753,15 +832,15 @@ class GroupsDatabase:
                 (schedule_id, title, group_type, topic_id, curriculum_pack_id,
                  day_of_week, start_time, schedule_days_json,
                  duration_minutes, location, facilitator,
-                 recurrence, is_active, created_by, created_at, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 recurrence, is_active, created_by, org_id, created_at, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (schedule_id, data["title"], data.get("group_type", "psychoeducation"),
                   data.get("topic_id"), data.get("curriculum_pack_id"),
                   first_day["day"], first_day["time"], schedule_days_json,
                   data.get("duration_minutes", 60), data.get("location", ""),
                   data.get("facilitator", ""), data.get("recurrence", "weekly"),
                   1 if data.get("is_active", True) else 0,
-                  data.get("created_by", "system"), now, now))
+                  data.get("created_by", "system"), data.get("org_id"), now, now))
             conn.commit()
         return self.get_schedule(schedule_id)
 
@@ -910,7 +989,7 @@ class GroupsDatabase:
 
     # ── Reports ────────────────────────────────────────────────────────────────
 
-    def report_attendance(self, start_date: str, end_date: str, facilitator: str = "", topic_id: str = "") -> List[dict]:
+    def report_attendance(self, start_date: str, end_date: str, facilitator: str = "", topic_id: str = "", org_id: Optional[str] = None) -> List[dict]:
         with self._connect() as conn:
             # Join schedule instances so we can filter by facilitator stored on the schedule
             query = """
@@ -928,6 +1007,9 @@ class GroupsDatabase:
                 WHERE s.scheduled_date >= ? AND s.scheduled_date <= ?
             """
             params = [start_date, end_date]
+            if org_id:
+                query += " AND s.org_id = ?"
+                params.append(org_id)
             if topic_id:
                 query += " AND s.topic_id = ?"
                 params.append(topic_id)
@@ -938,28 +1020,37 @@ class GroupsDatabase:
             rows = conn.execute(query, params).fetchall()
             return [dict(r) for r in rows]
 
-    def report_topics(self, start_date: str, end_date: str) -> List[dict]:
+    def report_topics(self, start_date: str, end_date: str, org_id: Optional[str] = None) -> List[dict]:
         with self._connect() as conn:
-            rows = conn.execute("""
+            query = """
                 SELECT t.topic_id, t.title, t.category,
                        COUNT(s.session_id) as session_count
                 FROM group_topics t
                 JOIN group_sessions s ON s.topic_id = t.topic_id
                 WHERE s.scheduled_date >= ? AND s.scheduled_date <= ?
-                GROUP BY t.topic_id
-                ORDER BY session_count DESC
-            """, (start_date, end_date)).fetchall()
+            """
+            params: List[Any] = [start_date, end_date]
+            if org_id:
+                query += " AND s.org_id = ?"
+                params.append(org_id)
+            query += " GROUP BY t.topic_id ORDER BY session_count DESC"
+            rows = conn.execute(query, params).fetchall()
             return [dict(r) for r in rows]
 
-    def report_notes(self, start_date: str, end_date: str) -> dict:
+    def report_notes(self, start_date: str, end_date: str, org_id: Optional[str] = None) -> dict:
         with self._connect() as conn:
-            rows = conn.execute("""
+            query = """
                 SELECT n.note_id, n.reviewed, n.finalized, n.ai_generated,
                        s.scheduled_date
                 FROM group_notes n
                 JOIN group_sessions s ON s.session_id = n.session_id
                 WHERE s.scheduled_date >= ? AND s.scheduled_date <= ?
-            """, (start_date, end_date)).fetchall()
+            """
+            params: List[Any] = [start_date, end_date]
+            if org_id:
+                query += " AND s.org_id = ?"
+                params.append(org_id)
+            rows = conn.execute(query, params).fetchall()
             total = len(rows)
             reviewed = sum(1 for r in rows if r["reviewed"])
             finalized = sum(1 for r in rows if r["finalized"])
