@@ -34,6 +34,7 @@ from backend.modules.services.case_management_api import (
     get_clients_from_db,
 )
 from backend.modules.services.virgil_db_service import get_virgil_db
+from backend.modules.ai_unified import platform_tools as _pt
 from backend.modules.reminders.engine import IntelligentReminderEngine
 from backend.search.coordinator import get_coordinator
 from backend.shared.database.workspace_store import workspace_store
@@ -362,6 +363,11 @@ class UnifiedAIService:
             "search_housing": self.search_housing,
             "search_services": self.search_services,
             "search_internal_resources": self.search_internal_resources,
+            # Platform data tools (auth-pinned at call time in process_message)
+            "list_current_clients": self._platform_list_clients,
+            "search_client_by_name": self._platform_search_client,
+            "get_client_insurance": self._platform_get_insurance,
+            "get_upcoming_court_dates": self._platform_get_court_dates,
         }
         if not self.client:
             logger.warning("OPENAI_API_KEY missing: Unified AI running in degraded mode.")
@@ -559,11 +565,42 @@ class UnifiedAIService:
             raise ValueError(f"Function '{name}' not permitted in this mode")
         return await self._function_map[name](**params)
 
-    async def get_dashboard_stats(self, case_manager_id: str) -> Dict[str, Any]:
+    async def get_dashboard_stats(self, case_manager_id: str, **_ignored) -> Dict[str, Any]:
         return await asyncio.to_thread(get_dashboard_stats_from_db, case_manager_id)
 
-    async def get_client_list(self, case_manager_id: str) -> Dict[str, Any]:
+    async def get_client_list(self, case_manager_id: str, **_ignored) -> Dict[str, Any]:
         return await asyncio.to_thread(get_clients_from_db, case_manager_id)
+
+    # ------------------------------------------------------------------
+    # Platform tools — identity is injected by process_message; any
+    # case_manager_id the LLM supplies in tool arguments is ignored.
+    # ------------------------------------------------------------------
+
+    async def _platform_list_clients(
+        self, case_manager_id: str, org_id: Optional[str] = None, **_ignored
+    ) -> Dict[str, Any]:
+        return await asyncio.to_thread(_pt.list_current_clients, case_manager_id, org_id)
+
+    async def _platform_search_client(
+        self, name: str, case_manager_id: str, org_id: Optional[str] = None, **_ignored
+    ) -> Dict[str, Any]:
+        return await asyncio.to_thread(_pt.search_client_by_name, name, case_manager_id, org_id)
+
+    async def _platform_get_insurance(
+        self, client_id: str, case_manager_id: str, org_id: Optional[str] = None, **_ignored
+    ) -> Dict[str, Any]:
+        return await asyncio.to_thread(_pt.get_client_insurance, client_id, case_manager_id, org_id)
+
+    async def _platform_get_court_dates(
+        self,
+        case_manager_id: str,
+        org_id: Optional[str] = None,
+        days_ahead: int = 7,
+        **_ignored,
+    ) -> Dict[str, Any]:
+        return await asyncio.to_thread(
+            _pt.get_upcoming_court_dates, case_manager_id, org_id, days_ahead
+        )
 
     async def search_jobs(
         self,
@@ -1321,6 +1358,68 @@ class UnifiedAIService:
                     },
                 },
             },
+            # --- Platform data tools (v1) ---
+            # case_manager_id is injected server-side from the auth token;
+            # the LLM must NOT supply it.
+            {
+                "type": "function",
+                "function": {
+                    "name": "list_current_clients",
+                    "description": "Return the list of clients currently assigned to the signed-in case manager. Use this when the user asks 'who are my clients', 'list my clients', 'show my caseload', or any similar question about their current cases.",
+                    "parameters": {"type": "object", "properties": {}, "required": []},
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "search_client_by_name",
+                    "description": "Find a specific client by name within the case manager's accessible caseload. Use when the user refers to a client by first name, last name, or partial name (e.g. 'Jessica', 'Taylor R'). If multiple matches, ask for clarification.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                                "description": "The client name or partial name to search for",
+                            }
+                        },
+                        "required": ["name"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_client_insurance",
+                    "description": "Return insurance provider name and member/ID number for a specific client. Use when the user asks about a client's insurance. Requires a client_id from search_client_by_name.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "client_id": {
+                                "type": "string",
+                                "description": "The client_id from a prior search_client_by_name result",
+                            }
+                        },
+                        "required": ["client_id"],
+                    },
+                },
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_upcoming_court_dates",
+                    "description": "Return upcoming court dates for clients in the case manager's caseload within a date range. Use when the user asks 'who has court this week', 'upcoming court dates', or similar.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "days_ahead": {
+                                "type": "integer",
+                                "description": "How many days ahead to look (default 7 for 'this week', 30 for 'this month')",
+                            }
+                        },
+                        "required": [],
+                    },
+                },
+            },
         ]
         assistant_tools = [
             tool
@@ -1364,6 +1463,13 @@ class UnifiedAIService:
                 for tool_call in assistant_message.tool_calls:
                     function_called = tool_call.function.name
                     params = json.loads(tool_call.function.arguments or "{}")
+                    # Inject the authenticated identity for every tool call.
+                    # Platform tools require case_manager_id; older tools that
+                    # take it as an LLM param are also pinned here so they can
+                    # never be redirected to a different user's data.
+                    params["case_manager_id"] = case_manager_id
+                    if org_id is not None:
+                        params["org_id"] = org_id
                     result = await self.execute_function(
                         function_called,
                         params,
@@ -1452,13 +1558,25 @@ class UnifiedAIService:
             if mode == "central"
             else "You are in assistant mode. Do not imply you changed records unless a tool confirms it."
         )
+        platform_context_line = (
+            "\nPlatform data access: You are connected to live platform data for the signed-in case manager. "
+            "Use list_current_clients to answer any question about their caseload. "
+            "Use search_client_by_name when the user mentions a client by name. "
+            "Use get_client_insurance for insurance questions about a client. "
+            "Use get_upcoming_court_dates for court schedule questions. "
+            "NEVER say 'you have no clients' or 'I don't have access to your data' — "
+            "always call the appropriate tool first. "
+            "Label data source in your answer (e.g. 'from client records', 'from legal module', 'from admissions'). "
+            "If a tool returns no data, say exactly which source was checked and what was missing — do not fabricate."
+        )
         return (
             "You are Ember, a direct and experienced California case management copilot.\n"
             "You help working case managers get clients what they need, fast.\n\n"
             "Your job is to move staff from question to action, not to give broad motivational advice.\n"
             "Act like an experienced case manager and operations partner, not a generic help bot.\n"
             "Be warm but not wordy. Be direct but not cold. Cut through bureaucracy with useful next steps.\n\n"
-            f"{role_line}\n\n"
+            f"{role_line}\n"
+            f"{platform_context_line}\n\n"
             "Response structure:\n"
             "1. Acknowledge the reality of the situation directly\n"
             "2. Immediate next steps (what to do in the next hour)\n"

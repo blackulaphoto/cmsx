@@ -3,16 +3,6 @@ import { MessageCircle, Minimize2, Send, X } from 'lucide-react'
 import AIAssistantButton from './AIAssistantButton'
 import { apiFetch } from '../../api/config'
 
-const SESSION_KEY = 'ai_assistant_session_id'
-
-const getSessionId = () => {
-  const existing = window.localStorage.getItem(SESSION_KEY)
-  if (existing) return existing
-  const created = `session_${crypto.randomUUID()}`
-  window.localStorage.setItem(SESSION_KEY, created)
-  return created
-}
-
 export default function AIAssistantPopup() {
   const [isOpen, setIsOpen] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
@@ -31,7 +21,6 @@ export default function AIAssistantPopup() {
   const sendMessage = async () => {
     if (!input.trim() || loading) return
 
-    const sessionId = getSessionId()
     const messageText = input.trim()
     setMessages((prev) => [...prev, { role: 'user', content: messageText }])
     setInput('')
@@ -39,13 +28,10 @@ export default function AIAssistantPopup() {
 
     try {
       const response = await apiFetch('/api/ai/assistant', {
-        timeoutMs: 20000,
+        timeoutMs: 30000,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: messageText,
-          case_manager_id: sessionId,
-        }),
+        body: JSON.stringify({ message: messageText }),
       })
 
       if (!response.ok) {
