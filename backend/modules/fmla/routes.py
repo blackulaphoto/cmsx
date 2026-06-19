@@ -8,8 +8,9 @@ from fastapi import APIRouter, File, Form, HTTPException, Query, Request, Upload
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from backend.auth.authorization import assert_client_access, effective_case_manager_id
+from backend.auth.authorization import assert_client_access, effective_case_manager_id, get_client_org_id
 from backend.auth.service import require_authenticated_user
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 from .export_service import build_packet_pdf, generate_employer_safe_packet
 from .store_factory import get_fmla_store
@@ -129,12 +130,16 @@ def _case_subject_type(case_record: Dict[str, Any]) -> str:
 def _authorize_case_access(request: Request, case_record: Dict[str, Any]):
     current_user = require_authenticated_user(request)
     if _case_subject_type(case_record) == "staff":
+        if multi_tenant_enabled() and case_record.get("org_id") != resolve_org_id(current_user):
+            raise HTTPException(status_code=404, detail="FMLA case not found")
         if not current_user.is_admin:
             raise HTTPException(status_code=403, detail="Staff FMLA records require admin access")
         return current_user
 
     if case_record.get("client_id"):
         assert_client_access(current_user, case_record["client_id"])
+    elif multi_tenant_enabled() and case_record.get("org_id") != resolve_org_id(current_user):
+        raise HTTPException(status_code=404, detail="FMLA case not found")
     elif not current_user.is_admin and case_record.get("assigned_case_manager") != current_user.case_manager_id:
         raise HTTPException(status_code=403, detail="Access denied to this FMLA case")
     return current_user
@@ -150,6 +155,13 @@ def _authorize_case_payload(request: Request, payload: FMLACasePayload):
     if payload.client_id:
         assert_client_access(current_user, payload.client_id)
     return current_user
+
+
+def _org_for_new_case(current_user, payload: Dict[str, Any]) -> str:
+    client_org = get_client_org_id(payload.get("client_id") or "")
+    if client_org:
+        return client_org
+    return resolve_org_id(current_user)
 
 
 def _audit(case_id: Optional[str], action: str, current_user, metadata: Optional[Dict[str, Any]] = None):
@@ -191,6 +203,7 @@ async def list_fmla_cases(
             "deadline": deadline,
             "case_subject_type": case_subject_type,
             "case_manager": effective_case_manager_id(current_user, case_manager),
+            "org_id": resolve_org_id(current_user) if multi_tenant_enabled() else None,
         }
     )
     if not current_user.is_admin:
@@ -201,7 +214,10 @@ async def list_fmla_cases(
 @router.get("/fmla/summary")
 async def get_fmla_summary(request: Request, case_manager_id: Optional[str] = Query(None)):
     current_user = require_authenticated_user(request)
-    summary = store.get_summary(effective_case_manager_id(current_user, case_manager_id))
+    summary = store.get_summary(
+        effective_case_manager_id(current_user, case_manager_id),
+        resolve_org_id(current_user) if multi_tenant_enabled() else None,
+    )
     if not current_user.is_admin:
         summary["cases"] = [item for item in summary["cases"] if _case_subject_type(item) != "staff"]
     return {"success": True, **summary}
@@ -214,6 +230,7 @@ async def create_fmla_case(payload: FMLACasePayload, request: Request):
     data["assigned_case_manager"] = current_user.case_manager_id if not current_user.is_admin else (
         payload.assigned_case_manager or current_user.case_manager_id
     )
+    data["org_id"] = _org_for_new_case(current_user, data)
     record = store.create_case(data)
     _audit(record["case_id"], "case_created", current_user, {"case_subject_type": record.get("case_subject_type"), "status": record.get("status")})
     return {"success": True, "case": record}

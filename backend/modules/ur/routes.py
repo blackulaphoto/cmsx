@@ -5,8 +5,9 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from backend.auth.authorization import assert_client_access, effective_case_manager_id
+from backend.auth.authorization import assert_client_access, effective_case_manager_id, get_client_org_id
 from backend.auth.service import require_authenticated_user
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 from .postgres_store import ALLOWED_UR_EVENT_TYPES, ALLOWED_UR_STATUSES
 from .store_factory import get_ur_store
@@ -88,9 +89,18 @@ def _authorize_case_access(request: Request, case_record: Dict[str, Any]):
     current_user = require_authenticated_user(request)
     if case_record.get("client_id"):
         assert_client_access(current_user, case_record["client_id"])
+    elif multi_tenant_enabled() and case_record.get("org_id") != resolve_org_id(current_user):
+        raise HTTPException(status_code=404, detail="UR case not found")
     elif not current_user.is_admin and case_record.get("assigned_case_manager") != current_user.case_manager_id:
         raise HTTPException(status_code=403, detail="Access denied to this UR case")
     return current_user
+
+
+def _org_for_new_case(current_user, payload: Dict[str, Any]) -> str:
+    client_org = get_client_org_id(payload.get("client_id") or "")
+    if client_org:
+        return client_org
+    return resolve_org_id(current_user)
 
 
 @router.get("/ur")
@@ -112,6 +122,7 @@ async def list_ur_cases(
             "status": status,
             "case_manager": effective_case_manager_id(current_user, case_manager),
             "due_window": due_window,
+            "org_id": resolve_org_id(current_user) if multi_tenant_enabled() else None,
         }
     )
     return {"success": True, "cases": cases, "total_count": len(cases)}
@@ -120,7 +131,10 @@ async def list_ur_cases(
 @router.get("/ur/summary")
 async def get_ur_summary(request: Request, case_manager_id: Optional[str] = Query(None)):
     current_user = require_authenticated_user(request)
-    summary = store.get_summary(effective_case_manager_id(current_user, case_manager_id))
+    summary = store.get_summary(
+        effective_case_manager_id(current_user, case_manager_id),
+        resolve_org_id(current_user) if multi_tenant_enabled() else None,
+    )
     return {"success": True, **summary}
 
 
@@ -133,6 +147,7 @@ async def create_ur_case(payload: URCasePayload, request: Request):
     data["assigned_case_manager"] = current_user.case_manager_id if not current_user.is_admin else (
         payload.assigned_case_manager or current_user.case_manager_id
     )
+    data["org_id"] = _org_for_new_case(current_user, data)
     record = store.create_case(data)
     return {"success": True, "case": record}
 

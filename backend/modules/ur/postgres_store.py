@@ -6,7 +6,9 @@ from typing import Any, Dict, List, Optional
 
 from sqlalchemy import text
 
+from backend.auth.authorization import get_client_org_id, get_org_for_user_id
 from backend.shared.database.railway_ur_postgres import _engine, ensure_postgres_ur_tables
+from backend.shared.tenancy import DEFAULT_ORG_ID
 
 
 ALLOWED_UR_STATUSES = {
@@ -74,7 +76,54 @@ class PostgresURStore:
         if self._schema_ready:
             return
         ensure_postgres_ur_tables(self._get_engine())
+        self._ensure_org_schema()
+        self._backfill_org_ids()
         self._schema_ready = True
+
+    def _ensure_org_schema(self) -> None:
+        engine = self._get_engine()
+        with engine.begin() as conn:
+            if engine.dialect.name == "sqlite":
+                columns = {
+                    row[1]
+                    for row in conn.exec_driver_sql("PRAGMA table_info(railway_ur_cases)").fetchall()
+                }
+                if "org_id" not in columns:
+                    conn.exec_driver_sql("ALTER TABLE railway_ur_cases ADD COLUMN org_id TEXT")
+            else:
+                conn.execute(text("ALTER TABLE railway_ur_cases ADD COLUMN IF NOT EXISTS org_id TEXT"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_railway_ur_cases_org ON railway_ur_cases(org_id)"))
+
+    def _resolve_org_for_case(self, client_id: Optional[str], case_manager_id: Optional[str]) -> str:
+        client_org = get_client_org_id(_normalize_text(client_id))
+        if client_org:
+            return client_org
+        staff_org = get_org_for_user_id(_normalize_text(case_manager_id))
+        if staff_org:
+            return staff_org
+        return DEFAULT_ORG_ID
+
+    def _backfill_org_ids(self) -> None:
+        with self._get_engine().begin() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT case_id, client_id, assigned_case_manager
+                    FROM railway_ur_cases
+                    WHERE org_id IS NULL OR TRIM(org_id) = ''
+                    """
+                )
+            ).mappings().all()
+            for row in rows:
+                org_id = self._resolve_org_for_case(row.get("client_id"), row.get("assigned_case_manager"))
+                conn.execute(
+                    text("UPDATE railway_ur_cases SET org_id = :org_id WHERE case_id = :case_id"),
+                    {"org_id": org_id, "case_id": row["case_id"]},
+                )
+            conn.execute(
+                text("UPDATE railway_ur_cases SET org_id = :org_id WHERE org_id IS NULL OR TRIM(org_id) = ''"),
+                {"org_id": DEFAULT_ORG_ID},
+            )
 
     def _fetchone(self, query: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         self._ensure_ready()
@@ -140,6 +189,7 @@ class PostgresURStore:
             "appeal_deadline": _normalize_text(payload.get("appeal_deadline") or (existing or {}).get("appeal_deadline")),
             "revenue_at_risk_amount": _to_float(payload.get("revenue_at_risk_amount"), _to_float((existing or {}).get("revenue_at_risk_amount"), 0)),
             "status": status,
+            "org_id": _normalize_text(payload.get("org_id") or (existing or {}).get("org_id")) or DEFAULT_ORG_ID,
         }
 
     def _normalize_event_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -202,6 +252,10 @@ class PostgresURStore:
         if case_manager:
             params["case_manager"] = case_manager
             query += " AND assigned_case_manager = :case_manager"
+        org_id = filters.get("org_id")
+        if org_id is not None:
+            params["org_id"] = org_id
+            query += " AND org_id = :org_id"
 
         query += " ORDER BY updated_at DESC"
         cases = self._fetchall(query, params)
@@ -294,8 +348,13 @@ class PostgresURStore:
             "events": self.list_events(case_id),
         }
 
-    def get_summary(self, case_manager_id: Optional[str] = None) -> Dict[str, Any]:
-        cases = self.list_cases({"case_manager": case_manager_id} if case_manager_id else {})
+    def get_summary(self, case_manager_id: Optional[str] = None, org_id: Optional[str] = None) -> Dict[str, Any]:
+        filters: Dict[str, Any] = {}
+        if case_manager_id:
+            filters["case_manager"] = case_manager_id
+        if org_id is not None:
+            filters["org_id"] = org_id
+        cases = self.list_cases(filters)
         today = datetime.utcnow().date()
         within_72 = today + timedelta(days=3)
 
