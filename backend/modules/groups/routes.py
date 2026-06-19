@@ -8,8 +8,9 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 from openai import AsyncOpenAI
 
-from backend.auth.service import require_authenticated_user
+from backend.auth.service import AuthenticatedUser, require_authenticated_user
 from backend.auth.authorization import assert_client_access
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 from .database import groups_db
 from .models import (
     AIGroupNoteRequest,
@@ -87,6 +88,34 @@ def _extract_playlist_id(url: str) -> Optional[str]:
     """Extract YouTube playlist ID."""
     m = re.search(r"[?&]list=([A-Za-z0-9_-]+)", url)
     return m.group(1) if m else None
+
+
+# ── Tenancy helpers ────────────────────────────────────────────────────────────
+
+def _mt_user(request: Request) -> Optional[AuthenticatedUser]:
+    if not multi_tenant_enabled():
+        return None
+    return require_authenticated_user(request)
+
+
+def _groups_org_id(user: Optional[AuthenticatedUser]) -> Optional[str]:
+    return resolve_org_id(user) if (user is not None and multi_tenant_enabled()) else None
+
+
+def _assert_session_scope(user: Optional[AuthenticatedUser], session_id: str) -> None:
+    if not multi_tenant_enabled() or user is None:
+        return
+    session_org = groups_db.get_session_org(session_id)
+    if not session_org or session_org != resolve_org_id(user):
+        raise HTTPException(status_code=404, detail="Session not found")
+
+
+def _assert_schedule_scope(user: Optional[AuthenticatedUser], schedule_id: str) -> None:
+    if not multi_tenant_enabled() or user is None:
+        return
+    sched_org = groups_db.get_schedule_org(schedule_id)
+    if not sched_org or sched_org != resolve_org_id(user):
+        raise HTTPException(status_code=404, detail="Schedule not found")
 
 
 # ── Topics ─────────────────────────────────────────────────────────────────────
@@ -292,10 +321,12 @@ async def list_sessions(
     topic_id: Optional[str] = Query(None),
 ):
     user = require_authenticated_user(request)
+    mt = _mt_user(request)
     sessions = groups_db.list_sessions(
         case_manager_id=user.case_manager_id if not user.is_admin else None,
         status=status,
         topic_id=topic_id,
+        org_id=_groups_org_id(mt),
     )
     return {"sessions": sessions, "count": len(sessions)}
 
@@ -305,13 +336,15 @@ async def create_session(request: Request, payload: SessionCreate):
     user = require_authenticated_user(request)
     data = payload.model_dump()
     data["case_manager_id"] = user.case_manager_id
+    data["org_id"] = resolve_org_id(user)
     session = groups_db.create_session(data)
     return session
 
 
 @router.get("/sessions/{session_id}")
 async def get_session(request: Request, session_id: str):
-    require_authenticated_user(request)
+    user = require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     session = groups_db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -328,6 +361,7 @@ async def get_session(request: Request, session_id: str):
 @router.put("/sessions/{session_id}")
 async def update_session(request: Request, session_id: str, payload: SessionUpdate):
     require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     existing = groups_db.get_session(session_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -340,6 +374,7 @@ async def update_session(request: Request, session_id: str, payload: SessionUpda
 @router.get("/sessions/{session_id}/attendance")
 async def list_attendance(request: Request, session_id: str):
     require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     if not groups_db.get_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     records = groups_db.list_attendance(session_id)
@@ -349,6 +384,7 @@ async def list_attendance(request: Request, session_id: str):
 @router.post("/sessions/{session_id}/attendance", status_code=201)
 async def upsert_attendance(request: Request, session_id: str, payload: AttendanceUpsert):
     current_user = require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     if not groups_db.get_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     assert_client_access(current_user, payload.client_id)
@@ -365,6 +401,7 @@ async def upsert_attendance(request: Request, session_id: str, payload: Attendan
 @router.delete("/sessions/{session_id}/attendance/{client_id}", status_code=204)
 async def remove_attendance(request: Request, session_id: str, client_id: str):
     current_user = require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     assert_client_access(current_user, client_id)
     groups_db.delete_attendance(session_id, client_id)
 
@@ -539,6 +576,7 @@ async def _call_openai_for_note(prompt: str, temperature: float = 0.55) -> str:
 @router.get("/sessions/{session_id}/notes")
 async def list_notes(request: Request, session_id: str):
     require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     if not groups_db.get_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     notes = groups_db.list_notes(session_id)
@@ -548,6 +586,7 @@ async def list_notes(request: Request, session_id: str):
 @router.post("/sessions/{session_id}/notes", status_code=201)
 async def create_note(request: Request, session_id: str, payload: NoteCreate):
     current_user = require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     if not groups_db.get_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     if payload.client_id:
@@ -572,6 +611,7 @@ async def create_note(request: Request, session_id: str, payload: NoteCreate):
 @router.put("/sessions/{session_id}/notes/{note_id}")
 async def update_session_note(request: Request, session_id: str, note_id: str, payload: NoteUpdate):
     current_user = require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     existing = groups_db.get_note(note_id)
     if not existing or existing.get("session_id") != session_id:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -596,6 +636,7 @@ async def update_note_direct(request: Request, note_id: str, payload: NoteUpdate
 @router.post("/sessions/{session_id}/notes/ai-generate", status_code=201)
 async def ai_generate_note(request: Request, session_id: str, payload: AIGroupNoteRequest):
     current_user = require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     session = groups_db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -656,6 +697,7 @@ async def ai_generate_note(request: Request, session_id: str, payload: AIGroupNo
 async def bulk_generate_notes(request: Request, session_id: str, payload: BulkGenerateRequest):
     """Generate individual notes for up to 50 attendees in one request."""
     current_user = require_authenticated_user(request)
+    _assert_session_scope(_mt_user(request), session_id)
     session = groups_db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -733,20 +775,26 @@ async def bulk_generate_notes(request: Request, session_id: str, payload: BulkGe
 @router.get("/schedules")
 async def list_schedules(request: Request):
     require_authenticated_user(request)
-    schedules = groups_db.list_schedules()
+    mt = _mt_user(request)
+    schedules = groups_db.list_schedules(org_id=_groups_org_id(mt))
     return {"schedules": schedules, "count": len(schedules)}
 
 
 @router.post("/schedules", status_code=201)
 async def create_schedule(request: Request, payload: ScheduleCreate):
     current_user = require_authenticated_user(request)
-    schedule = groups_db.create_schedule({**payload.model_dump(), "created_by": current_user.case_manager_id})
+    schedule = groups_db.create_schedule({
+        **payload.model_dump(),
+        "created_by": current_user.case_manager_id,
+        "org_id": resolve_org_id(current_user),
+    })
     return schedule
 
 
 @router.put("/schedules/{schedule_id}")
 async def update_schedule(request: Request, schedule_id: str, payload: ScheduleUpdate):
     require_authenticated_user(request)
+    _assert_schedule_scope(_mt_user(request), schedule_id)
     if not groups_db.get_schedule(schedule_id):
         raise HTTPException(status_code=404, detail="Schedule not found")
     return groups_db.update_schedule(schedule_id, payload.model_dump(exclude_none=True))
@@ -755,6 +803,7 @@ async def update_schedule(request: Request, schedule_id: str, payload: ScheduleU
 @router.get("/schedules/{schedule_id}/instances")
 async def list_instances(request: Request, schedule_id: str):
     require_authenticated_user(request)
+    _assert_schedule_scope(_mt_user(request), schedule_id)
     if not groups_db.get_schedule(schedule_id):
         raise HTTPException(status_code=404, detail="Schedule not found")
     instances = groups_db.list_instances(schedule_id)
@@ -764,6 +813,7 @@ async def list_instances(request: Request, schedule_id: str):
 @router.post("/schedules/{schedule_id}/generate-sessions")
 async def generate_sessions(request: Request, schedule_id: str, payload: GenerateSessionsRequest):
     current_user = require_authenticated_user(request)
+    _assert_schedule_scope(_mt_user(request), schedule_id)
     schedule = groups_db.get_schedule(schedule_id)
     if not schedule:
         raise HTTPException(status_code=404, detail="Schedule not found")
@@ -843,6 +893,7 @@ async def generate_sessions(request: Request, schedule_id: str, payload: Generat
                 "group_type": schedule.get("group_type", "psychoeducation"),
                 "facilitator_notes": "",
                 "case_manager_id": current_user.case_manager_id,
+                "org_id": resolve_org_id(current_user),
             })
             instance = groups_db.create_instance({
                 "schedule_id": schedule_id,
@@ -913,7 +964,8 @@ async def report_attendance(
     topic_id: str = Query(""),
 ):
     require_authenticated_user(request)
-    rows = groups_db.report_attendance(start_date, end_date, facilitator, topic_id)
+    mt = _mt_user(request)
+    rows = groups_db.report_attendance(start_date, end_date, facilitator, topic_id, org_id=_groups_org_id(mt))
     total_sessions = len(rows)
     total_present = sum(r.get("present_count") or 0 for r in rows)
     total_absent = sum(r.get("absent_count") or 0 for r in rows)
@@ -936,7 +988,8 @@ async def report_topics(
     end_date: str = Query(...),
 ):
     require_authenticated_user(request)
-    topics = groups_db.report_topics(start_date, end_date)
+    mt = _mt_user(request)
+    topics = groups_db.report_topics(start_date, end_date, org_id=_groups_org_id(mt))
     return {"topics": topics, "count": len(topics)}
 
 
@@ -947,4 +1000,5 @@ async def report_notes(
     end_date: str = Query(...),
 ):
     require_authenticated_user(request)
-    return groups_db.report_notes(start_date, end_date)
+    mt = _mt_user(request)
+    return groups_db.report_notes(start_date, end_date, org_id=_groups_org_id(mt))
