@@ -20,8 +20,9 @@ from backend.shared.db_path import DB_DIR as _DB_DIR
 from .models import BenefitsApplication, BenefitsDatabase
 from .disability_assessment import DisabilityAssessment, QUALIFYING_CONDITIONS
 from .eligibility_engine import get_eligibility_engine, EligibilityStatus
-from backend.auth.authorization import assert_client_access
+from backend.auth.authorization import assert_client_access, get_client_ids_for_org
 from backend.auth.service import require_authenticated_user
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 logger = logging.getLogger(__name__)
 
@@ -286,20 +287,37 @@ async def get_benefits_applications(
         if client_id:
             query += " AND client_id = ?"
             params.append(client_id)
-        elif not current_user.is_admin:
-            accessible_client_ids = _get_case_manager_client_ids(current_user.case_manager_id)
-            if not accessible_client_ids:
-                conn_unified.close()
-                conn_clients.close()
-                return {
-                    'success': True,
-                    'applications': [],
-                    'total_count': 0
-                }
-            placeholders = ", ".join(["?"] * len(accessible_client_ids))
-            query += f" AND client_id IN ({placeholders})"
-            params.extend(accessible_client_ids)
-        
+        else:
+            # Phase 3D3: determine the accessible client-id set for the list.
+            # Flag off -> prior behavior exactly (admin = no filter; non-admin =
+            # own case_manager's clients). Flag on -> admin means "all clients in
+            # my org" and non-admin is additionally org-filtered.
+            accessible_client_ids = None
+            if multi_tenant_enabled():
+                org_id = resolve_org_id(current_user)
+                if current_user.is_admin:
+                    accessible_client_ids = get_client_ids_for_org(org_id)
+                else:
+                    accessible_client_ids = list(
+                        set(_get_case_manager_client_ids(current_user.case_manager_id))
+                        & set(get_client_ids_for_org(org_id))
+                    )
+            elif not current_user.is_admin:
+                accessible_client_ids = _get_case_manager_client_ids(current_user.case_manager_id)
+
+            if accessible_client_ids is not None:
+                if not accessible_client_ids:
+                    conn_unified.close()
+                    conn_clients.close()
+                    return {
+                        'success': True,
+                        'applications': [],
+                        'total_count': 0
+                    }
+                placeholders = ", ".join(["?"] * len(accessible_client_ids))
+                query += f" AND client_id IN ({placeholders})"
+                params.extend(accessible_client_ids)
+
         if status:
             query += " AND status = ?"
             params.append(status)

@@ -12,7 +12,30 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from backend.shared.tenancy import DEFAULT_ORG_ID
+
 logger = logging.getLogger(__name__)
+
+# Phase 3C multi-tenancy: tables that carry an org_id.
+# Case-manager-scoped tables are the active enforcement targets (dashboard items
+# + rolodex). Client-linked tables get org_id for defense-in-depth only; their
+# route enforcement continues to rely on assert_client_access (Phase 1).
+_ORG_ENFORCED_TABLES = (
+    "dashboard_notes",
+    "dashboard_docs",
+    "dashboard_bookmarks",
+    "dashboard_resources",
+    "case_manager_rolodex",
+)
+_ORG_DEFENSE_TABLES = (
+    "client_notes",
+    "client_tasks",
+    "client_treatment_plans",
+    "client_operational_needs",
+    "client_appointments",
+    "client_service_referrals",
+    "client_documents",
+)
 
 
 class WorkspaceStore:
@@ -270,6 +293,25 @@ class WorkspaceStore:
             for column, definition in task_column_definitions.items():
                 if column not in task_columns:
                     conn.execute(f"ALTER TABLE client_tasks ADD COLUMN {column} {definition}")
+
+            # Phase 3C: additive, idempotent org_id on workspace tables. Backfill
+            # NULL/blank -> DEFAULT_ORG_ID so single-agency behavior is unchanged
+            # while MULTI_TENANT_ENABLED is false. Indexes only on the enforced
+            # (case-manager-scoped) tables.
+            for table in _ORG_ENFORCED_TABLES + _ORG_DEFENSE_TABLES:
+                existing = {
+                    row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+                }
+                if "org_id" not in existing:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN org_id TEXT")
+                conn.execute(
+                    f"UPDATE {table} SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+                    (DEFAULT_ORG_ID,),
+                )
+            for table in _ORG_ENFORCED_TABLES:
+                conn.execute(
+                    f"CREATE INDEX IF NOT EXISTS idx_{table}_org ON {table}(org_id)"
+                )
             conn.commit()
 
     @staticmethod
@@ -924,7 +966,7 @@ class WorkspaceStore:
             conn.commit()
             return cursor.rowcount > 0
 
-    def list_dashboard_items(self, table: str, case_manager_id: str) -> List[Dict[str, Any]]:
+    def list_dashboard_items(self, table: str, case_manager_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
         order_by = {
             "dashboard_notes": "pinned DESC, created_at DESC",
             "dashboard_docs": "created_at DESC",
@@ -932,14 +974,21 @@ class WorkspaceStore:
             "dashboard_resources": "uploaded_at DESC",
             "case_manager_rolodex": "category ASC, name ASC, updated_at DESC",
         }[table]
+        # Phase 3C: org_id filter applied only when supplied (callers pass it
+        # while MULTI_TENANT_ENABLED is true). None preserves prior behavior.
+        clause = "WHERE case_manager_id = ?"
+        params: List[Any] = [case_manager_id]
+        if org_id is not None:
+            clause += " AND org_id = ?"
+            params.append(org_id)
         with self._connect() as conn:
             rows = conn.execute(
-                f"SELECT * FROM {table} WHERE case_manager_id = ? ORDER BY {order_by}",
-                (case_manager_id,),
+                f"SELECT * FROM {table} {clause} ORDER BY {order_by}",
+                tuple(params),
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
-    def create_dashboard_note(self, case_manager_id: str, content: str, pinned: bool) -> Dict[str, Any]:
+    def create_dashboard_note(self, case_manager_id: str, content: str, pinned: bool, org_id: str = DEFAULT_ORG_ID) -> Dict[str, Any]:
         item = {
             "id": uuid4().hex,
             "case_manager_id": case_manager_id,
@@ -947,28 +996,36 @@ class WorkspaceStore:
             "pinned": 1 if pinned else 0,
             "created_at": self._now(),
             "updated_at": self._now(),
+            "org_id": org_id,
         }
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO dashboard_notes (id, case_manager_id, content, pinned, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO dashboard_notes (id, case_manager_id, content, pinned, created_at, updated_at, org_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (item["id"], item["case_manager_id"], item["content"], item["pinned"], item["created_at"], item["updated_at"]),
+                (item["id"], item["case_manager_id"], item["content"], item["pinned"], item["created_at"], item["updated_at"], item["org_id"]),
             )
             conn.commit()
         item["pinned"] = bool(item["pinned"])
         return item
 
-    def update_dashboard_note(self, note_id: str, content: str, pinned: bool) -> Optional[Dict[str, Any]]:
+    def update_dashboard_note(self, note_id: str, content: str, pinned: bool, org_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        # Phase 3C: when org_id is supplied (flag on), scope the update so a
+        # cross-org item is not modified (rowcount 0 -> caller returns 404).
+        where = "WHERE id = ?"
+        params: List[Any] = [content, 1 if pinned else 0, self._now(), note_id]
+        if org_id is not None:
+            where += " AND org_id = ?"
+            params.append(org_id)
         with self._connect() as conn:
             cursor = conn.execute(
-                """
+                f"""
                 UPDATE dashboard_notes
                 SET content = ?, pinned = ?, updated_at = ?
-                WHERE id = ?
+                {where}
                 """,
-                (content, 1 if pinned else 0, self._now(), note_id),
+                tuple(params),
             )
             if cursor.rowcount == 0:
                 return None
@@ -979,7 +1036,7 @@ class WorkspaceStore:
             item["pinned"] = bool(item["pinned"])
         return item
 
-    def create_dashboard_doc(self, case_manager_id: str, title: str, content: str, url: Optional[str]) -> Dict[str, Any]:
+    def create_dashboard_doc(self, case_manager_id: str, title: str, content: str, url: Optional[str], org_id: str = DEFAULT_ORG_ID) -> Dict[str, Any]:
         item = {
             "id": uuid4().hex,
             "case_manager_id": case_manager_id,
@@ -988,27 +1045,34 @@ class WorkspaceStore:
             "url": url,
             "created_at": self._now(),
             "updated_at": self._now(),
+            "org_id": org_id,
         }
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO dashboard_docs (id, case_manager_id, title, content, url, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO dashboard_docs (id, case_manager_id, title, content, url, created_at, updated_at, org_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (item["id"], item["case_manager_id"], item["title"], item["content"], item["url"], item["created_at"], item["updated_at"]),
+                (item["id"], item["case_manager_id"], item["title"], item["content"], item["url"], item["created_at"], item["updated_at"], item["org_id"]),
             )
             conn.commit()
         return item
 
-    def update_dashboard_doc(self, doc_id: str, title: str, content: str, url: Optional[str]) -> Optional[Dict[str, Any]]:
+    def update_dashboard_doc(self, doc_id: str, title: str, content: str, url: Optional[str], org_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        # Phase 3C: org-scope the update when org_id is supplied (flag on).
+        where = "WHERE id = ?"
+        params: List[Any] = [title, content, url, self._now(), doc_id]
+        if org_id is not None:
+            where += " AND org_id = ?"
+            params.append(org_id)
         with self._connect() as conn:
             cursor = conn.execute(
-                """
+                f"""
                 UPDATE dashboard_docs
                 SET title = ?, content = ?, url = ?, updated_at = ?
-                WHERE id = ?
+                {where}
                 """,
-                (title, content, url, self._now(), doc_id),
+                tuple(params),
             )
             if cursor.rowcount == 0:
                 return None
@@ -1021,7 +1085,7 @@ class WorkspaceStore:
             row = conn.execute("SELECT * FROM dashboard_docs WHERE id = ?", (doc_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
-    def create_dashboard_bookmark(self, case_manager_id: str, title: str, url: str, description: Optional[str], favicon: Optional[str]) -> Dict[str, Any]:
+    def create_dashboard_bookmark(self, case_manager_id: str, title: str, url: str, description: Optional[str], favicon: Optional[str], org_id: str = DEFAULT_ORG_ID) -> Dict[str, Any]:
         item = {
             "id": uuid4().hex,
             "case_manager_id": case_manager_id,
@@ -1030,19 +1094,20 @@ class WorkspaceStore:
             "description": description,
             "favicon": favicon,
             "created_at": self._now(),
+            "org_id": org_id,
         }
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO dashboard_bookmarks (id, case_manager_id, title, url, description, favicon, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO dashboard_bookmarks (id, case_manager_id, title, url, description, favicon, created_at, org_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (item["id"], item["case_manager_id"], item["title"], item["url"], item["description"], item["favicon"], item["created_at"]),
+                (item["id"], item["case_manager_id"], item["title"], item["url"], item["description"], item["favicon"], item["created_at"], item["org_id"]),
             )
             conn.commit()
         return item
 
-    def create_dashboard_resource(self, case_manager_id: str, resource_id: str, name: str, size: int, content_type: str, file_path: str) -> Dict[str, Any]:
+    def create_dashboard_resource(self, case_manager_id: str, resource_id: str, name: str, size: int, content_type: str, file_path: str, org_id: str = DEFAULT_ORG_ID) -> Dict[str, Any]:
         item = {
             "id": resource_id,
             "case_manager_id": case_manager_id,
@@ -1051,21 +1116,29 @@ class WorkspaceStore:
             "type": content_type,
             "uploaded_at": self._now(),
             "file_path": file_path,
+            "org_id": org_id,
         }
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO dashboard_resources (id, case_manager_id, name, size, type, uploaded_at, file_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO dashboard_resources (id, case_manager_id, name, size, type, uploaded_at, file_path, org_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (item["id"], item["case_manager_id"], item["name"], item["size"], item["type"], item["uploaded_at"], item["file_path"]),
+                (item["id"], item["case_manager_id"], item["name"], item["size"], item["type"], item["uploaded_at"], item["file_path"], item["org_id"]),
             )
             conn.commit()
         return item
 
-    def delete_dashboard_item(self, table: str, item_id: str) -> bool:
+    def delete_dashboard_item(self, table: str, item_id: str, org_id: Optional[str] = None) -> bool:
+        # Phase 3C: when org_id is supplied (flag on), a cross-org delete matches
+        # no row (returns False -> caller returns 404). None = prior behavior.
+        where = "WHERE id = ?"
+        params: List[Any] = [item_id]
+        if org_id is not None:
+            where += " AND org_id = ?"
+            params.append(org_id)
         with self._connect() as conn:
-            cursor = conn.execute(f"DELETE FROM {table} WHERE id = ?", (item_id,))
+            cursor = conn.execute(f"DELETE FROM {table} {where}", tuple(params))
             conn.commit()
             return cursor.rowcount > 0
 
@@ -1158,10 +1231,10 @@ class WorkspaceStore:
             conn.commit()
             return cursor.rowcount > 0
 
-    def list_rolodex_entries(self, case_manager_id: str) -> List[Dict[str, Any]]:
-        return self.list_dashboard_items("case_manager_rolodex", case_manager_id)
+    def list_rolodex_entries(self, case_manager_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self.list_dashboard_items("case_manager_rolodex", case_manager_id, org_id=org_id)
 
-    def create_rolodex_entry(self, case_manager_id: str, entry_data: Dict[str, Any]) -> Dict[str, Any]:
+    def create_rolodex_entry(self, case_manager_id: str, entry_data: Dict[str, Any], org_id: str = DEFAULT_ORG_ID) -> Dict[str, Any]:
         item = {
             "id": uuid4().hex,
             "case_manager_id": case_manager_id,
@@ -1181,6 +1254,7 @@ class WorkspaceStore:
             "general_notes": (entry_data.get("general_notes") or "").strip(),
             "created_at": self._now(),
             "updated_at": self._now(),
+            "org_id": org_id,
         }
         with self._connect() as conn:
             conn.execute(
@@ -1188,8 +1262,8 @@ class WorkspaceStore:
                 INSERT INTO case_manager_rolodex (
                     id, case_manager_id, name, category, custom_category, organization, role_title,
                     phone, email, website, address, city, trusted_status, availability_notes,
-                    referral_notes, general_notes, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    referral_notes, general_notes, created_at, updated_at, org_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     item["id"],
@@ -1210,17 +1284,26 @@ class WorkspaceStore:
                     item["general_notes"],
                     item["created_at"],
                     item["updated_at"],
+                    item["org_id"],
                 ),
             )
             conn.commit()
         return item
 
-    def update_rolodex_entry(self, entry_id: str, entry_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def update_rolodex_entry(self, entry_id: str, entry_data: Dict[str, Any], org_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
-            existing = conn.execute(
-                "SELECT * FROM case_manager_rolodex WHERE id = ?",
-                (entry_id,),
-            ).fetchone()
+            # Phase 3C: when org_id is supplied (flag on), a cross-org entry is
+            # not found here -> returns None -> caller returns 404.
+            if org_id is not None:
+                existing = conn.execute(
+                    "SELECT * FROM case_manager_rolodex WHERE id = ? AND org_id = ?",
+                    (entry_id, org_id),
+                ).fetchone()
+            else:
+                existing = conn.execute(
+                    "SELECT * FROM case_manager_rolodex WHERE id = ?",
+                    (entry_id,),
+                ).fetchone()
             if not existing:
                 return None
 
@@ -1273,9 +1356,15 @@ class WorkspaceStore:
             row = conn.execute("SELECT * FROM case_manager_rolodex WHERE id = ?", (entry_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
-    def delete_rolodex_entry(self, entry_id: str) -> bool:
+    def delete_rolodex_entry(self, entry_id: str, org_id: Optional[str] = None) -> bool:
+        # Phase 3C: org-scope the delete when org_id is supplied (flag on).
+        where = "WHERE id = ?"
+        params: List[Any] = [entry_id]
+        if org_id is not None:
+            where += " AND org_id = ?"
+            params.append(org_id)
         with self._connect() as conn:
-            cursor = conn.execute("DELETE FROM case_manager_rolodex WHERE id = ?", (entry_id,))
+            cursor = conn.execute(f"DELETE FROM case_manager_rolodex {where}", tuple(params))
             conn.commit()
             return cursor.rowcount > 0
 

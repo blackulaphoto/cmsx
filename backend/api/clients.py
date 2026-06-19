@@ -20,6 +20,7 @@ from backend.shared.database.workspace_store import workspace_store
 from backend.api.client_data_integration import get_client_data_integrator
 from backend.auth.authorization import assert_client_access, effective_case_manager_id
 from backend.auth.service import require_authenticated_user
+from backend.shared.tenancy import DEFAULT_ORG_ID, multi_tenant_enabled, resolve_org_id
 
 try:
     from backend.modules.reminders.intelligent_processor import IntelligentTaskProcessor
@@ -45,6 +46,7 @@ CORE_CLIENT_SCHEMA_COLUMNS = {
     "emergency_contact_phone": "TEXT",
     "emergency_contact_relationship": "TEXT",
     "case_manager_id": "TEXT NOT NULL",
+    "org_id": "TEXT",
     "risk_level": "TEXT DEFAULT 'medium'",
     "case_status": "TEXT DEFAULT 'active'",
     "intake_date": "TEXT NOT NULL",
@@ -105,6 +107,14 @@ def ensure_core_clients_schema(conn: sqlite3.Connection) -> None:
             continue
         base_definition = definition.split(" DEFAULT ")[0]
         cursor.execute(f"ALTER TABLE clients ADD COLUMN {column} {base_definition}")
+
+    # Multi-tenancy (Phase 1): backfill existing rows into the default org so
+    # the single-agency app keeps working. Idempotent and additive; runs on
+    # every schema-ensure to catch any rows inserted by other paths.
+    cursor.execute(
+        "UPDATE clients SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+        (DEFAULT_ORG_ID,),
+    )
 
     conn.commit()
 
@@ -1008,6 +1018,9 @@ async def create_client(client_data: ClientCreateRequest, request: Request):
         client_id = str(uuid.uuid4())
         current_time = datetime.now().isoformat()
         assigned_case_manager_id = effective_case_manager_id(current_user, client_data.case_manager_id)
+        # Multi-tenancy (Phase 1): stamp the creator's org. Resolves to the
+        # default org while MULTI_TENANT_ENABLED is false (one-org mode).
+        assigned_org_id = resolve_org_id(current_user)
 
         # Prepare client data for core database
         intake_date = client_data.intake_date or current_time.split('T')[0]
@@ -1021,7 +1034,7 @@ async def create_client(client_data: ClientCreateRequest, request: Request):
             cursor.execute("""
                 INSERT INTO clients (
                     client_id, first_name, last_name, email, phone,
-                    date_of_birth, case_manager_id, risk_level, intake_date, created_at,
+                    date_of_birth, case_manager_id, org_id, risk_level, intake_date, created_at,
                     housing_status, employment_status,
                     address, city, state, zip_code,
                     emergency_contact_name, emergency_contact_phone, emergency_contact_relationship,
@@ -1031,11 +1044,11 @@ async def create_client(client_data: ClientCreateRequest, request: Request):
                     benefits_status, legal_status, goals, barriers, notes,
                     progress, last_contact, next_followup, needs, background,
                     updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 client_id, client_data.first_name, client_data.last_name,
                 client_data.email, client_data.phone, client_data.date_of_birth,
-                assigned_case_manager_id, client_data.risk_level,
+                assigned_case_manager_id, assigned_org_id, client_data.risk_level,
                 intake_date, current_time,
                 client_data.housing_status, client_data.employment_status,
                 client_data.address, client_data.city, client_data.state, client_data.zip_code,
@@ -1123,27 +1136,29 @@ async def list_clients(request: Request, case_manager_id: Optional[str] = None, 
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
+            # Build the filter additively. The org_id clause is only applied
+            # when multi-tenancy is enabled, so behavior is byte-for-byte
+            # unchanged while MULTI_TENANT_ENABLED is false (one-org mode).
+            conditions = []
+            params: List[Any] = []
+            if multi_tenant_enabled():
+                conditions.append("org_id = ?")
+                params.append(resolve_org_id(current_user))
             if scoped_case_manager_id:
-                cursor.execute(
-                    """
-                    SELECT *
-                    FROM clients
-                    WHERE case_manager_id = ?
-                    ORDER BY intake_date DESC, created_at DESC
-                    LIMIT ?
-                    """,
-                    (scoped_case_manager_id, limit),
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT *
-                    FROM clients
-                    ORDER BY intake_date DESC, created_at DESC
-                    LIMIT ?
-                    """,
-                    (limit,),
-                )
+                conditions.append("case_manager_id = ?")
+                params.append(scoped_case_manager_id)
+            where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+            params.append(limit)
+            cursor.execute(
+                f"""
+                SELECT *
+                FROM clients
+                {where_clause}
+                ORDER BY intake_date DESC, created_at DESC
+                LIMIT ?
+                """,
+                params,
+            )
 
             results = cursor.fetchall()
             clients = [normalize_client_record(row) for row in results]

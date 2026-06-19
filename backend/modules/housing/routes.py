@@ -29,6 +29,8 @@ from datetime import datetime
 
 from .models import HousingResource, HousingDatabase
 from .simple_housing_tools import get_housing_tools, get_housing_search_urls
+from backend.auth.service import require_user
+from backend.auth.authorization import assert_client_access
 # from ai_search_coordinator import get_ai_coordinator  # COMMENTED OUT - Using simple search
 
 # Import reminder integration
@@ -370,9 +372,13 @@ async def get_housing_resource_detail(resource_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/application")
-async def create_housing_application(application_data: HousingApplication):
+async def create_housing_application(application_data: HousingApplication, request: Request):
     """Create a housing application for a client"""
     try:
+        # Phase 2 guard: client-data write — enforce authenticated access scoped
+        # to the client (org isolation applies when multi-tenancy is enabled).
+        current_user = require_user(request)
+        assert_client_access(current_user, application_data.client_id)
         housing_db = get_housing_db()
         
         # Verify housing resource exists
@@ -414,8 +420,11 @@ async def create_housing_application(application_data: HousingApplication):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/applications/{client_id}")
-async def get_client_housing_applications(client_id: str):
+async def get_client_housing_applications(client_id: str, request: Request):
     """Get housing applications for a client"""
+    # Phase 2 guard: client-data read scoped to the client. Placed before the
+    # try/except so the access decision is not swallowed by the broad handler.
+    assert_client_access(require_user(request), client_id)
     try:
         housing_db = get_housing_db()
         applications = housing_db.get_client_housing_applications(client_id)
@@ -490,6 +499,7 @@ async def get_housing_statistics():
 # Case Manager Enhanced Workflow Tools
 @router.get("/case-manager-search")
 async def case_manager_housing_search(
+    request: Request,
     query: str = Query(..., description="Housing search query"),
     location: str = Query(..., description="Location to search"),
     client_id: Optional[str] = Query(None, description="Client ID for personalized results"),
@@ -498,7 +508,7 @@ async def case_manager_housing_search(
 ):
     """
     Enhanced housing search specifically designed for case manager workflows
-    
+
     Transforms generic rental search into case management workflow tools with:
     - Client match scoring
     - Quick action buttons
@@ -506,6 +516,10 @@ async def case_manager_housing_search(
     - Priority levels
     - Case management integration
     """
+    # Phase 2 mixed-route guard (before try so it isn't swallowed): only the
+    # client-specific branch is guarded. Pure search (no client_id) stays global.
+    if client_id:
+        assert_client_access(require_user(request), client_id)
     try:
         # Import case manager tools
         from .search.case_manager_housing_tools import enhanced_case_manager_search
@@ -541,18 +555,23 @@ async def case_manager_housing_search(
 
 @router.post("/case-manager-search")
 async def case_manager_housing_search_post(
+    request: Request,
     search_data: Dict[str, Any] = Body(...)
 ):
     """
     POST version of case manager housing search for complex client data
     """
+    # Phase 2 mixed-route guard (before try so it isn't swallowed): guard only
+    # the client-specific branch.
+    client_id = search_data.get('client_id')
+    if client_id:
+        assert_client_access(require_user(request), client_id)
     try:
         from .search.case_manager_housing_tools import enhanced_case_manager_search
-        
+
         # Extract search parameters
         query = search_data.get('query', 'apartment rental')
         location = search_data.get('location', 'Los Angeles, CA')
-        client_id = search_data.get('client_id')
         client_budget = search_data.get('client_budget')
         client_needs = search_data.get('client_needs', [])
         
@@ -582,11 +601,16 @@ async def case_manager_housing_search_post(
 
 @router.get("/case-manager-dashboard")
 async def get_case_manager_dashboard(
+    request: Request,
     client_id: Optional[str] = Query(None, description="Client ID for dashboard")
 ):
     """
     Get case manager housing dashboard with client tracking and quick actions
     """
+    # Phase 2 mixed-route guard (before try so it isn't swallowed): only the
+    # client_tracker branch is guarded.
+    if client_id:
+        assert_client_access(require_user(request), client_id)
     try:
         from .search.case_manager_housing_tools import case_manager_tools
         

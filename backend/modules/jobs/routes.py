@@ -18,6 +18,8 @@ from datetime import datetime
 from .job_search_manager import job_search_manager
 from .scraper_search_manager import scraper_search_manager
 from .simple_job_tools import get_job_search_resources
+from backend.auth.service import require_user
+from backend.auth.authorization import assert_client_access
 # from ai_search_coordinator import get_ai_coordinator  # COMMENTED OUT - Using simple search
 
 logger = logging.getLogger(__name__)
@@ -760,8 +762,12 @@ class SaveJobRequest(BaseModel):
     url: Optional[str] = ""
 
 @router.post("/save")
-async def save_job(request: SaveJobRequest):
+async def save_job(request: SaveJobRequest, http_request: Request):
     """Save a job for a client"""
+    # Phase 2 guard (before try so it isn't swallowed): client-data write scoped
+    # to the client. The FastAPI Request is http_request because `request` is the
+    # body model.
+    assert_client_access(require_user(http_request), request.client_id)
     try:
         # Create saved_jobs directory if it doesn't exist
         saved_jobs_dir = os.path.join(os.path.dirname(__file__), "saved_jobs")
@@ -844,8 +850,11 @@ async def save_job(request: SaveJobRequest):
         }
 
 @router.get("/saved/{client_id}")
-async def get_saved_jobs(client_id: str):
+async def get_saved_jobs(client_id: str, request: Request):
     """Get all saved jobs for a client"""
+    # Phase 2 guard (before try so it isn't swallowed): client-data read scoped
+    # to the client.
+    assert_client_access(require_user(request), client_id)
     try:
         db_path = os.path.join(os.path.dirname(__file__), "saved_jobs", "saved_jobs.db")
         

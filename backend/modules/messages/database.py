@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from backend.shared.db_path import DB_DIR
+from backend.shared.tenancy import DEFAULT_ORG_ID
 
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,22 @@ class MessagesDatabase:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_message_threads_client ON message_threads(client_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_thread_participants_user ON thread_participants(user_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_thread_created ON messages(thread_id, created_at)")
+
+            # Phase 3A multi-tenancy: add org_id to message_threads only (the
+            # access root). thread_participants and messages inherit org via
+            # thread_id and are intentionally NOT altered. Idempotent + additive;
+            # backfill keeps single-agency behavior while MULTI_TENANT_ENABLED is
+            # false (every thread resolves to the default org).
+            thread_columns = {
+                row["name"] for row in conn.execute("PRAGMA table_info(message_threads)").fetchall()
+            }
+            if "org_id" not in thread_columns:
+                conn.execute("ALTER TABLE message_threads ADD COLUMN org_id TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_message_threads_org ON message_threads(org_id)")
+            conn.execute(
+                "UPDATE message_threads SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+                (DEFAULT_ORG_ID,),
+            )
             conn.commit()
 
     def create_thread(
@@ -93,6 +110,7 @@ class MessagesDatabase:
         client_id: Optional[str] = None,
         client_name: Optional[str] = None,
         initial_message: Optional[Dict[str, str]] = None,
+        org_id: str = DEFAULT_ORG_ID,
     ) -> Dict[str, Any]:
         if thread_type not in THREAD_TYPES:
             raise ValueError("Unsupported thread type")
@@ -103,10 +121,10 @@ class MessagesDatabase:
                 """
                 INSERT INTO message_threads (
                     id, thread_type, title, client_id, client_name, created_by,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    created_at, updated_at, org_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (thread_id, thread_type, title, client_id, client_name, created_by, now, now),
+                (thread_id, thread_type, title, client_id, client_name, created_by, now, now, org_id),
             )
             for participant in participants:
                 user_id = (participant.get("user_id") or "").strip()
@@ -138,9 +156,15 @@ class MessagesDatabase:
                     created_at=now,
                 )
             conn.commit()
-        return self.get_thread_for_user(thread_id, created_by, include_announcements=True) or {}
+        return self.get_thread_for_user(thread_id, created_by, include_announcements=True, org_id=org_id) or {}
 
-    def list_threads(self, user_id: str, *, include_announcements: bool = True) -> List[Dict[str, Any]]:
+    def list_threads(
+        self,
+        user_id: str,
+        *,
+        include_announcements: bool = True,
+        org_id: str = DEFAULT_ORG_ID,
+    ) -> List[Dict[str, Any]]:
         with self.connect() as conn:
             rows = conn.execute(
                 """
@@ -148,10 +172,11 @@ class MessagesDatabase:
                 FROM message_threads t
                 LEFT JOIN thread_participants p ON p.thread_id = t.id
                 WHERE t.archived_at IS NULL
+                  AND t.org_id = ?
                   AND (p.user_id = ? OR (? = 1 AND t.thread_type = 'announcement'))
                 ORDER BY t.updated_at DESC
                 """,
-                (user_id, 1 if include_announcements else 0),
+                (org_id, user_id, 1 if include_announcements else 0),
             ).fetchall()
             return [self._hydrate_thread(conn, row, user_id) for row in rows]
 
@@ -161,6 +186,7 @@ class MessagesDatabase:
         user_id: str,
         *,
         include_announcements: bool = True,
+        org_id: str = DEFAULT_ORG_ID,
     ) -> Optional[Dict[str, Any]]:
         with self.connect() as conn:
             row = conn.execute(
@@ -170,9 +196,10 @@ class MessagesDatabase:
                 LEFT JOIN thread_participants p ON p.thread_id = t.id AND p.user_id = ?
                 WHERE t.id = ?
                   AND t.archived_at IS NULL
+                  AND t.org_id = ?
                   AND (p.user_id IS NOT NULL OR (? = 1 AND t.thread_type = 'announcement'))
                 """,
-                (user_id, thread_id, 1 if include_announcements else 0),
+                (user_id, thread_id, org_id, 1 if include_announcements else 0),
             ).fetchone()
             return self._hydrate_thread(conn, row, user_id) if row else None
 
@@ -230,8 +257,11 @@ class MessagesDatabase:
             conn.commit()
         return {"thread_id": thread_id, "last_read_at": now}
 
-    def unread_count(self, user_id: str, *, include_announcements: bool = True) -> int:
-        return sum(thread.get("unread_count", 0) for thread in self.list_threads(user_id, include_announcements=include_announcements))
+    def unread_count(self, user_id: str, *, include_announcements: bool = True, org_id: str = DEFAULT_ORG_ID) -> int:
+        return sum(
+            thread.get("unread_count", 0)
+            for thread in self.list_threads(user_id, include_announcements=include_announcements, org_id=org_id)
+        )
 
     def _insert_message(
         self,

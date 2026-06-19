@@ -27,6 +27,10 @@ from fastapi import APIRouter, HTTPException, Request, Depends, Query, Body, Upl
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pydantic import BaseModel
 
+# Phase 2 tenancy guards for client-data endpoints.
+from backend.auth.service import require_user
+from backend.auth.authorization import assert_client_access
+
 # FIXED IMPORT SECTION
 logger = logging.getLogger(__name__)
 
@@ -959,9 +963,11 @@ async def get_available_clients():
 
 
 @router.post("/profile")
-async def create_employment_profile(profile_request: EmploymentProfileRequest):
+async def create_employment_profile(profile_request: EmploymentProfileRequest, request: Request):
     """Create or update an employment profile for the selected client."""
     try:
+        # Phase 2 guard: client-data write scoped to the client.
+        assert_client_access(require_user(request), profile_request.client_id)
         db = get_employment_db()
         client = db.core_clients.get_client_by_id(profile_request.client_id)
         if not client:
@@ -1021,9 +1027,11 @@ async def create_employment_profile(profile_request: EmploymentProfileRequest):
 
 
 @router.get("/profile/{client_id}")
-async def get_employment_profile(client_id: str):
+async def get_employment_profile(client_id: str, request: Request):
     """Get an employment profile for the selected client."""
     try:
+        # Phase 2 guard: client-data read scoped to the client.
+        assert_client_access(require_user(request), client_id)
         db = get_employment_db()
         client = db.core_clients.get_client_by_id(client_id)
         if not client:
@@ -1064,12 +1072,17 @@ async def get_employment_profile(client_id: str):
 
 
 @router.post("/rewrite-profile")
-async def rewrite_resume_profile(rewrite_request: ResumeRewriteProfileRequest):
+async def rewrite_resume_profile(rewrite_request: ResumeRewriteProfileRequest, request: Request):
     """Rewrite the in-progress resume builder profile using AI and explicit user instructions."""
     try:
         instructions = (rewrite_request.instructions or "").strip()
         if not instructions:
             raise HTTPException(status_code=400, detail="Instructions are required")
+
+        # Phase 2 mixed-route guard: the guest/client-less path stays open; only
+        # the branch that persists to a real client is access-checked.
+        if rewrite_request.client_id and rewrite_request.client_id != "guest":
+            assert_client_access(require_user(request), rewrite_request.client_id)
 
         current_profile = rewrite_request.profile or {}
         rewritten_profile = _ai_rewrite_resume_profile_with_instructions(current_profile, instructions)
@@ -1109,6 +1122,7 @@ async def rewrite_resume_profile(rewrite_request: ResumeRewriteProfileRequest):
 
 @router.post("/import")
 async def import_resume_file(
+    request: Request,
     resume_file: UploadFile = File(...),
     client_id: Optional[str] = Query(None),
     ai_rewrite: bool = Query(True),
@@ -1116,6 +1130,10 @@ async def import_resume_file(
     """Upload an existing resume, extract text, and map it into the builder profile shape."""
     temp_path = ""
     try:
+        # Phase 2 mixed-route guard: client-less import stays open; the
+        # persist-to-client branch is access-checked.
+        if client_id:
+            assert_client_access(require_user(request), client_id)
         processor = ResumeFileProcessor()
         parser = ResumeTextParser()
 
@@ -1261,9 +1279,11 @@ async def generate_resume_pdf(resume_id: str):
 
 # List Resumes for Client Endpoint
 @router.get("/resumes/{client_id}")
-async def list_client_resumes(client_id: str):
+async def list_client_resumes(client_id: str, request: Request):
     """Get all resumes for a specific client - FIXED VERSION"""
     try:
+        # Phase 2 guard: client-data read scoped to the client.
+        assert_client_access(require_user(request), client_id)
         logger.info(f"Loading resumes for client {client_id}")
         db = get_employment_db()
         
@@ -1544,9 +1564,11 @@ async def download_resume(resume_id: str):
 
 # 1. MISSING RESUME CREATE ENDPOINT
 @router.post("/create")
-async def create_resume(resume_request: ResumeCreateRequest):
+async def create_resume(resume_request: ResumeCreateRequest, request: Request):
     """Create resume from employment profile - MISSING ENDPOINT"""
     try:
+        # Phase 2 guard: client-data write scoped to the client.
+        assert_client_access(require_user(request), resume_request.client_id)
         logger.info(f"Creating resume for client {resume_request.client_id}")
         db = get_employment_db()
         
@@ -1627,9 +1649,11 @@ async def create_resume(resume_request: ResumeCreateRequest):
 
 # 2. FIX ENDPOINT MISMATCH - Add the endpoint frontend expects
 @router.get("/list/{client_id}")
-async def get_client_resumes_list(client_id: str):
+async def get_client_resumes_list(client_id: str, request: Request):
     """Get all resumes for a client - FRONTEND EXPECTS THIS ENDPOINT"""
     try:
+        # Phase 2 guard: client-data read scoped to the client.
+        assert_client_access(require_user(request), client_id)
         logger.info(f"Getting resume list for client {client_id}")
         db = get_employment_db()
         
@@ -1703,9 +1727,11 @@ async def get_client_resumes_list(client_id: str):
         raise HTTPException(status_code=500, detail=f"Resume retrieval error: {str(e)}")
 
 @router.post("/apply-job")
-async def apply_to_job_with_resume(application_request: JobApplicationRequest):
+async def apply_to_job_with_resume(application_request: JobApplicationRequest, request: Request):
     """Create a tracked job application tied to a client and resume."""
     try:
+        # Phase 2 guard: client-data write scoped to the client.
+        assert_client_access(require_user(request), application_request.client_id)
         db = get_employment_db()
         client = db.core_clients.get_client_by_id(application_request.client_id)
         if not client:
@@ -1742,9 +1768,11 @@ async def apply_to_job_with_resume(application_request: JobApplicationRequest):
         raise HTTPException(status_code=500, detail=f"Job application error: {str(e)}")
 
 @router.get("/applications/{client_id}")
-async def get_job_applications(client_id: str):
+async def get_job_applications(client_id: str, request: Request):
     """Get tracked job applications for a client."""
     try:
+        # Phase 2 guard: client-data read scoped to the client.
+        assert_client_access(require_user(request), client_id)
         db = get_employment_db()
         client = db.core_clients.get_client_by_id(client_id)
         if not client:
