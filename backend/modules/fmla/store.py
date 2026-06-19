@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from backend.auth.authorization import get_client_org_id, get_org_for_user_id
+from backend.shared.tenancy import DEFAULT_ORG_ID
+
 
 ACTIVE_FMLA_STATUSES = {
     "draft",
@@ -220,12 +223,15 @@ class FMLAStore:
             self._ensure_column(conn, "fmla_documents", "batch_name", "TEXT")
             self._ensure_column(conn, "fmla_documents", "uploader_name", "TEXT")
             self._ensure_column(conn, "fmla_documents", "uploader_case_manager_id", "TEXT")
+            # Phase 3D4 multi-tenancy: additive nullable org_id on fmla_cases.
+            self._ensure_column(conn, "fmla_cases", "org_id", "TEXT")
             conn.executescript(
                 """
                 CREATE INDEX IF NOT EXISTS idx_fmla_cases_status ON fmla_cases(status);
                 CREATE INDEX IF NOT EXISTS idx_fmla_cases_client ON fmla_cases(client_id);
                 CREATE INDEX IF NOT EXISTS idx_fmla_cases_deadline ON fmla_cases(paperwork_deadline);
                 CREATE INDEX IF NOT EXISTS idx_fmla_cases_subject ON fmla_cases(case_subject_type);
+                CREATE INDEX IF NOT EXISTS idx_fmla_cases_org ON fmla_cases(org_id);
                 CREATE INDEX IF NOT EXISTS idx_fmla_documents_case ON fmla_documents(case_id);
                 CREATE INDEX IF NOT EXISTS idx_fmla_correspondence_case ON fmla_correspondence(case_id);
                 CREATE INDEX IF NOT EXISTS idx_fmla_leave_usage_case ON fmla_leave_usage(case_id, usage_date DESC);
@@ -233,6 +239,29 @@ class FMLAStore:
                 CREATE INDEX IF NOT EXISTS idx_fmla_audit_case ON fmla_audit_log(case_id, created_at DESC);
                 """
             )
+            self._backfill_org_ids(conn)
+
+    def _backfill_org_ids(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            "SELECT case_id, client_id, assigned_case_manager FROM fmla_cases "
+            "WHERE org_id IS NULL OR TRIM(org_id) = ''"
+        ).fetchall()
+        for row in rows:
+            org_id = self._resolve_org_for_case(row["client_id"], row["assigned_case_manager"])
+            conn.execute("UPDATE fmla_cases SET org_id = ? WHERE case_id = ?", (org_id, row["case_id"]))
+        conn.execute(
+            "UPDATE fmla_cases SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+            (DEFAULT_ORG_ID,),
+        )
+
+    def _resolve_org_for_case(self, client_id: Optional[str], case_manager_id: Optional[str]) -> str:
+        client_org = get_client_org_id(_normalize_text(client_id))
+        if client_org:
+            return client_org
+        staff_org = get_org_for_user_id(_normalize_text(case_manager_id))
+        if staff_org:
+            return staff_org
+        return DEFAULT_ORG_ID
 
     def _ensure_column(self, conn: sqlite3.Connection, table_name: str, column_name: str, column_sql: str) -> None:
         columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
@@ -289,6 +318,12 @@ class FMLAStore:
         if case_manager:
             query += " AND assigned_case_manager = ?"
             params.append(case_manager)
+
+        # Phase 3D4: org filter applied only when supplied (flag on).
+        org_id = filters.get("org_id")
+        if org_id is not None:
+            query += " AND org_id = ?"
+            params.append(org_id)
 
         employer = _normalize_text(filters.get("employer")).lower()
         if employer:
@@ -383,6 +418,7 @@ class FMLAStore:
             "status": _normalize_text(payload.get("status")) or "draft",
             "notes": _normalize_text(payload.get("notes")),
             "internal_comments": _normalize_text(payload.get("internal_comments")),
+            "org_id": _normalize_text(payload.get("org_id")) or DEFAULT_ORG_ID,
             "created_at": now,
             "updated_at": now,
         }
@@ -711,8 +747,13 @@ class FMLAStore:
             results.append(item)
         return results
 
-    def get_summary(self, case_manager_id: Optional[str] = None) -> Dict[str, Any]:
-        cases = self.list_cases({"case_manager": case_manager_id} if case_manager_id else {})
+    def get_summary(self, case_manager_id: Optional[str] = None, org_id: Optional[str] = None) -> Dict[str, Any]:
+        filters: Dict[str, Any] = {}
+        if case_manager_id:
+            filters["case_manager"] = case_manager_id
+        if org_id is not None:
+            filters["org_id"] = org_id
+        cases = self.list_cases(filters)
         today = datetime.now().date()
         next_week = today + timedelta(days=7)
         deadlines_next_7 = 0

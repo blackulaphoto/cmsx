@@ -7,6 +7,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from backend.auth.authorization import get_client_org_id, get_org_for_user_id
+from backend.shared.tenancy import DEFAULT_ORG_ID
+
 from .postgres_store import (
     ALLOWED_UR_EVENT_TYPES,
     ALLOWED_UR_STATUSES,
@@ -120,6 +123,39 @@ class URStore:
                 CREATE INDEX IF NOT EXISTS idx_ur_events_case ON railway_ur_review_events(case_id);
                 """
             )
+            self._ensure_column(conn, "railway_ur_cases", "org_id", "TEXT")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_ur_cases_org ON railway_ur_cases(org_id)")
+            self._backfill_org_ids(conn)
+
+    def _ensure_column(self, conn: sqlite3.Connection, table_name: str, column_name: str, column_sql: str) -> None:
+        columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
+        if column_name not in columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
+
+    def _backfill_org_ids(self, conn: sqlite3.Connection) -> None:
+        rows = conn.execute(
+            """
+            SELECT case_id, client_id, assigned_case_manager
+            FROM railway_ur_cases
+            WHERE org_id IS NULL OR TRIM(org_id) = ''
+            """
+        ).fetchall()
+        for row in rows:
+            org_id = self._resolve_org_for_case(row["client_id"], row["assigned_case_manager"])
+            conn.execute("UPDATE railway_ur_cases SET org_id = ? WHERE case_id = ?", (org_id, row["case_id"]))
+        conn.execute(
+            "UPDATE railway_ur_cases SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+            (DEFAULT_ORG_ID,),
+        )
+
+    def _resolve_org_for_case(self, client_id: Optional[str], case_manager_id: Optional[str]) -> str:
+        client_org = get_client_org_id(_normalize_text(client_id))
+        if client_org:
+            return client_org
+        staff_org = get_org_for_user_id(_normalize_text(case_manager_id))
+        if staff_org:
+            return staff_org
+        return DEFAULT_ORG_ID
 
     def _normalize_case_payload(self, payload: Dict[str, Any], existing: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         requested_days = _to_int(payload.get("requested_days"), _to_int((existing or {}).get("requested_days"), 0))
@@ -168,6 +204,7 @@ class URStore:
             "appeal_deadline": _normalize_text(payload.get("appeal_deadline") or (existing or {}).get("appeal_deadline")),
             "revenue_at_risk_amount": _to_float(payload.get("revenue_at_risk_amount"), _to_float((existing or {}).get("revenue_at_risk_amount"), 0)),
             "status": status,
+            "org_id": _normalize_text(payload.get("org_id") or (existing or {}).get("org_id")) or DEFAULT_ORG_ID,
         }
 
     def _normalize_event_payload(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -230,6 +267,10 @@ class URStore:
         if case_manager:
             query += " AND assigned_case_manager = ?"
             params.append(case_manager)
+        org_id = filters.get("org_id")
+        if org_id is not None:
+            query += " AND org_id = ?"
+            params.append(org_id)
 
         query += " ORDER BY updated_at DESC"
         with self._db() as conn:
@@ -332,8 +373,13 @@ class URStore:
             "events": self.list_events(case_id),
         }
 
-    def get_summary(self, case_manager_id: Optional[str] = None) -> Dict[str, Any]:
-        cases = self.list_cases({"case_manager": case_manager_id} if case_manager_id else {})
+    def get_summary(self, case_manager_id: Optional[str] = None, org_id: Optional[str] = None) -> Dict[str, Any]:
+        filters: Dict[str, Any] = {}
+        if case_manager_id:
+            filters["case_manager"] = case_manager_id
+        if org_id is not None:
+            filters["org_id"] = org_id
+        cases = self.list_cases(filters)
         today = datetime.utcnow().date()
         within_72 = today + timedelta(days=3)
 
