@@ -23,7 +23,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
+from backend.auth.authorization import get_client_ids_for_org, get_client_org_id, get_org_for_user_id
 from backend.shared.database.workspace_store import workspace_store
+from backend.shared.tenancy import DEFAULT_ORG_ID
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +104,133 @@ def _sqlite_conn(path: str) -> Generator:
         conn.close()
 
 
+def _normalize_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _sqlite_columns(conn: sqlite3.Connection, table_name: str) -> set:
+    try:
+        return {row["name"] for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()}
+    except sqlite3.OperationalError:
+        return set()
+
+
+def _sqlite_table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name = ?",
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def _resolve_org_for_record(client_id: Optional[str], case_manager_id: Optional[str]) -> str:
+    client_org = get_client_org_id(_normalize_text(client_id))
+    if client_org:
+        return client_org
+    staff_org = get_org_for_user_id(_normalize_text(case_manager_id))
+    if staff_org:
+        return staff_org
+    return DEFAULT_ORG_ID
+
+
+def _backfill_sqlite_org_ids(conn: sqlite3.Connection) -> None:
+    if _sqlite_table_exists(conn, "intelligent_tasks") and "org_id" in _sqlite_columns(conn, "intelligent_tasks"):
+        columns = _sqlite_columns(conn, "intelligent_tasks")
+        cm_expr = "case_manager_id" if "case_manager_id" in columns else "NULL AS case_manager_id"
+        rows = conn.execute(
+            f"""
+            SELECT id, client_id, {cm_expr}
+            FROM intelligent_tasks
+            WHERE org_id IS NULL OR TRIM(org_id) = ''
+            """
+        ).fetchall()
+        for row in rows:
+            org_id = _resolve_org_for_record(row["client_id"], row["case_manager_id"])
+            conn.execute("UPDATE intelligent_tasks SET org_id = ? WHERE id = ?", (org_id, row["id"]))
+        conn.execute(
+            "UPDATE intelligent_tasks SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+            (DEFAULT_ORG_ID,),
+        )
+
+    if _sqlite_table_exists(conn, "active_reminders") and "org_id" in _sqlite_columns(conn, "active_reminders"):
+        rows = conn.execute(
+            """
+            SELECT reminder_id, client_id, case_manager_id
+            FROM active_reminders
+            WHERE org_id IS NULL OR TRIM(org_id) = ''
+            """
+        ).fetchall()
+        for row in rows:
+            org_id = _resolve_org_for_record(row["client_id"], row["case_manager_id"])
+            conn.execute("UPDATE active_reminders SET org_id = ? WHERE reminder_id = ?", (org_id, row["reminder_id"]))
+        conn.execute(
+            "UPDATE active_reminders SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+            (DEFAULT_ORG_ID,),
+        )
+
+
+def _ensure_sqlite_tenancy_schema(force: bool = False) -> None:
+    global _sqlite_tenancy_ready
+    if _sqlite_tenancy_ready and not force:
+        return
+    Path(_SQLITE_REMINDERS_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+        for table_name in ("intelligent_tasks", "active_reminders"):
+            if not _sqlite_table_exists(conn, table_name):
+                continue
+            columns = _sqlite_columns(conn, table_name)
+            if "org_id" not in columns:
+                conn.execute(f"ALTER TABLE {table_name} ADD COLUMN org_id TEXT")
+            conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_org ON {table_name}(org_id)")
+        _backfill_sqlite_org_ids(conn)
+    _sqlite_tenancy_ready = True
+
+
+def _backfill_pg_org_ids(conn) -> None:
+    from sqlalchemy import text
+
+    rows = conn.execute(
+        text(
+            """
+            SELECT id, client_id, case_manager_id
+            FROM railway_intelligent_tasks
+            WHERE org_id IS NULL OR TRIM(org_id) = ''
+            """
+        )
+    ).mappings().all()
+    for row in rows:
+        conn.execute(
+            text("UPDATE railway_intelligent_tasks SET org_id = :org_id WHERE id = :id"),
+            {"org_id": _resolve_org_for_record(row.get("client_id"), row.get("case_manager_id")), "id": row["id"]},
+        )
+    conn.execute(
+        text("UPDATE railway_intelligent_tasks SET org_id = :org_id WHERE org_id IS NULL OR TRIM(org_id) = ''"),
+        {"org_id": DEFAULT_ORG_ID},
+    )
+
+    rows = conn.execute(
+        text(
+            """
+            SELECT reminder_id, client_id, case_manager_id
+            FROM railway_active_reminders
+            WHERE org_id IS NULL OR TRIM(org_id) = ''
+            """
+        )
+    ).mappings().all()
+    for row in rows:
+        conn.execute(
+            text("UPDATE railway_active_reminders SET org_id = :org_id WHERE reminder_id = :reminder_id"),
+            {
+                "org_id": _resolve_org_for_record(row.get("client_id"), row.get("case_manager_id")),
+                "reminder_id": row["reminder_id"],
+            },
+        )
+    conn.execute(
+        text("UPDATE railway_active_reminders SET org_id = :org_id WHERE org_id IS NULL OR TRIM(org_id) = ''"),
+        {"org_id": DEFAULT_ORG_ID},
+    )
+
+
 # ---------------------------------------------------------------------------
 # Table DDL
 # ---------------------------------------------------------------------------
@@ -163,9 +292,13 @@ _PG_ALTER_STATEMENTS = [
     "ALTER TABLE railway_intelligent_tasks ADD COLUMN IF NOT EXISTS case_manager_id TEXT",
     "ALTER TABLE railway_intelligent_tasks ADD COLUMN IF NOT EXISTS is_demo INTEGER DEFAULT 0",
     "ALTER TABLE railway_intelligent_tasks ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+    "ALTER TABLE railway_intelligent_tasks ADD COLUMN IF NOT EXISTS org_id TEXT",
+    "ALTER TABLE railway_active_reminders ADD COLUMN IF NOT EXISTS org_id TEXT",
     "ALTER TABLE railway_core_clients ADD COLUMN IF NOT EXISTS case_status TEXT",
     "ALTER TABLE railway_core_clients ADD COLUMN IF NOT EXISTS updated_at TEXT",
 ]
+
+_sqlite_tenancy_ready = False
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +322,9 @@ def ensure_storage_ready() -> bool:
                         conn.execute(text(stmt))
                     except Exception:
                         pass  # column already exists — safe to ignore
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_railway_intelligent_tasks_org ON railway_intelligent_tasks(org_id)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS idx_railway_active_reminders_org ON railway_active_reminders(org_id)"))
+                _backfill_pg_org_ids(conn)
             logger.info("Postgres reminders tables ready")
             return True
         except Exception as exc:
@@ -199,6 +335,7 @@ def ensure_storage_ready() -> bool:
         # Just verify the file path is accessible.
         try:
             Path(_SQLITE_REMINDERS_PATH).parent.mkdir(parents=True, exist_ok=True)
+            _ensure_sqlite_tenancy_schema()
             logger.info(f"SQLite reminders path ready: {_SQLITE_REMINDERS_PATH}")
             return True
         except Exception as exc:
@@ -420,9 +557,12 @@ def _workspace_task_to_task_dict(task: Dict[str, Any], name_map: Dict[str, str],
     return converted
 
 
-def list_workspace_tasks_for_case_manager(case_manager_id: str) -> List[Dict[str, Any]]:
+def list_workspace_tasks_for_case_manager(case_manager_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return open workspace client_tasks for this case manager's clients."""
     client_ids, name_map = get_clients_for_case_manager(case_manager_id)
+    if org_id:
+        allowed_client_ids = set(get_client_ids_for_org(org_id))
+        client_ids = [client_id for client_id in client_ids if client_id in allowed_client_ids]
     if not client_ids:
         return []
 
@@ -439,7 +579,7 @@ def list_workspace_tasks_for_case_manager(case_manager_id: str) -> List[Dict[str
     return tasks
 
 
-def list_tasks_for_client(client_id: str) -> List[Dict[str, Any]]:
+def list_tasks_for_client(client_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return all non-completed intelligent_tasks for a single client."""
     if use_postgres():
         try:
@@ -452,16 +592,18 @@ def list_tasks_for_client(client_id: str) -> List[Dict[str, Any]]:
                                due_date, completed_at, created_at, is_demo
                         FROM railway_intelligent_tasks
                         WHERE client_id = :cid AND status != 'completed'
+                          AND (:org_id IS NULL OR org_id = :org_id)
                         ORDER BY
                             CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
                             due_date ASC NULLS LAST
                     """),
-                    {"cid": client_id},
+                    {"cid": client_id, "org_id": org_id},
                 ).fetchall()
             return [_row_to_task_dict(r) for r in rows]
         except Exception as exc:
             logger.warning("Postgres list_tasks_for_client failed (%s), using SQLite", exc)
 
+    _ensure_sqlite_tenancy_schema()
     with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
         cur = conn.execute(
             """
@@ -469,18 +611,22 @@ def list_tasks_for_client(client_id: str) -> List[Dict[str, Any]]:
                    status, estimated_minutes, due_date, completed_at, created_at, is_demo
             FROM intelligent_tasks
             WHERE client_id = ? AND status != 'completed'
+              AND (? IS NULL OR org_id = ?)
             ORDER BY
                 CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
                 due_date ASC
             """,
-            (client_id,),
+            (client_id, org_id, org_id),
         )
         return [_row_to_task_dict(r) for r in cur.fetchall()]
 
 
-def list_tasks_for_case_manager(case_manager_id: str) -> List[Dict[str, Any]]:
+def list_tasks_for_case_manager(case_manager_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return all non-completed tasks across all clients owned by this case manager."""
     client_ids, name_map = get_clients_for_case_manager(case_manager_id)
+    if org_id:
+        allowed_client_ids = set(get_client_ids_for_org(org_id))
+        client_ids = [client_id for client_id in client_ids if client_id in allowed_client_ids]
     if not client_ids:
         return []
 
@@ -499,23 +645,25 @@ def list_tasks_for_case_manager(case_manager_id: str) -> List[Dict[str, Any]]:
                                due_date, completed_at, created_at, is_demo
                         FROM railway_intelligent_tasks
                         WHERE client_id IN ({placeholders}) AND status != 'completed'
+                          AND (:org_id IS NULL OR org_id = :org_id)
                         ORDER BY
                             CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
                             due_date ASC NULLS LAST
                     """),
-                    params,
+                    {**params, "org_id": org_id},
                 ).fetchall()
             for r in rows:
                 t = _row_to_task_dict(r)
                 t["client_name"] = name_map.get(t.get("client_id", ""), "Unknown Client")
                 tasks.append(t)
-            tasks.extend(list_workspace_tasks_for_case_manager(case_manager_id))
+            tasks.extend(list_workspace_tasks_for_case_manager(case_manager_id, org_id=org_id))
             return tasks
         except Exception as exc:
             logger.warning("Postgres list_tasks_for_case_manager failed (%s), using SQLite", exc)
 
     placeholders = ",".join("?" * len(client_ids))
     try:
+        _ensure_sqlite_tenancy_schema()
         with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
             cur = conn.execute(
                 f"""
@@ -523,11 +671,12 @@ def list_tasks_for_case_manager(case_manager_id: str) -> List[Dict[str, Any]]:
                        status, estimated_minutes, due_date, completed_at, created_at, is_demo
                 FROM intelligent_tasks
                 WHERE client_id IN ({placeholders}) AND status != 'completed'
+                  AND (? IS NULL OR org_id = ?)
                 ORDER BY
                     CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
                     due_date ASC
                 """,
-                client_ids,
+                client_ids + [org_id, org_id],
             )
             for r in cur.fetchall():
                 t = _row_to_task_dict(r)
@@ -536,13 +685,16 @@ def list_tasks_for_case_manager(case_manager_id: str) -> List[Dict[str, Any]]:
     except sqlite3.OperationalError as exc:
         logger.warning("SQLite intelligent_tasks lookup failed (%s); continuing with workspace tasks", exc)
 
-    tasks.extend(list_workspace_tasks_for_case_manager(case_manager_id))
+    tasks.extend(list_workspace_tasks_for_case_manager(case_manager_id, org_id=org_id))
     return tasks
 
 
-def get_today_tasks(case_manager_id: str) -> List[Dict[str, Any]]:
+def get_today_tasks(case_manager_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Active tasks with due_date == today, scoped to this case manager's clients."""
     client_ids, name_map = get_clients_for_case_manager(case_manager_id)
+    if org_id:
+        allowed_client_ids = set(get_client_ids_for_org(org_id))
+        client_ids = [client_id for client_id in client_ids if client_id in allowed_client_ids]
     if not client_ids:
         return []
 
@@ -554,6 +706,7 @@ def get_today_tasks(case_manager_id: str) -> List[Dict[str, Any]]:
             placeholders = ", ".join(f":cid{i}" for i in range(len(client_ids)))
             params = {f"cid{i}": cid for i, cid in enumerate(client_ids)}
             params["today"] = today_str
+            params["org_id"] = org_id
             with _pg_conn() as conn:
                 rows = conn.execute(
                     text(f"""
@@ -563,6 +716,7 @@ def get_today_tasks(case_manager_id: str) -> List[Dict[str, Any]]:
                         WHERE client_id IN ({placeholders})
                           AND DATE(due_date) = :today
                           AND status != 'completed'
+                          AND (:org_id IS NULL OR org_id = :org_id)
                         ORDER BY
                             CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
                             due_date ASC
@@ -582,6 +736,7 @@ def get_today_tasks(case_manager_id: str) -> List[Dict[str, Any]]:
             logger.warning("Postgres get_today_tasks failed (%s), using SQLite", exc)
 
     placeholders = ",".join("?" * len(client_ids))
+    _ensure_sqlite_tenancy_schema()
     with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
         cur = conn.execute(
             f"""
@@ -591,11 +746,12 @@ def get_today_tasks(case_manager_id: str) -> List[Dict[str, Any]]:
             WHERE client_id IN ({placeholders})
               AND DATE(due_date) = ?
               AND status != 'completed'
+              AND (? IS NULL OR org_id = ?)
             ORDER BY
                 CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
                 due_date ASC
             """,
-            client_ids + [today_str],
+            client_ids + [today_str, org_id, org_id],
         )
         tasks = []
         for r in cur.fetchall():
@@ -608,14 +764,14 @@ def get_today_tasks(case_manager_id: str) -> List[Dict[str, Any]]:
         return tasks
 
 
-def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = None) -> Dict[str, Any]:
+def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = None, org_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Return tasks bucketed into overdue / today / next_3_days / this_week /
     treatment_plan / high_priority_no_date / later, plus an AI summary string.
     Pass client_date (YYYY-MM-DD) to use the client's local date for bucketing
     instead of the server's UTC date.today().
     """
-    all_tasks = list_tasks_for_case_manager(case_manager_id)
+    all_tasks = list_tasks_for_case_manager(case_manager_id, org_id=org_id)
 
     if client_date:
         try:
@@ -659,7 +815,7 @@ def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = Non
             buckets["later"].append(task)
 
     # Also pull active_reminders into buckets
-    active_reminders = get_active_reminders_for_case_manager(case_manager_id)
+    active_reminders = get_active_reminders_for_case_manager(case_manager_id, org_id=org_id)
     _, name_map = get_clients_for_case_manager(case_manager_id)
     for r in active_reminders:
         due = _parse_due_date(r.get("due_date"))
@@ -744,7 +900,7 @@ def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = Non
 # Active reminders reads
 # ---------------------------------------------------------------------------
 
-def get_active_reminders_for_case_manager(case_manager_id: str) -> List[Dict[str, Any]]:
+def get_active_reminders_for_case_manager(case_manager_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return Active reminders for the given case manager."""
     if use_postgres():
         try:
@@ -753,9 +909,10 @@ def get_active_reminders_for_case_manager(case_manager_id: str) -> List[Dict[str
                 rows = conn.execute(
                     text("""
                         SELECT reminder_id, client_id, case_manager_id, reminder_type,
-                               message, priority, due_date, status, created_at
+                               message, priority, due_date, status, created_at, org_id
                         FROM railway_active_reminders
                         WHERE case_manager_id = :cm AND status = 'Active'
+                          AND (:org_id IS NULL OR org_id = :org_id)
                         ORDER BY
                             CASE priority
                                 WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
@@ -763,20 +920,22 @@ def get_active_reminders_for_case_manager(case_manager_id: str) -> List[Dict[str
                             END,
                             due_date ASC NULLS LAST
                     """),
-                    {"cm": case_manager_id},
+                    {"cm": case_manager_id, "org_id": org_id},
                 ).fetchall()
             return [dict(r._mapping) for r in rows]
         except Exception as exc:
             logger.warning("Postgres get_active_reminders failed (%s), using SQLite", exc)
 
     try:
+        _ensure_sqlite_tenancy_schema()
         with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
             cur = conn.execute(
                 """
                 SELECT reminder_id, client_id, case_manager_id, reminder_type,
-                       message, priority, due_date, status, created_at
+                       message, priority, due_date, status, created_at, org_id
                 FROM active_reminders
                 WHERE case_manager_id = ? AND status = 'Active'
+                  AND (? IS NULL OR org_id = ?)
                 ORDER BY
                     CASE priority
                         WHEN 'Critical' THEN 1 WHEN 'High' THEN 2
@@ -784,12 +943,90 @@ def get_active_reminders_for_case_manager(case_manager_id: str) -> List[Dict[str
                     END,
                     due_date ASC
                 """,
-                (case_manager_id,),
+                (case_manager_id, org_id, org_id),
             )
             return [dict(r) for r in cur.fetchall()]
     except sqlite3.OperationalError as exc:
         logger.warning("SQLite active_reminders lookup failed (%s); returning none", exc)
         return []
+
+
+def get_active_reminder(reminder_id: str) -> Optional[Dict[str, Any]]:
+    """Return one active_reminders row by id, including org_id when present."""
+    if use_postgres():
+        try:
+            from sqlalchemy import text
+            with _pg_conn() as conn:
+                row = conn.execute(
+                    text("""
+                        SELECT reminder_id, client_id, case_manager_id, reminder_type,
+                               message, priority, due_date, status, created_at, org_id
+                        FROM railway_active_reminders
+                        WHERE reminder_id = :rid
+                    """),
+                    {"rid": reminder_id},
+                ).fetchone()
+            return dict(row._mapping) if row else None
+        except Exception as exc:
+            logger.warning("Postgres get_active_reminder failed (%s), using SQLite", exc)
+
+    try:
+        _ensure_sqlite_tenancy_schema()
+        with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+            row = conn.execute(
+                """
+                SELECT reminder_id, client_id, case_manager_id, reminder_type,
+                       message, priority, due_date, status, created_at, org_id
+                FROM active_reminders
+                WHERE reminder_id = ?
+                """,
+                (reminder_id,),
+            ).fetchone()
+        return dict(row) if row else None
+    except sqlite3.OperationalError as exc:
+        logger.warning("SQLite get_active_reminder failed (%s)", exc)
+        return None
+
+
+def get_intelligent_task(task_id: str) -> Optional[Dict[str, Any]]:
+    """Return one intelligent_tasks row by id, including org_id when present."""
+    if use_postgres():
+        try:
+            from sqlalchemy import text
+            with _pg_conn() as conn:
+                row = conn.execute(
+                    text("""
+                        SELECT id, client_id, case_manager_id, task_type, title,
+                               description, priority, status, estimated_minutes,
+                               due_date, completed_at, created_at, is_demo, org_id
+                        FROM railway_intelligent_tasks
+                        WHERE id = :task_id
+                    """),
+                    {"task_id": task_id},
+                ).fetchone()
+            return _row_to_task_dict(row) if row else None
+        except Exception as exc:
+            logger.warning("Postgres get_intelligent_task failed (%s), using SQLite", exc)
+
+    try:
+        _ensure_sqlite_tenancy_schema()
+        with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+            columns = _sqlite_columns(conn, "intelligent_tasks")
+            case_manager_expr = "case_manager_id" if "case_manager_id" in columns else "NULL AS case_manager_id"
+            row = conn.execute(
+                f"""
+                SELECT id, client_id, {case_manager_expr}, task_type, title,
+                       description, priority, status, estimated_minutes,
+                       due_date, completed_at, created_at, is_demo, org_id
+                FROM intelligent_tasks
+                WHERE id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+        return _row_to_task_dict(row) if row else None
+    except sqlite3.OperationalError as exc:
+        logger.warning("SQLite get_intelligent_task failed (%s)", exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -813,6 +1050,7 @@ def create_intelligent_tasks(
     demo_flag = 1 if is_demo else 0
     inserted = 0
     errors = 0
+    effective_case_manager_id = case_manager_id or ""
 
     if use_postgres():
         try:
@@ -843,11 +1081,11 @@ def create_intelligent_tasks(
                                 INSERT INTO railway_intelligent_tasks (
                                     id, client_id, case_manager_id, task_type, title,
                                     description, priority, status, estimated_minutes,
-                                    due_date, completed_at, created_at, is_demo
+                                    due_date, completed_at, created_at, is_demo, org_id
                                 ) VALUES (
                                     :id, :client_id, :case_manager_id, :task_type, :title,
                                     :description, :priority, :status, :estimated_minutes,
-                                    :due_date, NULL, :created_at, :is_demo
+                                    :due_date, NULL, :created_at, :is_demo, :org_id
                                 )
                                 ON CONFLICT (id) DO UPDATE SET
                                     title = EXCLUDED.title,
@@ -855,12 +1093,13 @@ def create_intelligent_tasks(
                                     priority = EXCLUDED.priority,
                                     status = EXCLUDED.status,
                                     due_date = EXCLUDED.due_date,
+                                    org_id = EXCLUDED.org_id,
                                     updated_at = NOW()
                             """),
                             {
                                 "id": task.get("task_id", str(uuid.uuid4())),
                                 "client_id": client_id,
-                                "case_manager_id": case_manager_id or task.get("case_manager_id", ""),
+                                "case_manager_id": effective_case_manager_id or task.get("case_manager_id", ""),
                                 "task_type": task.get("process_type", task.get("task_type", "unknown")),
                                 "title": task.get("title", "Untitled"),
                                 "description": task.get("description", ""),
@@ -870,6 +1109,7 @@ def create_intelligent_tasks(
                                 "due_date": task.get("scheduled_date") or task.get("due_date"),
                                 "created_at": task.get("created_at", datetime.now().isoformat()),
                                 "is_demo": demo_flag,
+                                "org_id": _resolve_org_for_record(client_id, effective_case_manager_id or task.get("case_manager_id", "")),
                             },
                         )
                         inserted += 1
@@ -883,6 +1123,7 @@ def create_intelligent_tasks(
             logger.error("Postgres create_intelligent_tasks failed (%s), falling back to SQLite", exc)
 
     # SQLite fallback
+    _ensure_sqlite_tenancy_schema()
     with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
         if clear_process_types:
             placeholders = ",".join("?" * len(clear_process_types))
@@ -899,8 +1140,8 @@ def create_intelligent_tasks(
                     """
                     INSERT INTO intelligent_tasks (
                         id, client_id, task_type, title, description,
-                        priority, estimated_minutes, status, created_at, due_date, is_demo
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        priority, estimated_minutes, status, created_at, due_date, is_demo, org_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         task.get("task_id", str(uuid.uuid4())),
@@ -914,6 +1155,7 @@ def create_intelligent_tasks(
                         task.get("created_at", datetime.now().isoformat()),
                         task.get("scheduled_date") or task.get("due_date"),
                         demo_flag,
+                        _resolve_org_for_record(client_id, effective_case_manager_id or task.get("case_manager_id", "")),
                     ),
                 )
                 inserted += 1
@@ -928,6 +1170,7 @@ def update_task_status(
     task_id: str,
     status: str,
     completed_at: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> bool:
     """Mark a task completed (or any other status). Returns True on success."""
     completed_ts = completed_at or (datetime.now().isoformat() if status == "completed" else None)
@@ -943,8 +1186,9 @@ def update_task_status(
                             completed_at = :completed_at,
                             updated_at = NOW()
                         WHERE id = :task_id
+                          AND (:org_id IS NULL OR org_id = :org_id)
                     """),
-                    {"status": status, "completed_at": completed_ts, "task_id": task_id},
+                    {"status": status, "completed_at": completed_ts, "task_id": task_id, "org_id": org_id},
                 )
                 if result.rowcount == 0:
                     logger.warning("update_task_status: task %s not found in Postgres", task_id)
@@ -954,10 +1198,11 @@ def update_task_status(
             logger.warning("Postgres update_task_status failed (%s), using SQLite", exc)
 
     try:
+        _ensure_sqlite_tenancy_schema()
         with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
             cur = conn.execute(
-                "UPDATE intelligent_tasks SET status = ?, completed_at = ? WHERE id = ?",
-                (status, completed_ts, task_id),
+                "UPDATE intelligent_tasks SET status = ?, completed_at = ? WHERE id = ? AND (? IS NULL OR org_id = ?)",
+                (status, completed_ts, task_id, org_id, org_id),
             )
             return cur.rowcount > 0
     except sqlite3.OperationalError as exc:
@@ -976,10 +1221,12 @@ def create_active_reminder(
     message: str,
     priority: str = "Medium",
     due_date: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> str:
     """Persist a new active reminder. Returns the reminder_id."""
     reminder_id = str(uuid.uuid4())
     created_at = datetime.now().isoformat()
+    record_org_id = org_id or _resolve_org_for_record(client_id, case_manager_id)
 
     if use_postgres():
         try:
@@ -989,10 +1236,10 @@ def create_active_reminder(
                     text("""
                         INSERT INTO railway_active_reminders (
                             reminder_id, client_id, case_manager_id, reminder_type,
-                            message, priority, due_date, status, created_at
+                            message, priority, due_date, status, created_at, org_id
                         ) VALUES (
                             :reminder_id, :client_id, :case_manager_id, :reminder_type,
-                            :message, :priority, :due_date, 'Active', :created_at
+                            :message, :priority, :due_date, 'Active', :created_at, :org_id
                         )
                     """),
                     {
@@ -1004,22 +1251,24 @@ def create_active_reminder(
                         "priority": priority,
                         "due_date": due_date,
                         "created_at": created_at,
+                        "org_id": record_org_id,
                     },
                 )
             return reminder_id
         except Exception as exc:
             logger.warning("Postgres create_active_reminder failed (%s), using SQLite", exc)
 
+    _ensure_sqlite_tenancy_schema()
     with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
         conn.execute(
             """
             INSERT INTO active_reminders (
                 reminder_id, client_id, case_manager_id, reminder_type,
-                message, priority, due_date, status, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?)
+                message, priority, due_date, status, created_at, org_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?)
             """,
             (reminder_id, client_id, case_manager_id, reminder_type,
-             message, priority, due_date, created_at),
+             message, priority, due_date, created_at, record_org_id),
         )
     return reminder_id
 
@@ -1030,6 +1279,7 @@ def update_active_reminder(
     due_date: Optional[str] = None,
     priority: Optional[str] = None,
     reminder_type: Optional[str] = None,
+    org_id: Optional[str] = None,
 ) -> bool:
     """Update editable fields on an active reminder. Returns True if a row was changed."""
     updates: Dict[str, Any] = {}
@@ -1048,11 +1298,13 @@ def update_active_reminder(
         try:
             from sqlalchemy import text
             set_clause = ", ".join(f"{k} = :{k}" for k in updates)
-            updates["reminder_id"] = reminder_id
+            pg_updates = dict(updates)
+            pg_updates["reminder_id"] = reminder_id
+            pg_updates["org_id"] = org_id
             with _pg_conn() as conn:
                 result = conn.execute(
-                    text(f"UPDATE railway_active_reminders SET {set_clause} WHERE reminder_id = :reminder_id"),
-                    updates,
+                    text(f"UPDATE railway_active_reminders SET {set_clause} WHERE reminder_id = :reminder_id AND (:org_id IS NULL OR org_id = :org_id)"),
+                    pg_updates,
                 )
                 if result.rowcount > 0:
                     return True
@@ -1064,10 +1316,11 @@ def update_active_reminder(
         # Re-build without the pg key
         fields = {k: v for k, v in updates.items() if k != "reminder_id"}
         set_clause = ", ".join(f"{k} = ?" for k in fields)
-        values = list(fields.values()) + [reminder_id]
+        values = list(fields.values()) + [reminder_id, org_id, org_id]
+        _ensure_sqlite_tenancy_schema()
         with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
             cur = conn.execute(
-                f"UPDATE active_reminders SET {set_clause} WHERE reminder_id = ?",
+                f"UPDATE active_reminders SET {set_clause} WHERE reminder_id = ? AND (? IS NULL OR org_id = ?)",
                 values,
             )
             return cur.rowcount > 0
@@ -1076,15 +1329,15 @@ def update_active_reminder(
         return False
 
 
-def delete_active_reminder(reminder_id: str) -> bool:
+def delete_active_reminder(reminder_id: str, org_id: Optional[str] = None) -> bool:
     """Permanently delete an active reminder. Returns True if a row was removed."""
     if use_postgres():
         try:
             from sqlalchemy import text
             with _pg_conn() as conn:
                 result = conn.execute(
-                    text("DELETE FROM railway_active_reminders WHERE reminder_id = :rid"),
-                    {"rid": reminder_id},
+                    text("DELETE FROM railway_active_reminders WHERE reminder_id = :rid AND (:org_id IS NULL OR org_id = :org_id)"),
+                    {"rid": reminder_id, "org_id": org_id},
                 )
                 if result.rowcount > 0:
                     return True
@@ -1092,10 +1345,11 @@ def delete_active_reminder(reminder_id: str) -> bool:
             logger.warning("Postgres delete_active_reminder failed (%s), using SQLite", exc)
 
     try:
+        _ensure_sqlite_tenancy_schema()
         with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
             cur = conn.execute(
-                "DELETE FROM active_reminders WHERE reminder_id = ?",
-                (reminder_id,),
+                "DELETE FROM active_reminders WHERE reminder_id = ? AND (? IS NULL OR org_id = ?)",
+                (reminder_id, org_id, org_id),
             )
             return cur.rowcount > 0
     except Exception as exc:
@@ -1103,15 +1357,15 @@ def delete_active_reminder(reminder_id: str) -> bool:
         return False
 
 
-def reopen_active_reminder(reminder_id: str) -> bool:
+def reopen_active_reminder(reminder_id: str, org_id: Optional[str] = None) -> bool:
     """Set a completed active reminder back to Active."""
     if use_postgres():
         try:
             from sqlalchemy import text
             with _pg_conn() as conn:
                 result = conn.execute(
-                    text("UPDATE railway_active_reminders SET status = 'Active' WHERE reminder_id = :rid"),
-                    {"rid": reminder_id},
+                    text("UPDATE railway_active_reminders SET status = 'Active' WHERE reminder_id = :rid AND (:org_id IS NULL OR org_id = :org_id)"),
+                    {"rid": reminder_id, "org_id": org_id},
                 )
                 if result.rowcount > 0:
                     return True
@@ -1119,10 +1373,11 @@ def reopen_active_reminder(reminder_id: str) -> bool:
             logger.warning("Postgres reopen_active_reminder failed (%s), using SQLite", exc)
 
     try:
+        _ensure_sqlite_tenancy_schema()
         with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
             cur = conn.execute(
-                "UPDATE active_reminders SET status = 'Active' WHERE reminder_id = ?",
-                (reminder_id,),
+                "UPDATE active_reminders SET status = 'Active' WHERE reminder_id = ? AND (? IS NULL OR org_id = ?)",
+                (reminder_id, org_id, org_id),
             )
             return cur.rowcount > 0
     except Exception as exc:
@@ -1130,7 +1385,7 @@ def reopen_active_reminder(reminder_id: str) -> bool:
         return False
 
 
-def complete_active_reminder(reminder_id: str) -> bool:
+def complete_active_reminder(reminder_id: str, org_id: Optional[str] = None) -> bool:
     """Mark an active reminder as Completed. Returns True if a row was updated."""
     if use_postgres():
         try:
@@ -1141,8 +1396,9 @@ def complete_active_reminder(reminder_id: str) -> bool:
                         UPDATE railway_active_reminders
                         SET status = 'Completed'
                         WHERE reminder_id = :reminder_id
+                          AND (:org_id IS NULL OR org_id = :org_id)
                     """),
-                    {"reminder_id": reminder_id},
+                    {"reminder_id": reminder_id, "org_id": org_id},
                 )
                 if result.rowcount > 0:
                     return True
@@ -1150,10 +1406,11 @@ def complete_active_reminder(reminder_id: str) -> bool:
             logger.warning("Postgres complete_active_reminder failed (%s), using SQLite", exc)
 
     try:
+        _ensure_sqlite_tenancy_schema()
         with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
             cur = conn.execute(
-                "UPDATE active_reminders SET status = 'Completed' WHERE reminder_id = ?",
-                (reminder_id,),
+                "UPDATE active_reminders SET status = 'Completed' WHERE reminder_id = ? AND (? IS NULL OR org_id = ?)",
+                (reminder_id, org_id, org_id),
             )
             return cur.rowcount > 0
     except Exception as exc:
@@ -1268,9 +1525,15 @@ class _Repo:
     get_today_tasks = staticmethod(get_today_tasks)
     get_prioritized_tasks = staticmethod(get_prioritized_tasks)
     get_active_reminders_for_case_manager = staticmethod(get_active_reminders_for_case_manager)
+    get_active_reminder = staticmethod(get_active_reminder)
+    get_intelligent_task = staticmethod(get_intelligent_task)
     create_intelligent_tasks = staticmethod(create_intelligent_tasks)
     update_task_status = staticmethod(update_task_status)
     create_active_reminder = staticmethod(create_active_reminder)
+    update_active_reminder = staticmethod(update_active_reminder)
+    delete_active_reminder = staticmethod(delete_active_reminder)
+    reopen_active_reminder = staticmethod(reopen_active_reminder)
+    complete_active_reminder = staticmethod(complete_active_reminder)
     cleanup_orphan_tasks = staticmethod(cleanup_orphan_tasks)
     storage_status = staticmethod(storage_status)
 

@@ -25,7 +25,10 @@ from pathlib import Path
 from .intelligent_processor import IntelligentTaskProcessor
 from .data_integration import RealDataIntegrator
 from . import repository as _repo
+from backend.auth.authorization import assert_client_access, get_client_ids_for_org, get_org_for_user_id
+from backend.auth.service import AuthenticatedUser, require_authenticated_user
 from backend.shared.database.workspace_store import workspace_store
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 # Note: Authentication dependencies would be imported here when auth module is implemented
 # from auth.dependencies import get_current_active_user, require_case_manager, require_supervisor
@@ -95,6 +98,53 @@ class ReminderCreate(BaseModel):
     reminder_type: Optional[str] = "general"
     description: Optional[str] = ""
 
+def _current_user_for_tenancy(request: Request) -> Optional[AuthenticatedUser]:
+    if not multi_tenant_enabled():
+        return None
+    return require_authenticated_user(request)
+
+
+def _tenant_org_id(user: Optional[AuthenticatedUser]) -> Optional[str]:
+    return resolve_org_id(user) if user else None
+
+
+def _authorize_case_manager_filter(user: Optional[AuthenticatedUser], case_manager_id: Optional[str]) -> str:
+    requested = (case_manager_id or "").strip()
+    if not multi_tenant_enabled() or user is None:
+        return requested or "default_cm"
+    if not requested or requested == "default_cm":
+        return user.case_manager_id
+    case_manager_org = get_org_for_user_id(requested)
+    if not case_manager_org or case_manager_org != resolve_org_id(user):
+        raise HTTPException(status_code=404, detail="Case manager not found")
+    return requested
+
+
+def _assert_client_scope(user: Optional[AuthenticatedUser], client_id: str) -> None:
+    if multi_tenant_enabled() and user is not None and client_id:
+        assert_client_access(user, client_id)
+
+
+def _assert_reminder_scope(user: Optional[AuthenticatedUser], reminder_id: str) -> None:
+    if not multi_tenant_enabled() or user is None:
+        return
+    reminder = _repo.get_active_reminder(reminder_id)
+    if not reminder or reminder.get("org_id") != resolve_org_id(user):
+        raise HTTPException(status_code=404, detail="Reminder not found")
+
+
+def _assert_task_scope(user: Optional[AuthenticatedUser], task_id: str) -> None:
+    if not multi_tenant_enabled() or user is None:
+        return
+    task = _repo.get_intelligent_task(task_id)
+    if task:
+        if task.get("org_id") != resolve_org_id(user):
+            raise HTTPException(status_code=404, detail="Task not found")
+        return
+    workspace_task = workspace_store.get_client_task(task_id)
+    if workspace_task:
+        _assert_client_scope(user, workspace_task.get("client_id", ""))
+
 # =============================================================================
 # API ROUTES
 # =============================================================================
@@ -115,39 +165,51 @@ async def reminders_api_info():
     }
 
 @router.post("/create")
-async def create_reminder(request: ReminderCreate):
+async def create_reminder(payload: ReminderCreate, request: Request):
     """Create a reminder for a client"""
     try:
-        case_manager_id = request.case_manager_id or "unknown"
+        user = _current_user_for_tenancy(request)
+        _assert_client_scope(user, payload.client_id)
+        case_manager_id = (
+            _authorize_case_manager_filter(user, payload.case_manager_id)
+            if multi_tenant_enabled()
+            else (payload.case_manager_id or "unknown")
+        )
         reminder_id = _repo.create_active_reminder(
-            client_id=request.client_id,
+            client_id=payload.client_id,
             case_manager_id=case_manager_id,
-            reminder_type=request.reminder_type or "general",
-            message=request.reminder_text,
-            priority=request.priority,
-            due_date=request.due_date,
+            reminder_type=payload.reminder_type or "general",
+            message=payload.reminder_text,
+            priority=payload.priority,
+            due_date=payload.due_date,
+            org_id=_tenant_org_id(user),
         )
         return {
             "success": True,
             "reminder_id": reminder_id,
-            "client_id": request.client_id,
+            "client_id": payload.client_id,
             "case_manager_id": case_manager_id,
-            "message": request.reminder_text,
-            "priority": request.priority,
-            "due_date": request.due_date,
+            "message": payload.reminder_text,
+            "priority": payload.priority,
+            "due_date": payload.due_date,
             "status": "Active",
             "created_at": datetime.now().isoformat(),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error creating reminder: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to create reminder: {str(e)}")
 
 @router.get("/dashboard/{case_manager_id}")
-async def get_case_manager_dashboard(case_manager_id: str):
+async def get_case_manager_dashboard(case_manager_id: str, request: Request):
     """
     UPDATED: Dashboard with persisted tasks from database
     """
     try:
+        user = _current_user_for_tenancy(request)
+        case_manager_id = _authorize_case_manager_filter(user, case_manager_id)
+        org_id = _tenant_org_id(user)
         from backend.shared.db_path import DB_DIR
         core_clients_db = DB_DIR / "core_clients.db"
         reminders_db = DB_DIR / "reminders.db"
@@ -164,6 +226,9 @@ async def get_case_manager_dashboard(case_manager_id: str):
             
             clients = client_cursor.fetchall()
             client_ids = [client[0] for client in clients]
+            if org_id:
+                allowed_client_ids = set(get_client_ids_for_org(org_id))
+                client_ids = [client_id for client_id in client_ids if client_id in allowed_client_ids]
             
             if not client_ids:
                 return {
@@ -235,6 +300,8 @@ async def get_case_manager_dashboard(case_manager_id: str):
                 "data_source": "database"  # FIXED: Set data_source
             }
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Dashboard error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to get dashboard: {str(e)}")
@@ -242,10 +309,13 @@ async def get_case_manager_dashboard(case_manager_id: str):
 @router.get("/smart-dashboard/{case_manager_id}")
 async def get_smart_dashboard(
     case_manager_id: str,
+    request: Request,
     # current_user: User = Depends(require_case_manager())  # TODO: Add auth when implemented
 ):
     """Smart task distribution dashboard data with real data integration"""
     try:
+        user = _current_user_for_tenancy(request)
+        case_manager_id = _authorize_case_manager_filter(user, case_manager_id)
         # Get real dashboard data
         dashboard_data = data_integrator.get_smart_dashboard_data(case_manager_id)
         
@@ -253,6 +323,8 @@ async def get_smart_dashboard(
             'success': True,
             'dashboard': dashboard_data
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating smart dashboard: {e}")
         # Return fallback data on error
@@ -264,9 +336,12 @@ async def get_smart_dashboard(
         }
 
 @router.post("/contact-completed")
-async def process_contact_completed(contact_data: ContactCompleted):
+async def process_contact_completed(contact_data: ContactCompleted, request: Request):
     """Process completed client contact"""
     try:
+        user = _current_user_for_tenancy(request)
+        _assert_client_scope(user, contact_data.client_id)
+        _authorize_case_manager_filter(user, contact_data.case_manager_id)
         # In a real system, this would update the database
         return {
             'success': True,
@@ -274,14 +349,20 @@ async def process_contact_completed(contact_data: ContactCompleted):
             'client_id': contact_data.client_id,
             'case_manager_id': contact_data.case_manager_id
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error processing contact completion: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/client-urgency/{client_id}")
-async def get_client_urgency(client_id: str, case_manager_id: str = Query("default")):
+async def get_client_urgency(client_id: str, request: Request, case_manager_id: str = Query("default")):
     """Get contact urgency for specific client"""
     try:
+        user = _current_user_for_tenancy(request)
+        _assert_client_scope(user, client_id)
+        if case_manager_id != "default":
+            _authorize_case_manager_filter(user, case_manager_id)
         urgency_data = {
             'client_id': client_id,
             'urgency_level': 'High',
@@ -295,6 +376,8 @@ async def get_client_urgency(client_id: str, case_manager_id: str = Query("defau
             'success': True,
             'urgency': urgency_data
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error calculating client urgency: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -334,18 +417,29 @@ async def get_reminder_rules():
 
 @router.get("/tasks")
 async def get_tasks(
+    request: Request,
     case_manager_id: str = Query("default_cm"),
     status: str = Query(""),
     client_id: str = Query("")
 ):
     """Get tasks list with filtering using real data"""
     try:
+        user = _current_user_for_tenancy(request)
+        if client_id:
+            _assert_client_scope(user, client_id)
+        if multi_tenant_enabled() and user is not None and user.is_admin and case_manager_id == "default_cm":
+            effective_case_manager_id = "default_cm"
+        else:
+            effective_case_manager_id = _authorize_case_manager_filter(user, case_manager_id)
         # Get real tasks data
         tasks = data_integrator.get_real_tasks_data(
-            case_manager_id=case_manager_id if case_manager_id != "default_cm" else None,
+            case_manager_id=effective_case_manager_id if effective_case_manager_id != "default_cm" else None,
             status=status if status else None,
             client_id=client_id if client_id else None
         )
+        if multi_tenant_enabled() and user is not None:
+            allowed_client_ids = set(get_client_ids_for_org(resolve_org_id(user)))
+            tasks = [task for task in tasks if str(task.get("client_id", "")) in allowed_client_ids]
         
         return {
             'success': True,
@@ -353,6 +447,8 @@ async def get_tasks(
             'total_count': len(tasks)
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error getting tasks: {e}")
         # Return empty list on error rather than failing
@@ -395,9 +491,11 @@ async def get_appointments(client_id: str = Query(""), case_manager_id: str = Qu
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/weekly-plan/{case_manager_id}")
-async def get_weekly_plan(case_manager_id: str):
+async def get_weekly_plan(case_manager_id: str, request: Request):
     """Get weekly task distribution plan"""
     try:
+        user = _current_user_for_tenancy(request)
+        case_manager_id = _authorize_case_manager_filter(user, case_manager_id)
         # Create reminder database and smart distributor directly
         from .models import ReminderDatabase
         from .smart_distributor import SmartTaskDistributor
@@ -419,6 +517,8 @@ async def get_weekly_plan(case_manager_id: str):
             'success': True,
             'weekly_plan': weekly_plan
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating weekly plan: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -427,12 +527,15 @@ async def get_weekly_plan(case_manager_id: str):
 # NEW INTELLIGENT FEATURES - Implementing the specification
 
 @router.post("/start-process")
-async def start_intelligent_process(process_data: StartProcess):
+async def start_intelligent_process(process_data: StartProcess, request: Request):
     """
     Start an intelligent process workflow (disability, housing, employment).
     Generates tasks and persists them via repository (Postgres-first, SQLite fallback).
     """
     try:
+        user = _current_user_for_tenancy(request)
+        _assert_client_scope(user, process_data.client_id)
+        process_data.case_manager_id = _authorize_case_manager_filter(user, process_data.case_manager_id)
         tasks = intelligent_processor.generate_process_tasks(
             client_id=process_data.client_id,
             process_type=process_data.process_type,
@@ -457,6 +560,8 @@ async def start_intelligent_process(process_data: StartProcess):
             "estimated_total_time": sum(task.get("estimated_minutes", 30) for task in tasks),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error starting process: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -524,12 +629,15 @@ def calculate_intelligent_priority(client):
     }
 
 @router.get("/intelligent-dashboard/{case_manager_id}")
-async def get_intelligent_dashboard(case_manager_id: str):
+async def get_intelligent_dashboard(case_manager_id: str, request: Request):
     """
     Get intelligent dashboard with smart priority calculation
     This implements the smart prioritization from the specification
     """
     try:
+        user = _current_user_for_tenancy(request)
+        case_manager_id = _authorize_case_manager_filter(user, case_manager_id)
+        org_id = _tenant_org_id(user)
         from backend.shared.db_path import DB_DIR as _db
         with sqlite3.connect(str(_db / "core_clients.db")) as conn:
             conn.row_factory = sqlite3.Row
@@ -546,7 +654,10 @@ async def get_intelligent_dashboard(case_manager_id: str):
             rows = cursor.fetchall()
 
         clients = []
+        allowed_client_ids = set(get_client_ids_for_org(org_id)) if org_id else None
         for row in rows:
+            if allowed_client_ids is not None and row["client_id"] not in allowed_client_ids:
+                continue
             risk_level = (row["risk_level"] or "medium").capitalize()
             clients.append({
                 "client_id": row["client_id"],
@@ -602,6 +713,8 @@ async def get_intelligent_dashboard(case_manager_id: str):
             "dashboard": dashboard
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating intelligent dashboard: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -732,7 +845,7 @@ async def generate_tasks():  # TODO: Add auth when implemented
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/today")
-async def get_today_schedule(case_manager_id: str = Query("default_cm")):
+async def get_today_schedule(request: Request, case_manager_id: str = Query("default_cm")):
     """
     Get today's real daily schedule scoped to the given case manager's clients.
     Only returns tasks for clients that actually belong to this case manager.
@@ -741,8 +854,15 @@ async def get_today_schedule(case_manager_id: str = Query("default_cm")):
         today = datetime.now().strftime("%Y-%m-%d")
         current_time = datetime.now().strftime("%H:%M")
 
+        user = _current_user_for_tenancy(request)
+        effective_case_manager_id = _authorize_case_manager_filter(user, case_manager_id)
+        org_id = _tenant_org_id(user)
+
         # Repository handles client scoping and Postgres/SQLite routing
-        client_ids, client_names = _repo.get_clients_for_case_manager(case_manager_id)
+        client_ids, client_names = _repo.get_clients_for_case_manager(effective_case_manager_id)
+        if org_id:
+            allowed_client_ids = set(get_client_ids_for_org(org_id))
+            client_ids = [client_id for client_id in client_ids if client_id in allowed_client_ids]
         if not client_ids:
             return {
                 "date": today,
@@ -754,7 +874,7 @@ async def get_today_schedule(case_manager_id: str = Query("default_cm")):
                 "data_source": _repo.storage_status().get("backend", "unknown"),
             }
 
-        schedule_tasks = _repo.get_today_tasks(case_manager_id)
+        schedule_tasks = _repo.get_today_tasks(effective_case_manager_id, org_id=org_id)
 
         # Pull appointments from case_management.db (SQLite-only for now; no Postgres table yet)
         scoped_client_ids = client_ids
@@ -842,6 +962,8 @@ async def get_today_schedule(case_manager_id: str = Query("default_cm")):
         logger.info(f"Generated real daily schedule with {len(schedule_tasks)} tasks")
         return today_schedule
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating today's schedule: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -875,11 +997,14 @@ def _time_or_default(date_value: Optional[str]) -> str:
 # =============================================================================
 
 @router.post("/tasks/{task_id}/complete")
-async def complete_task(task_id: str):
+async def complete_task(task_id: str, request: Request):
     """Mark an intelligent task or workspace client task as completed."""
     try:
         completed_at = datetime.now().isoformat()
-        updated = _repo.update_task_status(task_id, "completed", completed_at=completed_at)
+        user = _current_user_for_tenancy(request)
+        org_id = _tenant_org_id(user)
+        _assert_task_scope(user, task_id)
+        updated = _repo.update_task_status(task_id, "completed", completed_at=completed_at, org_id=org_id)
         source = "intelligent_task"
         if not updated:
             workspace_task = workspace_store.update_client_task(
@@ -905,15 +1030,19 @@ async def complete_task(task_id: str):
         raise HTTPException(status_code=500, detail=f"Failed to complete task: {str(e)}")
 
 @router.patch("/{reminder_id}")
-async def update_reminder(reminder_id: str, request: ReminderUpdate):
+async def update_reminder(reminder_id: str, payload: ReminderUpdate, request: Request):
     """Update title, due_date, priority, or reminder_type on an active reminder."""
     try:
+        user = _current_user_for_tenancy(request)
+        org_id = _tenant_org_id(user)
+        _assert_reminder_scope(user, reminder_id)
         updated = _repo.update_active_reminder(
             reminder_id,
-            message=request.reminder_text,
-            due_date=request.due_date,
-            priority=request.priority,
-            reminder_type=request.reminder_type,
+            message=payload.reminder_text,
+            due_date=payload.due_date,
+            priority=payload.priority,
+            reminder_type=payload.reminder_type,
+            org_id=org_id,
         )
         if not updated:
             raise HTTPException(status_code=404, detail="Reminder not found")
@@ -926,10 +1055,13 @@ async def update_reminder(reminder_id: str, request: ReminderUpdate):
 
 
 @router.delete("/{reminder_id}")
-async def delete_reminder(reminder_id: str):
+async def delete_reminder(reminder_id: str, request: Request):
     """Permanently delete an active reminder."""
     try:
-        deleted = _repo.delete_active_reminder(reminder_id)
+        user = _current_user_for_tenancy(request)
+        org_id = _tenant_org_id(user)
+        _assert_reminder_scope(user, reminder_id)
+        deleted = _repo.delete_active_reminder(reminder_id, org_id=org_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="Reminder not found")
         return {"success": True, "reminder_id": reminder_id}
@@ -941,10 +1073,13 @@ async def delete_reminder(reminder_id: str):
 
 
 @router.post("/{reminder_id}/reopen")
-async def reopen_reminder(reminder_id: str):
+async def reopen_reminder(reminder_id: str, request: Request):
     """Reopen a completed active reminder, setting it back to Active."""
     try:
-        updated = _repo.reopen_active_reminder(reminder_id)
+        user = _current_user_for_tenancy(request)
+        org_id = _tenant_org_id(user)
+        _assert_reminder_scope(user, reminder_id)
+        updated = _repo.reopen_active_reminder(reminder_id, org_id=org_id)
         if not updated:
             raise HTTPException(status_code=404, detail="Reminder not found")
         return {"success": True, "reminder_id": reminder_id, "status": "Active"}
@@ -956,10 +1091,13 @@ async def reopen_reminder(reminder_id: str):
 
 
 @router.post("/{reminder_id}/complete")
-async def complete_reminder(reminder_id: str):
+async def complete_reminder(reminder_id: str, request: Request):
     """Mark an active reminder as completed so it does not reappear after refresh."""
     try:
-        updated = _repo.complete_active_reminder(reminder_id)
+        user = _current_user_for_tenancy(request)
+        org_id = _tenant_org_id(user)
+        _assert_reminder_scope(user, reminder_id)
+        updated = _repo.complete_active_reminder(reminder_id, org_id=org_id)
         if not updated:
             raise HTTPException(status_code=404, detail="Reminder not found")
         return {"success": True, "reminder_id": reminder_id, "status": "Completed"}
@@ -971,15 +1109,23 @@ async def complete_reminder(reminder_id: str):
 
 
 @router.get("/prioritized/{case_manager_id}")
-async def get_prioritized_tasks(case_manager_id: str, date: Optional[str] = Query(None)):
+async def get_prioritized_tasks(case_manager_id: str, request: Request, date: Optional[str] = Query(None)):
     """
     Return tasks bucketed by priority: overdue, today, next_3_days, this_week,
     high_priority_no_date, and later.  Delegates to repository (Postgres-first).
     Accepts optional ?date=YYYY-MM-DD so the client's local date is used for bucketing.
     """
     try:
-        result = _repo.get_prioritized_tasks(case_manager_id, client_date=date)
+        user = _current_user_for_tenancy(request)
+        effective_case_manager_id = _authorize_case_manager_filter(user, case_manager_id)
+        result = _repo.get_prioritized_tasks(
+            effective_case_manager_id,
+            client_date=date,
+            org_id=_tenant_org_id(user),
+        )
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error generating prioritized tasks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
