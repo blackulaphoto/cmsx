@@ -8,9 +8,11 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from backend.auth.service import require_authenticated_user
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 from backend.modules.ai_documentation.service import documentation_ai_service
 from .unified_service import UnifiedAIService
 
@@ -49,20 +51,25 @@ def _cleanup_tool_messages(case_manager_id: str) -> None:
 
 class ChatRequest(BaseModel):
     message: str
+    # case_manager_id is accepted for backward compatibility but ignored;
+    # the authenticated user's case_manager_id is always used instead.
     case_manager_id: Optional[str] = None
 
 
 @router.post("/chat")
-async def chat(request: ChatRequest) -> Dict[str, Any]:
+async def chat(request: Request, body: ChatRequest) -> Dict[str, Any]:
+    current_user = require_authenticated_user(request)
+    case_manager_id = current_user.case_manager_id
+    org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
     try:
-        case_manager_id = (request.case_manager_id or "default_cm").strip() or "default_cm"
-        message = request.message
+        message = body.message
         _cleanup_tool_messages(case_manager_id)
         return await unified_ai.process_message(
             message=message,
             case_manager_id=case_manager_id,
             mode="central",
             injected_context=_build_documentation_context(message),
+            org_id=org_id,
         )
     except Exception as exc:
         logger.error(f"Unified AI chat error: {exc}")
@@ -70,27 +77,33 @@ async def chat(request: ChatRequest) -> Dict[str, Any]:
 
 
 @router.post("/assistant")
-async def assistant_chat(request: ChatRequest) -> Dict[str, Any]:
+async def assistant_chat(request: Request, body: ChatRequest) -> Dict[str, Any]:
     """Read-only + search assistant endpoint for popup UI."""
+    current_user = require_authenticated_user(request)
+    case_manager_id = current_user.case_manager_id
+    org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
     try:
-        case_manager_id = (request.case_manager_id or "default_cm").strip() or "default_cm"
-        message = request.message
+        message = body.message
         _cleanup_tool_messages(case_manager_id)
         return await unified_ai.process_message(
             message=message,
             case_manager_id=case_manager_id,
             mode="assistant",
             injected_context=_build_documentation_context(message),
+            org_id=org_id,
         )
     except Exception as exc:
         logger.error(f"Unified AI assistant error: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/conversation/{case_manager_id}")
-async def get_conversation(case_manager_id: str) -> List[Dict[str, Any]]:
+@router.get("/conversation")
+async def get_conversation(request: Request) -> List[Dict[str, Any]]:
+    current_user = require_authenticated_user(request)
+    case_manager_id = current_user.case_manager_id
+    org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
     try:
-        return await unified_ai.get_conversation_history(case_manager_id)
+        return await unified_ai.get_conversation_history(case_manager_id, org_id=org_id)
     except Exception as exc:
         logger.error(f"Unified AI conversation error: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))

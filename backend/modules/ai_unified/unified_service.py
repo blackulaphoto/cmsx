@@ -38,6 +38,7 @@ from backend.modules.reminders.engine import IntelligentReminderEngine
 from backend.search.coordinator import get_coordinator
 from backend.shared.database.workspace_store import workspace_store
 from backend.modules.resources.retrieval_engine import get_resource_engine
+from backend.shared.tenancy import DEFAULT_ORG_ID, multi_tenant_enabled
 
 logger = logging.getLogger(__name__)
 CRISIS_TERMS = {
@@ -384,8 +385,19 @@ class UnifiedAIService:
                 """
             )
             await self._ensure_conversation_schema(db)
+            # Idempotent tenancy migration: add org_id column
+            try:
+                await db.execute("ALTER TABLE conversations ADD COLUMN org_id TEXT")
+            except Exception:
+                pass  # column already exists
+            # Backfill existing rows that have no org_id
+            await db.execute(
+                "UPDATE conversations SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+                (DEFAULT_ORG_ID,),
+            )
             await db.commit()
 
+        await self._backfill_org_ids_from_auth()
         self._initialized = True
         logger.info("Unified AI SQLite memory initialized")
 
@@ -443,32 +455,94 @@ class UnifiedAIService:
         await db.execute("DROP TABLE conversations")
         await db.execute("ALTER TABLE conversations_v2 RENAME TO conversations")
 
-    async def _save_message(self, case_manager_id: str, role: str, content: str) -> None:
+    async def _backfill_org_ids_from_auth(self) -> None:
+        """Populate org_id for conversation rows that still have DEFAULT_ORG_ID,
+        deriving the real org from user_profiles via case_manager_id.
+        Runs once per process on first initialize()."""
+        try:
+            from backend.shared.db_path import DB_DIR as _DB_DIR
+            auth_db_path = _DB_DIR / "auth.db"
+            if not auth_db_path.exists():
+                return
+
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(
+                    "SELECT DISTINCT case_manager_id FROM conversations WHERE org_id = ? OR org_id IS NULL",
+                    (DEFAULT_ORG_ID,),
+                ) as cursor:
+                    cm_ids = [row[0] for row in await cursor.fetchall()]
+
+            if not cm_ids:
+                return
+
+            import sqlite3 as _sqlite3
+            try:
+                with _sqlite3.connect(str(auth_db_path)) as auth_conn:
+                    auth_conn.row_factory = _sqlite3.Row
+                    async with aiosqlite.connect(self.db_path) as db:
+                        for cm_id in cm_ids:
+                            if not cm_id:
+                                continue
+                            row = auth_conn.execute(
+                                "SELECT org_id FROM user_profiles WHERE case_manager_id = ? OR firebase_uid = ? LIMIT 1",
+                                (cm_id, cm_id),
+                            ).fetchone()
+                            real_org = (
+                                (row["org_id"] or "").strip() or DEFAULT_ORG_ID
+                                if row else DEFAULT_ORG_ID
+                            )
+                            if real_org != DEFAULT_ORG_ID:
+                                await db.execute(
+                                    "UPDATE conversations SET org_id = ? WHERE case_manager_id = ? AND (org_id = ? OR org_id IS NULL)",
+                                    (real_org, cm_id, DEFAULT_ORG_ID),
+                                )
+                        await db.commit()
+            except Exception as exc:
+                logger.warning(f"[UnifiedAI] org_id backfill from auth skipped: {exc}")
+        except Exception as exc:
+            logger.warning(f"[UnifiedAI] org_id backfill skipped: {exc}")
+
+    async def _save_message(self, case_manager_id: str, role: str, content: str, org_id: Optional[str] = None) -> None:
         timestamp = datetime.now(timezone.utc).isoformat()
+        stamp_org = org_id if org_id else DEFAULT_ORG_ID
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
-                INSERT INTO conversations (case_manager_id, role, content, timestamp)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO conversations (case_manager_id, role, content, timestamp, org_id)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (case_manager_id, role, content, timestamp),
+                (case_manager_id, role, content, timestamp, stamp_org),
             )
             await db.commit()
 
-    async def _fetch_history(self, case_manager_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    async def _fetch_history(self, case_manager_id: str, limit: int = 20, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute(
-                """
-                SELECT role, content, timestamp
-                FROM conversations
-                WHERE case_manager_id = ?
-                ORDER BY id DESC
-                LIMIT ?
-                """,
-                (case_manager_id, limit),
-            ) as cursor:
-                rows = await cursor.fetchall()
+            if org_id and multi_tenant_enabled():
+                async with db.execute(
+                    """
+                    SELECT role, content, timestamp
+                    FROM conversations
+                    WHERE case_manager_id = ? AND org_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (case_manager_id, org_id, limit),
+                ) as cursor:
+                    rows = await cursor.fetchall()
+            else:
+                async with db.execute(
+                    """
+                    SELECT role, content, timestamp
+                    FROM conversations
+                    WHERE case_manager_id = ?
+                    ORDER BY id DESC
+                    LIMIT ?
+                    """,
+                    (case_manager_id, limit),
+                ) as cursor:
+                    rows = await cursor.fetchall()
         history = [dict(row) for row in reversed(rows)]
         return history
 
@@ -1087,6 +1161,7 @@ class UnifiedAIService:
         case_manager_id: str,
         mode: str = "central",
         injected_context: Optional[str] = None,
+        org_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Process a chat message and persist conversation history."""
         await self.initialize()
@@ -1095,8 +1170,8 @@ class UnifiedAIService:
                 "AI responses are unavailable because OPENAI_API_KEY is not configured. "
                 "Core app features remain available."
             )
-            await self._save_message(case_manager_id, "user", message)
-            await self._save_message(case_manager_id, "assistant", fallback)
+            await self._save_message(case_manager_id, "user", message, org_id=org_id)
+            await self._save_message(case_manager_id, "assistant", fallback, org_id=org_id)
             return {
                 "success": False,
                 "response": fallback,
@@ -1104,7 +1179,7 @@ class UnifiedAIService:
                 "error": "missing_openai_api_key",
             }
 
-        history = await self._fetch_history(case_manager_id, limit=20)
+        history = await self._fetch_history(case_manager_id, limit=20, org_id=org_id)
         system_prompt = self._build_system_prompt(mode)
         messages: List[Dict[str, Any]] = [
             {
@@ -1358,12 +1433,12 @@ class UnifiedAIService:
                 mode=mode,
                 error=str(exc),
             )
-            await self._save_message(case_manager_id, "user", message)
-            await self._save_message(case_manager_id, "assistant", degraded["response"])
+            await self._save_message(case_manager_id, "user", message, org_id=org_id)
+            await self._save_message(case_manager_id, "assistant", degraded["response"], org_id=org_id)
             return degraded
 
-        await self._save_message(case_manager_id, "user", message)
-        await self._save_message(case_manager_id, "assistant", assistant_text)
+        await self._save_message(case_manager_id, "user", message, org_id=org_id)
+        await self._save_message(case_manager_id, "assistant", assistant_text, org_id=org_id)
 
         return {
             "success": True,
@@ -1993,9 +2068,9 @@ class UnifiedAIService:
             "hours": hours_match.group(1).strip() if hours_match else item.get("hours", ""),
         }
 
-    async def get_conversation_history(self, case_manager_id: str) -> List[Dict[str, Any]]:
+    async def get_conversation_history(self, case_manager_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
         await self.initialize()
-        return await self._fetch_history(case_manager_id, limit=100)
+        return await self._fetch_history(case_manager_id, limit=100, org_id=org_id)
 
     async def _handle_provider_failure(
         self,
