@@ -4,7 +4,7 @@ Phase 4A: Unified Client View API Routes
 Enhanced GET /api/clients/{client_id}/unified-view with comprehensive features
 """
 
-from fastapi import APIRouter, HTTPException, Path, Query, Depends
+from fastapi import APIRouter, HTTPException, Path, Query, Depends, Request
 from fastapi.responses import JSONResponse
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
@@ -12,6 +12,10 @@ from datetime import datetime
 import sys
 from pathlib import Path as PathLib
 import logging
+
+from backend.auth.service import require_authenticated_user
+from backend.auth.authorization import assert_client_access
+from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 # Add shared directory to path
 sys.path.append(str(PathLib(__file__).parent.parent / 'shared'))
@@ -95,6 +99,7 @@ class ModuleListResponse(BaseModel):
 
 @router.get("/clients/{client_id}/unified-view", response_model=UnifiedClientViewResponse)
 async def get_unified_client_view(
+    request: Request,
     client_id: str = Path(..., description="Client ID to retrieve unified view for"),
     session_id: Optional[str] = Query(None, description="Navigation session ID"),
     current_module: str = Query("core_clients", description="Current module context"),
@@ -103,32 +108,37 @@ async def get_unified_client_view(
 ):
     """
     Enhanced GET /api/clients/{client_id}/unified-view
-    
+
     Aggregates data from all 10 modules with:
     - Performance caching
     - Real-time data freshness indicators
     - Cross-module navigation context
     - Comprehensive error handling
     """
-    
+    current_user = require_authenticated_user(request)
+    assert_client_access(current_user, client_id)
+
     if not UNIFIED_VIEW_AVAILABLE:
         raise HTTPException(
-            status_code=503, 
+            status_code=503,
             detail="Unified client view service is not available"
         )
-    
+
     try:
+        org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
+
         # Force cache refresh if requested
         if force_refresh:
-            cache_key = unified_view_engine._generate_cache_key(client_id)
+            cache_key = unified_view_engine._generate_cache_key(client_id, org_id)
             if cache_key in unified_view_engine.cache_storage:
                 del unified_view_engine.cache_storage[cache_key]
-        
-        # Get unified view
+
+        # Get unified view (org-scoped cache key when MT enabled)
         unified_view = unified_view_engine.get_unified_client_view(
             client_id=client_id,
             session_id=session_id,
-            current_module=current_module
+            current_module=current_module,
+            org_id=org_id,
         )
         
         if not unified_view:
@@ -196,13 +206,16 @@ async def get_unified_client_view(
 
 @router.post("/clients/{client_id}/navigate")
 async def navigate_to_module(
+    request: Request,
     client_id: str = Path(..., description="Client ID for navigation"),
     navigation_request: NavigationRequest = None
 ):
     """
     Navigate to a specific module while maintaining client context
     """
-    
+    current_user = require_authenticated_user(request)
+    assert_client_access(current_user, client_id)
+
     if not UNIFIED_VIEW_AVAILABLE:
         raise HTTPException(
             status_code=503, 
@@ -243,12 +256,15 @@ async def navigate_to_module(
 
 @router.get("/clients/{client_id}/modules", response_model=ModuleListResponse)
 async def get_available_modules(
+    request: Request,
     client_id: str = Path(..., description="Client ID to check module availability for")
 ):
     """
     Get list of available modules for client with status information
     """
-    
+    current_user = require_authenticated_user(request)
+    assert_client_access(current_user, client_id)
+
     if not UNIFIED_VIEW_AVAILABLE:
         raise HTTPException(
             status_code=503, 
@@ -299,12 +315,15 @@ async def get_available_modules(
 
 @router.get("/clients/{client_id}/freshness-summary")
 async def get_data_freshness_summary(
+    request: Request,
     client_id: str = Path(..., description="Client ID to check data freshness for")
 ):
     """
     Get detailed data freshness summary for client across all modules
     """
-    
+    current_user = require_authenticated_user(request)
+    assert_client_access(current_user, client_id)
+
     if not UNIFIED_VIEW_AVAILABLE:
         raise HTTPException(
             status_code=503, 
@@ -403,27 +422,31 @@ async def get_unified_view_system_status():
 
 @router.delete("/clients/{client_id}/cache")
 async def clear_client_cache(
+    request: Request,
     client_id: str = Path(..., description="Client ID to clear cache for")
 ):
     """
     Clear cached data for specific client
     """
-    
+    current_user = require_authenticated_user(request)
+    assert_client_access(current_user, client_id)
+
     if not UNIFIED_VIEW_AVAILABLE:
         raise HTTPException(
-            status_code=503, 
+            status_code=503,
             detail="Cache management service is not available"
         )
-    
+
     try:
-        cache_key = unified_view_engine._generate_cache_key(client_id)
-        
+        org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
+        cache_key = unified_view_engine._generate_cache_key(client_id, org_id)
+
         # Clear memory cache
         cache_cleared = False
         if cache_key in unified_view_engine.cache_storage:
             del unified_view_engine.cache_storage[cache_key]
             cache_cleared = True
-        
+
         if cache_key in unified_view_engine.cache_timestamps:
             del unified_view_engine.cache_timestamps[cache_key]
         

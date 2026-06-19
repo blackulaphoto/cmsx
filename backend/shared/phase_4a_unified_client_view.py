@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from backend.shared.db_path import DB_DIR
+from backend.shared.tenancy import DEFAULT_ORG_ID, multi_tenant_enabled
 from dataclasses import dataclass, asdict
 from enum import Enum
 import hashlib
@@ -334,8 +335,18 @@ class UnifiedClientViewEngine:
                 )
             ''')
             
+            # Idempotent tenancy migration: add org_id to cache table
+            try:
+                conn.execute("ALTER TABLE unified_view_cache ADD COLUMN org_id TEXT")
+            except sqlite3.OperationalError:
+                pass  # column already exists
+            # Backfill existing rows that have no org_id
+            conn.execute(
+                "UPDATE unified_view_cache SET org_id = ? WHERE org_id IS NULL OR TRIM(org_id) = ''",
+                (DEFAULT_ORG_ID,),
+            )
             conn.commit()
-        
+
         logger.info("Unified view database initialized")
     
     def implement_unified_view_api(self):
@@ -383,16 +394,17 @@ class UnifiedClientViewEngine:
             logger.error(f"Unified view API implementation failed: {e}")
             return {'status': 'failed', 'error': str(e)}
     
-    def get_unified_client_view(self, client_id: str, session_id: str = None, 
-                               current_module: str = 'core_clients') -> Optional[UnifiedClientView]:
+    def get_unified_client_view(self, client_id: str, session_id: str = None,
+                               current_module: str = 'core_clients',
+                               org_id: Optional[str] = None) -> Optional[UnifiedClientView]:
         """Get comprehensive unified client view"""
-        
+
         start_time = time.time()
-        
+
         with self.lock:
             try:
-                # Check cache first
-                cached_view = self._get_cached_view(client_id)
+                # Check cache first (org-scoped when MT enabled)
+                cached_view = self._get_cached_view(client_id, org_id)
                 if cached_view:
                     logger.info(f"Returning cached unified view for client {client_id}")
                     return cached_view
@@ -448,7 +460,7 @@ class UnifiedClientViewEngine:
                     navigation_context=navigation_context,
                     cache_info={
                         'cached': False,
-                        'cache_key': self._generate_cache_key(client_id),
+                        'cache_key': self._generate_cache_key(client_id, org_id),
                         'ttl_seconds': self.cache_ttl,
                         'generation_time_ms': int((time.time() - start_time) * 1000)
                     },
@@ -457,8 +469,8 @@ class UnifiedClientViewEngine:
                     total_records=total_records
                 )
                 
-                # Cache the view
-                self._cache_view(client_id, unified_view)
+                # Cache the view (org-scoped when MT enabled)
+                self._cache_view(client_id, unified_view, org_id)
                 
                 # Log access
                 self._log_module_access(client_id, 'unified_view', session_id, 
@@ -554,12 +566,12 @@ class UnifiedClientViewEngine:
             logger.warning(f"Error parsing timestamp {updated_at}: {e}")
             return DataFreshness.UNKNOWN
     
-    def _get_cached_view(self, client_id: str) -> Optional[UnifiedClientView]:
+    def _get_cached_view(self, client_id: str, org_id: Optional[str] = None) -> Optional[UnifiedClientView]:
         """Get cached unified view if available and valid"""
-        
+
         try:
             # Check memory cache first
-            cache_key = self._generate_cache_key(client_id)
+            cache_key = self._generate_cache_key(client_id, org_id)
             
             if cache_key in self.cache_storage:
                 cached_data, timestamp = self.cache_storage[cache_key]
@@ -577,81 +589,91 @@ class UnifiedClientViewEngine:
             
             # Check database cache
             unified_db_path = self.db_dir / 'unified_client_view.db'
-            
+
             with sqlite3.connect(unified_db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute('''
-                    SELECT cached_data, cache_timestamp, expiry_timestamp 
-                    FROM unified_view_cache 
-                    WHERE client_id = ? AND expiry_timestamp > ?
-                ''', (client_id, datetime.now().isoformat()))
-                
+                if org_id and multi_tenant_enabled():
+                    cursor.execute(
+                        "SELECT cached_data, cache_timestamp, expiry_timestamp "
+                        "FROM unified_view_cache "
+                        "WHERE client_id = ? AND expiry_timestamp > ? AND org_id = ?",
+                        (client_id, datetime.now().isoformat(), org_id),
+                    )
+                else:
+                    cursor.execute(
+                        "SELECT cached_data, cache_timestamp, expiry_timestamp "
+                        "FROM unified_view_cache "
+                        "WHERE client_id = ? AND expiry_timestamp > ?",
+                        (client_id, datetime.now().isoformat()),
+                    )
+
                 result = cursor.fetchone()
-                
+
                 if result:
-                    cached_json, cache_timestamp, expiry_timestamp = result
-                    cached_dict = json.loads(cached_json)
-                    
                     # Reconstruct UnifiedClientView object
-                    # This is a simplified reconstruction - in production, use proper serialization
+                    # Simplified reconstruction — skip for now, memory cache is authoritative
                     return None  # For now, skip database cache reconstruction
-            
+
             return None
             
         except Exception as e:
             logger.error(f"Error retrieving cached view: {e}")
             return None
     
-    def _cache_view(self, client_id: str, unified_view: UnifiedClientView):
+    def _cache_view(self, client_id: str, unified_view: UnifiedClientView, org_id: Optional[str] = None):
         """Cache the unified view"""
-        
+
         try:
-            cache_key = self._generate_cache_key(client_id)
+            cache_key = self._generate_cache_key(client_id, org_id)
             timestamp = time.time()
-            
-            # Store in memory cache
+
+            # Store in memory cache (org-scoped key prevents cross-org hits)
             self.cache_storage[cache_key] = (unified_view, timestamp)
             self.cache_timestamps[cache_key] = timestamp
-            
+
             # Store in database cache
             unified_db_path = self.db_dir / 'unified_client_view.db'
-            
+
             with sqlite3.connect(unified_db_path) as conn:
                 cursor = conn.cursor()
-                
-                # Convert to JSON (simplified - in production use proper serialization)
+
                 cached_json = json.dumps({
                     'client_id': unified_view.client_id,
                     'last_aggregated': unified_view.last_aggregated,
                     'total_records': unified_view.total_records,
                     'modules_count': len(unified_view.modules)
                 })
-                
+
                 data_hash = hashlib.md5(cached_json.encode()).hexdigest()
                 expiry_time = datetime.now() + timedelta(seconds=self.cache_ttl)
-                
-                cursor.execute('''
-                    INSERT OR REPLACE INTO unified_view_cache 
-                    (client_id, cached_data, cache_timestamp, expiry_timestamp, data_hash, last_accessed)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (
-                    client_id,
-                    cached_json,
-                    datetime.now().isoformat(),
-                    expiry_time.isoformat(),
-                    data_hash,
-                    datetime.now().isoformat()
-                ))
-                
+                stamp_org = org_id if (org_id and multi_tenant_enabled()) else DEFAULT_ORG_ID
+
+                cursor.execute(
+                    "INSERT OR REPLACE INTO unified_view_cache "
+                    "(client_id, cached_data, cache_timestamp, expiry_timestamp, data_hash, last_accessed, org_id) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        client_id,
+                        cached_json,
+                        datetime.now().isoformat(),
+                        expiry_time.isoformat(),
+                        data_hash,
+                        datetime.now().isoformat(),
+                        stamp_org,
+                    ),
+                )
+
                 conn.commit()
-            
+
             logger.debug(f"Cached unified view for client {client_id}")
             
         except Exception as e:
             logger.error(f"Error caching view: {e}")
     
-    def _generate_cache_key(self, client_id: str) -> str:
-        """Generate cache key for client"""
+    def _generate_cache_key(self, client_id: str, org_id: Optional[str] = None) -> str:
+        """Generate cache key for client, scoped by org when multi-tenancy is enabled."""
+        if org_id and multi_tenant_enabled():
+            return f"unified_view_{org_id}_{client_id}"
         return f"unified_view_{client_id}"
     
     def _generate_session_id(self) -> str:
