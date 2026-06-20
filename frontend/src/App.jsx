@@ -39,6 +39,9 @@ import Jobs from './pages/Jobs'
 import Messages from './pages/Messages'
 import SupervisorDashboard from './pages/SupervisorDashboard'
 import TeamManagement from './pages/TeamManagement'
+import Profile from './pages/Profile'
+import Settings from './pages/Settings'
+import Support from './pages/Support'
 import AIAssistantPopup from './components/AIAssistant/AIAssistantPopup'
 // System administration and monitoring
 import SystemIntegrity from './pages/SystemIntegrity'
@@ -116,6 +119,9 @@ function App() {
         <Route path="/services" element={<Services />} />
         <Route path="/messages" element={<Messages />} />
         <Route path="/smart-dashboard" element={<SmartDaily />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/support" element={<Support />} />
               <Route path="/supervisor-dashboard" element={
                 <ProtectedRoute roles={['admin']}>
                   <SupervisorDashboard />
