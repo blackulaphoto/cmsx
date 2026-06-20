@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
+import Onboarding from './pages/Onboarding'
 
 // Import layout component
 import Layout from './components/Layout'
@@ -61,6 +62,11 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/onboarding" element={
+        <ProtectedRoute allowOnboarding>
+          <Onboarding />
+        </ProtectedRoute>
+      } />
       <Route path="/*" element={
         <ProtectedRoute>
           <Layout>
