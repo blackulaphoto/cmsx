@@ -30,6 +30,10 @@ ALLOWED_ROLES = {ADMIN_ROLE, CASE_MANAGER_ROLE}
 ORG_ADMIN_ROLE = "org_admin"
 ORG_MEMBER_ROLE = "member"
 BOOTSTRAP_ADMIN_EMAILS = {"blackulaphotography@gmail.com"}
+# Platform owner / super-admin allowlist — DISTINCT from org admins. Only these
+# accounts may reach the Super Admin Panel. Extend via PLATFORM_SUPER_ADMIN_EMAILS
+# (comma-separated env). Never grant this to every org admin.
+PLATFORM_SUPER_ADMIN_EMAILS = {"blackulaphotography@gmail.com"}
 TRUE_VALUES = {"1", "true", "yes", "on"}
 # Org types offered in first-login onboarding ("individual" is the personal
 # workspace created behind the scenes; the rest are explicit org choices).
@@ -826,12 +830,173 @@ class FirebaseAuthService:
             conn.commit()
         return {"firebase_uid": target_uid, "is_active": False, "status": "disabled"}
 
+    # ── Platform super-admin (owner command center) ─────────────────────────
+    #
+    # Super-admin is an email allowlist, deliberately separate from org/app admin
+    # roles, so a normal org admin is never a platform super-admin and cannot
+    # elevate by sending role/org claims.
+
+    def super_admin_emails(self) -> set:
+        emails = {
+            item.strip().lower()
+            for item in (os.getenv("PLATFORM_SUPER_ADMIN_EMAILS") or "").split(",")
+            if item.strip()
+        }
+        emails.update(PLATFORM_SUPER_ADMIN_EMAILS)
+        return emails
+
+    def is_platform_super_admin(self, user: AuthenticatedUser) -> bool:
+        return bool(user) and (user.email or "").strip().lower() in self.super_admin_emails()
+
+    def is_org_suspended(self, org_id: Optional[str]) -> bool:
+        """True only when an org is explicitly suspended. The default/internal org
+        is never treated as suspended (defense against lockout). Fails open."""
+        org = (org_id or "").strip()
+        if not org or org == DEFAULT_ORG_ID:
+            return False
+        try:
+            with self._connect() as conn:
+                row = conn.execute(
+                    "SELECT status FROM organizations WHERE org_id = ?", (org,)
+                ).fetchone()
+        except Exception:
+            return False
+        return bool(row) and (row["status"] or "").strip().lower() == "suspended"
+
+    def platform_overview(self) -> Dict[str, Any]:
+        with self._connect() as conn:
+            total_orgs = conn.execute("SELECT COUNT(*) FROM organizations").fetchone()[0]
+            total_users = conn.execute("SELECT COUNT(*) FROM user_profiles").fetchone()[0]
+            active_users = conn.execute(
+                "SELECT COUNT(*) FROM user_profiles WHERE is_active = 1"
+            ).fetchone()[0]
+        return {"total_orgs": total_orgs, "total_users": total_users, "active_users": active_users}
+
+    def list_organizations(self) -> list:
+        with self._connect() as conn:
+            orgs = conn.execute(
+                """
+                SELECT org_id, name, org_type, status, created_at, created_by
+                FROM organizations ORDER BY created_at DESC
+                """
+            ).fetchall()
+            counts = conn.execute(
+                "SELECT org_id, COUNT(*) total, SUM(is_active) active FROM user_profiles GROUP BY org_id"
+            ).fetchall()
+        by_org = {c["org_id"]: c for c in counts}
+        result = []
+        for o in orgs:
+            c = by_org.get(o["org_id"])
+            result.append({
+                "org_id": o["org_id"],
+                "name": o["name"],
+                "org_type": o["org_type"],
+                "status": o["status"] or "active",
+                "created_at": o["created_at"],
+                "created_by": o["created_by"],
+                "user_count": (c["total"] if c else 0),
+                "active_user_count": (int(c["active"]) if c and c["active"] is not None else 0),
+            })
+        return result
+
+    def get_organization_detail(self, org_id: str) -> Dict[str, Any]:
+        with self._connect() as conn:
+            org = conn.execute(
+                """
+                SELECT org_id, name, org_type, status, plan, created_at, created_by, updated_at
+                FROM organizations WHERE org_id = ?
+                """,
+                (org_id,),
+            ).fetchone()
+            if not org:
+                raise HTTPException(status_code=404, detail="Organization not found")
+            pending_invites = conn.execute(
+                "SELECT COUNT(*) FROM invites WHERE org_id = ? AND status = 'pending'", (org_id,)
+            ).fetchone()[0]
+        return {
+            "organization": {
+                "org_id": org["org_id"],
+                "name": org["name"],
+                "org_type": org["org_type"],
+                "status": org["status"] or "active",
+                "created_at": org["created_at"],
+                "created_by": org["created_by"],
+                "updated_at": org["updated_at"],
+                # Subscription is a placeholder until billing exists — never PHI/secret.
+                "subscription": {"plan": org["plan"], "status": "not_configured"},
+            },
+            "staff": self.list_staff(org_id),  # staff metadata only (no client/PHI data)
+            "pending_invites": pending_invites,
+        }
+
+    def search_users(self, query: str, *, limit: int = 50) -> list:
+        q = (query or "").strip()
+        with self._connect() as conn:
+            if q:
+                like = f"%{q.lower()}%"
+                rows = conn.execute(
+                    """
+                    SELECT email, full_name, role, org_id, org_role, is_active, case_manager_id
+                    FROM user_profiles
+                    WHERE LOWER(email) LIKE ? OR LOWER(full_name) LIKE ?
+                    ORDER BY email LIMIT ?
+                    """,
+                    (like, like, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT email, full_name, role, org_id, org_role, is_active, case_manager_id
+                    FROM user_profiles ORDER BY email LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+        return [
+            {
+                "email": r["email"],
+                "full_name": r["full_name"],
+                "role": r["role"],
+                "org_id": r["org_id"],
+                "org_role": r["org_role"],
+                "is_active": bool(r["is_active"]),
+                "case_manager_id": r["case_manager_id"],
+            }
+            for r in rows
+        ]
+
+    def set_org_status(self, org_id: str, status: str, *, confirm: bool = False) -> Dict[str, Any]:
+        new_status = (status or "").strip().lower()
+        if new_status not in ("active", "suspended"):
+            raise HTTPException(status_code=400, detail="Invalid status")
+        # Guard the default/internal org against accidental suspension.
+        if org_id == DEFAULT_ORG_ID and new_status == "suspended" and not confirm:
+            raise HTTPException(
+                status_code=400,
+                detail="Refusing to suspend the default organization without explicit confirmation",
+            )
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM organizations WHERE org_id = ?", (org_id,)
+            ).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Organization not found")
+            conn.execute(
+                "UPDATE organizations SET status = ?, updated_at = ? WHERE org_id = ?",
+                (new_status, datetime.utcnow().isoformat(), org_id),
+            )
+            conn.commit()
+        logger.info("SUPER-ADMIN: org %s status set to %s", org_id, new_status)
+        return {"org_id": org_id, "status": new_status}
+
     def resolve_request_user(self, request: Request) -> AuthenticatedUser:
         user = getattr(request.state, "auth_user", None)
         if not isinstance(user, AuthenticatedUser):
             raise HTTPException(status_code=401, detail="Authentication required")
         if not user.is_active:
             raise HTTPException(status_code=403, detail="User account is inactive")
+        # Platform suspension: users in a suspended org lose guarded app access.
+        if self.is_org_suspended(user.org_id):
+            raise HTTPException(status_code=403, detail="Organization access is suspended")
         return user
 
     def is_test_auth_enabled(self) -> bool:
@@ -919,6 +1084,15 @@ def require_org_admin(request: Request) -> AuthenticatedUser:
     user = require_user(request)
     if user.org_role != ORG_ADMIN_ROLE and not user.is_admin:
         raise HTTPException(status_code=403, detail="Organization admin required")
+    return user
+
+
+def require_super_admin(request: Request) -> AuthenticatedUser:
+    """Guard for the Super Admin Panel. Authenticates the request, then enforces
+    the platform super-admin allowlist server-side (never from frontend claims)."""
+    user = auth_service.resolve_request_user(request)
+    if not auth_service.is_platform_super_admin(user):
+        raise HTTPException(status_code=403, detail="Platform super admin required")
     return user
 
 

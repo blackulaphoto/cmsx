@@ -42,6 +42,7 @@ import TeamManagement from './pages/TeamManagement'
 import Profile from './pages/Profile'
 import Settings from './pages/Settings'
 import Support from './pages/Support'
+import SuperAdmin from './pages/SuperAdmin'
 import AIAssistantPopup from './components/AIAssistant/AIAssistantPopup'
 // System administration and monitoring
 import SystemIntegrity from './pages/SystemIntegrity'
@@ -122,6 +123,11 @@ function App() {
         <Route path="/profile" element={<Profile />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/support" element={<Support />} />
+              <Route path="/super-admin" element={
+                <ProtectedRoute requireSuperAdmin>
+                  <SuperAdmin />
+                </ProtectedRoute>
+              } />
               <Route path="/supervisor-dashboard" element={
                 <ProtectedRoute roles={['admin']}>
                   <SupervisorDashboard />

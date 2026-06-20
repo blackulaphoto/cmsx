@@ -1,8 +1,8 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 
-function ProtectedRoute({ children, roles, allowOnboarding = false }) {
-  const { profile, loading, needsOnboarding } = useAuth()
+function ProtectedRoute({ children, roles, allowOnboarding = false, requireSuperAdmin = false }) {
+  const { profile, loading, needsOnboarding, isSuperAdmin } = useAuth()
   const location = useLocation()
 
   if (loading) {
@@ -21,6 +21,11 @@ function ProtectedRoute({ children, roles, allowOnboarding = false }) {
   }
 
   if (roles && !roles.includes(profile.role)) {
+    return <Navigate to="/" replace />
+  }
+
+  // Platform super-admin gate (owner-only). The backend re-checks every call.
+  if (requireSuperAdmin && !isSuperAdmin) {
     return <Navigate to="/" replace />
   }
 

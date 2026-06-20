@@ -33,6 +33,9 @@ def _profile_response(user) -> dict:
         "user": user.__dict__,
         "needs_onboarding": not user.onboarding_completed,
         "multi_tenant_enabled": multi_tenant_enabled(),
+        # Lets the frontend conditionally show the Super Admin link. Access is
+        # always re-checked server-side on every super-admin endpoint.
+        "is_super_admin": auth_service.is_platform_super_admin(user),
     }
 
 
