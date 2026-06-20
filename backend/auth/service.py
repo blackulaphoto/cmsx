@@ -6,8 +6,9 @@ import os
 import sqlite3
 import base64
 import uuid
+import secrets
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -172,6 +173,20 @@ class FirebaseAuthService:
                 conn.execute("ALTER TABLE organizations ADD COLUMN org_type TEXT")
             if "created_by" not in org_columns:
                 conn.execute("ALTER TABLE organizations ADD COLUMN created_by TEXT")
+
+            # Invite lifecycle metadata for team management (all additive).
+            invite_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(invites)").fetchall()
+            }
+            if "invited_by" not in invite_columns:
+                conn.execute("ALTER TABLE invites ADD COLUMN invited_by TEXT")
+            if "accepted_at" not in invite_columns:
+                conn.execute("ALTER TABLE invites ADD COLUMN accepted_at TEXT")
+            if "cancelled_at" not in invite_columns:
+                conn.execute("ALTER TABLE invites ADD COLUMN cancelled_at TEXT")
+            if "invited_name" not in invite_columns:
+                conn.execute("ALTER TABLE invites ADD COLUMN invited_name TEXT")
 
             conn.commit()
             self._seed_default_org(conn)
@@ -612,9 +627,10 @@ class FirebaseAuthService:
             org_role = (invite["org_role"] or ORG_MEMBER_ROLE).strip() or ORG_MEMBER_ROLE
             app_role = ADMIN_ROLE if org_role == ORG_ADMIN_ROLE else CASE_MANAGER_ROLE
             self._assign_user_to_org(conn, firebase_uid, invite["org_id"], org_role, app_role)
+            now = datetime.utcnow().isoformat()
             conn.execute(
-                "UPDATE invites SET status = 'accepted' WHERE invite_id = ?",
-                (invite["invite_id"],),
+                "UPDATE invites SET status = 'accepted', accepted_at = ? WHERE invite_id = ?",
+                (now, invite["invite_id"]),
             )
             conn.commit()
             row = conn.execute(
@@ -622,6 +638,193 @@ class FirebaseAuthService:
                 (firebase_uid,),
             ).fetchone()
         return self._row_to_user(row)
+
+    # ── Team management: invites + staff (org-admin only) ───────────────────
+    #
+    # Every method takes the caller's own org_id (resolved from the token by the
+    # router via require_org_admin). org_id is never accepted from the client, so
+    # an admin can only ever manage their own org's invites and staff.
+
+    INVITE_TTL_DAYS = 14
+
+    def _invite_to_dict(self, row: sqlite3.Row, *, include_token: bool = True) -> Dict[str, Any]:
+        keys = row.keys()
+        data = {
+            "invite_id": row["invite_id"],
+            "org_id": row["org_id"],
+            "email": row["email"],
+            "org_role": row["org_role"],
+            "status": row["status"],
+            "expires_at": row["expires_at"],
+            "created_at": row["created_at"],
+            "invited_by": row["invited_by"] if "invited_by" in keys else None,
+            "invited_name": row["invited_name"] if "invited_name" in keys else None,
+            "accepted_at": row["accepted_at"] if "accepted_at" in keys else None,
+            "cancelled_at": row["cancelled_at"] if "cancelled_at" in keys else None,
+        }
+        if include_token:
+            data["token"] = row["token"]
+        return data
+
+    def create_invite(
+        self,
+        org_id: str,
+        email: str,
+        org_role: str,
+        *,
+        invited_by: Optional[str] = None,
+        invited_name: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        clean_email = (email or "").strip().lower()
+        if not clean_email or "@" not in clean_email:
+            raise HTTPException(status_code=400, detail="A valid email address is required")
+        role = (org_role or "").strip().lower()
+        if role not in (ORG_ADMIN_ROLE, ORG_MEMBER_ROLE):
+            raise HTTPException(status_code=400, detail="Invalid role")
+
+        invite_id = "inv_" + uuid.uuid4().hex[:12]
+        token = secrets.token_urlsafe(32)  # unguessable
+        now = datetime.utcnow()
+        expires_at = (now + timedelta(days=self.INVITE_TTL_DAYS)).isoformat()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO invites
+                    (invite_id, org_id, email, org_role, token, status, expires_at,
+                     created_at, invited_by, invited_name)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+                """,
+                (invite_id, org_id, clean_email, role, token, expires_at,
+                 now.isoformat(), invited_by, (invited_name or "").strip() or None),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM invites WHERE invite_id = ?", (invite_id,)).fetchone()
+        return self._invite_to_dict(row)
+
+    def list_invites(self, org_id: str, *, pending_only: bool = True) -> list:
+        with self._connect() as conn:
+            if pending_only:
+                rows = conn.execute(
+                    "SELECT * FROM invites WHERE org_id = ? AND status = 'pending' ORDER BY created_at DESC",
+                    (org_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM invites WHERE org_id = ? ORDER BY created_at DESC",
+                    (org_id,),
+                ).fetchall()
+        return [self._invite_to_dict(r) for r in rows]
+
+    def _owned_invite(self, conn: sqlite3.Connection, org_id: str, invite_id: str) -> sqlite3.Row:
+        row = conn.execute(
+            "SELECT * FROM invites WHERE invite_id = ? AND org_id = ?",
+            (invite_id, org_id),
+        ).fetchone()
+        if not row:
+            # 404 also covers cross-org access (don't reveal another org's invite).
+            raise HTTPException(status_code=404, detail="Invite not found")
+        return row
+
+    def resend_invite(self, org_id: str, invite_id: str) -> Dict[str, Any]:
+        with self._connect() as conn:
+            row = self._owned_invite(conn, org_id, invite_id)
+            if (row["status"] or "").lower() not in ("pending", "expired"):
+                raise HTTPException(status_code=400, detail="Only pending invites can be resent")
+            token = secrets.token_urlsafe(32)
+            expires_at = (datetime.utcnow() + timedelta(days=self.INVITE_TTL_DAYS)).isoformat()
+            conn.execute(
+                "UPDATE invites SET token = ?, expires_at = ?, status = 'pending', cancelled_at = NULL WHERE invite_id = ?",
+                (token, expires_at, invite_id),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM invites WHERE invite_id = ?", (invite_id,)).fetchone()
+        return self._invite_to_dict(row)
+
+    def cancel_invite(self, org_id: str, invite_id: str) -> Dict[str, Any]:
+        with self._connect() as conn:
+            self._owned_invite(conn, org_id, invite_id)
+            conn.execute(
+                "UPDATE invites SET status = 'cancelled', cancelled_at = ? WHERE invite_id = ?",
+                (datetime.utcnow().isoformat(), invite_id),
+            )
+            conn.commit()
+            row = conn.execute("SELECT * FROM invites WHERE invite_id = ?", (invite_id,)).fetchone()
+        return self._invite_to_dict(row, include_token=False)
+
+    def list_staff(self, org_id: str) -> list:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT firebase_uid, email, full_name, role, org_role, case_manager_id, is_active
+                FROM user_profiles WHERE org_id = ? ORDER BY full_name
+                """,
+                (org_id,),
+            ).fetchall()
+        return [
+            {
+                "firebase_uid": r["firebase_uid"],
+                "email": r["email"],
+                "full_name": r["full_name"],
+                "role": r["role"],
+                "org_role": r["org_role"],
+                "case_manager_id": r["case_manager_id"],
+                "is_active": bool(r["is_active"]),
+                "status": "active" if r["is_active"] else "disabled",
+            }
+            for r in rows
+        ]
+
+    def _count_active_org_admins(self, conn: sqlite3.Connection, org_id: str) -> int:
+        return conn.execute(
+            "SELECT COUNT(*) FROM user_profiles WHERE org_id = ? AND org_role = ? AND is_active = 1",
+            (org_id, ORG_ADMIN_ROLE),
+        ).fetchone()[0]
+
+    def _staff_in_org(self, conn: sqlite3.Connection, org_id: str, target_uid: str) -> sqlite3.Row:
+        row = conn.execute(
+            "SELECT * FROM user_profiles WHERE firebase_uid = ? AND org_id = ?",
+            (target_uid, org_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Staff member not found")
+        return row
+
+    def update_staff_role(self, org_id: str, target_uid: str, new_org_role: str) -> Dict[str, Any]:
+        role = (new_org_role or "").strip().lower()
+        if role not in (ORG_ADMIN_ROLE, ORG_MEMBER_ROLE):
+            raise HTTPException(status_code=400, detail="Invalid role")
+        with self._connect() as conn:
+            target = self._staff_in_org(conn, org_id, target_uid)
+            # Block demoting the last active org admin.
+            if (target["org_role"] == ORG_ADMIN_ROLE and role != ORG_ADMIN_ROLE
+                    and bool(target["is_active"]) and self._count_active_org_admins(conn, org_id) <= 1):
+                raise HTTPException(status_code=400, detail="Cannot demote the last organization admin")
+            app_role = ADMIN_ROLE if role == ORG_ADMIN_ROLE else CASE_MANAGER_ROLE
+            conn.execute(
+                "UPDATE user_profiles SET org_role = ?, role = ?, updated_at = ? WHERE firebase_uid = ? AND org_id = ?",
+                (role, app_role, datetime.utcnow().isoformat(), target_uid, org_id),
+            )
+            conn.commit()
+        return {"firebase_uid": target_uid, "org_role": role, "role": app_role}
+
+    def disable_staff(self, org_id: str, target_uid: str) -> Dict[str, Any]:
+        """Remove a staff member's access by deactivating their profile.
+
+        A deactivated user fails resolve_request_user (403) on every guarded
+        endpoint, so they can no longer reach org data."""
+        with self._connect() as conn:
+            target = self._staff_in_org(conn, org_id, target_uid)
+            # Block removing the last active org admin (also covers an admin
+            # removing themselves while they are the only admin).
+            if (target["org_role"] == ORG_ADMIN_ROLE and bool(target["is_active"])
+                    and self._count_active_org_admins(conn, org_id) <= 1):
+                raise HTTPException(status_code=400, detail="Cannot remove the last organization admin")
+            conn.execute(
+                "UPDATE user_profiles SET is_active = 0, updated_at = ? WHERE firebase_uid = ? AND org_id = ?",
+                (datetime.utcnow().isoformat(), target_uid, org_id),
+            )
+            conn.commit()
+        return {"firebase_uid": target_uid, "is_active": False, "status": "disabled"}
 
     def resolve_request_user(self, request: Request) -> AuthenticatedUser:
         user = getattr(request.state, "auth_user", None)
