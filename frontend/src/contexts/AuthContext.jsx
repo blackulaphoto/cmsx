@@ -41,6 +41,8 @@ export function AuthProvider({ children }) {
   const [profile, setProfile] = useState(isFrontendTestAuthEnabled ? testAuthProfile : null)
   const [loading, setLoading] = useState(isFrontendTestAuthEnabled ? false : !firebaseConfigError)
   const [configError] = useState(firebaseConfigError)
+  // SaaS-mode flag from /api/auth/me. Defaults false (single-org) until /me reports.
+  const [multiTenantEnabled, setMultiTenantEnabled] = useState(false)
 
   useEffect(() => {
     if (isFrontendTestAuthEnabled) {
@@ -64,6 +66,7 @@ export function AuthProvider({ children }) {
       try {
         const data = await apiCall('/api/auth/me', { authUser: nextUser })
         setProfile(data.user)
+        setMultiTenantEnabled(Boolean(data.multi_tenant_enabled))
       } catch (error) {
         console.error(error)
         setProfile(null)
@@ -79,6 +82,7 @@ export function AuthProvider({ children }) {
     profile,
     loading,
     configError,
+    multiTenantEnabled,
     async login(email, password) {
       if (!auth) throw new Error(configError || 'Firebase Auth is not configured')
       setLoading(true)
@@ -127,7 +131,7 @@ export function AuthProvider({ children }) {
       await signOut(auth)
       setProfile(null)
     },
-  }), [configError, firebaseUser, profile, loading])
+  }), [configError, firebaseUser, profile, loading, multiTenantEnabled])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
