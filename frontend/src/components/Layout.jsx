@@ -28,7 +28,6 @@ import {
   LifeBuoy,
   LogOut,
 } from 'lucide-react';
-import toast from 'react-hot-toast';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch, messagesAPI } from '../api/config';
 
@@ -234,10 +233,6 @@ const Layout = ({ children }) => {
     setOpenMenu(null);
   }, [location.pathname]);
 
-  const handlePlaceholder = (label) => {
-    setOpenMenu(null);
-    toast(`${label} is coming soon`, { icon: '🛠️' });
-  };
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
@@ -470,11 +465,10 @@ const Layout = ({ children }) => {
                       </div>
                     </div>
                     <div className="grid gap-0.5 p-1.5">
-                      <button type="button" onClick={() => handlePlaceholder('My Profile')} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
+                      <Link to="/profile" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
                         <User className="h-4 w-4 text-purple-300" />
                         <span>My Profile</span>
-                        <span className="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">Soon</span>
-                      </button>
+                      </Link>
                       <Link to="/case-management" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
                         <Users className="h-4 w-4 text-blue-300" />
                         <span>My Caseload</span>
@@ -489,16 +483,14 @@ const Layout = ({ children }) => {
                           <span>Supervisor Dashboard</span>
                         </Link>
                       )}
-                      <button type="button" onClick={() => handlePlaceholder('Settings')} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
+                      <Link to="/settings" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
                         <Settings className="h-4 w-4 text-slate-300" />
                         <span>Settings</span>
-                        <span className="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">Soon</span>
-                      </button>
-                      <button type="button" onClick={() => handlePlaceholder('Help & Support')} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
+                      </Link>
+                      <Link to="/support" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
                         <LifeBuoy className="h-4 w-4 text-emerald-300" />
                         <span>Help &amp; Support</span>
-                        <span className="ml-auto rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-400">Soon</span>
-                      </button>
+                      </Link>
                     </div>
                     <div className="border-t border-white/10 p-1.5">
                       <button type="button" onClick={() => { setOpenMenu(null); logout(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-red-200 transition-colors hover:bg-red-500/15">
