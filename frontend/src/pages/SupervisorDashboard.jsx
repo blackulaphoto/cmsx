@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
+import { useAuth } from '../contexts/AuthContext'
 
 const emptyOverview = {
   team_summary: {
@@ -36,6 +37,7 @@ const emptyOverview = {
 function SupervisorDashboard() {
   const [overview, setOverview] = useState(emptyOverview)
   const [loading, setLoading] = useState(true)
+  const { profile, multiTenantEnabled } = useAuth()
 
   const loadOverview = async () => {
     try {
@@ -236,6 +238,41 @@ function SupervisorDashboard() {
             </div>
 
             <div className="space-y-6">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-xl font-bold text-white">System / SaaS Status</h2>
+                  <span
+                    className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
+                      multiTenantEnabled
+                        ? 'border border-emerald-400/30 bg-emerald-500/10 text-emerald-200'
+                        : 'border border-slate-400/30 bg-slate-500/10 text-slate-200'
+                    }`}
+                  >
+                    <span className={`h-2 w-2 rounded-full ${multiTenantEnabled ? 'bg-emerald-400' : 'bg-slate-400'}`} />
+                    SaaS mode: {multiTenantEnabled ? 'ON' : 'OFF'}
+                  </span>
+                </div>
+                <dl className="space-y-2 text-sm">
+                  {[
+                    ['Organization', profile?.org_id || '—'],
+                    ['Org role', profile?.org_role || '—'],
+                    ['App role', profile?.role || '—'],
+                    ['Case manager ID', profile?.case_manager_id || '—'],
+                    ['Email', profile?.email || '—'],
+                  ].map(([label, val]) => (
+                    <div key={label} className="flex items-center justify-between gap-3">
+                      <dt className="text-gray-400">{label}</dt>
+                      <dd className="font-mono text-gray-100 truncate max-w-[60%] text-right">{val}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {!multiTenantEnabled && (
+                  <p className="mt-3 text-xs leading-5 text-gray-400">
+                    Single-org mode. Org isolation is dormant until <code>MULTI_TENANT_ENABLED=true</code>.
+                  </p>
+                )}
+              </div>
+
               <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
                 <h2 className="mb-4 text-xl font-bold text-white">Highest Overdue Workloads</h2>
                 <div className="space-y-3">

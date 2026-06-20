@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from .service import ADMIN_ROLE, CASE_MANAGER_ROLE, auth_service
+from backend.shared.tenancy import multi_tenant_enabled
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -39,4 +40,10 @@ async def register_profile(payload: RegisterProfileRequest, request: Request):
 async def get_current_profile(request: Request):
     decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
     user = auth_service.upsert_profile_from_token(decoded)
-    return {"success": True, "user": user.__dict__}
+    # `multi_tenant_enabled` is the SaaS-mode flag value (no secrets, no DB paths).
+    # The admin-only status panel reads this alongside the caller's own identity.
+    return {
+        "success": True,
+        "user": user.__dict__,
+        "multi_tenant_enabled": multi_tenant_enabled(),
+    }
