@@ -46,6 +46,9 @@ export function AuthProvider({ children }) {
   // First-login onboarding gate. Defaults false so configured users are never
   // gratuitously routed to onboarding; /api/auth/me sets the real value.
   const [needsOnboarding, setNeedsOnboarding] = useState(false)
+  // Platform super-admin (owner). Defaults false; /api/auth/me reports the real
+  // value. The frontend only uses this to show the link — the backend re-checks.
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
 
   useEffect(() => {
     if (isFrontendTestAuthEnabled) {
@@ -71,6 +74,7 @@ export function AuthProvider({ children }) {
         setProfile(data.user)
         setMultiTenantEnabled(Boolean(data.multi_tenant_enabled))
         setNeedsOnboarding(Boolean(data.needs_onboarding))
+        setIsSuperAdmin(Boolean(data.is_super_admin))
       } catch (error) {
         console.error(error)
         setProfile(null)
@@ -88,6 +92,7 @@ export function AuthProvider({ children }) {
     configError,
     multiTenantEnabled,
     needsOnboarding,
+    isSuperAdmin,
     // Re-fetch /api/auth/me after onboarding completes so the guard releases the
     // user to the dashboard and the SaaS status card reflects the new org/role.
     async refreshProfile() {
@@ -101,6 +106,7 @@ export function AuthProvider({ children }) {
       setProfile(data.user)
       setMultiTenantEnabled(Boolean(data.multi_tenant_enabled))
       setNeedsOnboarding(Boolean(data.needs_onboarding))
+      setIsSuperAdmin(Boolean(data.is_super_admin))
       return data
     },
     async login(email, password) {
@@ -151,7 +157,7 @@ export function AuthProvider({ children }) {
       await signOut(auth)
       setProfile(null)
     },
-  }), [configError, firebaseUser, profile, loading, multiTenantEnabled, needsOnboarding])
+  }), [configError, firebaseUser, profile, loading, multiTenantEnabled, needsOnboarding, isSuperAdmin])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

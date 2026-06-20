@@ -26,6 +26,7 @@ import {
   AlertTriangle,
   Settings,
   LifeBuoy,
+  ShieldAlert,
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -46,7 +47,7 @@ const cleanClientName = (name) => {
 
 const Layout = ({ children }) => {
   const location = useLocation();
-  const { profile, logout } = useAuth();
+  const { profile, logout, isSuperAdmin } = useAuth();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [messagesUnreadCount, setMessagesUnreadCount] = useState(0);
   const [serviceAlerts, setServiceAlerts] = useState([]);
@@ -491,6 +492,12 @@ const Layout = ({ children }) => {
                         <LifeBuoy className="h-4 w-4 text-emerald-300" />
                         <span>Help &amp; Support</span>
                       </Link>
+                      {isSuperAdmin && (
+                        <Link to="/super-admin" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
+                          <ShieldAlert className="h-4 w-4 text-rose-300" />
+                          <span>Super Admin</span>
+                        </Link>
+                      )}
                     </div>
                     <div className="border-t border-white/10 p-1.5">
                       <button type="button" onClick={() => { setOpenMenu(null); logout(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-red-200 transition-colors hover:bg-red-500/15">
