@@ -102,6 +102,13 @@ function SupervisorDashboard() {
 
   const adminTools = [
     {
+      label: 'Team Management',
+      description: 'Invite staff, assign roles, manage pending invites and active team members.',
+      path: '/team',
+      icon: Users,
+      gradient: 'from-cyan-500 to-blue-600',
+    },
+    {
       label: 'Directory Review',
       description: 'Review raw or cautionary sober living directory records before they become trusted listings.',
       path: '/sober-living-directory/review',

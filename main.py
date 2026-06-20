@@ -76,6 +76,7 @@ if is_production_runtime and not cors_origins:
     logger.warning("CORS_ORIGINS is empty in production; browser clients will be blocked.")
 
 from backend.auth.router import router as auth_router
+from backend.auth.team_routes import router as team_router
 from backend.auth.service import auth_service
 
 # Lifespan event handler
@@ -484,6 +485,7 @@ except Exception as e:
 
 try:
     app.include_router(auth_router)
+    app.include_router(team_router)
     loaded_modules["auth"] = "loaded"
     logger.info("Firebase auth routes loaded successfully")
 except Exception as e:

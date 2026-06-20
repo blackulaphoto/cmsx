@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Building2, User, Users, ArrowLeft, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '../contexts/AuthContext'
@@ -15,15 +15,20 @@ const ORG_TYPES = [
 
 function Onboarding() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { profile, needsOnboarding, refreshProfile } = useAuth()
 
-  const [view, setView] = useState('choose') // choose | create | join
+  // A team invite link (/onboarding?invite=TOKEN) deep-links into the join view
+  // with the code prefilled, so Brandon can test the flow without email sending.
+  const invitedToken = searchParams.get('invite') || ''
+
+  const [view, setView] = useState(invitedToken ? 'join' : 'choose') // choose | create | join
   const [busy, setBusy] = useState('') // '', 'individual', 'create', 'join'
   const [error, setError] = useState('')
 
   const [orgName, setOrgName] = useState('')
   const [orgType, setOrgType] = useState(ORG_TYPES[0].value)
-  const [inviteToken, setInviteToken] = useState('')
+  const [inviteToken, setInviteToken] = useState(invitedToken)
 
   // Configured users never see onboarding (and this avoids a redirect loop the
   // moment setup completes and needsOnboarding flips to false).
