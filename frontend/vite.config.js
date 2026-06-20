@@ -10,6 +10,12 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     appType: 'spa',
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
+    // Vitest config (ignored by `vite build`). jsdom + globals so React Testing
+    // Library and @testing-library/jest-dom matchers resolve correctly.
+    test: {
+      globals: true,
+      environment: 'jsdom',
+    },
     server: {
       host: '0.0.0.0',  // Bind to all interfaces
       port: 5173,

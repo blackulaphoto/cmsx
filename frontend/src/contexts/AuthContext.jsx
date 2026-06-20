@@ -43,6 +43,9 @@ export function AuthProvider({ children }) {
   const [configError] = useState(firebaseConfigError)
   // SaaS-mode flag from /api/auth/me. Defaults false (single-org) until /me reports.
   const [multiTenantEnabled, setMultiTenantEnabled] = useState(false)
+  // First-login onboarding gate. Defaults false so configured users are never
+  // gratuitously routed to onboarding; /api/auth/me sets the real value.
+  const [needsOnboarding, setNeedsOnboarding] = useState(false)
 
   useEffect(() => {
     if (isFrontendTestAuthEnabled) {
@@ -67,6 +70,7 @@ export function AuthProvider({ children }) {
         const data = await apiCall('/api/auth/me', { authUser: nextUser })
         setProfile(data.user)
         setMultiTenantEnabled(Boolean(data.multi_tenant_enabled))
+        setNeedsOnboarding(Boolean(data.needs_onboarding))
       } catch (error) {
         console.error(error)
         setProfile(null)
@@ -83,6 +87,22 @@ export function AuthProvider({ children }) {
     loading,
     configError,
     multiTenantEnabled,
+    needsOnboarding,
+    // Re-fetch /api/auth/me after onboarding completes so the guard releases the
+    // user to the dashboard and the SaaS status card reflects the new org/role.
+    async refreshProfile() {
+      if (isFrontendTestAuthEnabled) {
+        setProfile(testAuthProfile)
+        setNeedsOnboarding(false)
+        return { user: testAuthProfile, needs_onboarding: false }
+      }
+      if (!firebaseUser) return null
+      const data = await apiCall('/api/auth/me', { authUser: firebaseUser, forceRefreshToken: true })
+      setProfile(data.user)
+      setMultiTenantEnabled(Boolean(data.multi_tenant_enabled))
+      setNeedsOnboarding(Boolean(data.needs_onboarding))
+      return data
+    },
     async login(email, password) {
       if (!auth) throw new Error(configError || 'Firebase Auth is not configured')
       setLoading(true)
@@ -131,7 +151,7 @@ export function AuthProvider({ children }) {
       await signOut(auth)
       setProfile(null)
     },
-  }), [configError, firebaseUser, profile, loading, multiTenantEnabled])
+  }), [configError, firebaseUser, profile, loading, multiTenantEnabled, needsOnboarding])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

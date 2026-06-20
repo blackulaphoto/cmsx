@@ -16,6 +16,26 @@ class RegisterProfileRequest(BaseModel):
     case_manager_id: Optional[str] = None
 
 
+class CreateOrgRequest(BaseModel):
+    """Onboarding: create organization. Deliberately carries NO role/org_role —
+    the server assigns owner/admin; the client cannot supply role authority."""
+    name: str = Field(min_length=1, max_length=120)
+    org_type: str = Field(min_length=1, max_length=60)
+
+
+class JoinOrgRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=200)
+
+
+def _profile_response(user) -> dict:
+    return {
+        "success": True,
+        "user": user.__dict__,
+        "needs_onboarding": not user.onboarding_completed,
+        "multi_tenant_enabled": multi_tenant_enabled(),
+    }
+
+
 @router.post("/register")
 async def register_profile(payload: RegisterProfileRequest, request: Request):
     decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
@@ -40,10 +60,34 @@ async def register_profile(payload: RegisterProfileRequest, request: Request):
 async def get_current_profile(request: Request):
     decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
     user = auth_service.upsert_profile_from_token(decoded)
-    # `multi_tenant_enabled` is the SaaS-mode flag value (no secrets, no DB paths).
-    # The admin-only status panel reads this alongside the caller's own identity.
-    return {
-        "success": True,
-        "user": user.__dict__,
-        "multi_tenant_enabled": multi_tenant_enabled(),
-    }
+    # `needs_onboarding` drives the first-login front door; `multi_tenant_enabled`
+    # is the SaaS-mode flag (no secrets, no DB paths). Both sit alongside the
+    # caller's own identity (user.__dict__).
+    return _profile_response(user)
+
+
+@router.post("/onboarding/individual")
+async def onboarding_individual(request: Request):
+    """Create a personal workspace for the signed-in user and route to dashboard."""
+    decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
+    user = auth_service.upsert_profile_from_token(decoded)
+    updated = auth_service.create_individual_workspace(user.firebase_uid)
+    return _profile_response(updated)
+
+
+@router.post("/onboarding/organization")
+async def onboarding_organization(payload: CreateOrgRequest, request: Request):
+    """Create an organization; the signed-in user becomes its owner/admin."""
+    decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
+    user = auth_service.upsert_profile_from_token(decoded)
+    updated = auth_service.create_organization(user.firebase_uid, payload.name, payload.org_type)
+    return _profile_response(updated)
+
+
+@router.post("/onboarding/join")
+async def onboarding_join(payload: JoinOrgRequest, request: Request):
+    """Join an organization via invite token. org_role comes from the invite."""
+    decoded = auth_service.verify_bearer_token(request.headers.get("Authorization"))
+    user = auth_service.upsert_profile_from_token(decoded)
+    updated = auth_service.accept_invite(user.firebase_uid, payload.token)
+    return _profile_response(updated)

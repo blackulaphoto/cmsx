@@ -5,6 +5,7 @@ import logging
 import os
 import sqlite3
 import base64
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,16 @@ ORG_ADMIN_ROLE = "org_admin"
 ORG_MEMBER_ROLE = "member"
 BOOTSTRAP_ADMIN_EMAILS = {"blackulaphotography@gmail.com"}
 TRUE_VALUES = {"1", "true", "yes", "on"}
+# Org types offered in first-login onboarding ("individual" is the personal
+# workspace created behind the scenes; the rest are explicit org choices).
+ALLOWED_ORG_TYPES = {
+    "treatment_center",
+    "sober_living",
+    "case_management_agency",
+    "independent_provider",
+    "other",
+    "individual",
+}
 TEST_AUTH_ENVIRONMENTS = {"test", "testing", "e2e"}
 PRODUCTION_ENVIRONMENTS = {"prod", "production"}
 
@@ -47,6 +58,10 @@ class AuthenticatedUser:
     # false these values are not used for any isolation decision.
     org_id: str = DEFAULT_ORG_ID
     org_role: str = ORG_MEMBER_ROLE
+    # First-login onboarding (org/workspace setup). Defaults True so every
+    # directly-constructed user (tests, test-auth) is treated as already
+    # configured; only profiles freshly inserted by the auth store start False.
+    onboarding_completed: bool = True
 
     @property
     def is_admin(self) -> bool:
@@ -138,6 +153,25 @@ class FirebaseAuthService:
                 conn.execute(
                     "ALTER TABLE user_profiles ADD COLUMN org_role TEXT NOT NULL DEFAULT 'member'"
                 )
+            # First-login onboarding flag. Added with DEFAULT 0, then every row
+            # present at migration time is marked complete (1) — existing users
+            # are already configured and must NOT be sent back through onboarding.
+            # Only NEW rows inserted after this migration start at 0.
+            if "onboarding_completed" not in profile_columns:
+                conn.execute(
+                    "ALTER TABLE user_profiles ADD COLUMN onboarding_completed INTEGER NOT NULL DEFAULT 0"
+                )
+                conn.execute("UPDATE user_profiles SET onboarding_completed = 1")
+
+            # Organization metadata (org type + creator) for onboarding-created orgs.
+            org_columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(organizations)").fetchall()
+            }
+            if "org_type" not in org_columns:
+                conn.execute("ALTER TABLE organizations ADD COLUMN org_type TEXT")
+            if "created_by" not in org_columns:
+                conn.execute("ALTER TABLE organizations ADD COLUMN created_by TEXT")
 
             conn.commit()
             self._seed_default_org(conn)
@@ -422,13 +456,17 @@ class FirebaseAuthService:
             org_id = DEFAULT_ORG_ID
             org_role = ORG_ADMIN_ROLE if role == ADMIN_ROLE else ORG_MEMBER_ROLE
             now = datetime.utcnow().isoformat()
+            # Brand-new users start onboarding_completed = 0 so the front door
+            # routes them to first-login onboarding. They are stamped into the
+            # default org for now (harmless while MULTI_TENANT_ENABLED=false);
+            # onboarding reassigns org_id/org_role once they choose a workspace.
             conn.execute(
                 """
                 INSERT INTO user_profiles (
                     firebase_uid, email, full_name, role, case_manager_id, auth_provider,
                     photo_url, is_active, created_at, updated_at, last_login_at, metadata,
-                    org_id, org_role
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, '{}', ?, ?)
+                    org_id, org_role, onboarding_completed
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, '{}', ?, ?, 0)
                 """,
                 (
                     firebase_uid,
@@ -444,6 +482,139 @@ class FirebaseAuthService:
                     org_id,
                     org_role,
                 ),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM user_profiles WHERE firebase_uid = ?",
+                (firebase_uid,),
+            ).fetchone()
+        return self._row_to_user(row)
+
+    # ── First-login onboarding / org creation ──────────────────────────────
+    #
+    # All of these take a token-derived firebase_uid; the caller (router) never
+    # passes a client-supplied role or org authority. Role/org_role are assigned
+    # by the server: an org creator becomes its admin/owner; an invite-joiner
+    # inherits the role recorded on the invite.
+
+    def _generate_org_id(self) -> str:
+        return "org_" + uuid.uuid4().hex[:12]
+
+    def _assign_user_to_org(
+        self,
+        conn: sqlite3.Connection,
+        firebase_uid: str,
+        org_id: str,
+        org_role: str,
+        app_role: str,
+    ) -> None:
+        now = datetime.utcnow().isoformat()
+        conn.execute(
+            """
+            UPDATE user_profiles
+            SET org_id = ?, org_role = ?, role = ?, onboarding_completed = 1,
+                updated_at = ?
+            WHERE firebase_uid = ?
+            """,
+            (org_id, org_role, app_role, now, firebase_uid),
+        )
+
+    def create_organization(
+        self,
+        firebase_uid: str,
+        name: str,
+        org_type: str,
+    ) -> AuthenticatedUser:
+        """Create an org and make the calling user its owner/admin.
+
+        Role authority is server-assigned: the creator becomes app ``admin`` +
+        ``org_admin`` of the new org. Raises HTTPException(400) on bad input.
+        """
+        clean_name = (name or "").strip()
+        if not clean_name:
+            raise HTTPException(status_code=400, detail="Organization name is required")
+        if len(clean_name) > 120:
+            raise HTTPException(status_code=400, detail="Organization name is too long")
+        clean_type = (org_type or "").strip().lower()
+        if clean_type not in ALLOWED_ORG_TYPES:
+            raise HTTPException(status_code=400, detail="Invalid organization type")
+
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT firebase_uid FROM user_profiles WHERE firebase_uid = ?",
+                (firebase_uid,),
+            ).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="User profile not found")
+
+            org_id = self._generate_org_id()
+            now = datetime.utcnow().isoformat()
+            conn.execute(
+                """
+                INSERT INTO organizations
+                    (org_id, name, status, plan, org_type, created_by, created_at, updated_at)
+                VALUES (?, ?, 'active', NULL, ?, ?, ?, ?)
+                """,
+                (org_id, clean_name, clean_type, firebase_uid, now, now),
+            )
+            self._assign_user_to_org(conn, firebase_uid, org_id, ORG_ADMIN_ROLE, ADMIN_ROLE)
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM user_profiles WHERE firebase_uid = ?",
+                (firebase_uid,),
+            ).fetchone()
+        return self._row_to_user(row)
+
+    def create_individual_workspace(self, firebase_uid: str) -> AuthenticatedUser:
+        """Create a personal workspace org behind the scenes and assign owner."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT full_name, email FROM user_profiles WHERE firebase_uid = ?",
+                (firebase_uid,),
+            ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User profile not found")
+        label = (row["full_name"] or "").strip() or (row["email"] or "").split("@", 1)[0]
+        workspace_name = f"{label}'s Workspace" if label else "Personal Workspace"
+        return self.create_organization(firebase_uid, workspace_name, "individual")
+
+    def accept_invite(self, firebase_uid: str, token: str) -> AuthenticatedUser:
+        """Join an org via invite token. The org_role comes from the invite,
+        never from the client. Raises HTTPException(400) when invalid/expired."""
+        clean_token = (token or "").strip()
+        if not clean_token:
+            raise HTTPException(status_code=400, detail="Invite token is required")
+
+        with self._connect() as conn:
+            invite = conn.execute(
+                "SELECT * FROM invites WHERE token = ?",
+                (clean_token,),
+            ).fetchone()
+            if not invite:
+                raise HTTPException(status_code=400, detail="Invalid invite token")
+            if (invite["status"] or "").strip().lower() != "pending":
+                raise HTTPException(status_code=400, detail="This invite is no longer valid")
+            expires_at = (invite["expires_at"] or "").strip()
+            if expires_at:
+                try:
+                    if datetime.fromisoformat(expires_at) < datetime.utcnow():
+                        raise HTTPException(status_code=400, detail="This invite has expired")
+                except ValueError:
+                    raise HTTPException(status_code=400, detail="This invite has expired")
+
+            user_row = conn.execute(
+                "SELECT firebase_uid FROM user_profiles WHERE firebase_uid = ?",
+                (firebase_uid,),
+            ).fetchone()
+            if not user_row:
+                raise HTTPException(status_code=404, detail="User profile not found")
+
+            org_role = (invite["org_role"] or ORG_MEMBER_ROLE).strip() or ORG_MEMBER_ROLE
+            app_role = ADMIN_ROLE if org_role == ORG_ADMIN_ROLE else CASE_MANAGER_ROLE
+            self._assign_user_to_org(conn, firebase_uid, invite["org_id"], org_role, app_role)
+            conn.execute(
+                "UPDATE invites SET status = 'accepted' WHERE invite_id = ?",
+                (invite["invite_id"],),
             )
             conn.commit()
             row = conn.execute(
@@ -502,6 +673,8 @@ class FirebaseAuthService:
         )
 
     def _row_to_user(self, row: sqlite3.Row) -> AuthenticatedUser:
+        keys = row.keys()
+        onboarding = bool(row["onboarding_completed"]) if "onboarding_completed" in keys else True
         return AuthenticatedUser(
             firebase_uid=row["firebase_uid"],
             email=row["email"],
@@ -512,6 +685,7 @@ class FirebaseAuthService:
             is_active=bool(row["is_active"]),
             org_id=(row["org_id"] or DEFAULT_ORG_ID),
             org_role=(row["org_role"] or ORG_MEMBER_ROLE),
+            onboarding_completed=onboarding,
         )
 
 
