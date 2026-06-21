@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 import backend.shared.db_path as db_path_mod
@@ -91,6 +91,37 @@ PHI_FORBIDDEN_KEY_TOKENS = (
 MAX_METADATA_KEYS = 12
 MAX_VALUE_LEN = 200
 MAX_FIELD_LEN = 300  # route / module / source / medium / campaign / referrer
+
+# Time windows the owner cockpit can filter by. ``None`` == all-time.
+ALLOWED_WINDOW_DAYS = (7, 30, None)
+# Marketing attribution columns the owner can break down by. Fixed allowlist so
+# the column name is never taken from user input (no SQL injection surface).
+ATTRIBUTION_COLUMNS = ("source", "medium", "campaign")
+
+
+def normalize_window_days(window: Any) -> Optional[int]:
+    """Coerce a ``window`` request value to one of ALLOWED_WINDOW_DAYS.
+
+    Accepts ints (7, 30) or strings ('7', '7d', '30', '30d', 'all', ''). Anything
+    unrecognized falls back to all-time (``None``) rather than erroring — the
+    cockpit should always render."""
+    if window is None:
+        return None
+    text = str(window).strip().lower().rstrip("d")
+    if text in ("", "all", "0", "none"):
+        return None
+    if text.isdigit():
+        n = int(text)
+        if n in (7, 30):
+            return n
+    return None
+
+
+def _cutoff_iso(since_days: Optional[int]) -> Optional[str]:
+    """ISO cutoff timestamp for a rolling window, or None for all-time."""
+    if not since_days or int(since_days) <= 0:
+        return None
+    return (datetime.utcnow() - timedelta(days=int(since_days))).isoformat()
 
 
 def _trim(value: Optional[str], limit: int = MAX_FIELD_LEN) -> Optional[str]:
@@ -244,69 +275,154 @@ class AnalyticsStore:
         return {"event_id": event_id, "dropped_metadata_keys": dropped}
 
     # ── Reads (aggregates only — never raw rows to callers) ──────────────────
+    #
+    # Every read accepts an optional ``since_days`` rolling window. ``None`` means
+    # all-time. The cutoff is applied as ``created_at >= ?`` against the stored ISO
+    # timestamps, so windowing needs no schema change.
 
-    def total_events(self) -> int:
+    @staticmethod
+    def _window_clause(since_days: Optional[int]) -> Tuple[str, list]:
+        cutoff = _cutoff_iso(since_days)
+        if cutoff is None:
+            return "", []
+        return "created_at >= ?", [cutoff]
+
+    def total_events(self, *, since_days: Optional[int] = None) -> int:
+        where, params = self._window_clause(since_days)
+        sql = "SELECT COUNT(*) FROM analytics_events"
+        if where:
+            sql += f" WHERE {where}"
         try:
             with self._connect() as conn:
-                row = conn.execute("SELECT COUNT(*) FROM analytics_events").fetchone()
+                row = conn.execute(sql, params).fetchone()
             return int(row[0]) if row else 0
         except Exception:  # noqa: BLE001 — best-effort metric
             return 0
 
-    def module_usage(self) -> Dict[str, int]:
+    def module_usage(self, *, since_days: Optional[int] = None) -> Dict[str, int]:
         """Counts per module, including KNOWN_MODULES that have zero events."""
         counts: Dict[str, int] = {m: 0 for m in KNOWN_MODULES}
+        where, params = self._window_clause(since_days)
+        conds = ["module IS NOT NULL", "module != ''"]
+        if where:
+            conds.append(where)
+        sql = (
+            "SELECT module, COUNT(*) c FROM analytics_events WHERE "
+            + " AND ".join(conds)
+            + " GROUP BY module"
+        )
         try:
             with self._connect() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT module, COUNT(*) c FROM analytics_events
-                    WHERE module IS NOT NULL AND module != ''
-                    GROUP BY module
-                    """
-                ).fetchall()
+                rows = conn.execute(sql, params).fetchall()
             for r in rows:
                 counts[r["module"]] = int(r["c"])
         except Exception:  # noqa: BLE001
             pass
         return counts
 
-    def marketing_source_breakdown(self) -> Dict[str, int]:
-        out: Dict[str, int] = {}
+    def active_identity_counts(self, *, since_days: Optional[int] = None) -> Dict[str, int]:
+        """Distinct org / case-manager counts that have *generated usage events* in
+        the window. These are activity signals (who is using the product), distinct
+        from the commercial org roster. IDs are counted, never returned."""
+        out = {"active_event_orgs": 0, "active_event_users": 0}
+        where, params = self._window_clause(since_days)
         try:
             with self._connect() as conn:
-                rows = conn.execute(
-                    """
-                    SELECT source, COUNT(*) c FROM analytics_events
-                    WHERE source IS NOT NULL AND source != ''
-                    GROUP BY source ORDER BY c DESC
-                    """
-                ).fetchall()
-            out = {r["source"]: int(r["c"]) for r in rows}
+                org_row = conn.execute(
+                    "SELECT COUNT(DISTINCT org_id) FROM analytics_events"
+                    " WHERE org_id IS NOT NULL AND org_id != ''"
+                    + (f" AND {where}" if where else ""),
+                    params,
+                ).fetchone()
+                user_row = conn.execute(
+                    "SELECT COUNT(DISTINCT case_manager_id) FROM analytics_events"
+                    " WHERE case_manager_id IS NOT NULL AND case_manager_id != ''"
+                    + (f" AND {where}" if where else ""),
+                    params,
+                ).fetchone()
+            out["active_event_orgs"] = int(org_row[0]) if org_row else 0
+            out["active_event_users"] = int(user_row[0]) if user_row else 0
         except Exception:  # noqa: BLE001
             pass
         return out
 
-    def recent_activity_by_day(self, *, days: int = 14) -> List[Dict[str, Any]]:
+    def _field_breakdown(self, column: str, *, since_days: Optional[int] = None) -> Dict[str, int]:
+        """Generic count-by-column for an allowlisted attribution column."""
+        if column not in ATTRIBUTION_COLUMNS:
+            return {}
+        where, params = self._window_clause(since_days)
+        conds = [f"{column} IS NOT NULL", f"{column} != ''"]
+        if where:
+            conds.append(where)
+        sql = (
+            f"SELECT {column} v, COUNT(*) c FROM analytics_events WHERE "
+            + " AND ".join(conds)
+            + f" GROUP BY {column} ORDER BY c DESC"
+        )
+        out: Dict[str, int] = {}
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(sql, params).fetchall()
+            out = {r["v"]: int(r["c"]) for r in rows}
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    def marketing_source_breakdown(self, *, since_days: Optional[int] = None) -> Dict[str, int]:
+        return self._field_breakdown("source", since_days=since_days)
+
+    def marketing_attribution(self, *, since_days: Optional[int] = None) -> Dict[str, Dict[str, int]]:
+        """Source / medium / campaign breakdowns for UTM-attributed visits."""
+        return {col: self._field_breakdown(col, since_days=since_days) for col in ATTRIBUTION_COLUMNS}
+
+    def recent_activity_by_day(self, *, days: int = 14, since_days: Optional[int] = None) -> List[Dict[str, Any]]:
+        where, params = self._window_clause(since_days)
+        suffix = f" WHERE {where}" if where else ""
         out: List[Dict[str, Any]] = []
         try:
             with self._connect() as conn:
                 rows = conn.execute(
-                    """
-                    SELECT substr(created_at, 1, 10) day, COUNT(*) c
-                    FROM analytics_events
-                    GROUP BY day ORDER BY day DESC LIMIT ?
-                    """,
-                    (max(1, int(days)),),
+                    "SELECT substr(created_at, 1, 10) day, COUNT(*) c"
+                    " FROM analytics_events" + suffix +
+                    " GROUP BY day ORDER BY day DESC LIMIT ?",
+                    params + [max(1, int(days))],
                 ).fetchall()
             out = [{"day": r["day"], "count": int(r["c"])} for r in rows]
         except Exception:  # noqa: BLE001
             pass
         return out
 
-    def usage_summary(self, *, top_n: int = 5) -> Dict[str, Any]:
-        """Assemble the usage portion of the owner analytics summary."""
-        usage = self.module_usage()
+    def recent_events(self, *, limit: int = 12, since_days: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Latest events as a SAFE feed — event_type, module, and timestamp only.
+
+        Deliberately omits route, referrer, org/case-manager ids, and metadata so
+        nothing identifiable (let alone PHI) can surface in the activity list."""
+        where, params = self._window_clause(since_days)
+        suffix = f" WHERE {where}" if where else ""
+        out: List[Dict[str, Any]] = []
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT event_type, module, created_at FROM analytics_events"
+                    + suffix +
+                    " ORDER BY id DESC LIMIT ?",
+                    params + [max(1, min(int(limit), 50))],
+                ).fetchall()
+            out = [
+                {
+                    "event_type": r["event_type"],
+                    "module": r["module"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    def usage_summary(self, *, top_n: int = 5, since_days: Optional[int] = None) -> Dict[str, Any]:
+        """Assemble the usage portion of the owner analytics summary for a window."""
+        usage = self.module_usage(since_days=since_days)
         # top_modules: only modules that actually have events, highest first.
         active = [
             {"module": m, "count": c} for m, c in usage.items() if c > 0
@@ -317,13 +433,20 @@ class AnalyticsStore:
         least = [{"module": m, "count": usage[m]} for m in KNOWN_MODULES]
         least.sort(key=lambda x: (x["count"], x["module"]))
         least_used_modules = least[: max(0, int(top_n))]
+        attribution = self.marketing_attribution(since_days=since_days)
+        identity = self.active_identity_counts(since_days=since_days)
         return {
-            "total_events": self.total_events(),
+            "total_events": self.total_events(since_days=since_days),
             "module_usage": usage,
             "top_modules": top_modules,
             "least_used_modules": least_used_modules,
-            "marketing_source_breakdown": self.marketing_source_breakdown(),
-            "recent_activity": self.recent_activity_by_day(),
+            # Source-only kept for backward compatibility; full breakdown added.
+            "marketing_source_breakdown": attribution["source"],
+            "marketing_attribution": attribution,
+            "recent_activity": self.recent_activity_by_day(since_days=since_days),
+            "recent_events": self.recent_events(since_days=since_days),
+            "active_event_orgs": identity["active_event_orgs"],
+            "active_event_users": identity["active_event_users"],
         }
 
 

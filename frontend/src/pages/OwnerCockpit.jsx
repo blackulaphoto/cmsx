@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import {
   Activity,
   ArrowRight,
+  BarChart3,
   Building2,
+  Clock,
   CreditCard,
   DollarSign,
   Flame,
@@ -11,13 +13,29 @@ import {
   Layers,
   LifeBuoy,
   Megaphone,
+  MousePointerClick,
   Server,
   ShieldCheck,
+  Target,
   TrendingDown,
   TrendingUp,
   Users,
 } from 'lucide-react'
 import { apiCall, API_BASE_URL } from '../api/config'
+
+const WINDOW_OPTIONS = [
+  { value: '7', label: '7 days' },
+  { value: '30', label: '30 days' },
+  { value: 'all', label: 'All time' },
+]
+
+const ATTRIBUTION_LABELS = {
+  source: 'Source',
+  medium: 'Medium',
+  campaign: 'Campaign',
+}
+
+const UTM_TEST_URL = '?utm_source=test&utm_medium=manual&utm_campaign=hq_smoke'
 
 const MODULE_LABELS = {
   dashboard: 'Dashboard',
@@ -39,6 +57,24 @@ const formatCurrency = (value) =>
   typeof value === 'number'
     ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
     : '—'
+
+const formatNumber = (value) => (typeof value === 'number' ? value.toLocaleString('en-US') : '—')
+
+const eventTypeLabel = (key) =>
+  String(key || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+
+// Best-effort short timestamp; falls back to the raw value if unparseable.
+const formatEventTime = (iso) => {
+  if (!iso) return ''
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return String(iso)
+  return parsed.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
 
 function MetricCard({ icon: Icon, label, value, hint }) {
   return (
@@ -101,6 +137,45 @@ function CountRows({ rows, emptyLabel }) {
   )
 }
 
+function DayActivity({ rows }) {
+  const max = rows.reduce((acc, row) => Math.max(acc, row.count || 0), 0) || 1
+  return (
+    <ul className="space-y-2">
+      {rows.map((row) => {
+        const pct = Math.max(4, Math.round(((row.count || 0) / max) * 100))
+        return (
+          <li key={row.day} className="flex items-center gap-3 text-sm">
+            <span className="w-20 shrink-0 text-xs text-slate-400">{row.day}</span>
+            <span className="relative h-2.5 flex-1 overflow-hidden rounded-full bg-white/[0.05]">
+              <span
+                className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-indigo-400/70 to-violet-400/70"
+                style={{ width: `${pct}%` }}
+              />
+            </span>
+            <span className="w-8 shrink-0 text-right font-semibold text-white">{row.count}</span>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function PlaceholderRows({ rows }) {
+  return (
+    <ul className="space-y-2">
+      {rows.map((row) => (
+        <li
+          key={row.label}
+          className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm"
+        >
+          <span className="text-slate-300">{row.label}</span>
+          <span className="font-medium text-slate-500">{row.value}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function StripeFlag({ label, value }) {
   return (
     <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm">
@@ -114,9 +189,11 @@ function OwnerCockpit() {
   const [overview, setOverview] = useState(null)
   const [orgs, setOrgs] = useState([])
   const [analytics, setAnalytics] = useState(null)
+  const [windowSel, setWindowSel] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // Platform overview + org roster: point-in-time, loaded once on mount.
   useEffect(() => {
     let cancelled = false
 
@@ -124,16 +201,13 @@ function OwnerCockpit() {
       setLoading(true)
       setError('')
       try {
-        const [overviewData, orgData, analyticsData] = await Promise.all([
+        const [overviewData, orgData] = await Promise.all([
           apiCall('/api/super-admin/overview'),
           apiCall('/api/super-admin/organizations'),
-          // Analytics is additive — never let it fail the whole cockpit load.
-          apiCall('/api/owner/analytics/summary').catch(() => null),
         ])
         if (!cancelled) {
           setOverview(overviewData)
           setOrgs(orgData.organizations || [])
-          setAnalytics(analyticsData)
         }
       } catch (err) {
         if (!cancelled) {
@@ -151,6 +225,22 @@ function OwnerCockpit() {
       cancelled = true
     }
   }, [])
+
+  // Analytics summary: refetched whenever the time window changes. Additive —
+  // a failure never blocks the rest of the cockpit.
+  useEffect(() => {
+    let cancelled = false
+    apiCall(`/api/owner/analytics/summary?window=${encodeURIComponent(windowSel)}`)
+      .then((data) => {
+        if (!cancelled) setAnalytics(data)
+      })
+      .catch(() => {
+        if (!cancelled) setAnalytics(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [windowSel])
 
   const orgSummary = useMemo(() => {
     const active = orgs.filter((org) => org.status !== 'suspended').length
@@ -178,11 +268,41 @@ function OwnerCockpit() {
     const marketingRows = Object.entries(analytics?.marketing_source_breakdown || {})
       .sort((a, b) => b[1] - a[1])
       .map(([source, count]) => ({ key: source, label: source, value: count }))
-    return { planRows, statusRows, topModules, leastModules, marketingRows }
+    // Source / medium / campaign breakdowns for the attribution detail.
+    const attribution = analytics?.marketing_attribution || {}
+    const attributionGroups = ['source', 'medium', 'campaign'].map((dim) => ({
+      key: dim,
+      label: ATTRIBUTION_LABELS[dim],
+      rows: Object.entries(attribution[dim] || {})
+        .sort((a, b) => b[1] - a[1])
+        .map(([value, count]) => ({ key: `${dim}:${value}`, label: value, value: count })),
+    }))
+    // Recent activity: counts per day (oldest→newest for a readable left-to-right bar).
+    const activityByDay = [...(analytics?.recent_activity || [])]
+      .sort((a, b) => String(a.day).localeCompare(String(b.day)))
+    const recentEvents = (analytics?.recent_events || []).map((evt, idx) => ({
+      key: `${evt.created_at || idx}-${idx}`,
+      eventLabel: eventTypeLabel(evt.event_type),
+      moduleLabel: evt.module ? moduleLabel(evt.module) : '—',
+      time: formatEventTime(evt.created_at),
+    }))
+    return {
+      planRows,
+      statusRows,
+      topModules,
+      leastModules,
+      marketingRows,
+      attributionGroups,
+      activityByDay,
+      recentEvents,
+    }
   }, [analytics])
 
   const hasUsageData = (analytics?.total_events ?? 0) > 0
+  const hasMarketingData = analyticsRows.marketingRows.length > 0
   const estimatedMrr = analytics?.estimated_mrr
+  const totalEvents = analytics?.total_events ?? 0
+  const adReadiness = analytics?.ad_readiness
 
   const stripe = overview?.stripe
   const panel = 'rounded-[28px] border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-black/20 backdrop-blur'
@@ -234,6 +354,35 @@ function OwnerCockpit() {
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>
         ) : null}
 
+        <div className="flex flex-col gap-3 rounded-[24px] border border-white/10 bg-slate-950/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-slate-300">
+              <BarChart3 className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-sm font-medium text-white">{formatNumber(totalEvents)} tracked events</p>
+              <p className="text-xs text-slate-400">Usage, marketing, and activity below reflect the selected window.</p>
+            </div>
+          </div>
+          <div className="inline-flex items-center gap-1 rounded-2xl border border-white/10 bg-black/20 p-1" role="group" aria-label="Time window">
+            {WINDOW_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setWindowSel(opt.value)}
+                aria-pressed={windowSel === opt.value}
+                className={`rounded-xl px-3 py-1.5 text-sm transition ${
+                  windowSel === opt.value
+                    ? 'bg-amber-500/20 text-amber-100'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <MetricCard icon={Building2} label="Organizations" value={analytics?.total_orgs ?? overview?.total_orgs ?? '—'} hint={`${analytics?.active_orgs ?? orgSummary.active} active, ${analytics?.suspended_orgs ?? orgSummary.suspended} suspended`} />
           <MetricCard icon={Users} label="Users" value={analytics?.total_users ?? overview?.total_users ?? '—'} hint={`${analytics?.active_users ?? overview?.active_users ?? 0} active users`} />
@@ -267,6 +416,40 @@ function OwnerCockpit() {
             ) : (
               <EmptyHint>No usage data yet</EmptyHint>
             )}
+          </SectionCard>
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-2">
+          <SectionCard icon={Clock} title="Event Counts by Day" eyebrow="Recent activity" accent="from-indigo-500/30 to-violet-500/20">
+            {analyticsRows.activityByDay.length > 0 ? (
+              <DayActivity rows={analyticsRows.activityByDay} />
+            ) : (
+              <EmptyHint>No activity recorded in this window yet</EmptyHint>
+            )}
+          </SectionCard>
+
+          <SectionCard icon={MousePointerClick} title="Latest Events" eyebrow="Module views" accent="from-cyan-500/30 to-blue-500/20">
+            {analyticsRows.recentEvents.length > 0 ? (
+              <ul className="space-y-2">
+                {analyticsRows.recentEvents.map((evt) => (
+                  <li
+                    key={evt.key}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm"
+                  >
+                    <span className="min-w-0">
+                      <span className="font-medium text-white">{evt.moduleLabel}</span>
+                      <span className="ml-2 text-slate-400">{evt.eventLabel}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-slate-500">{evt.time}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <EmptyHint>No events recorded in this window yet</EmptyHint>
+            )}
+            <p className="mt-4 text-xs text-slate-500">
+              Activity is safe-by-design: only event type, module, and time are shown — never client names, notes, documents, or message content.
+            </p>
           </SectionCard>
         </section>
 
@@ -327,14 +510,41 @@ function OwnerCockpit() {
           </SectionCard>
 
           <SectionCard icon={Megaphone} title="Marketing & Ads" eyebrow="Growth" accent="from-pink-500/30 to-rose-500/20">
-            {analyticsRows.marketingRows.length > 0 ? (
-              <>
-                <p className="mb-3 text-sm text-slate-400">Tracked visits by source (UTM attribution)</p>
-                <CountRows rows={analyticsRows.marketingRows} emptyLabel="No marketing source data yet" />
-              </>
+            {hasMarketingData ? (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-400">Tracked visits by UTM attribution</p>
+                {analyticsRows.attributionGroups.map((group) =>
+                  group.rows.length > 0 ? (
+                    <div key={group.key}>
+                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">{group.label}</p>
+                      <CountRows rows={group.rows} emptyLabel={`No ${group.label.toLowerCase()} data yet`} />
+                    </div>
+                  ) : null
+                )}
+              </div>
             ) : (
               <EmptyHint>Marketing attribution will appear after tracked visits</EmptyHint>
             )}
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+              <p className="text-xs text-slate-400">
+                Test attribution by appending UTM params to any HQ link, e.g.
+              </p>
+              <code className="mt-1 block break-all text-xs text-amber-200">{UTM_TEST_URL}</code>
+            </div>
+          </SectionCard>
+
+          <SectionCard icon={Target} title="Landing & Ad Readiness" eyebrow="Acquisition" accent="from-rose-500/30 to-pink-500/20">
+            <PlaceholderRows
+              rows={[
+                { label: 'Landing page visits', value: formatNumber(adReadiness?.landing_page_visits) },
+                { label: 'Campaign conversions', value: formatNumber(adReadiness?.campaign_conversions) },
+                { label: 'Cost per signup', value: formatCurrency(adReadiness?.cost_per_signup) },
+                { label: 'Ad spend', value: formatCurrency(adReadiness?.ad_spend) },
+              ]}
+            />
+            <p className="mt-4 text-sm text-slate-400">
+              Placeholders until an ad/landing data source is connected. No numbers are estimated or fabricated — each stays blank until real data exists.
+            </p>
           </SectionCard>
 
           <SectionCard icon={LifeBuoy} title="Support" eyebrow="Service" accent="from-emerald-500/30 to-teal-500/20">

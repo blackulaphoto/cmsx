@@ -23,7 +23,11 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 import backend.shared.db_path as db_path_mod
-from backend.analytics.store import ALLOWED_EVENT_TYPES, analytics_store
+from backend.analytics.store import (
+    ALLOWED_EVENT_TYPES,
+    analytics_store,
+    normalize_window_days,
+)
 from backend.auth.service import auth_service, require_super_admin, require_user
 from backend.billing import plans as billing_plans
 
@@ -148,21 +152,35 @@ def _commercial_summary() -> Dict[str, Any]:
     }
 
 
+def _window_label(since_days: Optional[int]) -> str:
+    if since_days == 7:
+        return "7d"
+    if since_days == 30:
+        return "30d"
+    return "all"
+
+
 @owner_router.get("/summary")
-async def analytics_summary(request: Request):
+async def analytics_summary(request: Request, window: Optional[str] = None):
     """Owner HQ analytics summary. Platform super-admin only.
 
     Returns org/user/client counts, plan + billing breakdowns, estimated MRR
-    (internal plan fields only — no Stripe), and module-usage analytics. Usage
-    sections are honest empty states until tracked events exist."""
+    (internal plan fields only — no Stripe), and module-usage analytics for an
+    optional rolling ``window`` (``7`` / ``30`` / ``all``; default all-time). Usage
+    sections are honest empty states until tracked events exist.
+
+    Commercial figures (orgs/users/clients/MRR) are point-in-time and ignore the
+    window; usage/marketing/activity figures respect it."""
     require_super_admin(request)
 
+    since_days = normalize_window_days(window)
     overview = auth_service.platform_overview()
     commercial = _commercial_summary()
-    usage = analytics_store.usage_summary()
+    usage = analytics_store.usage_summary(since_days=since_days)
 
     return {
         "success": True,
+        "window": _window_label(since_days),
         "total_orgs": commercial["total_orgs"],
         "active_orgs": commercial["active_orgs"],
         "suspended_orgs": commercial["suspended_orgs"],
@@ -179,7 +197,20 @@ async def analytics_summary(request: Request):
         "top_modules": usage["top_modules"],
         "least_used_modules": usage["least_used_modules"],
         "marketing_source_breakdown": usage["marketing_source_breakdown"],
+        "marketing_attribution": usage["marketing_attribution"],
         "recent_activity": usage["recent_activity"],
+        "recent_events": usage["recent_events"],
+        "active_event_orgs": usage["active_event_orgs"],
+        "active_event_users": usage["active_event_users"],
+        # Ad / landing readiness — placeholders only. No external ad data source is
+        # wired up yet, so these are explicitly null (the UI shows "Not connected").
+        "ad_readiness": {
+            "landing_page_visits": None,
+            "campaign_conversions": None,
+            "cost_per_signup": None,
+            "ad_spend": None,
+            "source": "not_connected",
+        },
         # Stripe stays dormant — surfaced as an inert flag only.
         "stripe_activated": False,
     }

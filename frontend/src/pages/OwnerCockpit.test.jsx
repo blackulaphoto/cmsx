@@ -27,6 +27,7 @@ function LocationProbe() {
 
 const EMPTY_ANALYTICS = {
   success: true,
+  window: 'all',
   total_orgs: 2,
   active_orgs: 1,
   suspended_orgs: 1,
@@ -45,13 +46,24 @@ const EMPTY_ANALYTICS = {
     { module: 'housing', count: 0 },
   ],
   marketing_source_breakdown: {},
+  marketing_attribution: { source: {}, medium: {}, campaign: {} },
   recent_activity: [],
+  recent_events: [],
+  active_event_orgs: 0,
+  active_event_users: 0,
+  ad_readiness: {
+    landing_page_visits: null,
+    campaign_conversions: null,
+    cost_per_signup: null,
+    ad_spend: null,
+    source: 'not_connected',
+  },
   stripe_activated: false,
 }
 
 function mockOwnerApi(analytics = EMPTY_ANALYTICS) {
   apiCall.mockImplementation((url) => {
-    if (url === '/api/owner/analytics/summary') {
+    if (url.startsWith('/api/owner/analytics/summary')) {
       return Promise.resolve(analytics)
     }
     if (url === '/api/super-admin/overview') {
@@ -216,11 +228,101 @@ describe('Owner Cockpit analytics', () => {
         { module: 'housing', count: 1 },
       ],
       marketing_source_breakdown: { google: 2 },
+      marketing_attribution: { source: { google: 2 }, medium: { cpc: 2 }, campaign: { launch: 2 } },
     })
     render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
     expect(await screen.findByText('Top Used Modules')).toBeInTheDocument()
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
     expect(screen.getByText('google')).toBeInTheDocument()
     expect(screen.queryByText('Marketing attribution will appear after tracked visits')).not.toBeInTheDocument()
+  })
+})
+
+describe('Owner Cockpit analytics polish', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+  })
+
+  it('renders the tracked-events count and time-window selector', async () => {
+    mockOwnerApi({ ...EMPTY_ANALYTICS, total_events: 12 })
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('12 tracked events')).toBeInTheDocument()
+    // The 7d / 30d / All-time controls are present.
+    expect(screen.getByRole('button', { name: '7 days' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '30 days' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'All time' })).toBeInTheDocument()
+  })
+
+  it('refetches analytics with the selected window when a control is clicked', async () => {
+    mockOwnerApi({ ...EMPTY_ANALYTICS, total_events: 3 })
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('3 tracked events')
+    fireEvent.click(screen.getByRole('button', { name: '7 days' }))
+    // A summary request carrying window=7 was issued.
+    const calledWithWindow = apiCall.mock.calls.some(
+      ([url]) => typeof url === 'string' && url.includes('/api/owner/analytics/summary') && url.includes('window=7')
+    )
+    expect(calledWithWindow).toBe(true)
+  })
+
+  it('shows honest empty states for recent activity and latest events', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Event Counts by Day')).toBeInTheDocument()
+    expect(screen.getByText('No activity recorded in this window yet')).toBeInTheDocument()
+    expect(screen.getByText('No events recorded in this window yet')).toBeInTheDocument()
+  })
+
+  it('renders recent activity and the latest safe events feed when supplied', async () => {
+    mockOwnerApi({
+      ...EMPTY_ANALYTICS,
+      total_events: 2,
+      recent_activity: [{ day: '2026-06-21', count: 2 }],
+      recent_events: [
+        { event_type: 'module_view', module: 'housing', created_at: '2026-06-21T12:00:00' },
+      ],
+    })
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Latest Events')).toBeInTheDocument()
+    expect(screen.getByText('2026-06-21')).toBeInTheDocument()
+    // 'Housing' also appears in the module-usage cards; the event row's "Module View"
+    // label is unique to the latest-events feed.
+    expect(screen.getAllByText('Housing').length).toBeGreaterThan(0)
+    expect(screen.getByText('Module View')).toBeInTheDocument()
+  })
+
+  it('renders the full UTM attribution breakdown when supplied', async () => {
+    mockOwnerApi({
+      ...EMPTY_ANALYTICS,
+      total_events: 5,
+      marketing_source_breakdown: { google: 3, facebook: 2 },
+      marketing_attribution: {
+        source: { google: 3, facebook: 2 },
+        medium: { cpc: 3, social: 2 },
+        campaign: { spring_launch: 5 },
+      },
+    })
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Marketing & Ads')).toBeInTheDocument()
+    expect(screen.getByText('cpc')).toBeInTheDocument()
+    expect(screen.getByText('spring_launch')).toBeInTheDocument()
+  })
+
+  it('shows the UTM test-URL helper copy', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(
+      await screen.findByText('?utm_source=test&utm_medium=manual&utm_campaign=hq_smoke')
+    ).toBeInTheDocument()
+  })
+
+  it('shows landing/ad readiness as honest placeholders, not fabricated numbers', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Landing & Ad Readiness')).toBeInTheDocument()
+    expect(screen.getByText('Landing page visits')).toBeInTheDocument()
+    expect(screen.getByText('Ad spend')).toBeInTheDocument()
+    // Placeholders render as em-dashes, never invented values.
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
   })
 })
