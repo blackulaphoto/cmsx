@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 vi.mock('../contexts/AuthContext', () => ({ useAuth: vi.fn() }))
 vi.mock('../api/config', () => ({
@@ -19,6 +19,11 @@ import ProtectedRoute from '../components/ProtectedRoute'
 import OwnerCockpit from './OwnerCockpit'
 
 const BASE = { profile: { full_name: 'Owner', role: 'admin' }, loading: false, needsOnboarding: false, logout: vi.fn() }
+
+function LocationProbe() {
+  const location = useLocation()
+  return <div data-testid="location-probe">{location.pathname}</div>
+}
 
 function mockOwnerApi() {
   apiCall.mockImplementation((url) => {
@@ -60,18 +65,33 @@ beforeEach(() => {
 })
 
 describe('Owner Cockpit nav visibility', () => {
-  it('shows the Owner Cockpit link only for super-admin users', () => {
+  it('shows the Owner Cockpit control only for super-admin users', () => {
     useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
     render(<MemoryRouter><Layout><div>c</div></Layout></MemoryRouter>)
     fireEvent.click(screen.getAllByRole('button').find((button) => button.textContent.includes('Owner')))
-    expect(screen.getByRole('link', { name: /Owner Cockpit/i })).toHaveAttribute('href', '/owner')
+    expect(screen.getByRole('button', { name: /Owner Cockpit/i })).toBeInTheDocument()
   })
 
-  it('does not show the Owner Cockpit link for non-super-admin users', () => {
+  it('does not show the Owner Cockpit control for non-super-admin users', () => {
     useAuth.mockReturnValue({ ...BASE, isSuperAdmin: false })
     render(<MemoryRouter><Layout><div>c</div></Layout></MemoryRouter>)
     fireEvent.click(screen.getAllByRole('button').find((button) => button.textContent.includes('Owner')))
-    expect(screen.queryByRole('link', { name: /Owner Cockpit/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Owner Cockpit/i })).not.toBeInTheDocument()
+  })
+
+  it('navigates to /owner when the Owner Cockpit control is clicked', () => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="*" element={<><Layout><div>shell</div></Layout><LocationProbe /></>} />
+        </Routes>
+      </MemoryRouter>
+    )
+    fireEvent.click(screen.getAllByRole('button').find((button) => button.textContent.includes('Owner')))
+    fireEvent.click(screen.getByRole('button', { name: /Owner Cockpit/i }))
+    expect(screen.getByTestId('location-probe')).toHaveTextContent('/owner')
+    expect(screen.queryByRole('button', { name: /Owner Cockpit/i })).not.toBeInTheDocument()
   })
 })
 
