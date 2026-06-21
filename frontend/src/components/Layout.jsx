@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Users,
   Home,
@@ -48,6 +48,7 @@ const cleanClientName = (name) => {
 
 const Layout = ({ children }) => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { profile, logout, isSuperAdmin } = useAuth();
   const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [messagesUnreadCount, setMessagesUnreadCount] = useState(0);
@@ -234,6 +235,11 @@ const Layout = ({ children }) => {
   useEffect(() => {
     setOpenMenu(null);
   }, [location.pathname]);
+
+  const openOwnerCockpit = () => {
+    setOpenMenu(null);
+    navigate('/owner');
+  };
 
 
   return (
@@ -494,10 +500,14 @@ const Layout = ({ children }) => {
                         <span>Help &amp; Support</span>
                       </Link>
                       {isSuperAdmin && (
-                        <Link to="/owner" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
+                        <button
+                          type="button"
+                          onClick={openOwnerCockpit}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-gray-300 transition-colors hover:bg-white/10"
+                        >
                           <Landmark className="h-4 w-4 text-amber-300" />
                           <span>Owner Cockpit</span>
-                        </Link>
+                        </button>
                       )}
                       {isSuperAdmin && (
                         <Link to="/super-admin" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
