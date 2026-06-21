@@ -44,6 +44,7 @@ import Settings from './pages/Settings'
 import Billing from './pages/Billing'
 import Support from './pages/Support'
 import SuperAdmin from './pages/SuperAdmin'
+import OwnerCockpit from './pages/OwnerCockpit'
 import AIAssistantPopup from './components/AIAssistant/AIAssistantPopup'
 // System administration and monitoring
 import SystemIntegrity from './pages/SystemIntegrity'
@@ -128,6 +129,11 @@ function App() {
               <Route path="/super-admin" element={
                 <ProtectedRoute requireSuperAdmin>
                   <SuperAdmin />
+                </ProtectedRoute>
+              } />
+              <Route path="/owner" element={
+                <ProtectedRoute requireSuperAdmin>
+                  <OwnerCockpit />
                 </ProtectedRoute>
               } />
               <Route path="/supervisor-dashboard" element={

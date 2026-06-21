@@ -100,6 +100,12 @@ describe('Super Admin panel', () => {
     expect(screen.getByText(/STRIPE_PRICE_TEAM_BASE_MONTHLY/)).toBeInTheDocument()
   })
 
+  it('shows the Owner Cockpit bridge card without replacing Super Admin', async () => {
+    render(<MemoryRouter><SuperAdmin /></MemoryRouter>)
+    expect(await screen.findByRole('link', { name: /Open Ember HQ/i })).toHaveAttribute('href', '/owner')
+    expect(screen.getByText(/Super Admin remains the org-control surface/i)).toBeInTheDocument()
+  })
+
   it('opens org detail with counts and staff metadata', async () => {
     render(<MemoryRouter><SuperAdmin /></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: /^View$/i }))

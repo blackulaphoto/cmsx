@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { ShieldAlert, Building2, Users, Activity, Search, X, Ban, RotateCcw, ExternalLink, CreditCard } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiCall, API_BASE_URL } from '../api/config'
@@ -183,6 +184,23 @@ function SuperAdmin() {
             </p>
           </div>
         ) : null}
+
+        <div className="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-white">Owner cockpit</p>
+              <p className="mt-1 text-sm text-cyan-100/80">
+                Ember HQ is the separate company dashboard for platform operations. Super Admin remains the org-control surface.
+              </p>
+            </div>
+            <Link
+              to="/owner"
+              className="inline-flex items-center justify-center rounded-lg border border-cyan-300/20 bg-slate-950/40 px-4 py-2 text-sm font-medium text-cyan-100 transition hover:bg-slate-950/60"
+            >
+              Open Ember HQ
+            </Link>
+          </div>
+        </div>
 
         {/* Organizations table */}
         <div className={panel}>

@@ -1,0 +1,135 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
+import '@testing-library/jest-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+
+vi.mock('../contexts/AuthContext', () => ({ useAuth: vi.fn() }))
+vi.mock('../api/config', () => ({
+  apiCall: vi.fn(),
+  apiFetch: vi.fn(() => Promise.resolve({ ok: false, json: async () => ({}) })),
+  messagesAPI: { unreadCount: vi.fn(() => Promise.resolve({ count: 0 })) },
+  API_BASE_URL: '',
+}))
+
+import { useAuth } from '../contexts/AuthContext'
+import { apiCall } from '../api/config'
+import Layout from '../components/Layout'
+import ProtectedRoute from '../components/ProtectedRoute'
+import OwnerCockpit from './OwnerCockpit'
+
+const BASE = { profile: { full_name: 'Owner', role: 'admin' }, loading: false, needsOnboarding: false, logout: vi.fn() }
+
+function mockOwnerApi() {
+  apiCall.mockImplementation((url) => {
+    if (url === '/api/super-admin/overview') {
+      return Promise.resolve({
+        multi_tenant_enabled: false,
+        total_orgs: 2,
+        total_users: 7,
+        active_users: 5,
+        total_clients: 11,
+        stripe: {
+          mode: 'dormant',
+          stripe_secret_configured: true,
+          all_required_prices_configured: true,
+          stripe_connected: true,
+          billing_enabled: false,
+          checkout_enabled: false,
+          portal_enabled: false,
+          webhooks_enabled: false,
+          webhook_secret_configured: false,
+          missing_price_env_vars: [],
+        },
+      })
+    }
+    if (url === '/api/super-admin/organizations') {
+      return Promise.resolve({
+        organizations: [
+          { org_id: 'org_a', name: 'Org A', status: 'active', user_count: 4, client_count: 7 },
+          { org_id: 'org_b', name: 'Org B', status: 'suspended', user_count: 3, client_count: 4 },
+        ],
+      })
+    }
+    return Promise.resolve({})
+  })
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe('Owner Cockpit nav visibility', () => {
+  it('shows the Owner Cockpit link only for super-admin users', () => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+    render(<MemoryRouter><Layout><div>c</div></Layout></MemoryRouter>)
+    fireEvent.click(screen.getAllByRole('button').find((button) => button.textContent.includes('Owner')))
+    expect(screen.getByRole('link', { name: /Owner Cockpit/i })).toHaveAttribute('href', '/owner')
+  })
+
+  it('does not show the Owner Cockpit link for non-super-admin users', () => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: false })
+    render(<MemoryRouter><Layout><div>c</div></Layout></MemoryRouter>)
+    fireEvent.click(screen.getAllByRole('button').find((button) => button.textContent.includes('Owner')))
+    expect(screen.queryByRole('link', { name: /Owner Cockpit/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('Owner Cockpit route gating', () => {
+  it('renders for super-admin users', async () => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+    mockOwnerApi()
+    render(
+      <MemoryRouter initialEntries={['/owner']}>
+        <Routes>
+          <Route path="/owner" element={<ProtectedRoute requireSuperAdmin><OwnerCockpit /></ProtectedRoute>} />
+          <Route path="/" element={<div>HOME</div>} />
+        </Routes>
+      </MemoryRouter>
+    )
+    expect(await screen.findByText('Ember HQ')).toBeInTheDocument()
+  })
+
+  it('redirects non-super-admin users away from /owner', () => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: false })
+    render(
+      <MemoryRouter initialEntries={['/owner']}>
+        <Routes>
+          <Route path="/owner" element={<ProtectedRoute requireSuperAdmin><div>OWNER</div></ProtectedRoute>} />
+          <Route path="/" element={<div>HOME</div>} />
+        </Routes>
+      </MemoryRouter>
+    )
+    expect(screen.getByText('HOME')).toBeInTheDocument()
+    expect(screen.queryByText('OWNER')).not.toBeInTheDocument()
+  })
+})
+
+describe('Owner Cockpit content', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+    mockOwnerApi()
+  })
+
+  it('shows platform overview and placeholder sections', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Platform Overview')).toBeInTheDocument()
+    expect(screen.getByText('Organizations / Customers')).toBeInTheDocument()
+    expect(screen.getByText('Billing & Stripe')).toBeInTheDocument()
+    expect(screen.getByText('Marketing & Ads')).toBeInTheDocument()
+    expect(screen.getByText('Support')).toBeInTheDocument()
+    expect(screen.getByText('Dev / System')).toBeInTheDocument()
+    expect(screen.getByText('Internal Team')).toBeInTheDocument()
+    expect(screen.getByText('Coming next: campaign tracking')).toBeInTheDocument()
+    expect(screen.getByText('Coming next: support queue')).toBeInTheDocument()
+    expect(screen.getByText('Coming next: internal team roles')).toBeInTheDocument()
+  })
+
+  it('shows Stripe readiness as dormant when the backend says dormant', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Stripe readiness')).toBeInTheDocument()
+    expect(screen.getAllByText('dormant').length).toBeGreaterThan(0)
+    expect(screen.getByText('Billing enabled')).toBeInTheDocument()
+    expect(screen.getByText('Checkout enabled')).toBeInTheDocument()
+  })
+})

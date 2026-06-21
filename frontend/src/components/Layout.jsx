@@ -27,6 +27,7 @@ import {
   Settings,
   LifeBuoy,
   ShieldAlert,
+  Landmark,
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -492,6 +493,12 @@ const Layout = ({ children }) => {
                         <LifeBuoy className="h-4 w-4 text-emerald-300" />
                         <span>Help &amp; Support</span>
                       </Link>
+                      {isSuperAdmin && (
+                        <Link to="/owner" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
+                          <Landmark className="h-4 w-4 text-amber-300" />
+                          <span>Owner Cockpit</span>
+                        </Link>
+                      )}
                       {isSuperAdmin && (
                         <Link to="/super-admin" onClick={() => setOpenMenu(null)} className="flex items-center gap-3 rounded-xl px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-white/10">
                           <ShieldAlert className="h-4 w-4 text-rose-300" />
