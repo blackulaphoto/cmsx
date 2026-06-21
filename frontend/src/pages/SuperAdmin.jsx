@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ShieldAlert, Building2, Users, Activity, Search, X, Ban, RotateCcw, ExternalLink, CreditCard } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiCall, API_BASE_URL } from '../api/config'
+import { listPlans, BILLING_STATUSES, formatPrice } from '../utils/plans'
 
 function StatCard({ icon: Icon, label, value }) {
   return (
@@ -27,6 +28,8 @@ function SuperAdmin() {
   const [query, setQuery] = useState('')
   const [users, setUsers] = useState([])
   const [searching, setSearching] = useState(false)
+  const [billingDraft, setBillingDraft] = useState({ plan_code: '', billing_status: '' })
+  const [billingBusy, setBillingBusy] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -50,11 +53,36 @@ function SuperAdmin() {
   const openDetail = async (orgId) => {
     setDetailBusy(true)
     try {
-      setDetail(await apiCall(`/api/super-admin/organizations/${orgId}`))
+      const d = await apiCall(`/api/super-admin/organizations/${orgId}`)
+      setDetail(d)
+      setBillingDraft({
+        plan_code: d?.billing?.plan_code || '',
+        billing_status: d?.billing?.billing_status || '',
+      })
     } catch (err) {
       toast.error(err?.message || 'Failed to load organization.')
     } finally {
       setDetailBusy(false)
+    }
+  }
+
+  const saveBilling = async (orgId) => {
+    setBillingBusy(true)
+    try {
+      await apiCall(`/api/super-admin/organizations/${orgId}/billing`, {
+        method: 'POST',
+        body: JSON.stringify({
+          plan_code: billingDraft.plan_code || undefined,
+          billing_status: billingDraft.billing_status || undefined,
+        }),
+      })
+      toast.success('Billing updated')
+      await load()
+      await openDetail(orgId)
+    } catch (err) {
+      toast.error(err?.message || 'Could not update billing.')
+    } finally {
+      setBillingBusy(false)
     }
   }
 
@@ -130,6 +158,8 @@ function SuperAdmin() {
                     <th className="py-2 pr-3">Name</th>
                     <th className="py-2 pr-3">Type</th>
                     <th className="py-2 pr-3">Status</th>
+                    <th className="py-2 pr-3">Plan</th>
+                    <th className="py-2 pr-3">Billing</th>
                     <th className="py-2 pr-3">Users</th>
                     <th className="py-2 pr-3">Clients</th>
                     <th className="py-2 pr-3">Created</th>
@@ -147,6 +177,11 @@ function SuperAdmin() {
                       <td className="py-2 pr-3">
                         <span className={o.status === 'suspended' ? 'text-amber-300' : 'text-emerald-300'}>{o.status}</span>
                       </td>
+                      <td className="py-2 pr-3 text-gray-300">
+                        {o.plan_code || '—'}
+                        {o.limit_status?.over_limit ? <span className="ml-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-200">over</span> : null}
+                      </td>
+                      <td className="py-2 pr-3 text-gray-300">{o.billing_status || '—'}</td>
                       <td className="py-2 pr-3">{o.user_count}</td>
                       <td className="py-2 pr-3">{o.client_count}</td>
                       <td className="py-2 pr-3 text-gray-400">{(o.created_at || '').slice(0, 10) || '—'}</td>
@@ -183,14 +218,14 @@ function SuperAdmin() {
           ) : null}
         </div>
 
-        {/* Billing placeholder — inert, no Stripe, no payment fields */}
-        <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5 opacity-70">
+        {/* Billing — internal model is live; live payments (Stripe) are not connected */}
+        <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10"><CreditCard className="h-5 w-5 text-gray-300" /></span>
           <div className="flex-1">
             <p className="font-semibold text-gray-200">Billing</p>
-            <p className="text-sm text-gray-400">Subscriptions and billing are coming later.</p>
+            <p className="text-sm text-gray-400">Plan &amp; billing status per org are shown in the table and editable in each org&apos;s detail drawer.</p>
           </div>
-          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-gray-400">Coming later</span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-gray-400">Payments not connected</span>
         </div>
       </div>
 
@@ -222,6 +257,43 @@ function SuperAdmin() {
                   <Ban className="h-4 w-4" /> Suspend access
                 </button>
               )}
+            </div>
+
+            {/* Billing — internal model only, no Stripe. Manual override for comped/testing. */}
+            <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-cyan-300" />
+                <h4 className="font-semibold">Billing</h4>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div><p className="text-gray-400">Plan</p><p className="font-medium">{detail.billing?.plan?.display_name || detail.billing?.plan_code || '—'}</p></div>
+                <div><p className="text-gray-400">Status</p><p className="font-medium capitalize">{(detail.billing?.billing_status || '—').replace('_', ' ')}</p></div>
+                <div><p className="text-gray-400">Est. price</p><p className="font-medium">{formatPrice(detail.billing?.estimated_monthly_price)}</p></div>
+                <div><p className="text-gray-400">Active users</p><p className="font-medium">{detail.billing?.usage?.active_users ?? 0}</p></div>
+              </div>
+              {detail.billing?.limit_status?.over_limit ? (
+                <p className="mt-2 rounded-lg bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">Over plan limit (clients or users)</p>
+              ) : null}
+
+              <div className="mt-4 grid gap-2">
+                <label className="text-xs text-gray-400">Plan
+                  <select value={billingDraft.plan_code} onChange={(e) => setBillingDraft((d) => ({ ...d, plan_code: e.target.value }))}
+                    className="mt-1 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-cyan-500">
+                    {listPlans().map((pl) => <option key={pl.plan_code} value={pl.plan_code}>{pl.display_name}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs text-gray-400">Billing status
+                  <select value={billingDraft.billing_status} onChange={(e) => setBillingDraft((d) => ({ ...d, billing_status: e.target.value }))}
+                    className="mt-1 w-full rounded-lg bg-slate-800 px-3 py-2 text-sm capitalize outline-none focus:ring-2 focus:ring-cyan-500">
+                    {BILLING_STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                  </select>
+                </label>
+                <button disabled={billingBusy} onClick={() => saveBilling(detail.organization.org_id)}
+                  className="mt-1 rounded-lg bg-cyan-500 px-4 py-2 text-sm font-medium text-slate-950 disabled:opacity-50">
+                  {billingBusy ? 'Saving…' : 'Save billing (comped/testing)'}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-gray-500">Manual override only. Stripe is not connected — no payment is created.</p>
             </div>
 
             <h4 className="mt-6 mb-2 font-semibold">Staff</h4>
