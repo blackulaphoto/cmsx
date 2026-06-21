@@ -110,6 +110,7 @@ describe('Super Admin panel', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^View$/i }))
     expect(await screen.findByRole('button', { name: /Save billing/i })).toBeInTheDocument()
     expect(screen.getAllByText('Free Trial').length).toBeGreaterThan(0)         // plan display name + option
+    expect(screen.getByText('AI usage tracking: Coming later')).toBeInTheDocument()
     // The manual override mentions Stripe is NOT connected, but collects no card data.
     expect(screen.queryByText(/card number/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/checkout/i)).not.toBeInTheDocument()

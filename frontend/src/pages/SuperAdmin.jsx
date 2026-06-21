@@ -271,6 +271,7 @@ function SuperAdmin() {
                 <div><p className="text-gray-400">Est. price</p><p className="font-medium">{formatPrice(detail.billing?.estimated_monthly_price)}</p></div>
                 <div><p className="text-gray-400">Active users</p><p className="font-medium">{detail.billing?.usage?.active_users ?? 0}</p></div>
               </div>
+              <p className="mt-2 text-xs text-gray-400">AI usage tracking: Coming later</p>
               {detail.billing?.limit_status?.over_limit ? (
                 <p className="mt-2 rounded-lg bg-amber-500/15 px-3 py-1.5 text-xs text-amber-200">Over plan limit (clients or users)</p>
               ) : null}

@@ -121,8 +121,14 @@ function Billing() {
                 over={limit.users?.over_limit} hint={`${plan.included_users ?? '—'} included${limit.users?.extra_billable ? ' · extra seats billable' : ''}`} />
               <UsageBar icon={Users} label="Active clients" used={usage.active_clients ?? 0} limit={limit.clients?.limit ?? null}
                 over={limit.clients?.over_limit} />
-              <UsageBar icon={Sparkles} label="AI usage" used={usage.ai_usage_placeholder ?? 0} limit={null}
-                hint={`Limit: ${plan.ai_limit_label || '—'} (placeholder)`} />
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <div className="mb-2 flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-cyan-300" />
+                  <span className="font-semibold">AI Assistant</span>
+                </div>
+                <p className="text-sm text-gray-300">Included with your plan</p>
+                <p className="mt-1 text-xs text-gray-400">Usage monitoring coming soon</p>
+              </div>
             </div>
 
             {/* Actions — all disabled while Stripe is not connected */}
