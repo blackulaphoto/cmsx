@@ -23,7 +23,10 @@ const BASE = { profile: { full_name: 'Owner', role: 'admin' }, loading: false, n
 
 function mockSuperApi() {
   apiCall.mockImplementation((url) => {
-    if (url === '/api/super-admin/overview') return Promise.resolve({ multi_tenant_enabled: false, total_orgs: 2, total_users: 3, total_clients: 3 })
+    if (url === '/api/super-admin/overview') return Promise.resolve({ multi_tenant_enabled: false, total_orgs: 2, total_users: 3, total_clients: 3,
+      stripe: { mode: 'dormant', stripe_secret_configured: true, all_required_prices_configured: false, stripe_connected: false,
+        billing_enabled: false, checkout_enabled: false, portal_enabled: false, webhooks_enabled: false, webhook_secret_configured: false,
+        missing_price_env_vars: ['STRIPE_PRICE_TEAM_BASE_MONTHLY'] } })
     if (url === '/api/super-admin/organizations') return Promise.resolve({ organizations: [
       { org_id: 'org_a', name: 'Org A', org_type: 'sober_living', status: 'active', user_count: 2, client_count: 2, created_at: '2026-06-01T00:00:00',
         plan_code: 'free_trial', billing_status: 'trialing', estimated_monthly_price: 0, limit_status: { over_limit: false } },
@@ -89,6 +92,14 @@ describe('Super Admin panel', () => {
     expect(screen.getByText('SaaS mode: OFF')).toBeInTheDocument()
   })
 
+  it('shows the Stripe readiness panel with dormant mode and missing prices', async () => {
+    render(<MemoryRouter><SuperAdmin /></MemoryRouter>)
+    expect(await screen.findByText('Stripe readiness')).toBeInTheDocument()
+    expect(screen.getByText('dormant')).toBeInTheDocument()
+    expect(screen.getByText(/Missing price env vars:/i)).toBeInTheDocument()
+    expect(screen.getByText(/STRIPE_PRICE_TEAM_BASE_MONTHLY/)).toBeInTheDocument()
+  })
+
   it('opens org detail with counts and staff metadata', async () => {
     render(<MemoryRouter><SuperAdmin /></MemoryRouter>)
     fireEvent.click(await screen.findByRole('button', { name: /^View$/i }))
@@ -111,8 +122,8 @@ describe('Super Admin panel', () => {
     expect(await screen.findByRole('button', { name: /Save billing/i })).toBeInTheDocument()
     expect(screen.getAllByText('Free Trial').length).toBeGreaterThan(0)         // plan display name + option
     expect(screen.getByText('AI usage tracking: Coming later')).toBeInTheDocument()
-    // The manual override mentions Stripe is NOT connected, but collects no card data.
+    // Manual override collects no payment data and triggers no checkout action.
     expect(screen.queryByText(/card number/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/checkout/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/checkout session/i)).not.toBeInTheDocument()
   })
 })

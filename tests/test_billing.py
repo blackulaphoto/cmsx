@@ -26,7 +26,10 @@ from backend.shared.tenancy import DEFAULT_ORG_ID
 
 SUPER_EMAIL = "blackulaphotography@gmail.com"
 PHI_KEYS = ("first_name", "last_name", "date_of_birth", "dob", "ssn", "diagnosis", "client_name")
-SECRET_KEYS = ("sk_live", "sk_test", "stripe_secret", "api_key", "secret_key", "whsec_")
+# Real secret-VALUE markers. Note: the boolean readiness field
+# ``stripe_secret_configured`` legitimately contains the word "stripe_secret"
+# but is not a secret, so we match live-key prefixes/values instead of that word.
+SECRET_KEYS = ("sk_live", "sk_test", "api_key", "secret_key", "whsec_")
 
 
 def _token(uid, email, name="User"):

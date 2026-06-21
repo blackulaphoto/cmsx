@@ -72,6 +72,11 @@ function Billing() {
   const usage = data?.usage || {}
   const limit = data?.limit_status || {}
   const trialDate = data?.trial_ends_at ? String(data.trial_ends_at).slice(0, 10) : null
+  const stripe = data?.stripe || {}
+  const stripeConnected = !!stripe.stripe_connected
+  // A capability is live only when master billing AND its own flag are on.
+  const checkoutLive = !!(stripe.billing_enabled && stripe.checkout_enabled)
+  const portalLive = !!(stripe.billing_enabled && stripe.portal_enabled)
 
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 px-3 sm:px-6 py-8 text-white">
@@ -131,21 +136,29 @@ function Billing() {
               </div>
             </div>
 
-            {/* Actions — all disabled while Stripe is not connected */}
+            {/* Actions — Stripe is connected in dormant mode; activation pending */}
             <div className={panel}>
-              <h3 className="mb-1 text-lg font-semibold">Manage subscription</h3>
-              <p className="mb-4 text-sm text-gray-400">Stripe billing connection is coming soon. These actions are disabled for now.</p>
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <h3 className="text-lg font-semibold">Manage subscription</h3>
+                <span className={`rounded-full border px-2.5 py-0.5 text-xs ${stripeConnected ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-200' : 'border-white/15 bg-white/5 text-gray-300'}`}>
+                  {stripeConnected ? 'Stripe connected' : 'Stripe not configured'}
+                </span>
+              </div>
+              <p className="mb-4 text-sm text-gray-400">
+                {stripeConnected
+                  ? 'Stripe is connected. Billing activation is pending.'
+                  : 'Stripe billing connection is coming soon. These actions are disabled for now.'}
+              </p>
               <div className="flex flex-wrap gap-3">
-                <button disabled title="Stripe connection coming soon"
-                  className="cursor-not-allowed rounded-lg bg-white/10 px-5 py-2.5 font-medium text-gray-300 opacity-60">
+                <button disabled className="cursor-not-allowed rounded-lg bg-white/10 px-5 py-2.5 font-medium text-gray-300 opacity-60">
                   Start trial
                 </button>
-                <button disabled title="Stripe connection coming soon"
-                  className="cursor-not-allowed rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 font-medium opacity-50">
+                <button disabled={!checkoutLive} title={checkoutLive ? undefined : 'Billing activation is pending'}
+                  className={`rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 px-5 py-2.5 font-medium ${checkoutLive ? '' : 'cursor-not-allowed opacity-50'}`}>
                   Upgrade plan
                 </button>
-                <button disabled title="Stripe connection coming soon"
-                  className="cursor-not-allowed rounded-lg bg-white/10 px-5 py-2.5 font-medium text-gray-300 opacity-60">
+                <button disabled={!portalLive} title={portalLive ? undefined : 'Billing activation is pending'}
+                  className={`rounded-lg bg-white/10 px-5 py-2.5 font-medium text-gray-300 ${portalLive ? '' : 'cursor-not-allowed opacity-60'}`}>
                   Manage billing
                 </button>
               </div>

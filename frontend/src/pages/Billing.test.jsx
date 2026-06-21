@@ -33,6 +33,18 @@ const STATUS = {
   },
   recommended_plan: 'organization',
   payments_enabled: false,
+  stripe: {
+    mode: 'dormant',
+    stripe_secret_configured: true,
+    all_required_prices_configured: true,
+    stripe_connected: true,
+    billing_enabled: false,
+    checkout_enabled: false,
+    portal_enabled: false,
+    webhooks_enabled: false,
+    webhook_secret_configured: false,
+    missing_price_env_vars: [],
+  },
   plans: [
     { plan_code: 'team', display_name: 'Team', price_label: '$99/month', included_users: 3, extra_user_price: 29, max_active_clients: 75, ai_limit_label: 'standard team usage' },
     { plan_code: 'organization', display_name: 'Organization', price_label: '$199/month', included_users: 5, extra_user_price: 25, max_active_clients: 250, ai_limit_label: 'expanded org usage' },
@@ -57,14 +69,23 @@ describe('Billing page', () => {
     expect(screen.getByText('Usage monitoring coming soon')).toBeInTheDocument()
   })
 
-  it('disables Upgrade / Manage Billing and says Stripe is coming soon', async () => {
+  it('shows Stripe connected + activation pending, with Upgrade/Manage disabled', async () => {
     apiCall.mockResolvedValue(STATUS)
     render(<MemoryRouter><Billing /></MemoryRouter>)
     const upgrade = await screen.findByRole('button', { name: /Upgrade plan/i })
     const manage = screen.getByRole('button', { name: /Manage billing/i })
     expect(upgrade).toBeDisabled()
     expect(manage).toBeDisabled()
-    expect(screen.getByText(/Stripe billing connection is coming soon/i)).toBeInTheDocument()
+    expect(screen.getByText('Stripe connected')).toBeInTheDocument()
+    expect(screen.getByText('Stripe is connected. Billing activation is pending.')).toBeInTheDocument()
+  })
+
+  it('shows "Stripe not configured" when readiness reports it', async () => {
+    apiCall.mockResolvedValue({ ...STATUS, stripe: { ...STATUS.stripe, stripe_connected: false } })
+    render(<MemoryRouter><Billing /></MemoryRouter>)
+    await screen.findByRole('heading', { name: 'Team', level: 2 })
+    expect(screen.getByText('Stripe not configured')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Upgrade plan/i })).toBeDisabled()
   })
 
   it('makes no Stripe/checkout call — only the billing status read', async () => {
