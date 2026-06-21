@@ -25,8 +25,35 @@ function LocationProbe() {
   return <div data-testid="location-probe">{location.pathname}</div>
 }
 
-function mockOwnerApi() {
+const EMPTY_ANALYTICS = {
+  success: true,
+  total_orgs: 2,
+  active_orgs: 1,
+  suspended_orgs: 1,
+  total_users: 7,
+  active_users: 5,
+  total_clients: 11,
+  plan_breakdown: { team: 1, individual: 1 },
+  billing_status_breakdown: { active: 1, trialing: 1 },
+  estimated_mrr: 148,
+  estimated_mrr_source: 'internal_plan_fields',
+  total_events: 0,
+  module_usage: { dashboard: 0, housing: 0, fmla: 0 },
+  top_modules: [],
+  least_used_modules: [
+    { module: 'fmla', count: 0 },
+    { module: 'housing', count: 0 },
+  ],
+  marketing_source_breakdown: {},
+  recent_activity: [],
+  stripe_activated: false,
+}
+
+function mockOwnerApi(analytics = EMPTY_ANALYTICS) {
   apiCall.mockImplementation((url) => {
+    if (url === '/api/owner/analytics/summary') {
+      return Promise.resolve(analytics)
+    }
     if (url === '/api/super-admin/overview') {
       return Promise.resolve({
         multi_tenant_enabled: false,
@@ -140,7 +167,6 @@ describe('Owner Cockpit content', () => {
     expect(screen.getByText('Support')).toBeInTheDocument()
     expect(screen.getByText('Dev / System')).toBeInTheDocument()
     expect(screen.getByText('Internal Team')).toBeInTheDocument()
-    expect(screen.getByText('Coming next: campaign tracking')).toBeInTheDocument()
     expect(screen.getByText('Coming next: support queue')).toBeInTheDocument()
     expect(screen.getByText('Coming next: internal team roles')).toBeInTheDocument()
   })
@@ -151,5 +177,50 @@ describe('Owner Cockpit content', () => {
     expect(screen.getAllByText('dormant').length).toBeGreaterThan(0)
     expect(screen.getByText('Billing enabled')).toBeInTheDocument()
     expect(screen.getByText('Checkout enabled')).toBeInTheDocument()
+  })
+})
+
+describe('Owner Cockpit analytics', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+  })
+
+  it('renders the analytics sections and estimated MRR', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Plan Breakdown')).toBeInTheDocument()
+    expect(screen.getByText('Billing Status')).toBeInTheDocument()
+    expect(screen.getByText('Top Used Modules')).toBeInTheDocument()
+    expect(screen.getByText('Least Used Modules')).toBeInTheDocument()
+    expect(screen.getByText('Estimated MRR')).toBeInTheDocument()
+    // $148 estimated MRR appears (metric card + plan-breakdown footnote).
+    expect(screen.getAllByText('$148').length).toBeGreaterThan(0)
+  })
+
+  it('shows honest empty states when no usage or marketing data exists', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Top Used Modules')).toBeInTheDocument()
+    expect(screen.getAllByText('No usage data yet').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText('Marketing attribution will appear after tracked visits')
+    ).toBeInTheDocument()
+  })
+
+  it('renders top module usage when usage data is supplied', async () => {
+    mockOwnerApi({
+      ...EMPTY_ANALYTICS,
+      total_events: 4,
+      top_modules: [
+        { module: 'dashboard', count: 3 },
+        { module: 'housing', count: 1 },
+      ],
+      marketing_source_breakdown: { google: 2 },
+    })
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Top Used Modules')).toBeInTheDocument()
+    expect(screen.getByText('Dashboard')).toBeInTheDocument()
+    expect(screen.getByText('google')).toBeInTheDocument()
+    expect(screen.queryByText('Marketing attribution will appear after tracked visits')).not.toBeInTheDocument()
   })
 })

@@ -5,15 +5,40 @@ import {
   ArrowRight,
   Building2,
   CreditCard,
+  DollarSign,
   Flame,
   Globe,
+  Layers,
   LifeBuoy,
   Megaphone,
   Server,
   ShieldCheck,
+  TrendingDown,
+  TrendingUp,
   Users,
 } from 'lucide-react'
 import { apiCall, API_BASE_URL } from '../api/config'
+
+const MODULE_LABELS = {
+  dashboard: 'Dashboard',
+  case_management: 'Case Management',
+  admissions: 'Admissions',
+  documentation: 'Documentation',
+  housing: 'Housing',
+  sober_living: 'Sober Living',
+  benefits: 'Benefits',
+  fmla: 'FMLA',
+  owner: 'Owner HQ',
+  super_admin: 'Super Admin',
+}
+
+const moduleLabel = (key) =>
+  MODULE_LABELS[key] || String(key || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+
+const formatCurrency = (value) =>
+  typeof value === 'number'
+    ? value.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
+    : '—'
 
 function MetricCard({ icon: Icon, label, value, hint }) {
   return (
@@ -49,6 +74,33 @@ function SectionCard({ icon: Icon, title, eyebrow, children, accent = 'from-slat
   )
 }
 
+function EmptyHint({ children }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-6 text-center text-sm text-slate-400">
+      {children}
+    </div>
+  )
+}
+
+function CountRows({ rows, emptyLabel }) {
+  if (!rows || rows.length === 0) {
+    return <EmptyHint>{emptyLabel}</EmptyHint>
+  }
+  return (
+    <ul className="space-y-2">
+      {rows.map((row) => (
+        <li
+          key={row.key}
+          className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm"
+        >
+          <span className="text-slate-300">{row.label}</span>
+          <span className="font-semibold text-white">{row.value}</span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function StripeFlag({ label, value }) {
   return (
     <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm">
@@ -61,6 +113,7 @@ function StripeFlag({ label, value }) {
 function OwnerCockpit() {
   const [overview, setOverview] = useState(null)
   const [orgs, setOrgs] = useState([])
+  const [analytics, setAnalytics] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -71,13 +124,16 @@ function OwnerCockpit() {
       setLoading(true)
       setError('')
       try {
-        const [overviewData, orgData] = await Promise.all([
+        const [overviewData, orgData, analyticsData] = await Promise.all([
           apiCall('/api/super-admin/overview'),
           apiCall('/api/super-admin/organizations'),
+          // Analytics is additive — never let it fail the whole cockpit load.
+          apiCall('/api/owner/analytics/summary').catch(() => null),
         ])
         if (!cancelled) {
           setOverview(overviewData)
           setOrgs(orgData.organizations || [])
+          setAnalytics(analyticsData)
         }
       } catch (err) {
         if (!cancelled) {
@@ -101,6 +157,32 @@ function OwnerCockpit() {
     const suspended = orgs.filter((org) => org.status === 'suspended').length
     return { active, suspended }
   }, [orgs])
+
+  const analyticsRows = useMemo(() => {
+    const planRows = Object.entries(analytics?.plan_breakdown || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([code, count]) => ({ key: code, label: moduleLabel(code), value: count }))
+    const statusRows = Object.entries(analytics?.billing_status_breakdown || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([status, count]) => ({ key: status, label: moduleLabel(status), value: count }))
+    const topModules = (analytics?.top_modules || []).map((m) => ({
+      key: m.module,
+      label: moduleLabel(m.module),
+      value: m.count,
+    }))
+    const leastModules = (analytics?.least_used_modules || []).map((m) => ({
+      key: m.module,
+      label: moduleLabel(m.module),
+      value: m.count,
+    }))
+    const marketingRows = Object.entries(analytics?.marketing_source_breakdown || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([source, count]) => ({ key: source, label: source, value: count }))
+    return { planRows, statusRows, topModules, leastModules, marketingRows }
+  }, [analytics])
+
+  const hasUsageData = (analytics?.total_events ?? 0) > 0
+  const estimatedMrr = analytics?.estimated_mrr
 
   const stripe = overview?.stripe
   const panel = 'rounded-[28px] border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-black/20 backdrop-blur'
@@ -153,10 +235,39 @@ function OwnerCockpit() {
         ) : null}
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={Building2} label="Organizations" value={overview?.total_orgs ?? '—'} hint={`${orgSummary.active} active, ${orgSummary.suspended} suspended`} />
-          <MetricCard icon={Users} label="Users" value={overview?.total_users ?? '—'} hint={`${overview?.active_users ?? 0} active users in current read model`} />
-          <MetricCard icon={ShieldCheck} label="Clients" value={overview?.total_clients ?? '—'} hint="Read-only platform total" />
-          <MetricCard icon={Activity} label="SaaS Mode" value={overview?.multi_tenant_enabled ? 'ON' : 'OFF'} hint="Multi-tenant flag status" />
+          <MetricCard icon={Building2} label="Organizations" value={analytics?.total_orgs ?? overview?.total_orgs ?? '—'} hint={`${analytics?.active_orgs ?? orgSummary.active} active, ${analytics?.suspended_orgs ?? orgSummary.suspended} suspended`} />
+          <MetricCard icon={Users} label="Users" value={analytics?.total_users ?? overview?.total_users ?? '—'} hint={`${analytics?.active_users ?? overview?.active_users ?? 0} active users`} />
+          <MetricCard icon={ShieldCheck} label="Clients" value={analytics?.total_clients ?? overview?.total_clients ?? '—'} hint="Read-only platform total" />
+          <MetricCard icon={DollarSign} label="Estimated MRR" value={formatCurrency(estimatedMrr)} hint="From internal plan fields — not Stripe" />
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-2">
+          <SectionCard icon={Layers} title="Plan Breakdown" eyebrow="Revenue mix" accent="from-amber-500/30 to-orange-500/20">
+            <CountRows rows={analyticsRows.planRows} emptyLabel="No plan data yet" />
+            <p className="mt-4 text-sm text-slate-400">
+              Estimated MRR <span className="font-semibold text-white">{formatCurrency(estimatedMrr)}</span> from internal plan fields only. Stripe is dormant and never queried.
+            </p>
+          </SectionCard>
+
+          <SectionCard icon={CreditCard} title="Billing Status" eyebrow="Lifecycle" accent="from-emerald-500/30 to-teal-500/20">
+            <CountRows rows={analyticsRows.statusRows} emptyLabel="No billing status data yet" />
+          </SectionCard>
+
+          <SectionCard icon={TrendingUp} title="Top Used Modules" eyebrow="Product usage" accent="from-cyan-500/30 to-blue-500/20">
+            {hasUsageData ? (
+              <CountRows rows={analyticsRows.topModules} emptyLabel="No usage data yet" />
+            ) : (
+              <EmptyHint>No usage data yet</EmptyHint>
+            )}
+          </SectionCard>
+
+          <SectionCard icon={TrendingDown} title="Least Used Modules" eyebrow="Coverage gaps" accent="from-slate-400/30 to-slate-200/10">
+            {hasUsageData ? (
+              <CountRows rows={analyticsRows.leastModules} emptyLabel="No usage data yet" />
+            ) : (
+              <EmptyHint>No usage data yet</EmptyHint>
+            )}
+          </SectionCard>
         </section>
 
         <section className="grid gap-6 xl:grid-cols-2">
@@ -216,8 +327,14 @@ function OwnerCockpit() {
           </SectionCard>
 
           <SectionCard icon={Megaphone} title="Marketing & Ads" eyebrow="Growth" accent="from-pink-500/30 to-rose-500/20">
-            <p className="text-sm text-slate-300">Coming next: campaign tracking</p>
-            <p className="mt-3 text-sm text-slate-400">This shell will later hold paid acquisition, funnel reporting, and launch instrumentation.</p>
+            {analyticsRows.marketingRows.length > 0 ? (
+              <>
+                <p className="mb-3 text-sm text-slate-400">Tracked visits by source (UTM attribution)</p>
+                <CountRows rows={analyticsRows.marketingRows} emptyLabel="No marketing source data yet" />
+              </>
+            ) : (
+              <EmptyHint>Marketing attribution will appear after tracked visits</EmptyHint>
+            )}
           </SectionCard>
 
           <SectionCard icon={LifeBuoy} title="Support" eyebrow="Service" accent="from-emerald-500/30 to-teal-500/20">
