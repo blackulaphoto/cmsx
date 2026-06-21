@@ -16,6 +16,7 @@ from pydantic import BaseModel
 import backend.shared.db_path as db_path_mod
 from backend.shared.tenancy import multi_tenant_enabled
 from backend.billing import plans as billing_plans
+from backend.billing import stripe_config
 from .service import auth_service, require_super_admin
 
 logger = logging.getLogger(__name__)
@@ -73,6 +74,8 @@ async def overview(request: Request):
         "total_users": stats["total_users"],
         "active_users": stats["active_users"],
         "total_clients": _client_count(),
+        # Stripe readiness (dormant/active mode + booleans, no secrets).
+        "stripe": stripe_config.readiness(),
     }
 
 

@@ -18,6 +18,15 @@ function StatCard({ icon: Icon, label, value }) {
   )
 }
 
+function ReadyRow({ label, ok }) {
+  return (
+    <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/10 px-3 py-2">
+      <span className="text-gray-300">{label}</span>
+      <span className={ok ? 'text-emerald-300' : 'text-gray-500'}>{ok ? 'Yes' : 'No'}</span>
+    </div>
+  )
+}
+
 function SuperAdmin() {
   const [overview, setOverview] = useState(null)
   const [orgs, setOrgs] = useState([])
@@ -142,6 +151,38 @@ function SuperAdmin() {
         <a href={`${API_BASE_URL || ''}/api/health`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-cyan-300 hover:text-cyan-200">
           Backend health <ExternalLink className="h-3.5 w-3.5" />
         </a>
+
+        {/* Stripe readiness (dormant vs active) — booleans only, no secrets */}
+        {overview?.stripe ? (
+          <div className={panel}>
+            <h2 className="mb-4 flex items-center gap-2 text-xl font-bold">
+              <CreditCard className="h-5 w-5" /> Stripe readiness
+              <span className={`ml-2 rounded-full border px-2.5 py-0.5 text-xs font-medium capitalize ${overview.stripe.mode === 'active' ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-200' : 'border-amber-400/30 bg-amber-500/15 text-amber-200'}`}>
+                {overview.stripe.mode}
+              </span>
+            </h2>
+            <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+              <ReadyRow label="Secret key" ok={overview.stripe.stripe_secret_configured} />
+              <ReadyRow label="All prices set" ok={overview.stripe.all_required_prices_configured} />
+              <ReadyRow label="Connected" ok={overview.stripe.stripe_connected} />
+              <ReadyRow label="Billing enabled" ok={overview.stripe.billing_enabled} />
+              <ReadyRow label="Checkout enabled" ok={overview.stripe.checkout_enabled} />
+              <ReadyRow label="Portal enabled" ok={overview.stripe.portal_enabled} />
+              <ReadyRow label="Webhooks enabled" ok={overview.stripe.webhooks_enabled} />
+              <ReadyRow label="Webhook secret" ok={overview.stripe.webhook_secret_configured} />
+            </div>
+            {overview.stripe.missing_price_env_vars?.length ? (
+              <p className="mt-3 text-xs text-amber-200">
+                Missing price env vars: {overview.stripe.missing_price_env_vars.join(', ')}
+              </p>
+            ) : null}
+            <p className="mt-3 text-xs text-gray-500">
+              {overview.stripe.mode === 'active'
+                ? 'Stripe is active.'
+                : 'Stripe is connected in dormant mode — no live payments until activation flags are enabled.'}
+            </p>
+          </div>
+        ) : null}
 
         {/* Organizations table */}
         <div className={panel}>
