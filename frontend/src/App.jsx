@@ -6,6 +6,7 @@ import Onboarding from './pages/Onboarding'
 // Import layout component
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
+import RouteAnalyticsTracker from './components/RouteAnalyticsTracker'
 
 // Import page components
 import Dashboard from './pages/Dashboard'
@@ -76,6 +77,7 @@ function App() {
       } />
       <Route path="/*" element={
         <ProtectedRoute>
+          <RouteAnalyticsTracker />
           <Layout>
             <Routes>
               {/* Enhanced Dashboard - now the main dashboard with ClickUp-style components */}
