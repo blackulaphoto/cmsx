@@ -9,6 +9,7 @@ exercised.
 """
 import json
 import sqlite3
+from datetime import datetime, timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -19,7 +20,11 @@ import backend.analytics.store as analytics_store_mod
 import backend.auth.super_admin_routes as sa_routes
 import backend.billing.routes as billing_routes
 import backend.shared.db_path as db_path_mod
-from backend.analytics.store import AnalyticsStore, sanitize_metadata
+from backend.analytics.store import (
+    AnalyticsStore,
+    normalize_window_days,
+    sanitize_metadata,
+)
 from backend.auth.service import (
     AuthenticatedUser,
     FirebaseAuthService,
@@ -262,3 +267,124 @@ def test_summary_top_modules_after_events(env):
     assert body["module_usage"]["housing"] == 1
     # A never-visited known module remains in least_used at zero.
     assert any(m["module"] == "fmla" and m["count"] == 0 for m in body["least_used_modules"])
+
+
+# ── Polish: window filtering, attribution, recent feed, ad readiness ─────────
+
+def test_normalize_window_days_accepts_known_and_falls_back():
+    assert normalize_window_days("7") == 7
+    assert normalize_window_days("7d") == 7
+    assert normalize_window_days(30) == 30
+    assert normalize_window_days("30d") == 30
+    # Anything unrecognized → all-time (None), never an error.
+    assert normalize_window_days("all") is None
+    assert normalize_window_days("") is None
+    assert normalize_window_days(None) is None
+    assert normalize_window_days("90") is None
+    assert normalize_window_days("garbage") is None
+
+
+def test_window_filters_out_old_events(env):
+    """Events older than the window are excluded; recent ones are kept."""
+    store = env["store"]
+    # One old event (40 days ago) and one fresh event (today).
+    store.record_event(event_type="module_view", module="housing")
+    with sqlite3.connect(store._db_path()) as conn:
+        old = (datetime.utcnow() - timedelta(days=40)).isoformat()
+        conn.execute(
+            "INSERT INTO analytics_events (event_type, module, created_at) VALUES (?,?,?)",
+            ("module_view", "fmla", old),
+        )
+        conn.commit()
+
+    assert store.total_events() == 2                       # all-time
+    assert store.total_events(since_days=30) == 1          # 30d window drops the old one
+    assert store.total_events(since_days=7) == 1
+    assert store.module_usage(since_days=30)["fmla"] == 0  # old fmla event excluded
+    assert store.module_usage()["fmla"] == 1               # but present all-time
+
+
+def test_summary_window_param_is_echoed_and_applied(env):
+    c = env["client"]
+    env["as_user"]("admin_a")
+    c.post("/api/analytics/event", json={"event_type": "module_view", "module": "owner"})
+    # Backdate it beyond the 7-day window directly in the store.
+    with sqlite3.connect(env["store"]._db_path()) as conn:
+        conn.execute(
+            "UPDATE analytics_events SET created_at = ?",
+            ((datetime.utcnow() - timedelta(days=10)).isoformat(),),
+        )
+        conn.commit()
+
+    env["as_super"]()
+    all_body = c.get("/api/owner/analytics/summary?window=all").json()
+    win_body = c.get("/api/owner/analytics/summary?window=7").json()
+    assert all_body["window"] == "all" and all_body["total_events"] == 1
+    assert win_body["window"] == "7d" and win_body["total_events"] == 0
+    # A bogus window value falls back to all-time rather than erroring.
+    bogus = c.get("/api/owner/analytics/summary?window=nonsense")
+    assert bogus.status_code == 200 and bogus.json()["window"] == "all"
+
+
+def test_summary_marketing_attribution_breakdowns(env):
+    c = env["client"]
+    env["as_user"]("admin_a")
+    c.post("/api/analytics/event", json={
+        "event_type": "page_view", "module": "owner",
+        "source": "google", "medium": "cpc", "campaign": "launch",
+    })
+    c.post("/api/analytics/event", json={
+        "event_type": "page_view", "module": "owner",
+        "source": "google", "medium": "email", "campaign": "launch",
+    })
+    env["as_super"]()
+    body = c.get("/api/owner/analytics/summary").json()
+    attribution = body["marketing_attribution"]
+    assert attribution["source"] == {"google": 2}
+    assert attribution["medium"] == {"cpc": 1, "email": 1}
+    assert attribution["campaign"] == {"launch": 2}
+    # Back-compat: the source-only key still mirrors the source breakdown.
+    assert body["marketing_source_breakdown"] == {"google": 2}
+
+
+def test_summary_recent_events_feed_is_safe(env):
+    """The latest-events feed exposes only event_type/module/timestamp — never
+    route, ids, referrer, or metadata."""
+    c = env["client"]
+    env["as_user"]("admin_a")
+    c.post("/api/analytics/event", json={
+        "event_type": "module_view", "module": "housing", "route": "/client/secret-123",
+        "metadata": {"tab": "overview"},
+    })
+    env["as_super"]()
+    body = c.get("/api/owner/analytics/summary").json()
+    feed = body["recent_events"]
+    assert len(feed) == 1
+    event = feed[0]
+    assert set(event.keys()) == {"event_type", "module", "created_at"}
+    blob = json.dumps(feed).lower()
+    assert "secret-123" not in blob and "route" not in blob and "overview" not in blob
+
+
+def test_summary_active_event_identity_counts(env):
+    c = env["client"]
+    env["as_user"]("admin_a")
+    c.post("/api/analytics/event", json={"event_type": "module_view", "module": "owner"})
+    env["as_user"]("m_a")
+    c.post("/api/analytics/event", json={"event_type": "module_view", "module": "owner"})
+    env["as_super"]()
+    body = c.get("/api/owner/analytics/summary").json()
+    # admin_a and m_a share Org A → 1 active org, 2 distinct active users.
+    assert body["active_event_orgs"] == 1
+    assert body["active_event_users"] == 2
+
+
+def test_summary_ad_readiness_is_placeholder(env):
+    c = env["client"]
+    env["as_super"]()
+    body = c.get("/api/owner/analytics/summary").json()
+    ad = body["ad_readiness"]
+    assert ad["source"] == "not_connected"
+    # No fabricated numbers — every metric is explicitly null until wired up.
+    for key in ("landing_page_visits", "campaign_conversions", "cost_per_signup", "ad_spend"):
+        assert ad[key] is None
