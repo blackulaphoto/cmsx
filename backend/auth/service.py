@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 from backend.shared.db_path import DB_DIR
 from backend.shared.tenancy import DEFAULT_ORG_ID, DEFAULT_ORG_NAME
+from backend.billing import plans as billing_plans
 AUTH_DB_PATH = DB_DIR / "auth.db"
 ADMIN_ROLE = "admin"
 CASE_MANAGER_ROLE = "case_manager"
@@ -178,6 +179,26 @@ class FirebaseAuthService:
             if "created_by" not in org_columns:
                 conn.execute("ALTER TABLE organizations ADD COLUMN created_by TEXT")
 
+            # ── Billing + plan-limits foundation (Stripe-disabled) ──────────
+            # Additive/idempotent only. These columns hold the *internal*
+            # subscription model; the stripe_* columns are inert placeholders
+            # (always NULL until a future Stripe integration is wired). No
+            # Stripe SDK, keys, or live billing logic touch this migration.
+            billing_columns = [
+                ("billing_status", "TEXT"),
+                ("plan_code", "TEXT"),
+                ("trial_ends_at", "TEXT"),
+                ("subscription_provider", "TEXT"),
+                ("stripe_customer_id", "TEXT"),
+                ("stripe_subscription_id", "TEXT"),
+                ("plan_limits", "TEXT"),
+            ]
+            for col_name, col_type in billing_columns:
+                if col_name not in org_columns:
+                    conn.execute(
+                        f"ALTER TABLE organizations ADD COLUMN {col_name} {col_type}"
+                    )
+
             # Invite lifecycle metadata for team management (all additive).
             invite_columns = {
                 row["name"]
@@ -195,6 +216,7 @@ class FirebaseAuthService:
             conn.commit()
             self._seed_default_org(conn)
             self._backfill_user_orgs(conn)
+            self._backfill_org_billing(conn)
             conn.commit()
 
     def _seed_default_org(self, conn: sqlite3.Connection) -> None:
@@ -234,6 +256,42 @@ class FirebaseAuthService:
                 """,
                 tuple(admin_emails),
             )
+
+    def _backfill_org_billing(self, conn: sqlite3.Connection) -> None:
+        """Stamp default billing state onto any org missing it (idempotent).
+
+        Existing orgs are placed on the free trial so the app keeps working with
+        no live billing. Only NULL/blank fields are touched — a billing state set
+        manually by a super-admin is never overwritten. No Stripe values are
+        ever written here (the stripe_* columns stay NULL placeholders).
+        """
+        now = datetime.utcnow()
+        trial_ends = (now + timedelta(days=billing_plans.DEFAULT_TRIAL_DAYS)).isoformat()
+        conn.execute(
+            """
+            UPDATE organizations
+            SET billing_status = ?
+            WHERE billing_status IS NULL OR TRIM(billing_status) = ''
+            """,
+            (billing_plans.DEFAULT_BILLING_STATUS,),
+        )
+        conn.execute(
+            """
+            UPDATE organizations
+            SET plan_code = ?
+            WHERE plan_code IS NULL OR TRIM(plan_code) = ''
+            """,
+            (billing_plans.DEFAULT_PLAN_CODE,),
+        )
+        conn.execute(
+            """
+            UPDATE organizations
+            SET trial_ends_at = ?
+            WHERE (trial_ends_at IS NULL OR TRIM(trial_ends_at) = '')
+              AND billing_status = ?
+            """,
+            (trial_ends, billing_plans.DEFAULT_BILLING_STATUS),
+        )
 
     def _get_firebase_app(self) -> firebase_admin.App:
         if self._firebase_app is not None:
@@ -567,14 +625,26 @@ class FirebaseAuthService:
                 raise HTTPException(status_code=404, detail="User profile not found")
 
             org_id = self._generate_org_id()
-            now = datetime.utcnow().isoformat()
+            now_dt = datetime.utcnow()
+            now = now_dt.isoformat()
+            # New orgs start on the free trial (internal billing model only — no
+            # Stripe customer/subscription is created; those columns stay NULL).
+            trial_ends = (
+                now_dt + timedelta(days=billing_plans.DEFAULT_TRIAL_DAYS)
+            ).isoformat()
             conn.execute(
                 """
                 INSERT INTO organizations
-                    (org_id, name, status, plan, org_type, created_by, created_at, updated_at)
-                VALUES (?, ?, 'active', NULL, ?, ?, ?, ?)
+                    (org_id, name, status, plan, org_type, created_by, created_at, updated_at,
+                     billing_status, plan_code, trial_ends_at)
+                VALUES (?, ?, 'active', NULL, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (org_id, clean_name, clean_type, firebase_uid, now, now),
+                (
+                    org_id, clean_name, clean_type, firebase_uid, now, now,
+                    billing_plans.DEFAULT_BILLING_STATUS,
+                    billing_plans.DEFAULT_PLAN_CODE,
+                    trial_ends,
+                ),
             )
             self._assign_user_to_org(conn, firebase_uid, org_id, ORG_ADMIN_ROLE, ADMIN_ROLE)
             conn.commit()
@@ -987,6 +1057,103 @@ class FirebaseAuthService:
             conn.commit()
         logger.info("SUPER-ADMIN: org %s status set to %s", org_id, new_status)
         return {"org_id": org_id, "status": new_status}
+
+    # ── Billing + plan limits (internal model; Stripe-disabled) ─────────────
+    #
+    # Reads are org-scoped by the caller (the router passes the token-derived
+    # org_id, never a client-supplied one). The manual setter is reachable only
+    # from the super-admin router. No method here makes a Stripe call or touches
+    # the stripe_* placeholder columns.
+
+    def count_active_staff(self, org_id: str) -> int:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM user_profiles WHERE org_id = ? AND is_active = 1",
+                (org_id,),
+            ).fetchone()
+        return int(row[0]) if row else 0
+
+    def get_org_billing(self, org_id: str) -> Dict[str, Any]:
+        """Raw billing fields for an org, with defaults applied for any unset
+        column. Never raises for a missing org — returns trial defaults so the
+        UI degrades gracefully rather than 500-ing."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT billing_status, plan_code, trial_ends_at, subscription_provider,
+                       stripe_customer_id, stripe_subscription_id
+                FROM organizations WHERE org_id = ?
+                """,
+                (org_id,),
+            ).fetchone()
+        if not row:
+            return {
+                "billing_status": billing_plans.DEFAULT_BILLING_STATUS,
+                "plan_code": billing_plans.DEFAULT_PLAN_CODE,
+                "trial_ends_at": None,
+                "subscription_provider": None,
+                "stripe_customer_id": None,
+                "stripe_subscription_id": None,
+            }
+        return {
+            "billing_status": (row["billing_status"] or billing_plans.DEFAULT_BILLING_STATUS),
+            "plan_code": (row["plan_code"] or billing_plans.DEFAULT_PLAN_CODE),
+            "trial_ends_at": row["trial_ends_at"],
+            "subscription_provider": row["subscription_provider"],
+            # stripe_* are inert placeholders — surfaced as booleans only so no
+            # opaque IDs leak, and never as live billing identifiers.
+            "stripe_customer_id": row["stripe_customer_id"],
+            "stripe_subscription_id": row["stripe_subscription_id"],
+        }
+
+    def set_org_billing(
+        self,
+        org_id: str,
+        *,
+        plan_code: Optional[str] = None,
+        billing_status: Optional[str] = None,
+        trial_ends_at: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Manually set an org's plan/status (super-admin only, no Stripe).
+
+        Used for comped/internal accounts and testing. Validates against the
+        internal catalog/status list. Raises HTTPException(400/404) on bad input.
+        """
+        updates = []
+        params: list = []
+        if plan_code is not None:
+            if not billing_plans.is_valid_plan_code(plan_code):
+                raise HTTPException(status_code=400, detail="Invalid plan_code")
+            updates.append("plan_code = ?")
+            params.append(plan_code.strip().lower())
+        if billing_status is not None:
+            if not billing_plans.is_valid_billing_status(billing_status):
+                raise HTTPException(status_code=400, detail="Invalid billing_status")
+            updates.append("billing_status = ?")
+            params.append(billing_status.strip().lower())
+        if trial_ends_at is not None:
+            # Accept empty string to clear the trial date; otherwise store as-is.
+            updates.append("trial_ends_at = ?")
+            params.append(trial_ends_at.strip() or None)
+        if not updates:
+            raise HTTPException(status_code=400, detail="No billing fields to update")
+
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM organizations WHERE org_id = ?", (org_id,)
+            ).fetchone()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Organization not found")
+            updates.append("updated_at = ?")
+            params.append(datetime.utcnow().isoformat())
+            params.append(org_id)
+            conn.execute(
+                f"UPDATE organizations SET {', '.join(updates)} WHERE org_id = ?",
+                tuple(params),
+            )
+            conn.commit()
+        logger.info("SUPER-ADMIN: org %s billing updated (%s)", org_id, ", ".join(updates[:-1]))
+        return self.get_org_billing(org_id)
 
     def resolve_request_user(self, request: Request) -> AuthenticatedUser:
         user = getattr(request.state, "auth_user", None)

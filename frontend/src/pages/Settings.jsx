@@ -62,7 +62,7 @@ function Settings() {
               </div>
             </div>
           )}
-          <PlaceholderSection icon={CreditCard} title="Billing" desc="Plans, payment, and invoices." />
+          <SectionLink to="/billing" icon={CreditCard} title="Billing" desc="Plan, usage, and limits. Billing foundation active — payments not connected yet." />
           <PlaceholderSection icon={Lock} title="Security" desc="Password, sessions, and account protection." />
         </div>
       </div>

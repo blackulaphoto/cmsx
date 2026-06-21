@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 import backend.shared.db_path as db_path_mod
 from backend.shared.tenancy import multi_tenant_enabled
+from backend.billing import plans as billing_plans
 from .service import auth_service, require_super_admin
 
 logger = logging.getLogger(__name__)
@@ -23,6 +24,15 @@ router = APIRouter(prefix="/api/super-admin", tags=["super-admin"])
 
 class SuspendRequest(BaseModel):
     confirm: bool = False
+
+
+class BillingUpdateRequest(BaseModel):
+    """Manual billing override (super-admin only, no Stripe). All fields optional;
+    at least one must be present. plan_code/billing_status are validated against
+    the internal catalog server-side."""
+    plan_code: Optional[str] = None
+    billing_status: Optional[str] = None
+    trial_ends_at: Optional[str] = None
 
 
 def _client_counts_by_org() -> dict:
@@ -72,7 +82,19 @@ async def list_organizations(request: Request):
     orgs = auth_service.list_organizations()
     client_counts = _client_counts_by_org()
     for o in orgs:
-        o["client_count"] = client_counts.get(o["org_id"], 0)
+        client_count = client_counts.get(o["org_id"], 0)
+        o["client_count"] = client_count
+        # Billing visibility: plan_code, billing_status, estimated price, and
+        # over-limit warning for each org. No Stripe IDs are surfaced.
+        billing = auth_service.get_org_billing(o["org_id"])
+        active_users = o.get("active_user_count", 0)
+        plan_code = billing["plan_code"]
+        o["billing_status"] = billing["billing_status"]
+        o["plan_code"] = plan_code
+        o["estimated_monthly_price"] = billing_plans.estimate_monthly_price(plan_code, active_users)
+        o["limit_status"] = billing_plans.compute_limit_status(
+            plan_code, active_users=active_users, active_clients=client_count
+        )
     return {"success": True, "organizations": orgs}
 
 
@@ -80,9 +102,34 @@ async def list_organizations(request: Request):
 async def organization_detail(org_id: str, request: Request):
     require_super_admin(request)
     detail = auth_service.get_organization_detail(org_id)
-    detail["client_count"] = _client_count(org_id)
+    client_count = _client_count(org_id)
+    detail["client_count"] = client_count
+    # Full billing view for the detail drawer (plan, status, usage, limits,
+    # estimated price). Built from the internal model only — Stripe stays inert.
+    billing = auth_service.get_org_billing(org_id)
+    active_users = auth_service.count_active_staff(org_id)
+    detail["billing"] = billing_plans.build_billing_summary(
+        billing, active_users=active_users, active_clients=client_count
+    )
     detail["success"] = True
     return detail
+
+
+@router.post("/organizations/{org_id}/billing")
+async def update_org_billing(org_id: str, payload: BillingUpdateRequest, request: Request):
+    """Manually set plan_code / billing_status / trial for an org.
+
+    Platform super-admin only — useful for comped/internal accounts and testing.
+    No Stripe call is made; only the internal billing columns are updated."""
+    admin = require_super_admin(request)
+    result = auth_service.set_org_billing(
+        org_id,
+        plan_code=payload.plan_code,
+        billing_status=payload.billing_status,
+        trial_ends_at=payload.trial_ends_at,
+    )
+    logger.info("SUPER-ADMIN %s set billing for org %s", admin.email, org_id)
+    return {"success": True, "billing": result}
 
 
 @router.get("/users")

@@ -41,6 +41,7 @@ import SupervisorDashboard from './pages/SupervisorDashboard'
 import TeamManagement from './pages/TeamManagement'
 import Profile from './pages/Profile'
 import Settings from './pages/Settings'
+import Billing from './pages/Billing'
 import Support from './pages/Support'
 import SuperAdmin from './pages/SuperAdmin'
 import AIAssistantPopup from './components/AIAssistant/AIAssistantPopup'
@@ -122,6 +123,7 @@ function App() {
         <Route path="/smart-dashboard" element={<SmartDaily />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/billing" element={<Billing />} />
         <Route path="/support" element={<Support />} />
               <Route path="/super-admin" element={
                 <ProtectedRoute requireSuperAdmin>
