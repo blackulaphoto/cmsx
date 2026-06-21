@@ -51,6 +51,10 @@ describe('Billing page', () => {
     expect(screen.getByText('Staff users')).toBeInTheDocument()
     expect(screen.getByText('Active clients')).toBeInTheDocument()
     expect(screen.getByText(/Trial ends 2026-07-04/)).toBeInTheDocument()
+    // AI section uses plan-inclusive copy, not a raw usage number.
+    expect(screen.getByText('AI Assistant')).toBeInTheDocument()
+    expect(screen.getByText('Included with your plan')).toBeInTheDocument()
+    expect(screen.getByText('Usage monitoring coming soon')).toBeInTheDocument()
   })
 
   it('disables Upgrade / Manage Billing and says Stripe is coming soon', async () => {
