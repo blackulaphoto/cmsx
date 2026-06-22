@@ -476,3 +476,138 @@ def test_owner_summary_has_no_stripe_secrets(env):
     body = c.get("/api/owner/support/summary").json()
     blob = json.dumps(body).lower()
     assert not any(k in blob for k in SECRET_KEYS)
+
+
+# ── Owner ticket detail endpoint ─────────────────────────────────────────────
+
+def test_owner_get_ticket_detail_returns_full_record(env):
+    c = env["client"]
+    env["as_user"]("admin_a")
+    tid = c.post("/api/support/tickets", json={
+        "category": "bug", "subject": "Visible subject", "description": "Full description body.",
+    }).json()["ticket_id"]
+    env["as_super"]()
+    # Add an owner-only internal note so the detail view has one to return.
+    c.patch(f"/api/owner/support/tickets/{tid}", json={"internal_notes": "Internal owner note."})
+
+    r = c.get(f"/api/owner/support/tickets/{tid}")
+    assert r.status_code == 200
+    t = r.json()["ticket"]
+    # The detail endpoint is the only place description + internal notes come back together.
+    assert t["description"] == "Full description body."
+    assert t["internal_notes"] == "Internal owner note."
+    assert t["subject"] == "Visible subject"
+    assert t["category"] == "bug"
+
+
+def test_owner_get_ticket_unauthenticated_401(env):
+    c = env["client"]
+    env["holder"]["user"] = None
+    assert c.get("/api/owner/support/tickets/1").status_code == 401
+
+
+def test_owner_get_ticket_requires_super_admin(env):
+    c = env["client"]
+    env["as_user"]("admin_a")  # org admin, not platform owner
+    tid = env["store"].create_ticket(
+        category="bug", priority="normal", subject="s", description="d"
+    )["ticket_id"]
+    assert c.get(f"/api/owner/support/tickets/{tid}").status_code == 403
+
+
+def test_owner_get_ticket_missing_404(env):
+    c = env["client"]
+    env["as_super"]()
+    assert c.get("/api/owner/support/tickets/99999").status_code == 404
+
+
+# ── Owner-action audit log ───────────────────────────────────────────────────
+
+def test_owner_patch_records_safe_audit_events(env):
+    c = env["client"]
+    env["as_user"]("admin_a")
+    tid = c.post("/api/support/tickets", json={
+        "category": "bug", "subject": "Secret subject text", "description": "Secret description text.",
+    }).json()["ticket_id"]
+
+    env["as_super"]()
+    # One patch that changes status, priority, and sets an internal note.
+    c.patch(f"/api/owner/support/tickets/{tid}", json={
+        "status": "in_progress", "priority": "urgent",
+        "internal_notes": "Reproduced on staging, escalating.",
+    })
+
+    events = env["store"].recent_owner_actions()
+    actions = {e["action"] for e in events}
+    assert "support_ticket_status_changed" in actions
+    assert "support_ticket_priority_changed" in actions
+    assert "support_ticket_internal_note_updated" in actions
+    # Actor email recorded; ticket id linked.
+    assert all(e["actor_email"] == SUPER_EMAIL for e in events)
+    assert all(e["ticket_id"] == tid for e in events)
+    # Detail only ever holds a safe enum value (or None for note updates).
+    details = {e["detail"] for e in events}
+    assert "in_progress" in details and "urgent" in details
+    note_event = next(e for e in events if e["action"] == "support_ticket_internal_note_updated")
+    assert note_event["detail"] is None
+
+
+def test_owner_audit_stores_no_ticket_text_or_phi(env):
+    c = env["client"]
+    env["as_user"]("admin_a")
+    tid = c.post("/api/support/tickets", json={
+        "category": "bug", "subject": "Unique subject phrase",
+        "description": "Unique description phrase body.",
+    }).json()["ticket_id"]
+
+    env["as_super"]()
+    c.patch(f"/api/owner/support/tickets/{tid}", json={
+        "status": "resolved",
+        "internal_notes": "Reproduced on staging, escalating to engineering.",
+    })
+
+    events = env["store"].recent_owner_actions()
+    blob = json.dumps(events).lower()
+    # No subject, description, or note content ever lands in the audit log.
+    assert "unique subject phrase" not in blob
+    assert "unique description phrase" not in blob
+    assert "reproduced on staging" not in blob
+    # Detail only ever holds safe enum values (the new status) — never free text.
+    # (The action name itself legitimately contains the word "note"; that is the
+    # event type, not protected content.)
+    assert {e["detail"] for e in events if e["detail"]} <= {"resolved"}
+
+
+def test_owner_patch_no_audit_event_when_unchanged(env):
+    c = env["client"]
+    env["as_user"]("admin_a")
+    tid = c.post("/api/support/tickets", json={
+        "category": "bug", "subject": "A", "description": "d",
+    }).json()["ticket_id"]
+    env["as_super"]()
+    # Patch status to its existing value ("open") — no real change, no audit event.
+    c.patch(f"/api/owner/support/tickets/{tid}", json={"status": "open"})
+    assert env["store"].recent_owner_actions() == []
+
+
+def test_owner_audit_endpoint_super_admin_only(env):
+    c = env["client"]
+    env["holder"]["user"] = None
+    assert c.get("/api/owner/support/audit").status_code == 401
+    env["as_user"]("admin_a")
+    assert c.get("/api/owner/support/audit").status_code == 403
+
+
+def test_owner_audit_endpoint_returns_events(env):
+    c = env["client"]
+    env["as_user"]("admin_a")
+    tid = c.post("/api/support/tickets", json={
+        "category": "bug", "subject": "A", "description": "d",
+    }).json()["ticket_id"]
+    env["as_super"]()
+    c.patch(f"/api/owner/support/tickets/{tid}", json={"priority": "high"})
+    body = c.get("/api/owner/support/audit").json()
+    assert body["success"] is True
+    assert body["count"] >= 1
+    assert body["events"][0]["action"] == "support_ticket_priority_changed"
+    assert body["events"][0]["detail"] == "high"

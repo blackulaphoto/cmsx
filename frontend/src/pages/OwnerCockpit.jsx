@@ -6,6 +6,9 @@ import {
   ArrowRight,
   BarChart3,
   Building2,
+  CheckCircle2,
+  ChevronRight,
+  ClipboardList,
   Clock,
   CreditCard,
   DollarSign,
@@ -14,6 +17,7 @@ import {
   Inbox,
   Layers,
   LifeBuoy,
+  Lock,
   Megaphone,
   MousePointerClick,
   Server,
@@ -22,6 +26,7 @@ import {
   TrendingDown,
   TrendingUp,
   Users,
+  X,
 } from 'lucide-react'
 import { apiCall, API_BASE_URL } from '../api/config'
 
@@ -220,7 +225,113 @@ const PRIORITY_BADGE = {
   low: 'bg-slate-500/10 text-slate-400',
 }
 
-function SupportTicketRow({ ticket, onPatch }) {
+const STATUS_BADGE = {
+  open: 'bg-amber-500/15 text-amber-200',
+  in_progress: 'bg-sky-500/15 text-sky-200',
+  waiting: 'bg-violet-500/15 text-violet-200',
+  resolved: 'bg-emerald-500/15 text-emerald-200',
+  closed: 'bg-slate-500/15 text-slate-400',
+}
+
+// Full timestamp for the detail drawer; falls back to the raw value, or an em-dash.
+const formatFullTime = (iso) => {
+  if (!iso) return '—'
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return String(iso)
+  return parsed.toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
+// ── Activation controls (read-only, env/deployment-gated) ────────────────────
+// These surface real posture but are NEVER toggles. Each carries an explicit lock
+// label and a read-only "View activation checklist" modal. Nothing here calls
+// Stripe / Railway / Vercel or changes any env var or flag.
+const LOCK_BADGE_STYLES = {
+  'Env-controlled': 'bg-sky-500/15 text-sky-200',
+  'Activation locked': 'bg-red-500/15 text-red-200',
+  'Requires deployment change': 'bg-amber-500/15 text-amber-200',
+  Dormant: 'bg-slate-500/15 text-slate-300',
+}
+
+const ACTIVATION_CONTROLS = [
+  { key: 'saas', name: 'SaaS mode', lock: 'Env-controlled', state: (o) => (o?.multi_tenant_enabled ? 'Enabled' : 'Disabled') },
+  { key: 'stripe', name: 'Stripe mode', lock: 'Dormant', state: (o, s) => s?.mode || 'Unknown' },
+  { key: 'billing', name: 'Billing', lock: 'Activation locked', state: (o, s) => (s?.billing_enabled ? 'On' : 'Off') },
+  { key: 'checkout', name: 'Checkout', lock: 'Requires deployment change', state: (o, s) => (s?.checkout_enabled ? 'On' : 'Off') },
+  { key: 'portal', name: 'Customer Portal', lock: 'Requires deployment change', state: (o, s) => (s?.portal_enabled ? 'On' : 'Off') },
+  { key: 'webhooks', name: 'Webhooks', lock: 'Requires deployment change', state: (o, s) => (s?.webhooks_enabled ? 'On' : 'Off') },
+]
+
+const ACTIVATION_CHECKLISTS = {
+  saas: {
+    title: 'SaaS / multi-tenant mode',
+    lock: 'Env-controlled',
+    summary: 'Multi-tenant mode is controlled entirely by a deployment environment flag.',
+    steps: [
+      'Confirm tenant isolation has been validated in staging (org wall tests green).',
+      'Set MULTI_TENANT_ENABLED=true in the backend deployment environment.',
+      'Redeploy the backend so the flag is read at startup.',
+      'Verify org scoping end-to-end before inviting external organizations.',
+    ],
+  },
+  stripe: {
+    title: 'Stripe mode',
+    lock: 'Dormant',
+    summary: 'Stripe is connected but intentionally dormant. No SDK calls are made from this shell.',
+    steps: [
+      'Confirm the plan catalog and price IDs are finalized.',
+      'Provision live Stripe keys in the deployment environment (never in the app).',
+      'Move billing out of dormant mode only after Checkout, Portal, and webhooks are ready.',
+    ],
+  },
+  billing: {
+    title: 'Billing',
+    lock: 'Activation locked',
+    summary: 'Billing stays off until activation flags are explicitly enabled outside this shell.',
+    steps: [
+      'Finalize the plan limits and pricing helper values.',
+      'Enable the billing activation flag in the deployment environment.',
+      'Redeploy and verify plan enforcement runs in warning mode first.',
+    ],
+  },
+  checkout: {
+    title: 'Checkout',
+    lock: 'Requires deployment change',
+    summary: 'Checkout session creation requires live Stripe keys and a deployment change.',
+    steps: [
+      'Confirm live Stripe keys and price IDs are configured in the environment.',
+      'Enable the Checkout activation flag in the deployment environment.',
+      'Redeploy the backend and smoke-test a Checkout session in test mode first.',
+    ],
+  },
+  portal: {
+    title: 'Customer Portal',
+    lock: 'Requires deployment change',
+    summary: 'The Stripe customer portal requires configured billing and a deployment change.',
+    steps: [
+      'Configure the Stripe Billing customer portal settings in the Stripe dashboard.',
+      'Enable the Portal activation flag in the deployment environment.',
+      'Redeploy and verify the portal link resolves for a test customer.',
+    ],
+  },
+  webhooks: {
+    title: 'Webhooks',
+    lock: 'Requires deployment change',
+    summary: 'Webhook handling requires a signing secret and a deployment change.',
+    steps: [
+      'Create the webhook endpoint in the Stripe dashboard and copy its signing secret.',
+      'Set the webhook signing secret in the deployment environment.',
+      'Enable the webhooks activation flag and redeploy, then send a test event.',
+    ],
+  },
+}
+
+function SupportTicketRow({ ticket, onPatch, onOpen }) {
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -248,7 +359,15 @@ function SupportTicketRow({ ticket, onPatch }) {
     <li className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate font-medium text-white">{ticket.subject}</p>
+          <button
+            type="button"
+            onClick={() => onOpen?.(ticket.id)}
+            aria-label={`Open ticket ${ticket.id}: ${ticket.subject}`}
+            className="group flex w-full items-center gap-1.5 text-left font-medium text-white transition hover:text-amber-200"
+          >
+            <span className="truncate">{ticket.subject}</span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-slate-500 transition group-hover:text-amber-200" />
+          </button>
           <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
             <span className="rounded-full bg-white/[0.06] px-2 py-0.5">{supportLabel(ticket.category)}</span>
             <span className={`rounded-full px-2 py-0.5 ${PRIORITY_BADGE[ticket.priority] || PRIORITY_BADGE.normal}`}>
@@ -310,7 +429,7 @@ function SupportTicketRow({ ticket, onPatch }) {
   )
 }
 
-function SupportQueue({ summary, onPatch }) {
+function SupportQueue({ summary, onPatch, onOpen }) {
   const tickets = summary?.recent_tickets || []
   const total = summary?.total_tickets ?? 0
   const open = summary?.open_tickets ?? 0
@@ -368,7 +487,7 @@ function SupportQueue({ summary, onPatch }) {
             <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Recent tickets</p>
             <ul className="space-y-2">
               {tickets.map((ticket) => (
-                <SupportTicketRow key={ticket.id} ticket={ticket} onPatch={onPatch} />
+                <SupportTicketRow key={ticket.id} ticket={ticket} onPatch={onPatch} onOpen={onOpen} />
               ))}
             </ul>
           </div>
@@ -387,15 +506,427 @@ function SupportQueue({ summary, onPatch }) {
   )
 }
 
+// ── Inline toast (owner action feedback) ─────────────────────────────────────
+function Toast({ toast }) {
+  if (!toast) return null
+  const success = toast.type === 'success'
+  const Icon = success ? CheckCircle2 : AlertTriangle
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className={`fixed bottom-6 right-6 z-[70] flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm shadow-xl shadow-black/30 ${
+        success
+          ? 'border-emerald-400/30 bg-emerald-500/15 text-emerald-100'
+          : 'border-red-400/30 bg-red-500/15 text-red-100'
+      }`}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      <span>{toast.message}</span>
+    </div>
+  )
+}
+
+// ── Ticket detail drawer (owner-only) ────────────────────────────────────────
+// The ONLY place full description + internal notes are shown. Fetches the single
+// ticket on open, exposes status / priority / internal-note controls, and reports
+// loading / success / error explicitly. PHI warning stays visible throughout.
+function DetailField({ label, children }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</p>
+      <div className="mt-1 text-sm text-white">{children}</div>
+    </div>
+  )
+}
+
+function TicketDetailDrawer({ ticketId, onClose, onPatch }) {
+  const [ticket, setTicket] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [status, setStatus] = useState('')
+  const [priority, setPriority] = useState('')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [feedback, setFeedback] = useState(null) // { type, message }
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    setFeedback(null)
+    apiCall(`/api/owner/support/tickets/${ticketId}`)
+      .then((data) => {
+        if (cancelled) return
+        const t = data?.ticket || data
+        setTicket(t)
+        setStatus(t?.status || '')
+        setPriority(t?.priority || '')
+        setNote('')
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err?.message || 'Failed to load ticket detail.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ticketId])
+
+  // Close on Escape for keyboard users.
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const save = async () => {
+    if (!ticket) return
+    const body = {}
+    if (status && status !== ticket.status) body.status = status
+    if (priority && priority !== ticket.priority) body.priority = priority
+    const trimmedNote = note.trim()
+    if (trimmedNote) body.internal_notes = trimmedNote
+    if (Object.keys(body).length === 0) {
+      setFeedback({ type: 'error', message: 'No changes to save.' })
+      return
+    }
+    setSaving(true)
+    setFeedback(null)
+    try {
+      const res = await onPatch(ticket.id, body)
+      const updated = res?.ticket
+      if (updated) {
+        setTicket(updated)
+        setStatus(updated.status)
+        setPriority(updated.priority)
+      }
+      setNote('')
+      setFeedback({ type: 'success', message: 'Changes saved.' })
+    } catch (err) {
+      setFeedback({ type: 'error', message: err?.message || 'Save failed. Please try again.' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex justify-end">
+      <button
+        type="button"
+        aria-label="Close ticket detail"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="ticket-detail-title"
+        className="relative flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-white/10 bg-slate-950 shadow-2xl shadow-black/50"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Support ticket</p>
+            <h2 id="ticket-detail-title" className="mt-1 text-lg font-semibold text-white">
+              {ticket ? `#${ticket.id}` : `#${ticketId}`} detail
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-xl border border-white/10 bg-white/[0.04] p-1.5 text-slate-300 transition hover:bg-white/[0.1]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-5 px-5 py-5">
+          {loading ? (
+            <p className="text-sm text-slate-400">Loading ticket…</p>
+          ) : error ? (
+            <p role="status" className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+              {error}
+            </p>
+          ) : ticket ? (
+            <>
+              <DetailField label="Subject">
+                <span className="font-medium">{ticket.subject}</span>
+              </DetailField>
+
+              <div className="grid grid-cols-2 gap-4">
+                <DetailField label="Category">{supportLabel(ticket.category)}</DetailField>
+                <DetailField label="Priority">
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${PRIORITY_BADGE[ticket.priority] || PRIORITY_BADGE.normal}`}>
+                    {supportLabel(ticket.priority)}
+                  </span>
+                </DetailField>
+                <DetailField label="Status">
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${STATUS_BADGE[ticket.status] || STATUS_BADGE.open}`}>
+                    {supportLabel(ticket.status)}
+                  </span>
+                </DetailField>
+                <DetailField label="Assigned to">{ticket.assigned_to || '—'}</DetailField>
+                <DetailField label="Submitted by">{ticket.submitted_by_email || '—'}</DetailField>
+                <DetailField label="Org">{ticket.org_id || '—'}</DetailField>
+                <DetailField label="Created">{formatFullTime(ticket.created_at)}</DetailField>
+                <DetailField label="Updated">{formatFullTime(ticket.updated_at)}</DetailField>
+                <DetailField label="Resolved">{formatFullTime(ticket.resolved_at)}</DetailField>
+              </div>
+
+              <DetailField label="Description">
+                <p className="whitespace-pre-wrap rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200">
+                  {ticket.description || '—'}
+                </p>
+              </DetailField>
+
+              <DetailField label="Internal notes (owner-only)">
+                <p className="whitespace-pre-wrap rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200">
+                  {ticket.internal_notes || 'No internal notes yet.'}
+                </p>
+              </DetailField>
+
+              <div className="flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-100">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <p>Do not store client names, PHI, notes, documents, or protected content here.</p>
+              </div>
+
+              {/* Owner controls */}
+              <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Owner controls</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-slate-300">Status</span>
+                    <select
+                      aria-label="Detail status"
+                      value={status}
+                      disabled={saving}
+                      onChange={(event) => setStatus(event.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                    >
+                      {SUPPORT_STATUSES.map((value) => (
+                        <option key={value} value={value}>{supportLabel(value)}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-sm">
+                    <span className="mb-1 block text-slate-300">Priority</span>
+                    <select
+                      aria-label="Detail priority"
+                      value={priority}
+                      disabled={saving}
+                      onChange={(event) => setPriority(event.target.value)}
+                      className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                    >
+                      {SUPPORT_PRIORITIES.map((value) => (
+                        <option key={value} value={value}>{supportLabel(value)}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-slate-300">Add / update internal note</span>
+                  <textarea
+                    aria-label="Detail internal note"
+                    value={note}
+                    disabled={saving}
+                    rows={3}
+                    onChange={(event) => setNote(event.target.value)}
+                    placeholder="Owner-only triage note (no client names or PHI)"
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+                  />
+                </label>
+
+                {feedback ? (
+                  <p
+                    role="status"
+                    className={`rounded-xl border px-3 py-2 text-sm ${
+                      feedback.type === 'success'
+                        ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+                        : 'border-red-400/30 bg-red-500/10 text-red-100'
+                    }`}
+                  >
+                    {feedback.message}
+                  </p>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={save}
+                  disabled={saving}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {saving ? 'Saving…' : 'Save changes'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-slate-400">Ticket not found.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Activation checklist modal (read-only) ───────────────────────────────────
+function ActivationChecklistModal({ controlKey, onClose }) {
+  const checklist = ACTIVATION_CHECKLISTS[controlKey]
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  if (!checklist) return null
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center px-4">
+      <button
+        type="button"
+        aria-label="Close activation checklist"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="activation-checklist-title"
+        className="relative w-full max-w-lg overflow-hidden rounded-[28px] border border-white/10 bg-slate-950 shadow-2xl shadow-black/50"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-6 py-4">
+          <div>
+            <p className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-slate-500">
+              <ClipboardList className="h-4 w-4" /> Activation checklist
+            </p>
+            <h2 id="activation-checklist-title" className="mt-1 text-lg font-semibold text-white">
+              {checklist.title}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-xl border border-white/10 bg-white/[0.04] p-1.5 text-slate-300 transition hover:bg-white/[0.1]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-6 py-5">
+          <div className="flex items-center gap-2">
+            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs ${LOCK_BADGE_STYLES[checklist.lock] || 'bg-slate-500/15 text-slate-300'}`}>
+              <Lock className="h-3 w-3" /> {checklist.lock}
+            </span>
+          </div>
+          <p className="text-sm text-slate-300">{checklist.summary}</p>
+          <ol className="space-y-2">
+            {checklist.steps.map((step, idx) => (
+              <li key={idx} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm text-slate-200">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-xs font-semibold text-white">{idx + 1}</span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+          <div className="flex items-start gap-2 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-xs text-sky-100">
+            <ShieldCheck className="mt-0.5 h-4 w-4 flex-shrink-0" />
+            <p>This is a read-only checklist. Nothing is activated, toggled, or changed here — activation happens through deployment environment changes outside this shell.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Activation controls section ──────────────────────────────────────────────
+function ActivationControls({ overview, stripe, onViewChecklist }) {
+  return (
+    <section className="rounded-[28px] border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-black/20 backdrop-blur">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Posture</p>
+          <h2 className="mt-2 text-xl font-semibold text-white">Activation Controls</h2>
+        </div>
+        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-slate-400/30 to-slate-200/10 text-white">
+          <Lock className="h-5 w-5" />
+        </span>
+      </div>
+
+      <p className="mb-4 text-sm text-slate-400">
+        These are status views, not toggles. SaaS mode is env-controlled; Stripe stays dormant; billing,
+        Checkout, Portal, and webhooks each require an explicit deployment change. Nothing here is activated from this shell.
+      </p>
+
+      <ul className="space-y-2">
+        {ACTIVATION_CONTROLS.map((control) => (
+          <li
+            key={control.key}
+            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3"
+          >
+            <div className="min-w-0">
+              <p className="font-medium text-white">{control.name}</p>
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-slate-400">State: <span className="text-slate-200">{control.state(overview, stripe)}</span></span>
+                <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${LOCK_BADGE_STYLES[control.lock] || 'bg-slate-500/15 text-slate-300'}`}>
+                  <Lock className="h-3 w-3" /> {control.lock}
+                </span>
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled
+                title="Activation locked — change the deployment environment to enable"
+                aria-label={`Request activation for ${control.name} (locked)`}
+                className="cursor-not-allowed rounded-xl border border-white/10 bg-white/[0.02] px-3 py-1.5 text-xs text-slate-500"
+              >
+                Request activation
+              </button>
+              <button
+                type="button"
+                onClick={() => onViewChecklist(control.key)}
+                aria-label={`View activation checklist for ${control.name}`}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white transition hover:bg-white/[0.1]"
+              >
+                <ClipboardList className="h-3.5 w-3.5" /> View activation checklist
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
+
 function OwnerCockpit() {
   const [overview, setOverview] = useState(null)
   const [orgs, setOrgs] = useState([])
   const [analytics, setAnalytics] = useState(null)
   const [support, setSupport] = useState(null)
   const [supportRefresh, setSupportRefresh] = useState(0)
+  const [openTicketId, setOpenTicketId] = useState(null)
+  const [checklistKey, setChecklistKey] = useState(null)
+  const [toast, setToast] = useState(null)
   const [windowSel, setWindowSel] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  // Transient owner-action toast; auto-dismisses. Identity changes on each push
+  // so the timer resets for back-to-back actions.
+  useEffect(() => {
+    if (!toast) return undefined
+    const timer = setTimeout(() => setToast(null), 3500)
+    return () => clearTimeout(timer)
+  }, [toast])
+
+  const pushToast = (message, type = 'success') => setToast({ id: Date.now(), message, type })
 
   // Platform overview + org roster: point-in-time, loaded once on mount.
   useEffect(() => {
@@ -463,11 +994,18 @@ function OwnerCockpit() {
   }, [supportRefresh])
 
   const patchSupportTicket = async (ticketId, patch) => {
-    await apiCall(`/api/owner/support/tickets/${ticketId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(patch),
-    })
-    setSupportRefresh((n) => n + 1)
+    try {
+      const res = await apiCall(`/api/owner/support/tickets/${ticketId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      })
+      setSupportRefresh((n) => n + 1)
+      pushToast('Ticket updated', 'success')
+      return res
+    } catch (err) {
+      pushToast(err?.message || 'Update failed', 'error')
+      throw err
+    }
   }
 
   const orgSummary = useMemo(() => {
@@ -802,7 +1340,9 @@ function OwnerCockpit() {
           </SectionCard>
         </section>
 
-        <SupportQueue summary={support} onPatch={patchSupportTicket} />
+        <ActivationControls overview={overview} stripe={stripe} onViewChecklist={setChecklistKey} />
+
+        <SupportQueue summary={support} onPatch={patchSupportTicket} onOpen={setOpenTicketId} />
 
         <div className={panel}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -822,6 +1362,20 @@ function OwnerCockpit() {
 
         {loading ? <p className="text-sm text-slate-500">Loading owner cockpit data...</p> : null}
       </div>
+
+      {openTicketId != null ? (
+        <TicketDetailDrawer
+          ticketId={openTicketId}
+          onClose={() => setOpenTicketId(null)}
+          onPatch={patchSupportTicket}
+        />
+      ) : null}
+
+      {checklistKey ? (
+        <ActivationChecklistModal controlKey={checklistKey} onClose={() => setChecklistKey(null)} />
+      ) : null}
+
+      <Toast toast={toast} />
     </div>
   )
 }

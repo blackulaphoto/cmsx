@@ -73,13 +73,38 @@ const EMPTY_SUPPORT = {
   stripe_activated: false,
 }
 
-function mockOwnerApi(analytics = EMPTY_ANALYTICS, support = EMPTY_SUPPORT) {
-  apiCall.mockImplementation((url) => {
+const DETAIL_TICKET = {
+  id: 7,
+  org_id: 'org_a',
+  submitted_by_user_id: 'cm_1',
+  submitted_by_email: 'reporter@a.test',
+  category: 'bug',
+  priority: 'normal',
+  status: 'open',
+  subject: 'Typo on page',
+  description: 'Full description body for the drawer.',
+  assigned_to: null,
+  internal_notes: 'Existing internal note.',
+  extra: null,
+  created_at: '2026-06-21T10:00:00',
+  updated_at: '2026-06-21T10:00:00',
+  resolved_at: null,
+}
+
+function mockOwnerApi(analytics = EMPTY_ANALYTICS, support = EMPTY_SUPPORT, detail = DETAIL_TICKET) {
+  apiCall.mockImplementation((url, opts) => {
     if (url.startsWith('/api/owner/analytics/summary')) {
       return Promise.resolve(analytics)
     }
     if (url.startsWith('/api/owner/support/summary')) {
       return Promise.resolve(support)
+    }
+    if (url.startsWith('/api/owner/support/tickets/')) {
+      if (opts?.method === 'PATCH') {
+        const patch = JSON.parse(opts.body || '{}')
+        return Promise.resolve({ success: true, ticket: { ...detail, ...patch } })
+      }
+      return Promise.resolve({ success: true, ticket: detail })
     }
     if (url === '/api/super-admin/overview') {
       return Promise.resolve({
@@ -398,5 +423,101 @@ describe('Owner Cockpit support queue', () => {
         String(opts?.body || '').includes('resolved')
     )
     expect(patched).toBe(true)
+  })
+})
+
+const ONE_TICKET_SUPPORT = {
+  ...EMPTY_SUPPORT,
+  total_tickets: 1,
+  open_tickets: 1,
+  recent_tickets: [
+    { id: 7, category: 'bug', priority: 'normal', status: 'open', subject: 'Typo on page', assigned_to: null, created_at: '2026-06-21T10:00:00', updated_at: '2026-06-21T10:00:00' },
+  ],
+}
+
+describe('Owner Cockpit support ticket detail drawer', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+  })
+
+  it('does not show the full description in the recent list before opening', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, ONE_TICKET_SUPPORT)
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Typo on page')
+    expect(screen.queryByText('Full description body for the drawer.')).not.toBeInTheDocument()
+  })
+
+  it('opens the detail drawer with safe ticket fields when a ticket is clicked', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, ONE_TICKET_SUPPORT)
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    const opener = await screen.findByLabelText('Open ticket 7: Typo on page')
+    fireEvent.click(opener)
+    // Drawer renders full detail only after opening.
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('Full description body for the drawer.')).toBeInTheDocument()
+    expect(screen.getByText('Existing internal note.')).toBeInTheDocument()
+    expect(screen.getByText('reporter@a.test')).toBeInTheDocument()
+    // PHI warning stays visible inside the detail view.
+    expect(
+      screen.getByText('Do not store client names, PHI, notes, documents, or protected content here.')
+    ).toBeInTheDocument()
+  })
+
+  it('patches status, priority, and a note via the drawer Save changes control', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, ONE_TICKET_SUPPORT)
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    fireEvent.click(await screen.findByLabelText('Open ticket 7: Typo on page'))
+    await screen.findByRole('dialog')
+    fireEvent.change(screen.getByLabelText('Detail status'), { target: { value: 'in_progress' } })
+    fireEvent.change(screen.getByLabelText('Detail priority'), { target: { value: 'high' } })
+    fireEvent.change(screen.getByLabelText('Detail internal note'), { target: { value: 'Escalating to engineering.' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    const patched = apiCall.mock.calls.find(
+      ([url, opts]) =>
+        typeof url === 'string' && url === '/api/owner/support/tickets/7' && opts?.method === 'PATCH'
+    )
+    expect(patched).toBeTruthy()
+    const body = JSON.parse(patched[1].body)
+    expect(body.status).toBe('in_progress')
+    expect(body.priority).toBe('high')
+    expect(body.internal_notes).toBe('Escalating to engineering.')
+    // Success feedback renders (not a silent button).
+    expect(await screen.findByText('Changes saved.')).toBeInTheDocument()
+  })
+})
+
+describe('Owner Cockpit activation controls', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+  })
+
+  it('renders activation controls with explicit locked / env-controlled labels', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Activation Controls')).toBeInTheDocument()
+    expect(screen.getByText('Env-controlled')).toBeInTheDocument()
+    expect(screen.getByText('Activation locked')).toBeInTheDocument()
+    expect(screen.getAllByText('Requires deployment change').length).toBeGreaterThan(0)
+    expect(screen.getByText('Dormant')).toBeInTheDocument()
+    // The "Request activation" affordance is present but disabled (locked).
+    const requestButtons = screen.getAllByRole('button', { name: /Request activation/i })
+    expect(requestButtons.length).toBeGreaterThan(0)
+    requestButtons.forEach((button) => expect(button).toBeDisabled())
+  })
+
+  it('opens a read-only activation checklist without mutating any state', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Activation Controls')
+    fireEvent.click(screen.getByRole('button', { name: 'View activation checklist for Billing' }))
+    expect(await screen.findByText('Activation checklist')).toBeInTheDocument()
+    expect(
+      screen.getByText(/This is a read-only checklist\. Nothing is activated, toggled, or changed here/i)
+    ).toBeInTheDocument()
+    // Opening the checklist issues no write requests.
+    const mutated = apiCall.mock.calls.some(
+      ([, opts]) => opts?.method === 'PATCH' || opts?.method === 'POST'
+    )
+    expect(mutated).toBe(false)
   })
 })

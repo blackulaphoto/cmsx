@@ -169,6 +169,32 @@ async def owner_list_tickets(
     }
 
 
+@owner_router.get("/tickets/{ticket_id}")
+async def owner_get_ticket(ticket_id: int, request: Request):
+    """Full single-ticket detail for the owner detail drawer. Platform super-admin
+    only. This is the ONLY place description + internal notes are returned together —
+    the summary's recent feed deliberately omits them."""
+    require_super_admin(request)
+    ticket = support_store.get_ticket(ticket_id)
+    if ticket is None:
+        return JSONResponse(
+            status_code=404,
+            content={"success": False, "detail": f"Ticket {ticket_id} not found."},
+        )
+    return {"success": True, "ticket": ticket}
+
+
+@owner_router.get("/audit")
+async def owner_support_audit(request: Request, limit: int = 50):
+    """Recent owner-action audit events (status/priority/internal-note changes).
+    Platform super-admin only. Safe by construction — carries no ticket text, note
+    content, client names, or other free text; only action type, ticket id, acting
+    owner email, and a safe enum detail."""
+    require_super_admin(request)
+    events = support_store.recent_owner_actions(limit=limit)
+    return {"success": True, "events": events, "count": len(events)}
+
+
 @owner_router.get("/summary")
 async def owner_support_summary(request: Request):
     """Support queue summary. Platform super-admin only.
@@ -190,7 +216,7 @@ async def owner_update_ticket(ticket_id: int, payload: SupportTicketPatch, reque
     """Triage a ticket. Platform super-admin only. Validates status/priority against
     the allowlists; assignment / internal notes are length-capped in the store;
     resolved_at is managed automatically from the resulting status."""
-    require_super_admin(request)
+    actor = require_super_admin(request)
 
     if payload.status is not None and normalize_status(payload.status) is None:
         return JSONResponse(
@@ -237,6 +263,7 @@ async def owner_update_ticket(ticket_id: int, payload: SupportTicketPatch, reque
         internal_notes=payload.internal_notes,
         assigned_to_set="assigned_to" in fields_set,
         internal_notes_set="internal_notes" in fields_set,
+        actor_email=getattr(actor, "email", None),
     )
     if updated is None:
         return JSONResponse(

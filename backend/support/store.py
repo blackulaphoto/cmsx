@@ -49,6 +49,23 @@ STATUSES = ("open", "in_progress", "waiting", "resolved", "closed")
 # ``resolved_at``; moving away from them clears it.
 TERMINAL_STATUSES = ("resolved", "closed")
 
+# ── Owner-action audit log ───────────────────────────────────────────────────
+# A tiny, safe audit trail for owner triage actions. Only the action type, the
+# ticket id, the acting owner's email, and a SAFE detail (the new status/priority
+# enum value — never free text) are recorded. Internal-note updates log only that
+# a note changed, never the note's content. No client names, PHI, notes,
+# documents, or message content ever land here.
+ACTION_STATUS_CHANGED = "support_ticket_status_changed"
+ACTION_PRIORITY_CHANGED = "support_ticket_priority_changed"
+ACTION_INTERNAL_NOTE_UPDATED = "support_ticket_internal_note_updated"
+OWNER_ACTIONS = (
+    ACTION_STATUS_CHANGED,
+    ACTION_PRIORITY_CHANGED,
+    ACTION_INTERNAL_NOTE_UPDATED,
+)
+MAX_OWNER_ACTIONS = 200
+MAX_ACTION_DETAIL_LEN = 64
+
 DEFAULT_CATEGORY = "other"
 DEFAULT_PRIORITY = "normal"
 DEFAULT_STATUS = "open"
@@ -239,6 +256,21 @@ class SupportStore:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_support_category ON support_tickets(category)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_support_priority ON support_tickets(priority)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_support_created_at ON support_tickets(created_at)")
+        # Owner-action audit log. Intentionally carries no free text — only the
+        # action type, ticket id, acting owner email, and a safe enum detail.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS owner_action_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,
+                ticket_id INTEGER,
+                actor_email TEXT,
+                detail TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_owner_action_created_at ON owner_action_events(created_at)")
 
     # ── Writes ───────────────────────────────────────────────────────────────
 
@@ -302,6 +334,7 @@ class SupportStore:
         internal_notes: Optional[str] = None,
         assigned_to_set: bool = False,
         internal_notes_set: bool = False,
+        actor_email: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Owner-only update. Only status/priority/assigned_to/internal_notes can
         change. ``resolved_at`` is managed automatically: stamped when status enters
@@ -309,7 +342,11 @@ class SupportStore:
         updated row dict, or None if the ticket does not exist.
 
         ``assigned_to_set`` / ``internal_notes_set`` let the caller distinguish
-        "field omitted" from "field explicitly cleared to null"."""
+        "field omitted" from "field explicitly cleared to null".
+
+        ``actor_email`` (the acting owner) is recorded in the safe owner-action
+        audit log for status / priority / internal-note changes. Only the new
+        status/priority enum value is logged — never note content or any free text."""
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM support_tickets WHERE id = ?", (int(ticket_id),)
@@ -319,11 +356,14 @@ class SupportStore:
 
             sets: List[str] = []
             params: List[Any] = []
+            audit: List[Tuple[str, Optional[str]]] = []  # (action, safe detail)
 
             new_status = normalize_status(status) if status is not None else None
             if new_status:
                 sets.append("status = ?")
                 params.append(new_status)
+                if new_status != row["status"]:
+                    audit.append((ACTION_STATUS_CHANGED, new_status))
                 # Manage resolved_at based on the resulting status.
                 if new_status in TERMINAL_STATUSES:
                     existing_resolved = row["resolved_at"]
@@ -337,6 +377,8 @@ class SupportStore:
             if new_priority:
                 sets.append("priority = ?")
                 params.append(new_priority)
+                if new_priority != row["priority"]:
+                    audit.append((ACTION_PRIORITY_CHANGED, new_priority))
 
             if assigned_to_set:
                 sets.append("assigned_to = ?")
@@ -345,6 +387,8 @@ class SupportStore:
             if internal_notes_set:
                 sets.append("internal_notes = ?")
                 params.append(_trim(internal_notes, MAX_INTERNAL_NOTES_LEN))
+                # Log only that a note changed — never its content.
+                audit.append((ACTION_INTERNAL_NOTE_UPDATED, None))
 
             if not sets:
                 # Nothing valid to change — return the current row unchanged.
@@ -356,11 +400,76 @@ class SupportStore:
             conn.execute(
                 f"UPDATE support_tickets SET {', '.join(sets)} WHERE id = ?", params
             )
+            now = datetime.utcnow().isoformat()
+            for action, detail in audit:
+                conn.execute(
+                    "INSERT INTO owner_action_events (action, ticket_id, actor_email,"
+                    " detail, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        action,
+                        int(ticket_id),
+                        _trim(actor_email, MAX_EMAIL_LEN),
+                        _trim(detail, MAX_ACTION_DETAIL_LEN),
+                        now,
+                    ),
+                )
             conn.commit()
             updated = conn.execute(
                 "SELECT * FROM support_tickets WHERE id = ?", (int(ticket_id),)
             ).fetchone()
         return self._row_to_dict(updated) if updated else None
+
+    # ── Owner-action audit log ────────────────────────────────────────────────
+
+    def record_owner_action(
+        self,
+        action: str,
+        *,
+        ticket_id: Optional[int] = None,
+        actor_email: Optional[str] = None,
+        detail: Optional[str] = None,
+    ) -> None:
+        """Append one safe owner-action audit event. ``detail`` is expected to be a
+        safe enum value (status/priority) or None — never free text / note content."""
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO owner_action_events (action, ticket_id, actor_email,"
+                " detail, created_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    str(action)[:64],
+                    int(ticket_id) if ticket_id is not None else None,
+                    _trim(actor_email, MAX_EMAIL_LEN),
+                    _trim(detail, MAX_ACTION_DETAIL_LEN),
+                    datetime.utcnow().isoformat(),
+                ),
+            )
+            conn.commit()
+
+    def recent_owner_actions(self, *, limit: int = 50) -> List[Dict[str, Any]]:
+        """Newest-first owner-action audit events. Safe by construction — carries no
+        ticket subject/description, note content, client names, or other free text."""
+        out: List[Dict[str, Any]] = []
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT id, action, ticket_id, actor_email, detail, created_at"
+                    " FROM owner_action_events ORDER BY id DESC LIMIT ?",
+                    (max(1, min(int(limit), MAX_OWNER_ACTIONS)),),
+                ).fetchall()
+            out = [
+                {
+                    "id": r["id"],
+                    "action": r["action"],
+                    "ticket_id": r["ticket_id"],
+                    "actor_email": r["actor_email"],
+                    "detail": r["detail"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+        except Exception:  # noqa: BLE001 — audit read is best-effort
+            pass
+        return out
 
     # ── Reads ────────────────────────────────────────────────────────────────
 
