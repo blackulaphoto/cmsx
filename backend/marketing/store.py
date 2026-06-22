@@ -57,6 +57,15 @@ ACTIVE_STATUSES = ("active",)
 DEFAULT_STATUS = "draft"
 DEFAULT_CHANNEL = "manual"
 
+# ── Owner-action audit enums (safe by construction) ──────────────────────────
+# The only marketing actions ever written to the audit log. No free text is
+# associated with any of them — see ``record_owner_action``.
+OWNER_ACTION_CAMPAIGN_CREATED = "marketing_campaign_created"
+OWNER_ACTION_CAMPAIGN_STATUS_CHANGED = "marketing_campaign_status_changed"
+OWNER_ACTION_CAMPAIGN_SPEND_UPDATED = "marketing_campaign_spend_updated"
+MAX_EMAIL_LEN = 200
+MAX_ACTION_DETAIL_LEN = 64
+
 # ── Field caps ───────────────────────────────────────────────────────────────
 MAX_NAME_LEN = 120
 MAX_URL_LEN = 500
@@ -159,6 +168,27 @@ class MarketingStore:
         )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_marketing_spend_campaign ON marketing_spend_entries(campaign_id)"
+        )
+        # Owner-action audit log. Intentionally carries NO free text — only the
+        # action enum, the campaign id, the acting owner's email, and a safe enum
+        # detail (e.g. the new status value). Campaign names, notes, and URLs are
+        # NEVER written here. Mirrors the support/super-admin owner-action pattern
+        # so the unified Activity Center can aggregate all owner/admin actions.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS marketing_owner_action_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action TEXT NOT NULL,
+                campaign_id INTEGER,
+                actor_email TEXT,
+                detail TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_marketing_owner_action_created_at"
+            " ON marketing_owner_action_events(created_at)"
         )
 
     # ── Row mapping ───────────────────────────────────────────────────────────
@@ -478,6 +508,67 @@ class MarketingStore:
                 ).fetchall()
             out = [r["utm_campaign"] for r in rows if r["utm_campaign"]]
         except Exception:  # noqa: BLE001
+            pass
+        return out
+
+    # ── Owner-action audit log ────────────────────────────────────────────────
+
+    def record_owner_action(
+        self,
+        action: str,
+        *,
+        campaign_id: Optional[int] = None,
+        actor_email: Optional[str] = None,
+        detail: Optional[str] = None,
+    ) -> None:
+        """Append one safe owner-action audit event.
+
+        ``detail`` is expected to be a safe enum value (e.g. the new status) or
+        None — NEVER a campaign name, notes, URL, or other free text. The caller
+        is responsible for passing only safe enum/id values; this method also
+        hard-caps the detail length defensively. Best-effort: an audit failure
+        must never break the underlying campaign write."""
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO marketing_owner_action_events (action, campaign_id,"
+                    " actor_email, detail, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        str(action)[:64],
+                        int(campaign_id) if campaign_id is not None else None,
+                        _trim(actor_email, MAX_EMAIL_LEN),
+                        _trim(detail, MAX_ACTION_DETAIL_LEN),
+                        datetime.utcnow().isoformat(),
+                    ),
+                )
+                conn.commit()
+        except Exception:  # noqa: BLE001 — audit write is best-effort
+            logger.warning("Failed to record marketing owner action %s", action, exc_info=True)
+
+    def recent_owner_actions(self, *, limit: int = 50) -> List[Dict[str, Any]]:
+        """Newest-first owner-action audit events. Safe by construction — carries
+        no campaign name, notes, URL, or other free text; only action/id/enum
+        metadata."""
+        out: List[Dict[str, Any]] = []
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT id, action, campaign_id, actor_email, detail, created_at"
+                    " FROM marketing_owner_action_events ORDER BY id DESC LIMIT ?",
+                    (max(1, min(int(limit), MAX_RECENT)),),
+                ).fetchall()
+            out = [
+                {
+                    "id": r["id"],
+                    "action": r["action"],
+                    "campaign_id": r["campaign_id"],
+                    "actor_email": r["actor_email"],
+                    "detail": r["detail"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+        except Exception:  # noqa: BLE001 — audit read is best-effort
             pass
         return out
 
