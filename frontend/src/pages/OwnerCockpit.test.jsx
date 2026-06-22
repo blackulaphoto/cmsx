@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -91,13 +91,57 @@ const DETAIL_TICKET = {
   resolved_at: null,
 }
 
-function mockOwnerApi(analytics = EMPTY_ANALYTICS, support = EMPTY_SUPPORT, detail = DETAIL_TICKET) {
+const EMPTY_MARKETING = {
+  success: true,
+  total_campaigns: 0,
+  active_campaigns: 0,
+  by_status: { draft: 0, active: 0, paused: 0, completed: 0, archived: 0 },
+  by_channel: {
+    google_ads: 0, meta_ads: 0, tiktok: 0, linkedin: 0, organic: 0,
+    referral: 0, email: 0, manual: 0, other: 0,
+  },
+  total_budget: 0,
+  total_spend: 0,
+  utm_attribution: { source: {}, medium: {}, campaign: {} },
+  campaign_utm_visits: {},
+  performance: {
+    landing_page_visits: null,
+    signups: null,
+    conversions: null,
+    cost_per_signup: null,
+    source: 'not_connected',
+  },
+  ad_platforms_connected: false,
+  stripe_activated: false,
+}
+
+function mockOwnerApi(
+  analytics = EMPTY_ANALYTICS,
+  support = EMPTY_SUPPORT,
+  detail = DETAIL_TICKET,
+  marketing = EMPTY_MARKETING,
+  campaigns = [],
+) {
   apiCall.mockImplementation((url, opts) => {
     if (url.startsWith('/api/owner/analytics/summary')) {
       return Promise.resolve(analytics)
     }
     if (url.startsWith('/api/owner/support/summary')) {
       return Promise.resolve(support)
+    }
+    if (url.startsWith('/api/owner/marketing/summary')) {
+      return Promise.resolve(marketing)
+    }
+    if (url.startsWith('/api/owner/marketing/campaigns')) {
+      if (opts?.method === 'POST') {
+        const body = JSON.parse(opts.body || '{}')
+        return Promise.resolve({ success: true, campaign: { id: 99, created_at: '2026-06-21T10:00:00', updated_at: '2026-06-21T10:00:00', ...body } })
+      }
+      if (opts?.method === 'PATCH') {
+        const body = JSON.parse(opts.body || '{}')
+        return Promise.resolve({ success: true, campaign: { ...(campaigns[0] || {}), ...body } })
+      }
+      return Promise.resolve({ success: true, campaigns, count: campaigns.length, statuses: [], channels: [] })
     }
     if (url.startsWith('/api/owner/support/tickets/')) {
       if (opts?.method === 'PATCH') {
@@ -215,7 +259,7 @@ describe('Owner Cockpit content', () => {
     expect(await screen.findByText('Platform Overview')).toBeInTheDocument()
     expect(screen.getByText('Organizations / Customers')).toBeInTheDocument()
     expect(screen.getByText('Billing & Stripe')).toBeInTheDocument()
-    expect(screen.getByText('Marketing & Ads')).toBeInTheDocument()
+    expect(screen.getByText('Marketing & Campaign Tracker')).toBeInTheDocument()
     expect(screen.getByText('Support Queue')).toBeInTheDocument()
     expect(screen.getByText('Dev / System')).toBeInTheDocument()
     expect(screen.getByText('Internal Team')).toBeInTheDocument()
@@ -248,14 +292,11 @@ describe('Owner Cockpit analytics', () => {
     expect(screen.getAllByText('$148').length).toBeGreaterThan(0)
   })
 
-  it('shows honest empty states when no usage or marketing data exists', async () => {
+  it('shows honest empty states when no usage data exists', async () => {
     mockOwnerApi()
     render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
     expect(await screen.findByText('Top Used Modules')).toBeInTheDocument()
     expect(screen.getAllByText('No usage data yet').length).toBeGreaterThan(0)
-    expect(
-      screen.getByText('Marketing attribution will appear after tracked visits')
-    ).toBeInTheDocument()
   })
 
   it('renders top module usage when usage data is supplied', async () => {
@@ -266,14 +307,10 @@ describe('Owner Cockpit analytics', () => {
         { module: 'dashboard', count: 3 },
         { module: 'housing', count: 1 },
       ],
-      marketing_source_breakdown: { google: 2 },
-      marketing_attribution: { source: { google: 2 }, medium: { cpc: 2 }, campaign: { launch: 2 } },
     })
     render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
     expect(await screen.findByText('Top Used Modules')).toBeInTheDocument()
     expect(screen.getByText('Dashboard')).toBeInTheDocument()
-    expect(screen.getByText('google')).toBeInTheDocument()
-    expect(screen.queryByText('Marketing attribution will appear after tracked visits')).not.toBeInTheDocument()
   })
 })
 
@@ -330,40 +367,6 @@ describe('Owner Cockpit analytics polish', () => {
     expect(screen.getByText('Module View')).toBeInTheDocument()
   })
 
-  it('renders the full UTM attribution breakdown when supplied', async () => {
-    mockOwnerApi({
-      ...EMPTY_ANALYTICS,
-      total_events: 5,
-      marketing_source_breakdown: { google: 3, facebook: 2 },
-      marketing_attribution: {
-        source: { google: 3, facebook: 2 },
-        medium: { cpc: 3, social: 2 },
-        campaign: { spring_launch: 5 },
-      },
-    })
-    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
-    expect(await screen.findByText('Marketing & Ads')).toBeInTheDocument()
-    expect(screen.getByText('cpc')).toBeInTheDocument()
-    expect(screen.getByText('spring_launch')).toBeInTheDocument()
-  })
-
-  it('shows the UTM test-URL helper copy', async () => {
-    mockOwnerApi()
-    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
-    expect(
-      await screen.findByText('?utm_source=test&utm_medium=manual&utm_campaign=hq_smoke')
-    ).toBeInTheDocument()
-  })
-
-  it('shows landing/ad readiness as honest placeholders, not fabricated numbers', async () => {
-    mockOwnerApi()
-    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
-    expect(await screen.findByText('Landing & Ad Readiness')).toBeInTheDocument()
-    expect(screen.getByText('Landing page visits')).toBeInTheDocument()
-    expect(screen.getByText('Ad spend')).toBeInTheDocument()
-    // Placeholders render as em-dashes, never invented values.
-    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
-  })
 })
 
 describe('Owner Cockpit support queue', () => {
@@ -519,5 +522,123 @@ describe('Owner Cockpit activation controls', () => {
       ([, opts]) => opts?.method === 'PATCH' || opts?.method === 'POST'
     )
     expect(mutated).toBe(false)
+  })
+})
+
+const SAMPLE_CAMPAIGN = {
+  id: 12,
+  name: 'Spring Launch Search',
+  status: 'active',
+  channel: 'google_ads',
+  utm_source: 'google',
+  utm_medium: 'cpc',
+  utm_campaign: 'spring_launch',
+  landing_page_url: 'https://example.com/spring',
+  budget_amount: 2000,
+  spend_amount: 600,
+  notes: 'Q2 paid push',
+  created_at: '2026-06-20T10:00:00',
+  updated_at: '2026-06-21T10:00:00',
+}
+
+describe('Owner Cockpit marketing campaign tracker', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+  })
+
+  it('renders the tracker with an honest empty state and UTM helper copy', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Marketing & Campaign Tracker')).toBeInTheDocument()
+    // 'No campaigns yet' shows in the status/channel breakdown hints and the list empty state.
+    expect(screen.getAllByText('No campaigns yet').length).toBeGreaterThan(0)
+    expect(screen.getByText('Create a campaign to start tracking marketing performance.')).toBeInTheDocument()
+    // The exact UTM helper pattern is shown.
+    expect(screen.getByText('?utm_source=google&utm_medium=cpc&utm_campaign=launch_test')).toBeInTheDocument()
+  })
+
+  it('shows Landing & Ad Readiness placeholders without fabricating numbers', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Landing & Ad Readiness')).toBeInTheDocument()
+    expect(screen.getByText('Landing page visits')).toBeInTheDocument()
+    expect(screen.getByText('Signups')).toBeInTheDocument()
+    expect(screen.getByText('Cost per signup')).toBeInTheDocument()
+    // Placeholders render as em-dashes, never invented values.
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+  })
+
+  it('renders a campaign list and summary totals when supplied', async () => {
+    const marketing = {
+      ...EMPTY_MARKETING,
+      total_campaigns: 1,
+      active_campaigns: 1,
+      by_status: { ...EMPTY_MARKETING.by_status, active: 1 },
+      by_channel: { ...EMPTY_MARKETING.by_channel, google_ads: 1 },
+      total_budget: 2000,
+      total_spend: 600,
+      utm_attribution: { source: { google: 4 }, medium: { cpc: 4 }, campaign: { spring_launch: 4 } },
+      campaign_utm_visits: { spring_launch: 4 },
+    }
+    mockOwnerApi(EMPTY_ANALYTICS, EMPTY_SUPPORT, DETAIL_TICKET, marketing, [SAMPLE_CAMPAIGN])
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Spring Launch Search')).toBeInTheDocument()
+    // 'Google Ads' appears in both the channel breakdown and the campaign card badge.
+    expect(screen.getAllByText('Google Ads').length).toBeGreaterThan(0)
+    // UTM attribution surfaced from the marketing summary.
+    expect(screen.getByText('spring_launch')).toBeInTheDocument()
+    expect(screen.getByText('cpc')).toBeInTheDocument()
+    // No fabricated cost-per-signup even though spend exists.
+    expect(screen.queryByText('No campaigns yet')).not.toBeInTheDocument()
+  })
+
+  it('opens the New Campaign form and submits a create request', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Marketing & Campaign Tracker')
+
+    fireEvent.click(screen.getByRole('button', { name: 'New campaign' }))
+    const nameInput = await screen.findByLabelText('Campaign name')
+    fireEvent.change(nameInput, { target: { value: 'Summer Promo' } })
+    fireEvent.change(screen.getByLabelText('Campaign channel'), { target: { value: 'meta_ads' } })
+    fireEvent.click(screen.getByRole('button', { name: /Create campaign/i }))
+
+    await waitFor(() => {
+      const createCall = apiCall.mock.calls.find(
+        ([url, opts]) => url === '/api/owner/marketing/campaigns' && opts?.method === 'POST'
+      )
+      expect(createCall).toBeTruthy()
+      const body = JSON.parse(createCall[1].body)
+      expect(body.name).toBe('Summer Promo')
+      expect(body.channel).toBe('meta_ads')
+    })
+  })
+
+  it('updates a campaign status via the inline edit controls', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, EMPTY_SUPPORT, DETAIL_TICKET, EMPTY_MARKETING, [SAMPLE_CAMPAIGN])
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Spring Launch Search')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit campaign Spring Launch Search' }))
+    const statusSelect = await screen.findByLabelText('Status for Spring Launch Search')
+    fireEvent.change(statusSelect, { target: { value: 'paused' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => {
+      const patchCall = apiCall.mock.calls.find(
+        ([url, opts]) => url === '/api/owner/marketing/campaigns/12' && opts?.method === 'PATCH'
+      )
+      expect(patchCall).toBeTruthy()
+      expect(JSON.parse(patchCall[1].body).status).toBe('paused')
+    })
+  })
+
+  it('never reports Stripe as activated from the marketing summary', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Marketing & Campaign Tracker')
+    // The marketing summary the cockpit consumed carries stripe_activated: false.
+    expect(EMPTY_MARKETING.stripe_activated).toBe(false)
+    expect(EMPTY_MARKETING.ad_platforms_connected).toBe(false)
   })
 })

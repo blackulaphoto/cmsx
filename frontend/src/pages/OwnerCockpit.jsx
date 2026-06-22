@@ -18,8 +18,11 @@ import {
   Layers,
   LifeBuoy,
   Lock,
+  ExternalLink,
   Megaphone,
   MousePointerClick,
+  Pencil,
+  Plus,
   Server,
   ShieldCheck,
   Target,
@@ -41,8 +44,6 @@ const ATTRIBUTION_LABELS = {
   medium: 'Medium',
   campaign: 'Campaign',
 }
-
-const UTM_TEST_URL = '?utm_source=test&utm_medium=manual&utm_campaign=hq_smoke'
 
 const MODULE_LABELS = {
   dashboard: 'Dashboard',
@@ -329,6 +330,51 @@ const ACTIVATION_CHECKLISTS = {
       'Enable the webhooks activation flag and redeploy, then send a test event.',
     ],
   },
+}
+
+// ── Marketing + Campaign Tracker ─────────────────────────────────────────────
+const CAMPAIGN_STATUSES = ['draft', 'active', 'paused', 'completed', 'archived']
+const CAMPAIGN_CHANNELS = [
+  'google_ads', 'meta_ads', 'tiktok', 'linkedin', 'organic', 'referral', 'email', 'manual', 'other',
+]
+
+const CAMPAIGN_LABELS = {
+  draft: 'Draft',
+  active: 'Active',
+  paused: 'Paused',
+  completed: 'Completed',
+  archived: 'Archived',
+  google_ads: 'Google Ads',
+  meta_ads: 'Meta Ads',
+  tiktok: 'TikTok',
+  linkedin: 'LinkedIn',
+  organic: 'Organic',
+  referral: 'Referral',
+  email: 'Email',
+  manual: 'Manual',
+  other: 'Other',
+}
+
+const campaignLabel = (key) =>
+  CAMPAIGN_LABELS[key] || String(key || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+
+const CAMPAIGN_STATUS_BADGE = {
+  draft: 'bg-slate-500/15 text-slate-300',
+  active: 'bg-emerald-500/15 text-emerald-200',
+  paused: 'bg-amber-500/15 text-amber-200',
+  completed: 'bg-sky-500/15 text-sky-200',
+  archived: 'bg-slate-500/10 text-slate-400',
+}
+
+// Honest helper copy shown next to the tracker — the exact UTM pattern to use.
+const UTM_HELPER_URL = '?utm_source=google&utm_medium=cpc&utm_campaign=launch_test'
+
+// Short date for the campaign list "updated" column.
+const formatShortDate = (iso) => {
+  if (!iso) return '—'
+  const parsed = new Date(iso)
+  if (Number.isNaN(parsed.getTime())) return String(iso)
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function SupportTicketRow({ ticket, onPatch, onOpen }) {
@@ -905,12 +951,453 @@ function ActivationControls({ overview, stripe, onViewChecklist }) {
   )
 }
 
+// Build a clean PATCH/POST body from the campaign form state: blank text fields
+// become null, amounts become numbers (or null). Never sends empty strings.
+function campaignBody(form) {
+  const text = (v) => {
+    const t = (v ?? '').trim()
+    return t === '' ? null : t
+  }
+  const amount = (v) => {
+    if (v === '' || v == null) return null
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+  return {
+    name: text(form.name),
+    status: form.status,
+    channel: form.channel,
+    utm_source: text(form.utm_source),
+    utm_medium: text(form.utm_medium),
+    utm_campaign: text(form.utm_campaign),
+    landing_page_url: text(form.landing_page_url),
+    budget_amount: amount(form.budget_amount),
+    spend_amount: amount(form.spend_amount),
+    notes: text(form.notes),
+  }
+}
+
+const EMPTY_CAMPAIGN_FORM = {
+  name: '', status: 'draft', channel: 'manual',
+  utm_source: '', utm_medium: '', utm_campaign: '',
+  landing_page_url: '', budget_amount: '', spend_amount: '', notes: '',
+}
+
+function NewCampaignForm({ onSubmit, onCancel }) {
+  const [form, setForm] = useState(EMPTY_CAMPAIGN_FORM)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!form.name.trim()) {
+      setError('Campaign name is required.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      await onSubmit(campaignBody(form))
+      setForm(EMPTY_CAMPAIGN_FORM)
+    } catch (err) {
+      setError(err?.message || 'Could not create campaign.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const fieldCls =
+    'w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-pink-400/50 focus:outline-none'
+
+  return (
+    <form
+      onSubmit={submit}
+      aria-label="New campaign"
+      className="rounded-2xl border border-white/10 bg-white/[0.03] p-5"
+    >
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="block">
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Name</span>
+          <input
+            type="text"
+            value={form.name}
+            onChange={set('name')}
+            aria-label="Campaign name"
+            placeholder="Spring launch — paid search"
+            maxLength={120}
+            className={`mt-1 ${fieldCls}`}
+          />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Status</span>
+            <select value={form.status} onChange={set('status')} aria-label="Campaign status" className={`mt-1 ${fieldCls}`}>
+              {CAMPAIGN_STATUSES.map((s) => <option key={s} value={s}>{campaignLabel(s)}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Channel</span>
+            <select value={form.channel} onChange={set('channel')} aria-label="Campaign channel" className={`mt-1 ${fieldCls}`}>
+              {CAMPAIGN_CHANNELS.map((ch) => <option key={ch} value={ch}>{campaignLabel(ch)}</option>)}
+            </select>
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">UTM source</span>
+          <input type="text" value={form.utm_source} onChange={set('utm_source')} aria-label="UTM source" placeholder="google" maxLength={128} className={`mt-1 ${fieldCls}`} />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">UTM medium</span>
+          <input type="text" value={form.utm_medium} onChange={set('utm_medium')} aria-label="UTM medium" placeholder="cpc" maxLength={128} className={`mt-1 ${fieldCls}`} />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">UTM campaign</span>
+          <input type="text" value={form.utm_campaign} onChange={set('utm_campaign')} aria-label="UTM campaign" placeholder="launch_test" maxLength={128} className={`mt-1 ${fieldCls}`} />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Landing page URL</span>
+          <input type="text" value={form.landing_page_url} onChange={set('landing_page_url')} aria-label="Landing page URL" placeholder="https://…" maxLength={500} className={`mt-1 ${fieldCls}`} />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Budget amount</span>
+          <input type="number" min="0" step="0.01" value={form.budget_amount} onChange={set('budget_amount')} aria-label="Budget amount" placeholder="0" className={`mt-1 ${fieldCls}`} />
+        </label>
+        <label className="block">
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Spend amount</span>
+          <input type="number" min="0" step="0.01" value={form.spend_amount} onChange={set('spend_amount')} aria-label="Spend amount" placeholder="0" className={`mt-1 ${fieldCls}`} />
+        </label>
+        <label className="block md:col-span-2">
+          <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Notes</span>
+          <textarea value={form.notes} onChange={set('notes')} aria-label="Campaign notes" rows={2} maxLength={2000} placeholder="Internal marketing notes — no client names or PHI." className={`mt-1 ${fieldCls}`} />
+        </label>
+      </div>
+
+      {error ? <p role="alert" className="mt-3 text-sm text-red-300">{error}</p> : null}
+
+      <p className="mt-3 text-xs text-slate-500">
+        Keep campaign names, notes, and URLs free of client names or PHI — protected content is rejected.
+      </p>
+
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          type="submit"
+          disabled={busy}
+          className="inline-flex items-center gap-2 rounded-xl border border-pink-400/30 bg-pink-500/20 px-4 py-2 text-sm font-medium text-pink-100 transition hover:bg-pink-500/30 disabled:opacity-60"
+        >
+          <Plus className="h-4 w-4" /> {busy ? 'Creating…' : 'Create campaign'}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-slate-300 transition hover:bg-white/[0.08]"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function CampaignCard({ campaign, onUpdate }) {
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({
+    status: campaign.status,
+    budget_amount: campaign.budget_amount ?? '',
+    spend_amount: campaign.spend_amount ?? '',
+    notes: campaign.notes ?? '',
+  })
+  const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }))
+
+  const amount = (v) => {
+    if (v === '' || v == null) return null
+    const n = Number(v)
+    return Number.isFinite(n) && n >= 0 ? n : null
+  }
+
+  const save = async () => {
+    setBusy(true)
+    setError('')
+    setSaved(false)
+    try {
+      await onUpdate(campaign.id, {
+        status: form.status,
+        budget_amount: amount(form.budget_amount),
+        spend_amount: amount(form.spend_amount),
+        notes: (form.notes ?? '').trim() === '' ? null : form.notes.trim(),
+      })
+      setSaved(true)
+      setEditing(false)
+    } catch (err) {
+      setError(err?.message || 'Update failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const fieldCls =
+    'w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-pink-400/50 focus:outline-none'
+
+  return (
+    <li className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-white">{campaign.name}</span>
+            <span className={`rounded-full px-2 py-0.5 text-xs ${CAMPAIGN_STATUS_BADGE[campaign.status] || 'bg-slate-500/15 text-slate-300'}`}>
+              {campaignLabel(campaign.status)}
+            </span>
+            <span className="rounded-full bg-white/[0.05] px-2 py-0.5 text-xs text-slate-300">{campaignLabel(campaign.channel)}</span>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">
+            UTM: {campaign.utm_source || '—'} / {campaign.utm_medium || '—'} / {campaign.utm_campaign || '—'}
+          </p>
+          {campaign.landing_page_url ? (
+            <a
+              href={campaign.landing_page_url}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-flex items-center gap-1 break-all text-xs text-cyan-300 hover:text-cyan-200"
+            >
+              {campaign.landing_page_url} <ExternalLink className="h-3 w-3 shrink-0" />
+            </a>
+          ) : (
+            <p className="mt-1 text-xs text-slate-500">No landing page set</p>
+          )}
+        </div>
+        <div className="text-right text-xs text-slate-400">
+          <p>Budget <span className="font-semibold text-white">{formatCurrency(campaign.budget_amount)}</span></p>
+          <p className="mt-1">Spend <span className="font-semibold text-white">{formatCurrency(campaign.spend_amount)}</span></p>
+          <p className="mt-1 text-slate-500">Updated {formatShortDate(campaign.updated_at)}</p>
+        </div>
+      </div>
+
+      {editing ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Status</span>
+            <select value={form.status} onChange={set('status')} aria-label={`Status for ${campaign.name}`} className={`mt-1 ${fieldCls}`}>
+              {CAMPAIGN_STATUSES.map((s) => <option key={s} value={s}>{campaignLabel(s)}</option>)}
+            </select>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Budget</span>
+              <input type="number" min="0" step="0.01" value={form.budget_amount} onChange={set('budget_amount')} aria-label={`Budget for ${campaign.name}`} className={`mt-1 ${fieldCls}`} />
+            </label>
+            <label className="block">
+              <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Spend</span>
+              <input type="number" min="0" step="0.01" value={form.spend_amount} onChange={set('spend_amount')} aria-label={`Spend for ${campaign.name}`} className={`mt-1 ${fieldCls}`} />
+            </label>
+          </div>
+          <label className="block sm:col-span-2">
+            <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Notes</span>
+            <textarea value={form.notes} onChange={set('notes')} aria-label={`Notes for ${campaign.name}`} rows={2} maxLength={2000} className={`mt-1 ${fieldCls}`} />
+          </label>
+          {error ? <p role="alert" className="text-sm text-red-300 sm:col-span-2">{error}</p> : null}
+          <div className="flex items-center gap-2 sm:col-span-2">
+            <button
+              type="button"
+              onClick={save}
+              disabled={busy}
+              className="rounded-xl border border-pink-400/30 bg-pink-500/20 px-3 py-1.5 text-xs font-medium text-pink-100 transition hover:bg-pink-500/30 disabled:opacity-60"
+            >
+              {busy ? 'Saving…' : 'Save changes'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setEditing(false); setError('') }}
+              className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300 transition hover:bg-white/[0.08]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => { setEditing(true); setSaved(false) }}
+            aria-label={`Edit campaign ${campaign.name}`}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white transition hover:bg-white/[0.1]"
+          >
+            <Pencil className="h-3.5 w-3.5" /> Edit
+          </button>
+          {saved ? <span role="status" className="text-xs text-emerald-300">Campaign saved.</span> : null}
+        </div>
+      )}
+    </li>
+  )
+}
+
+function CampaignTracker({ summary, campaigns, onCreate, onUpdate }) {
+  const [showForm, setShowForm] = useState(false)
+
+  const totals = {
+    total: summary?.total_campaigns ?? 0,
+    active: summary?.active_campaigns ?? 0,
+    budget: summary?.total_budget ?? 0,
+    spend: summary?.total_spend ?? 0,
+  }
+
+  const statusRows = CAMPAIGN_STATUSES
+    .map((s) => ({ key: s, label: campaignLabel(s), value: summary?.by_status?.[s] ?? 0 }))
+    .filter((r) => r.value > 0)
+  const channelRows = CAMPAIGN_CHANNELS
+    .map((ch) => ({ key: ch, label: campaignLabel(ch), value: summary?.by_channel?.[ch] ?? 0 }))
+    .filter((r) => r.value > 0)
+
+  const attribution = summary?.utm_attribution || {}
+  const attributionGroups = ['source', 'medium', 'campaign'].map((dim) => ({
+    key: dim,
+    label: ATTRIBUTION_LABELS[dim],
+    rows: Object.entries(attribution[dim] || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([value, count]) => ({ key: `${dim}:${value}`, label: value, value: count })),
+  }))
+  const hasAttribution = attributionGroups.some((g) => g.rows.length > 0)
+
+  const perf = summary?.performance || {}
+  const list = campaigns || []
+
+  const create = async (body) => {
+    await onCreate(body)
+    setShowForm(false)
+  }
+
+  return (
+    <section className="rounded-[28px] border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-black/20 backdrop-blur">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Growth</p>
+          <h2 className="mt-2 text-xl font-semibold text-white">Marketing &amp; Campaign Tracker</h2>
+          <p className="mt-1 text-sm text-slate-400">Track campaigns, ad spend, UTM attribution, and landing performance — no external ad platforms connected.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-500/30 to-rose-500/20 text-white">
+            <Megaphone className="h-5 w-5" />
+          </span>
+          <button
+            type="button"
+            onClick={() => setShowForm((v) => !v)}
+            aria-label="New campaign"
+            aria-expanded={showForm}
+            className="inline-flex items-center gap-2 rounded-xl border border-pink-400/30 bg-pink-500/20 px-4 py-2 text-sm font-medium text-pink-100 transition hover:bg-pink-500/30"
+          >
+            <Plus className="h-4 w-4" /> New Campaign
+          </button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Total campaigns</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(totals.total)}</p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Active campaigns</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(totals.active)}</p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Total budget</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatCurrency(totals.budget)}</p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Manual spend</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatCurrency(totals.spend)}</p>
+        </div>
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+        <p className="text-xs text-slate-400">
+          Use UTM links like <code className="break-all text-amber-200">{UTM_HELPER_URL}</code> so tracked visits attribute back to a campaign.
+        </p>
+      </div>
+
+      {showForm ? (
+        <div className="mt-5">
+          <NewCampaignForm onSubmit={create} onCancel={() => setShowForm(false)} />
+        </div>
+      ) : null}
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <div>
+          <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Status breakdown</p>
+          <CountRows rows={statusRows} emptyLabel="No campaigns yet" />
+        </div>
+        <div>
+          <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Channel breakdown</p>
+          <CountRows rows={channelRows} emptyLabel="No campaigns yet" />
+        </div>
+        <div>
+          <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">UTM attribution</p>
+          {hasAttribution ? (
+            <div className="space-y-3">
+              {attributionGroups.map((group) =>
+                group.rows.length > 0 ? (
+                  <div key={group.key}>
+                    <p className="mb-1 text-[11px] uppercase tracking-[0.18em] text-slate-600">{group.label}</p>
+                    <CountRows rows={group.rows} emptyLabel="—" />
+                  </div>
+                ) : null
+              )}
+            </div>
+          ) : (
+            <EmptyHint>Attribution appears after tracked UTM visits</EmptyHint>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <p className="mb-3 text-xs uppercase tracking-[0.2em] text-slate-500">Campaigns</p>
+        {list.length > 0 ? (
+          <ul className="space-y-3">
+            {list.map((c) => <CampaignCard key={c.id} campaign={c} onUpdate={onUpdate} />)}
+          </ul>
+        ) : (
+          <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] px-4 py-8 text-center">
+            <p className="text-sm font-medium text-white">No campaigns yet</p>
+            <p className="mt-1 text-sm text-slate-400">Create a campaign to start tracking marketing performance.</p>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+        <div className="flex items-center gap-2">
+          <Target className="h-4 w-4 text-rose-200" />
+          <p className="text-sm font-semibold text-white">Landing &amp; Ad Readiness</p>
+        </div>
+        <div className="mt-3">
+          <PlaceholderRows
+            rows={[
+              { label: 'Landing page visits', value: formatNumber(perf.landing_page_visits) },
+              { label: 'Signups', value: formatNumber(perf.signups) },
+              { label: 'Conversions', value: formatNumber(perf.conversions) },
+              { label: 'Cost per signup', value: formatCurrency(perf.cost_per_signup) },
+            ]}
+          />
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          Landing visits and signups show “—” until a real source is tracked. Cost per signup is computed only when both
+          manual spend and a real signup count exist — no numbers are estimated. Ad platform integrations come later.
+        </p>
+      </div>
+    </section>
+  )
+}
+
 function OwnerCockpit() {
   const [overview, setOverview] = useState(null)
   const [orgs, setOrgs] = useState([])
   const [analytics, setAnalytics] = useState(null)
   const [support, setSupport] = useState(null)
   const [supportRefresh, setSupportRefresh] = useState(0)
+  const [marketing, setMarketing] = useState(null)
+  const [campaigns, setCampaigns] = useState([])
+  const [marketingRefresh, setMarketingRefresh] = useState(0)
   const [openTicketId, setOpenTicketId] = useState(null)
   const [checklistKey, setChecklistKey] = useState(null)
   const [toast, setToast] = useState(null)
@@ -993,6 +1480,61 @@ function OwnerCockpit() {
     }
   }, [supportRefresh])
 
+  // Marketing summary + campaign list: refetched after any campaign mutation.
+  // Additive — a failure never blocks the rest of the cockpit (empty state).
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      apiCall('/api/owner/marketing/summary'),
+      apiCall('/api/owner/marketing/campaigns'),
+    ])
+      .then(([summaryData, listData]) => {
+        if (!cancelled) {
+          setMarketing(summaryData)
+          setCampaigns(listData?.campaigns || [])
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMarketing(null)
+          setCampaigns([])
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [marketingRefresh])
+
+  const createCampaign = async (body) => {
+    try {
+      const res = await apiCall('/api/owner/marketing/campaigns', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      setMarketingRefresh((n) => n + 1)
+      pushToast('Campaign created', 'success')
+      return res
+    } catch (err) {
+      pushToast(err?.message || 'Create failed', 'error')
+      throw err
+    }
+  }
+
+  const updateCampaign = async (campaignId, patch) => {
+    try {
+      const res = await apiCall(`/api/owner/marketing/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      })
+      setMarketingRefresh((n) => n + 1)
+      pushToast('Campaign updated', 'success')
+      return res
+    } catch (err) {
+      pushToast(err?.message || 'Update failed', 'error')
+      throw err
+    }
+  }
+
   const patchSupportTicket = async (ticketId, patch) => {
     try {
       const res = await apiCall(`/api/owner/support/tickets/${ticketId}`, {
@@ -1031,18 +1573,6 @@ function OwnerCockpit() {
       label: moduleLabel(m.module),
       value: m.count,
     }))
-    const marketingRows = Object.entries(analytics?.marketing_source_breakdown || {})
-      .sort((a, b) => b[1] - a[1])
-      .map(([source, count]) => ({ key: source, label: source, value: count }))
-    // Source / medium / campaign breakdowns for the attribution detail.
-    const attribution = analytics?.marketing_attribution || {}
-    const attributionGroups = ['source', 'medium', 'campaign'].map((dim) => ({
-      key: dim,
-      label: ATTRIBUTION_LABELS[dim],
-      rows: Object.entries(attribution[dim] || {})
-        .sort((a, b) => b[1] - a[1])
-        .map(([value, count]) => ({ key: `${dim}:${value}`, label: value, value: count })),
-    }))
     // Recent activity: counts per day (oldest→newest for a readable left-to-right bar).
     const activityByDay = [...(analytics?.recent_activity || [])]
       .sort((a, b) => String(a.day).localeCompare(String(b.day)))
@@ -1057,18 +1587,14 @@ function OwnerCockpit() {
       statusRows,
       topModules,
       leastModules,
-      marketingRows,
-      attributionGroups,
       activityByDay,
       recentEvents,
     }
   }, [analytics])
 
   const hasUsageData = (analytics?.total_events ?? 0) > 0
-  const hasMarketingData = analyticsRows.marketingRows.length > 0
   const estimatedMrr = analytics?.estimated_mrr
   const totalEvents = analytics?.total_events ?? 0
-  const adReadiness = analytics?.ad_readiness
 
   const stripe = overview?.stripe
   const panel = 'rounded-[28px] border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-black/20 backdrop-blur'
@@ -1275,44 +1801,6 @@ function OwnerCockpit() {
             )}
           </SectionCard>
 
-          <SectionCard icon={Megaphone} title="Marketing & Ads" eyebrow="Growth" accent="from-pink-500/30 to-rose-500/20">
-            {hasMarketingData ? (
-              <div className="space-y-4">
-                <p className="text-sm text-slate-400">Tracked visits by UTM attribution</p>
-                {analyticsRows.attributionGroups.map((group) =>
-                  group.rows.length > 0 ? (
-                    <div key={group.key}>
-                      <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">{group.label}</p>
-                      <CountRows rows={group.rows} emptyLabel={`No ${group.label.toLowerCase()} data yet`} />
-                    </div>
-                  ) : null
-                )}
-              </div>
-            ) : (
-              <EmptyHint>Marketing attribution will appear after tracked visits</EmptyHint>
-            )}
-            <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-              <p className="text-xs text-slate-400">
-                Test attribution by appending UTM params to any HQ link, e.g.
-              </p>
-              <code className="mt-1 block break-all text-xs text-amber-200">{UTM_TEST_URL}</code>
-            </div>
-          </SectionCard>
-
-          <SectionCard icon={Target} title="Landing & Ad Readiness" eyebrow="Acquisition" accent="from-rose-500/30 to-pink-500/20">
-            <PlaceholderRows
-              rows={[
-                { label: 'Landing page visits', value: formatNumber(adReadiness?.landing_page_visits) },
-                { label: 'Campaign conversions', value: formatNumber(adReadiness?.campaign_conversions) },
-                { label: 'Cost per signup', value: formatCurrency(adReadiness?.cost_per_signup) },
-                { label: 'Ad spend', value: formatCurrency(adReadiness?.ad_spend) },
-              ]}
-            />
-            <p className="mt-4 text-sm text-slate-400">
-              Placeholders until an ad/landing data source is connected. No numbers are estimated or fabricated — each stays blank until real data exists.
-            </p>
-          </SectionCard>
-
           <SectionCard icon={Server} title="Dev / System" eyebrow="Engineering" accent="from-sky-500/30 to-cyan-500/20">
             <div className="space-y-3">
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -1339,6 +1827,13 @@ function OwnerCockpit() {
             <p className="mt-3 text-sm text-slate-400">Owner-side staffing, accountability lanes, and internal permissions will land here when the model is ready.</p>
           </SectionCard>
         </section>
+
+        <CampaignTracker
+          summary={marketing}
+          campaigns={campaigns}
+          onCreate={createCampaign}
+          onUpdate={updateCampaign}
+        />
 
         <ActivationControls overview={overview} stripe={stripe} onViewChecklist={setChecklistKey} />
 
