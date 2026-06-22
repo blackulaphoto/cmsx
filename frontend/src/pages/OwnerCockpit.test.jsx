@@ -142,8 +142,16 @@ function mockOwnerApi(
   marketing = EMPTY_MARKETING,
   campaigns = [],
   orgDetail = ORG_DETAIL,
+  activity = [],
 ) {
   apiCall.mockImplementation((url, opts) => {
+    if (url.startsWith('/api/owner/activity')) {
+      // Honor the source filter so filter tests can assert on the query param.
+      const match = /[?&]source=([^&]+)/.exec(url)
+      const wanted = match ? decodeURIComponent(match[1]) : null
+      const events = wanted ? activity.filter((e) => e.source === wanted) : activity
+      return Promise.resolve({ success: true, events, count: events.length, limit: 50, sources: [] })
+    }
     if (url.startsWith('/api/owner/analytics/summary')) {
       return Promise.resolve(analytics)
     }
@@ -860,5 +868,120 @@ describe('Owner Cockpit organizations management', () => {
     expect(screen.getByText('Marketing & Campaign Tracker')).toBeInTheDocument()
     expect(screen.getByText('Support Queue')).toBeInTheDocument()
     expect(screen.getByText('Activation Controls')).toBeInTheDocument()
+  })
+})
+
+const ACTIVITY_EVENTS = [
+  {
+    id: 'support-2',
+    source: 'support',
+    action: 'support_ticket_status_changed',
+    actor_email: 'owner@hq.test',
+    org_id: null,
+    target_type: 'support_ticket',
+    target_id: 7,
+    safe_detail: 'resolved',
+    created_at: '2026-06-22T12:00:00',
+  },
+  {
+    id: 'admin-3',
+    source: 'org',
+    action: 'owner_org_status_changed',
+    actor_email: 'owner@hq.test',
+    org_id: 'org_a',
+    target_type: 'org',
+    target_id: 'org_a',
+    safe_detail: 'suspended',
+    created_at: '2026-06-22T11:00:00',
+  },
+  {
+    id: 'marketing-1',
+    source: 'marketing',
+    action: 'marketing_campaign_created',
+    actor_email: 'owner@hq.test',
+    org_id: null,
+    target_type: 'campaign',
+    target_id: 5,
+    safe_detail: 'active',
+    created_at: '2026-06-22T10:00:00',
+  },
+]
+
+describe('Owner Cockpit Activity Center', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+  })
+
+  it('renders the Activity Center with the safe helper copy and an empty state', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, EMPTY_SUPPORT, DETAIL_TICKET, EMPTY_MARKETING, [], ORG_DETAIL, [])
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Activity Center')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Activity Center shows safe owner\/admin events only/i)
+    ).toBeInTheDocument()
+    expect(screen.getByText('No owner or admin actions recorded yet.')).toBeInTheDocument()
+  })
+
+  it('renders activity events with source, action, actor, and detail', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, EMPTY_SUPPORT, DETAIL_TICKET, EMPTY_MARKETING, [], ORG_DETAIL, ACTIVITY_EVENTS)
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Activity Center')
+
+    // Action label (humanized) + safe enum detail render.
+    expect(await screen.findByText('Support Ticket Status Changed')).toBeInTheDocument()
+    expect(screen.getByText('Owner Org Status Changed')).toBeInTheDocument()
+    expect(screen.getByText('Marketing Campaign Created')).toBeInTheDocument()
+    expect(screen.getByText('suspended')).toBeInTheDocument()
+    // Actor email appears (multiple rows share it).
+    expect(screen.getAllByText('owner@hq.test').length).toBeGreaterThan(0)
+  })
+
+  it('filters by source via the source toggle', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, EMPTY_SUPPORT, DETAIL_TICKET, EMPTY_MARKETING, [], ORG_DETAIL, ACTIVITY_EVENTS)
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Marketing Campaign Created')
+
+    // Click the Marketing source filter; the endpoint is refetched with source=marketing.
+    fireEvent.click(screen.getByRole('button', { name: 'Marketing', pressed: false }))
+    await waitFor(() => {
+      const called = apiCall.mock.calls.some(
+        ([url]) => typeof url === 'string' && url.includes('/api/owner/activity') && url.includes('source=marketing')
+      )
+      expect(called).toBe(true)
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Owner Org Status Changed')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('Marketing Campaign Created')).toBeInTheDocument()
+  })
+
+  it('filters by actor email client-side', async () => {
+    const mixed = [
+      ...ACTIVITY_EVENTS,
+      {
+        id: 'admin-9', source: 'user', action: 'owner_user_role_changed',
+        actor_email: 'someoneelse@hq.test', org_id: 'org_b', target_type: 'user',
+        target_id: 'uid_9', safe_detail: 'org_admin', created_at: '2026-06-22T09:00:00',
+      },
+    ]
+    mockOwnerApi(EMPTY_ANALYTICS, EMPTY_SUPPORT, DETAIL_TICKET, EMPTY_MARKETING, [], ORG_DETAIL, mixed)
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Owner User Role Changed')
+
+    fireEvent.change(screen.getByLabelText('Filter by actor email'), {
+      target: { value: 'someoneelse' },
+    })
+    await waitFor(() => {
+      expect(screen.queryByText('Marketing Campaign Created')).not.toBeInTheDocument()
+    })
+    expect(screen.getByText('Owner User Role Changed')).toBeInTheDocument()
+  })
+
+  it('keeps the analytics Latest Events card alongside the Activity Center', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, EMPTY_SUPPORT, DETAIL_TICKET, EMPTY_MARKETING, [], ORG_DETAIL, ACTIVITY_EVENTS)
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Activity Center')
+    // The usage-tracking analytics card is distinct and still present.
+    expect(screen.getByText('Latest Events')).toBeInTheDocument()
   })
 })

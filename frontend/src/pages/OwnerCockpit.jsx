@@ -194,6 +194,157 @@ function StripeFlag({ label, value }) {
   )
 }
 
+// ── Activity Center ──────────────────────────────────────────────────────────
+// Unified, read-only feed of SAFE owner/admin actions aggregated from the support,
+// org/user, marketing, and analytics audit trails. Visually distinct from the raw
+// "Latest Events" analytics card (which is usage tracking): this one is about who
+// did what across the cockpit. It never shows client notes, PHI, documents,
+// support descriptions, or any protected free text — the API does not return them.
+const ACTIVITY_SOURCE_META = {
+  support: { label: 'Support', badge: 'bg-sky-500/15 text-sky-200 border-sky-400/20' },
+  org: { label: 'Organization', badge: 'bg-violet-500/15 text-violet-200 border-violet-400/20' },
+  user: { label: 'User', badge: 'bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/20' },
+  marketing: { label: 'Marketing', badge: 'bg-amber-500/15 text-amber-200 border-amber-400/20' },
+  analytics: { label: 'Analytics', badge: 'bg-cyan-500/15 text-cyan-200 border-cyan-400/20' },
+  system: { label: 'System', badge: 'bg-slate-500/15 text-slate-300 border-white/10' },
+}
+
+const ACTIVITY_SOURCE_OPTIONS = ['support', 'org', 'user', 'marketing', 'analytics', 'system']
+
+const activitySourceMeta = (source) =>
+  ACTIVITY_SOURCE_META[source] || { label: source || 'Event', badge: 'bg-slate-500/15 text-slate-300 border-white/10' }
+
+// Humanize a snake_case action enum into a readable label. Pure presentation —
+// the underlying value is always a safe enum, never free text.
+const activityActionLabel = (action) =>
+  String(action || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim() || 'Action'
+
+function ActivitySourceBadge({ source }) {
+  const meta = activitySourceMeta(source)
+  return (
+    <span className={`inline-flex shrink-0 items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${meta.badge}`}>
+      {meta.label}
+    </span>
+  )
+}
+
+function ActivityRow({ event }) {
+  const target = event.target_type
+    ? `${activityActionLabel(event.target_type)}${event.target_id != null && event.target_id !== '' ? ` #${event.target_id}` : ''}`
+    : null
+  return (
+    <li className="flex items-start justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm">
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <ActivitySourceBadge source={event.source} />
+          <span className="font-medium text-white">{activityActionLabel(event.action)}</span>
+          {event.safe_detail ? (
+            <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-xs text-slate-300">{event.safe_detail}</span>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-400">
+          {event.actor_email ? <span className="truncate">{event.actor_email}</span> : <span className="text-slate-500">System</span>}
+          {target ? <span className="text-slate-500">{target}</span> : null}
+          {event.org_id ? <span className="text-slate-500">org: {event.org_id}</span> : null}
+        </div>
+      </div>
+      <span className="shrink-0 text-xs text-slate-500">{formatEventTime(event.created_at)}</span>
+    </li>
+  )
+}
+
+function ActivityCenter({ events, loading, error, source, onSourceChange }) {
+  const [actorQuery, setActorQuery] = useState('')
+  const [orgQuery, setOrgQuery] = useState('')
+
+  const list = Array.isArray(events) ? events : []
+  const actorTrim = actorQuery.trim().toLowerCase()
+  const orgTrim = orgQuery.trim().toLowerCase()
+  const filtered = list.filter((e) => {
+    if (actorTrim && !String(e.actor_email || '').toLowerCase().includes(actorTrim)) return false
+    if (orgTrim && !String(e.org_id || '').toLowerCase().includes(orgTrim)) return false
+    return true
+  })
+
+  return (
+    <section className="rounded-[28px] border border-amber-400/20 bg-gradient-to-br from-amber-500/[0.04] to-slate-950/70 p-6 shadow-xl shadow-black/20 backdrop-blur">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.28em] text-amber-200/80">Accountability</p>
+          <h2 className="mt-2 text-xl font-semibold text-white">Activity Center</h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-400">Owner &amp; admin actions across support, organizations, users, and marketing — distinct from usage analytics.</p>
+        </div>
+        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-500/30 to-orange-500/20 text-amber-100">
+          <ClipboardList className="h-5 w-5" />
+        </span>
+      </div>
+
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="inline-flex items-center gap-1 rounded-2xl border border-white/10 bg-black/20 p-1" role="group" aria-label="Filter by source">
+          <button
+            type="button"
+            onClick={() => onSourceChange('')}
+            aria-pressed={!source}
+            className={`rounded-xl px-3 py-1.5 text-sm transition ${!source ? 'bg-amber-500/20 text-amber-100' : 'text-slate-400 hover:text-white'}`}
+          >
+            All
+          </button>
+          {ACTIVITY_SOURCE_OPTIONS.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => onSourceChange(opt)}
+              aria-pressed={source === opt}
+              className={`rounded-xl px-3 py-1.5 text-sm capitalize transition ${source === opt ? 'bg-amber-500/20 text-amber-100' : 'text-slate-400 hover:text-white'}`}
+            >
+              {activitySourceMeta(opt).label}
+            </button>
+          ))}
+        </div>
+        <input
+          type="text"
+          value={actorQuery}
+          onChange={(e) => setActorQuery(e.target.value)}
+          placeholder="Filter by actor email"
+          aria-label="Filter by actor email"
+          className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-1.5 text-sm text-white placeholder:text-slate-500 focus:border-amber-400/40 focus:outline-none sm:w-52"
+        />
+        <input
+          type="text"
+          value={orgQuery}
+          onChange={(e) => setOrgQuery(e.target.value)}
+          placeholder="Filter by org"
+          aria-label="Filter by org"
+          className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-1.5 text-sm text-white placeholder:text-slate-500 focus:border-amber-400/40 focus:outline-none sm:w-40"
+        />
+      </div>
+
+      {loading ? (
+        <EmptyHint>Loading activity…</EmptyHint>
+      ) : error ? (
+        <div className="rounded-2xl border border-red-400/20 bg-red-500/[0.06] px-4 py-6 text-center text-sm text-red-200">
+          {error}
+        </div>
+      ) : filtered.length > 0 ? (
+        <ul className="space-y-2">
+          {filtered.map((evt) => (
+            <ActivityRow key={evt.id} event={evt} />
+          ))}
+        </ul>
+      ) : (
+        <EmptyHint>No owner or admin actions recorded yet.</EmptyHint>
+      )}
+
+      <p className="mt-4 text-xs text-slate-500">
+        Activity Center shows safe owner/admin events only. It never displays client notes, PHI, documents, support descriptions, or protected content.
+      </p>
+    </section>
+  )
+}
+
 // ── Support Queue ────────────────────────────────────────────────────────────
 const SUPPORT_CATEGORIES = ['bug', 'account', 'billing', 'feature_request', 'usability', 'other']
 const SUPPORT_PRIORITIES = ['low', 'normal', 'high', 'urgent']
@@ -1920,6 +2071,10 @@ function OwnerCockpit() {
   const [checklistKey, setChecklistKey] = useState(null)
   const [toast, setToast] = useState(null)
   const [windowSel, setWindowSel] = useState('all')
+  const [activity, setActivity] = useState([])
+  const [activitySource, setActivitySource] = useState('')
+  const [activityLoading, setActivityLoading] = useState(true)
+  const [activityError, setActivityError] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -2033,6 +2188,32 @@ function OwnerCockpit() {
       cancelled = true
     }
   }, [marketingRefresh])
+
+  // Activity Center feed: unified safe owner/admin actions. Refetched when the
+  // source filter changes or after any owner mutation (so newly logged actions
+  // surface). Additive — a failure renders an inline error, never blocks the page.
+  useEffect(() => {
+    let cancelled = false
+    setActivityLoading(true)
+    setActivityError('')
+    const qs = activitySource ? `?limit=50&source=${encodeURIComponent(activitySource)}` : '?limit=50'
+    apiCall(`/api/owner/activity${qs}`)
+      .then((data) => {
+        if (!cancelled) setActivity(data?.events || [])
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setActivity([])
+          setActivityError(err?.message || 'Failed to load activity.')
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setActivityLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activitySource, supportRefresh, marketingRefresh, orgsRefresh])
 
   const createCampaign = async (body) => {
     try {
@@ -2412,6 +2593,14 @@ function OwnerCockpit() {
           title="System"
           description="Platform operations, engineering health, and internal team."
         >
+          <ActivityCenter
+            events={activity}
+            loading={activityLoading}
+            error={activityError}
+            source={activitySource}
+            onSourceChange={setActivitySource}
+          />
+
           <section className="grid gap-6 xl:grid-cols-2">
             <SectionCard icon={Activity} title="Platform Overview" eyebrow="Operations" accent="from-cyan-500/30 to-blue-500/20">
               <div className="grid gap-3 sm:grid-cols-2">

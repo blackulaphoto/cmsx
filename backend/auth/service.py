@@ -1155,12 +1155,13 @@ class FirebaseAuthService:
         try:
             with self._connect() as conn:
                 rows = conn.execute(
-                    "SELECT action, target_type, target_id, org_id, actor_email, detail, created_at"
+                    "SELECT id, action, target_type, target_id, org_id, actor_email, detail, created_at"
                     " FROM owner_admin_events ORDER BY id DESC LIMIT ?",
                     (int(limit),),
                 ).fetchall()
             return [
                 {
+                    "id": r["id"],
                     "action": r["action"],
                     "target_type": r["target_type"],
                     "target_id": r["target_id"],

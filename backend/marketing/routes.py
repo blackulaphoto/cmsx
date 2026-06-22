@@ -30,6 +30,9 @@ from backend.analytics.store import analytics_store
 from backend.auth.service import require_super_admin
 from backend.marketing.store import (
     CHANNELS,
+    OWNER_ACTION_CAMPAIGN_CREATED,
+    OWNER_ACTION_CAMPAIGN_SPEND_UPDATED,
+    OWNER_ACTION_CAMPAIGN_STATUS_CHANGED,
     STATUSES,
     marketing_store,
     normalize_channel,
@@ -121,7 +124,7 @@ async def owner_create_campaign(payload: CampaignCreate, request: Request):
     """Create a campaign. Platform super-admin only. Status/channel are validated
     against the allowlists; free-text fields are PHI-risk scanned and rejected if
     they look like protected client content."""
-    require_super_admin(request)
+    actor = require_super_admin(request)
 
     if normalize_status(payload.status) is None:
         return JSONResponse(
@@ -169,6 +172,14 @@ async def owner_create_campaign(payload: CampaignCreate, request: Request):
         spend_amount=payload.spend_amount,
         notes=payload.notes,
     )
+    # Safe audit trail: action enum + campaign id + the new (allowlisted) status
+    # only. Never the campaign name, notes, or URL. Best-effort — never blocks.
+    marketing_store.record_owner_action(
+        OWNER_ACTION_CAMPAIGN_CREATED,
+        campaign_id=campaign.get("id"),
+        actor_email=getattr(actor, "email", None),
+        detail=campaign.get("status"),
+    )
     return {"success": True, "campaign": campaign}
 
 
@@ -176,7 +187,7 @@ async def owner_create_campaign(payload: CampaignCreate, request: Request):
 async def owner_update_campaign(campaign_id: int, payload: CampaignPatch, request: Request):
     """Partial-update a campaign. Platform super-admin only. Validates status/channel
     against the allowlists and PHI-risk scans any supplied free text."""
-    require_super_admin(request)
+    actor = require_super_admin(request)
 
     if payload.status is not None and normalize_status(payload.status) is None:
         return JSONResponse(
@@ -240,6 +251,24 @@ async def owner_update_campaign(campaign_id: int, payload: CampaignPatch, reques
         return JSONResponse(
             status_code=404,
             content={"success": False, "detail": f"Campaign {campaign_id} not found."},
+        )
+    # Safe audit trail for the two meaningful owner edits. Only the action enum,
+    # the campaign id, and (for status) the new allowlisted status value are
+    # logged — never the campaign name, notes, URL, or the spend figure as text.
+    actor_email = getattr(actor, "email", None)
+    if "status" in fields_set:
+        marketing_store.record_owner_action(
+            OWNER_ACTION_CAMPAIGN_STATUS_CHANGED,
+            campaign_id=campaign_id,
+            actor_email=actor_email,
+            detail=updated.get("status"),
+        )
+    if "spend_amount" in fields_set:
+        marketing_store.record_owner_action(
+            OWNER_ACTION_CAMPAIGN_SPEND_UPDATED,
+            campaign_id=campaign_id,
+            actor_email=actor_email,
+            detail=None,
         )
     return {"success": True, "campaign": updated}
 
