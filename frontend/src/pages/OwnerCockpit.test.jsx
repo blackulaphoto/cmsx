@@ -61,10 +61,25 @@ const EMPTY_ANALYTICS = {
   stripe_activated: false,
 }
 
-function mockOwnerApi(analytics = EMPTY_ANALYTICS) {
+const EMPTY_SUPPORT = {
+  success: true,
+  total_tickets: 0,
+  open_tickets: 0,
+  high_priority_tickets: 0,
+  by_category: { bug: 0, account: 0, billing: 0, feature_request: 0, usability: 0, other: 0 },
+  by_status: { open: 0, in_progress: 0, waiting: 0, resolved: 0, closed: 0 },
+  by_priority: { low: 0, normal: 0, high: 0, urgent: 0 },
+  recent_tickets: [],
+  stripe_activated: false,
+}
+
+function mockOwnerApi(analytics = EMPTY_ANALYTICS, support = EMPTY_SUPPORT) {
   apiCall.mockImplementation((url) => {
     if (url.startsWith('/api/owner/analytics/summary')) {
       return Promise.resolve(analytics)
+    }
+    if (url.startsWith('/api/owner/support/summary')) {
+      return Promise.resolve(support)
     }
     if (url === '/api/super-admin/overview') {
       return Promise.resolve({
@@ -176,10 +191,9 @@ describe('Owner Cockpit content', () => {
     expect(screen.getByText('Organizations / Customers')).toBeInTheDocument()
     expect(screen.getByText('Billing & Stripe')).toBeInTheDocument()
     expect(screen.getByText('Marketing & Ads')).toBeInTheDocument()
-    expect(screen.getByText('Support')).toBeInTheDocument()
+    expect(screen.getByText('Support Queue')).toBeInTheDocument()
     expect(screen.getByText('Dev / System')).toBeInTheDocument()
     expect(screen.getByText('Internal Team')).toBeInTheDocument()
-    expect(screen.getByText('Coming next: support queue')).toBeInTheDocument()
     expect(screen.getByText('Coming next: internal team roles')).toBeInTheDocument()
   })
 
@@ -324,5 +338,65 @@ describe('Owner Cockpit analytics polish', () => {
     expect(screen.getByText('Ad spend')).toBeInTheDocument()
     // Placeholders render as em-dashes, never invented values.
     expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+  })
+})
+
+describe('Owner Cockpit support queue', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+  })
+
+  it('renders the Support Queue section with an empty state when there are no tickets', async () => {
+    mockOwnerApi()
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Support Queue')).toBeInTheDocument()
+    expect(screen.getByText('No support tickets yet')).toBeInTheDocument()
+  })
+
+  it('renders support counts and breakdowns when supplied', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, {
+      ...EMPTY_SUPPORT,
+      total_tickets: 3,
+      open_tickets: 2,
+      high_priority_tickets: 1,
+      by_status: { ...EMPTY_SUPPORT.by_status, open: 2, resolved: 1 },
+      by_category: { ...EMPTY_SUPPORT.by_category, bug: 2, billing: 1 },
+      recent_tickets: [
+        { id: 3, category: 'bug', priority: 'urgent', status: 'open', subject: 'Login button broken', assigned_to: null, created_at: '2026-06-21T10:00:00', updated_at: '2026-06-21T10:00:00' },
+        { id: 2, category: 'billing', priority: 'high', status: 'resolved', subject: 'Invoice question', assigned_to: 'owner', created_at: '2026-06-20T10:00:00', updated_at: '2026-06-20T11:00:00' },
+      ],
+    })
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    expect(await screen.findByText('Support Queue')).toBeInTheDocument()
+    // The recent tickets render their subjects safely (no client PHI).
+    expect(screen.getByText('Login button broken')).toBeInTheDocument()
+    expect(screen.getByText('Invoice question')).toBeInTheDocument()
+    // High/urgent count is surfaced.
+    expect(screen.getByText('High / urgent')).toBeInTheDocument()
+    // Per-ticket owner controls (status select) are present.
+    expect(screen.getByLabelText('Status for ticket 3')).toBeInTheDocument()
+    expect(screen.getByLabelText('Priority for ticket 3')).toBeInTheDocument()
+  })
+
+  it('patches a ticket status through the owner control', async () => {
+    mockOwnerApi(EMPTY_ANALYTICS, {
+      ...EMPTY_SUPPORT,
+      total_tickets: 1,
+      open_tickets: 1,
+      recent_tickets: [
+        { id: 7, category: 'bug', priority: 'normal', status: 'open', subject: 'Typo on page', assigned_to: null, created_at: '2026-06-21T10:00:00', updated_at: '2026-06-21T10:00:00' },
+      ],
+    })
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    const statusSelect = await screen.findByLabelText('Status for ticket 7')
+    fireEvent.change(statusSelect, { target: { value: 'resolved' } })
+    const patched = apiCall.mock.calls.some(
+      ([url, opts]) =>
+        typeof url === 'string' &&
+        url === '/api/owner/support/tickets/7' &&
+        opts?.method === 'PATCH' &&
+        String(opts?.body || '').includes('resolved')
+    )
+    expect(patched).toBe(true)
   })
 })
