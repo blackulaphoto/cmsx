@@ -11,13 +11,19 @@ import sqlite3
 from typing import Optional
 
 from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 import backend.shared.db_path as db_path_mod
 from backend.shared.tenancy import multi_tenant_enabled
 from backend.billing import plans as billing_plans
 from backend.billing import stripe_config
-from .service import auth_service, require_super_admin
+from .service import (
+    auth_service,
+    require_super_admin,
+    OWNER_ACTION_ORG_STATUS_CHANGED,
+    OWNER_ACTION_USER_ROLE_CHANGED,
+    OWNER_ACTION_USER_STATUS_CHANGED,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/super-admin", tags=["super-admin"])
@@ -25,6 +31,18 @@ router = APIRouter(prefix="/api/super-admin", tags=["super-admin"])
 
 class SuspendRequest(BaseModel):
     confirm: bool = False
+
+
+class UserRoleRequest(BaseModel):
+    """Owner-side org role change. ``role`` is restricted to the two real org
+    roles; the service additionally enforces last-admin protection."""
+    role: str = Field(pattern="^(org_admin|member)$")
+
+
+class UserStatusRequest(BaseModel):
+    """Owner-side account enable/disable (no physical delete). ``status`` is
+    allowlisted; disabling preserves last-active-org-admin protection."""
+    status: str = Field(pattern="^(active|disabled)$")
 
 
 class BillingUpdateRequest(BaseModel):
@@ -145,6 +163,14 @@ async def search_users(request: Request, q: str = ""):
 async def suspend_org(org_id: str, payload: SuspendRequest, request: Request):
     admin = require_super_admin(request)
     result = auth_service.set_org_status(org_id, "suspended", confirm=payload.confirm)
+    auth_service.record_owner_admin_action(
+        OWNER_ACTION_ORG_STATUS_CHANGED,
+        target_type="org",
+        target_id=org_id,
+        org_id=org_id,
+        actor_email=admin.email,
+        detail=result.get("status"),
+    )
     logger.info("SUPER-ADMIN %s suspended org %s", admin.email, org_id)
     return {"success": True, **result}
 
@@ -153,5 +179,61 @@ async def suspend_org(org_id: str, payload: SuspendRequest, request: Request):
 async def restore_org(org_id: str, request: Request):
     admin = require_super_admin(request)
     result = auth_service.set_org_status(org_id, "active")
+    auth_service.record_owner_admin_action(
+        OWNER_ACTION_ORG_STATUS_CHANGED,
+        target_type="org",
+        target_id=org_id,
+        org_id=org_id,
+        actor_email=admin.email,
+        detail=result.get("status"),
+    )
     logger.info("SUPER-ADMIN %s restored org %s", admin.email, org_id)
     return {"success": True, **result}
+
+
+@router.post("/organizations/{org_id}/users/{firebase_uid}/role")
+async def update_user_role(org_id: str, firebase_uid: str, payload: UserRoleRequest, request: Request):
+    """Change a staff member's org role (org_admin/member) within their org.
+
+    Platform super-admin only. The service validates the role and refuses to
+    demote the last active org admin. No PHI is read or logged."""
+    admin = require_super_admin(request)
+    result = auth_service.update_staff_role(org_id, firebase_uid, payload.role)
+    auth_service.record_owner_admin_action(
+        OWNER_ACTION_USER_ROLE_CHANGED,
+        target_type="user",
+        target_id=firebase_uid,
+        org_id=org_id,
+        actor_email=admin.email,
+        detail=result.get("org_role"),
+    )
+    logger.info("SUPER-ADMIN %s set role for user %s in org %s", admin.email, firebase_uid, org_id)
+    return {"success": True, "staff": result}
+
+
+@router.post("/organizations/{org_id}/users/{firebase_uid}/status")
+async def update_user_status(org_id: str, firebase_uid: str, payload: UserStatusRequest, request: Request):
+    """Enable or disable a staff member's account (no physical delete).
+
+    Platform super-admin only. Disabling preserves last-active-org-admin
+    protection. No PHI is read or logged."""
+    admin = require_super_admin(request)
+    result = auth_service.set_staff_status(org_id, firebase_uid, payload.status)
+    auth_service.record_owner_admin_action(
+        OWNER_ACTION_USER_STATUS_CHANGED,
+        target_type="user",
+        target_id=firebase_uid,
+        org_id=org_id,
+        actor_email=admin.email,
+        detail=result.get("status"),
+    )
+    logger.info("SUPER-ADMIN %s set status for user %s in org %s", admin.email, firebase_uid, org_id)
+    return {"success": True, "staff": result}
+
+
+@router.get("/owner-actions")
+async def list_owner_actions(request: Request, limit: int = 50):
+    """Recent owner-side org/user management audit events (safe metadata only)."""
+    require_super_admin(request)
+    capped = max(1, min(int(limit), 200))
+    return {"success": True, "actions": auth_service.recent_owner_admin_actions(limit=capped)}

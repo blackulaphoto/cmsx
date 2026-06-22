@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -115,12 +115,33 @@ const EMPTY_MARKETING = {
   stripe_activated: false,
 }
 
+const ORG_DETAIL = {
+  success: true,
+  organization: {
+    org_id: 'org_a',
+    name: 'Org A',
+    org_type: 'case_management_agency',
+    status: 'active',
+    created_at: '2026-01-02T10:00:00',
+    updated_at: '2026-06-01T10:00:00',
+    subscription: { plan: 'team', status: 'not_configured' },
+  },
+  billing: { plan_code: 'team', billing_status: 'trialing' },
+  client_count: 7,
+  pending_invites: 0,
+  staff: [
+    { firebase_uid: 'admin_a', email: 'admin_a@a.test', full_name: 'Admin A', role: 'admin', org_role: 'org_admin', is_active: true, status: 'active' },
+    { firebase_uid: 'm_a', email: 'm_a@a.test', full_name: 'Member A', role: 'case_manager', org_role: 'member', is_active: true, status: 'active' },
+  ],
+}
+
 function mockOwnerApi(
   analytics = EMPTY_ANALYTICS,
   support = EMPTY_SUPPORT,
   detail = DETAIL_TICKET,
   marketing = EMPTY_MARKETING,
   campaigns = [],
+  orgDetail = ORG_DETAIL,
 ) {
   apiCall.mockImplementation((url, opts) => {
     if (url.startsWith('/api/owner/analytics/summary')) {
@@ -174,10 +195,26 @@ function mockOwnerApi(
     if (url === '/api/super-admin/organizations') {
       return Promise.resolve({
         organizations: [
-          { org_id: 'org_a', name: 'Org A', status: 'active', user_count: 4, client_count: 7 },
+          { org_id: 'org_a', name: 'Org A', status: 'active', user_count: 4, client_count: 7, plan_code: 'team' },
           { org_id: 'org_b', name: 'Org B', status: 'suspended', user_count: 3, client_count: 4 },
         ],
       })
+    }
+    if (url.startsWith('/api/super-admin/organizations/')) {
+      // User role/status mutations (…/users/{uid}/role|status).
+      if (opts?.method === 'POST' && url.includes('/users/')) {
+        const body = JSON.parse(opts.body || '{}')
+        return Promise.resolve({ success: true, staff: { firebase_uid: 'm_a', ...body } })
+      }
+      // Org suspend / restore.
+      if (opts?.method === 'POST' && url.endsWith('/suspend')) {
+        return Promise.resolve({ success: true, org_id: 'org_a', status: 'suspended' })
+      }
+      if (opts?.method === 'POST' && url.endsWith('/restore')) {
+        return Promise.resolve({ success: true, org_id: 'org_a', status: 'active' })
+      }
+      // Org detail (GET).
+      return Promise.resolve(orgDetail)
     }
     return Promise.resolve({})
   })
@@ -708,5 +745,120 @@ describe('Owner Cockpit section navigation', () => {
     expect(container.querySelector('#billing')).toContainElement(screen.getByText('Billing & Stripe'))
     // System → Dev / System + Internal Team
     expect(container.querySelector('#system')).toContainElement(screen.getByText('Dev / System'))
+  })
+})
+
+describe('Owner Cockpit organizations management', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+    mockOwnerApi()
+  })
+
+  const openOrgA = async () => {
+    await screen.findByText('Ember HQ')
+    fireEvent.click(await screen.findByRole('button', { name: 'Open organization Org A' }))
+    return screen.findByRole('dialog')
+  }
+
+  it('renders a searchable, clickable organizations panel', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Ember HQ')
+    // Search field + both org rows present.
+    expect(screen.getByRole('searchbox', { name: 'Search organizations' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open organization Org A' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open organization Org B' })).toBeInTheDocument()
+  })
+
+  it('filters the organization list by search query', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Ember HQ')
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search organizations' }), {
+      target: { value: 'Org B' },
+    })
+    expect(screen.queryByRole('button', { name: 'Open organization Org A' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open organization Org B' })).toBeInTheDocument()
+  })
+
+  it('opens an org detail drawer with summary and staff list', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    const dialog = await openOrgA()
+    // Org summary + staff roster (emails) appear inside the drawer.
+    expect(within(dialog).getByRole('heading', { name: 'Org A' })).toBeInTheDocument()
+    expect(within(dialog).getByText('admin_a@a.test')).toBeInTheDocument()
+    expect(within(dialog).getByText('m_a@a.test')).toBeInTheDocument()
+  })
+
+  it('shows only a client COUNT and never a client detail list', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    const dialog = await openOrgA()
+    // Client count is surfaced…
+    expect(within(dialog).getByText('Clients')).toBeInTheDocument()
+    expect(within(dialog).getByText('7')).toBeInTheDocument()
+    // …but no client identifiers or PHI-style fields are present anywhere.
+    const blob = dialog.textContent.toLowerCase()
+    expect(blob).not.toContain('first_name')
+    expect(blob).not.toContain('date_of_birth')
+    expect(blob).not.toContain('diagnosis')
+    expect(blob).not.toContain('client_name')
+  })
+
+  it('labels billing/plan controls as read-only here', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    const dialog = await openOrgA()
+    expect(within(dialog).getByText(/read-only here/i)).toBeInTheDocument()
+  })
+
+  it('requires typed confirmation before suspending an org', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    const dialog = await openOrgA()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Suspend organization' }))
+    // A confirmation step appears requiring the SUSPEND keyword.
+    const confirmInput = within(dialog).getByRole('textbox', { name: /Type SUSPEND to confirm/i })
+    expect(confirmInput).toBeInTheDocument()
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Confirm suspend' })
+    // Disabled until the keyword is typed.
+    expect(confirmBtn).toBeDisabled()
+    fireEvent.change(confirmInput, { target: { value: 'SUSPEND' } })
+    expect(confirmBtn).not.toBeDisabled()
+    fireEvent.click(confirmBtn)
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/super-admin/organizations/org_a/suspend',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+  })
+
+  it('requires confirmation before disabling a user and can change roles', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    const dialog = await openOrgA()
+    // Disable is a two-step confirm.
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Disable' })[0])
+    const confirmBtn = within(dialog).getByRole('button', { name: 'Confirm disable' })
+    fireEvent.click(confirmBtn)
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledWith(
+        expect.stringMatching(/\/users\/[^/]+\/status$/),
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+    // Role change posts to the role endpoint.
+    fireEvent.change(within(dialog).getByRole('combobox', { name: 'Role for m_a@a.test' }), {
+      target: { value: 'org_admin' },
+    })
+    await waitFor(() => {
+      expect(apiCall).toHaveBeenCalledWith(
+        '/api/super-admin/organizations/org_a/users/m_a/role',
+        expect.objectContaining({ method: 'POST' }),
+      )
+    })
+  })
+
+  it('keeps Campaign Tracker, Support Queue, and Activation Controls present', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Ember HQ')
+    expect(screen.getByText('Marketing & Campaign Tracker')).toBeInTheDocument()
+    expect(screen.getByText('Support Queue')).toBeInTheDocument()
+    expect(screen.getByText('Activation Controls')).toBeInTheDocument()
   })
 })
