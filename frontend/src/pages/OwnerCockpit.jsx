@@ -367,6 +367,22 @@ const CAMPAIGN_STATUS_BADGE = {
   archived: 'bg-slate-500/10 text-slate-400',
 }
 
+// ── Organizations / user management (owner controls) ─────────────────────────
+const ORG_STATUS_BADGE = {
+  active: 'bg-emerald-500/15 text-emerald-200',
+  suspended: 'bg-red-500/15 text-red-200',
+}
+const USER_STATUS_BADGE = {
+  active: 'bg-emerald-500/15 text-emerald-200',
+  disabled: 'bg-slate-500/20 text-slate-300',
+}
+const ORG_ROLE_OPTIONS = [
+  { value: 'org_admin', label: 'Org admin' },
+  { value: 'member', label: 'Member' },
+]
+const ORG_ROLE_LABELS = { org_admin: 'Org admin', member: 'Member' }
+const orgRoleLabel = (role) => ORG_ROLE_LABELS[role] || (role ? String(role) : '—')
+
 // Honest helper copy shown next to the tracker — the exact UTM pattern to use.
 const UTM_HELPER_URL = '?utm_source=google&utm_medium=cpc&utm_campaign=launch_test'
 
@@ -813,6 +829,421 @@ function TicketDetailDrawer({ ticketId, onClose, onPatch }) {
             </>
           ) : (
             <p className="text-sm text-slate-400">Ticket not found.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Organizations panel (owner-only) ─────────────────────────────────────────
+// Searchable, clickable roster of customer organizations. Rows open the org
+// detail drawer; this panel itself stays read-only (no mutations).
+function OrganizationsPanel({ orgs, onOpen }) {
+  const [query, setQuery] = useState('')
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return orgs
+    return orgs.filter((org) => {
+      const haystack = `${org.name || ''} ${org.org_id || ''} ${org.status || ''} ${org.plan_code || ''}`.toLowerCase()
+      return haystack.includes(q)
+    })
+  }, [orgs, query])
+
+  const active = orgs.filter((org) => org.status !== 'suspended').length
+  const suspended = orgs.filter((org) => org.status === 'suspended').length
+
+  return (
+    <SectionCard icon={Building2} title="Organizations / Customers" eyebrow="Commercial" accent="from-violet-500/30 to-fuchsia-500/20">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-sm text-slate-400">Active organizations</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{active}</p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="text-sm text-slate-400">Suspended organizations</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{suspended}</p>
+        </div>
+      </div>
+
+      <label className="mt-4 block text-sm">
+        <span className="sr-only">Search organizations</span>
+        <input
+          type="search"
+          aria-label="Search organizations"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search by name, status, or plan"
+          className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+        />
+      </label>
+
+      {orgs.length === 0 ? (
+        <p className="mt-4 text-sm text-slate-400">No organizations yet.</p>
+      ) : filtered.length === 0 ? (
+        <p className="mt-4 text-sm text-slate-400">No organizations match “{query}”.</p>
+      ) : (
+        <ul className="mt-4 space-y-2">
+          {filtered.map((org) => {
+            const status = org.status || 'active'
+            return (
+              <li key={org.org_id}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(org.org_id)}
+                  aria-label={`Open organization ${org.name || org.org_id}`}
+                  className="group flex w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-left transition hover:bg-white/[0.06]"
+                >
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-2 font-medium text-white">
+                      <span className="truncate">{org.name || org.org_id}</span>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${ORG_STATUS_BADGE[status] || ORG_STATUS_BADGE.active}`}>
+                        {titleCaseWord(status)}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {org.user_count ?? 0} users · {org.client_count ?? 0} clients
+                      {org.plan_code ? ` · ${moduleLabel(org.plan_code)}` : ''}
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-500 transition group-hover:text-violet-200" />
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+
+      <p className="mt-4 text-sm text-slate-400">
+        Open an organization to review staff and apply safe owner controls. Client records stay private — only counts are shown.
+      </p>
+    </SectionCard>
+  )
+}
+
+const titleCaseWord = (value) => {
+  const s = String(value || '')
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : '—'
+}
+
+// ── Org detail drawer (owner-only) ───────────────────────────────────────────
+// Loads a single org's safe operational detail (summary, plan/billing status,
+// staff roster, client COUNT only) and exposes the safe owner controls:
+// suspend/restore the org, and change a staff member's role / enabled status.
+// Risky actions (suspend, disable) require an explicit confirmation step. No
+// client records, PHI, notes, or documents are ever requested or shown here.
+function OrgDetailDrawer({ orgId, onClose, onSuspend, onRestore, onUserRole, onUserStatus }) {
+  const [detail, setDetail] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
+  const [busyUid, setBusyUid] = useState(null)
+  const [orgBusy, setOrgBusy] = useState(false)
+  const [feedback, setFeedback] = useState(null) // { type, message }
+  // Risky-action confirmation: { kind: 'suspend' | 'disable', uid? }.
+  const [confirm, setConfirm] = useState(null)
+  const [confirmText, setConfirmText] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError('')
+    apiCall(`/api/super-admin/organizations/${orgId}`)
+      .then((data) => {
+        if (!cancelled) setDetail(data)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err?.message || 'Failed to load organization detail.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [orgId, reload])
+
+  // Close on Escape for keyboard users.
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const org = detail?.organization
+  const status = org?.status || 'active'
+  const billing = detail?.billing || {}
+  const staff = detail?.staff || []
+
+  const refresh = () => setReload((n) => n + 1)
+
+  const runOrgStatus = async (next) => {
+    setOrgBusy(true)
+    setFeedback(null)
+    try {
+      if (next === 'suspended') await onSuspend(orgId, true)
+      else await onRestore(orgId)
+      setConfirm(null)
+      setConfirmText('')
+      refresh()
+      setFeedback({ type: 'success', message: next === 'suspended' ? 'Organization suspended.' : 'Organization restored.' })
+    } catch (err) {
+      setFeedback({ type: 'error', message: err?.message || 'Action failed. Please try again.' })
+    } finally {
+      setOrgBusy(false)
+    }
+  }
+
+  const runUserRole = async (uid, role) => {
+    setBusyUid(uid)
+    setFeedback(null)
+    try {
+      await onUserRole(orgId, uid, role)
+      refresh()
+      setFeedback({ type: 'success', message: 'Role updated.' })
+    } catch (err) {
+      setFeedback({ type: 'error', message: err?.message || 'Role change failed.' })
+    } finally {
+      setBusyUid(null)
+    }
+  }
+
+  const runUserStatus = async (uid, next) => {
+    setBusyUid(uid)
+    setFeedback(null)
+    try {
+      await onUserStatus(orgId, uid, next)
+      setConfirm(null)
+      refresh()
+      setFeedback({ type: 'success', message: next === 'disabled' ? 'User disabled.' : 'User enabled.' })
+    } catch (err) {
+      setFeedback({ type: 'error', message: err?.message || 'Status change failed.' })
+    } finally {
+      setBusyUid(null)
+    }
+  }
+
+  const isSuspended = status === 'suspended'
+  const suspendConfirmReady = confirmText.trim().toUpperCase() === 'SUSPEND'
+
+  return (
+    <div className="fixed inset-0 z-[60] flex justify-end">
+      <button
+        type="button"
+        aria-label="Close organization detail"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="org-detail-title"
+        className="relative flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-white/10 bg-slate-950 shadow-2xl shadow-black/50"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Organization</p>
+            <h2 id="org-detail-title" className="mt-1 truncate text-lg font-semibold text-white">
+              {org?.name || orgId}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-xl border border-white/10 bg-white/[0.04] p-1.5 text-slate-300 transition hover:bg-white/[0.1]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="flex-1 space-y-5 px-5 py-5">
+          {loading ? (
+            <p className="text-sm text-slate-400">Loading organization…</p>
+          ) : error ? (
+            <p role="status" className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+              {error}
+            </p>
+          ) : org ? (
+            <>
+              {feedback ? (
+                <p
+                  role="status"
+                  className={`rounded-xl border px-3 py-2 text-sm ${
+                    feedback.type === 'success'
+                      ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+                      : 'border-red-400/30 bg-red-500/10 text-red-100'
+                  }`}
+                >
+                  {feedback.message}
+                </p>
+              ) : null}
+
+              <div className="grid grid-cols-2 gap-4">
+                <DetailField label="Status">
+                  <span className={`inline-block rounded-full px-2 py-0.5 text-xs ${ORG_STATUS_BADGE[status] || ORG_STATUS_BADGE.active}`}>
+                    {titleCaseWord(status)}
+                  </span>
+                </DetailField>
+                <DetailField label="Type">{org.org_type ? moduleLabel(org.org_type) : '—'}</DetailField>
+                <DetailField label="Plan">{billing.plan_code ? moduleLabel(billing.plan_code) : (org.subscription?.plan ? moduleLabel(org.subscription.plan) : '—')}</DetailField>
+                <DetailField label="Billing status">{billing.billing_status ? titleCaseWord(billing.billing_status) : 'Not configured'}</DetailField>
+                <DetailField label="Clients">{detail?.client_count ?? 0}</DetailField>
+                <DetailField label="Staff">{staff.length}</DetailField>
+                <DetailField label="Pending invites">{detail?.pending_invites ?? 0}</DetailField>
+                <DetailField label="Created">{formatFullTime(org.created_at)}</DetailField>
+                <DetailField label="Updated">{formatFullTime(org.updated_at)}</DetailField>
+              </div>
+
+              <div className="flex items-start gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-xs text-slate-300">
+                <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" />
+                <p>Billing & plan changes are read-only here — use Super Admin for manual billing overrides. Client records are never shown; only counts.</p>
+              </div>
+
+              {/* Org-level controls */}
+              <div className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Organization controls</p>
+                {isSuspended ? (
+                  <button
+                    type="button"
+                    onClick={() => runOrgStatus('active')}
+                    disabled={orgBusy}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-100 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                  >
+                    {orgBusy ? 'Working…' : 'Restore organization'}
+                  </button>
+                ) : confirm?.kind === 'suspend' ? (
+                  <div className="space-y-2 rounded-xl border border-red-400/30 bg-red-500/10 p-3">
+                    <p className="text-sm text-red-100">
+                      Suspending blocks every member of this org from signing in. Type <span className="font-semibold">SUSPEND</span> to confirm.
+                    </p>
+                    <input
+                      type="text"
+                      aria-label="Type SUSPEND to confirm"
+                      value={confirmText}
+                      onChange={(event) => setConfirmText(event.target.value)}
+                      placeholder="SUSPEND"
+                      className="w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white placeholder:text-slate-500"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => runOrgStatus('suspended')}
+                        disabled={orgBusy || !suspendConfirmReady}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-500/80 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
+                      >
+                        {orgBusy ? 'Suspending…' : 'Confirm suspend'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setConfirm(null); setConfirmText('') }}
+                        disabled={orgBusy}
+                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white transition hover:bg-white/[0.08]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { setConfirm({ kind: 'suspend' }); setConfirmText('') }}
+                    disabled={orgBusy}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-2 text-sm font-medium text-red-100 transition hover:bg-red-500/20 disabled:opacity-50"
+                  >
+                    Suspend organization
+                  </button>
+                )}
+              </div>
+
+              {/* Staff roster + per-user controls */}
+              <div className="space-y-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Staff & users</p>
+                {staff.length === 0 ? (
+                  <p className="text-sm text-slate-400">No staff in this organization.</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {staff.map((member) => {
+                      const memberStatus = member.status || (member.is_active ? 'active' : 'disabled')
+                      const busy = busyUid === member.firebase_uid
+                      const confirmingDisable = confirm?.kind === 'disable' && confirm.uid === member.firebase_uid
+                      return (
+                        <li key={member.firebase_uid} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate font-medium text-white">{member.full_name || member.email}</p>
+                              <p className="truncate text-xs text-slate-400">{member.email}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs ${USER_STATUS_BADGE[memberStatus] || USER_STATUS_BADGE.active}`}>
+                              {titleCaseWord(memberStatus)}
+                            </span>
+                          </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <label className="text-xs text-slate-400">
+                              <span className="sr-only">Role for {member.email}</span>
+                              <select
+                                aria-label={`Role for ${member.email}`}
+                                value={member.org_role || 'member'}
+                                disabled={busy}
+                                onChange={(event) => runUserRole(member.firebase_uid, event.target.value)}
+                                className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white"
+                              >
+                                {ORG_ROLE_OPTIONS.map((opt) => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                              </select>
+                            </label>
+                            {memberStatus === 'disabled' ? (
+                              <button
+                                type="button"
+                                onClick={() => runUserStatus(member.firebase_uid, 'active')}
+                                disabled={busy}
+                                className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-100 transition hover:bg-emerald-500/20 disabled:opacity-50"
+                              >
+                                {busy ? 'Working…' : 'Enable'}
+                              </button>
+                            ) : confirmingDisable ? (
+                              <span className="inline-flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => runUserStatus(member.firebase_uid, 'disabled')}
+                                  disabled={busy}
+                                  className="rounded-lg bg-red-500/80 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-500 disabled:opacity-50"
+                                >
+                                  {busy ? 'Disabling…' : 'Confirm disable'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirm(null)}
+                                  disabled={busy}
+                                  className="rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white transition hover:bg-white/[0.08]"
+                                >
+                                  Cancel
+                                </button>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setConfirm({ kind: 'disable', uid: member.firebase_uid })}
+                                disabled={busy}
+                                className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-100 transition hover:bg-red-500/20 disabled:opacity-50"
+                              >
+                                Disable
+                              </button>
+                            )}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-slate-400">Organization not found.</p>
           )}
         </div>
       </div>
@@ -1483,6 +1914,8 @@ function OwnerCockpit() {
   const [marketing, setMarketing] = useState(null)
   const [campaigns, setCampaigns] = useState([])
   const [marketingRefresh, setMarketingRefresh] = useState(0)
+  const [orgsRefresh, setOrgsRefresh] = useState(0)
+  const [orgDetailId, setOrgDetailId] = useState(null)
   const [openTicketId, setOpenTicketId] = useState(null)
   const [checklistKey, setChecklistKey] = useState(null)
   const [toast, setToast] = useState(null)
@@ -1500,7 +1933,8 @@ function OwnerCockpit() {
 
   const pushToast = (message, type = 'success') => setToast({ id: Date.now(), message, type })
 
-  // Platform overview + org roster: point-in-time, loaded once on mount.
+  // Platform overview: point-in-time, loaded once on mount. Controls the
+  // page-level loading / error state.
   useEffect(() => {
     let cancelled = false
 
@@ -1508,14 +1942,8 @@ function OwnerCockpit() {
       setLoading(true)
       setError('')
       try {
-        const [overviewData, orgData] = await Promise.all([
-          apiCall('/api/super-admin/overview'),
-          apiCall('/api/super-admin/organizations'),
-        ])
-        if (!cancelled) {
-          setOverview(overviewData)
-          setOrgs(orgData.organizations || [])
-        }
+        const overviewData = await apiCall('/api/super-admin/overview')
+        if (!cancelled) setOverview(overviewData)
       } catch (err) {
         if (!cancelled) {
           setError(err?.message || 'Failed to load owner cockpit data.')
@@ -1532,6 +1960,22 @@ function OwnerCockpit() {
       cancelled = true
     }
   }, [])
+
+  // Org roster: refetched after any org/user mutation. Additive — a failure
+  // never blocks the rest of the cockpit (renders the empty state).
+  useEffect(() => {
+    let cancelled = false
+    apiCall('/api/super-admin/organizations')
+      .then((data) => {
+        if (!cancelled) setOrgs(data.organizations || [])
+      })
+      .catch(() => {
+        if (!cancelled) setOrgs([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [orgsRefresh])
 
   // Analytics summary: refetched whenever the time window changes. Additive —
   // a failure never blocks the rest of the cockpit.
@@ -1631,6 +2075,68 @@ function OwnerCockpit() {
       return res
     } catch (err) {
       pushToast(err?.message || 'Update failed', 'error')
+      throw err
+    }
+  }
+
+  // ── Owner org/user management handlers ────────────────────────────────────
+  // Each mutates via the existing super-admin endpoints, refreshes the roster,
+  // and surfaces a toast. They rethrow so the drawer can show inline feedback.
+  const reloadOrgs = () => setOrgsRefresh((n) => n + 1)
+
+  const suspendOrg = async (orgId, confirm = false) => {
+    try {
+      const res = await apiCall(`/api/super-admin/organizations/${orgId}/suspend`, {
+        method: 'POST',
+        body: JSON.stringify({ confirm }),
+      })
+      reloadOrgs()
+      pushToast('Organization suspended', 'success')
+      return res
+    } catch (err) {
+      pushToast(err?.message || 'Suspend failed', 'error')
+      throw err
+    }
+  }
+
+  const restoreOrg = async (orgId) => {
+    try {
+      const res = await apiCall(`/api/super-admin/organizations/${orgId}/restore`, { method: 'POST' })
+      reloadOrgs()
+      pushToast('Organization restored', 'success')
+      return res
+    } catch (err) {
+      pushToast(err?.message || 'Restore failed', 'error')
+      throw err
+    }
+  }
+
+  const setUserRole = async (orgId, firebaseUid, role) => {
+    try {
+      const res = await apiCall(`/api/super-admin/organizations/${orgId}/users/${firebaseUid}/role`, {
+        method: 'POST',
+        body: JSON.stringify({ role }),
+      })
+      reloadOrgs()
+      pushToast('Role updated', 'success')
+      return res
+    } catch (err) {
+      pushToast(err?.message || 'Role change failed', 'error')
+      throw err
+    }
+  }
+
+  const setUserStatus = async (orgId, firebaseUid, status) => {
+    try {
+      const res = await apiCall(`/api/super-admin/organizations/${orgId}/users/${firebaseUid}/status`, {
+        method: 'POST',
+        body: JSON.stringify({ status }),
+      })
+      reloadOrgs()
+      pushToast(status === 'disabled' ? 'User disabled' : 'User enabled', 'success')
+      return res
+    } catch (err) {
+      pushToast(err?.message || 'Status change failed', 'error')
       throw err
     }
   }
@@ -1922,21 +2428,7 @@ function OwnerCockpit() {
               </div>
             </SectionCard>
 
-            <SectionCard icon={Building2} title="Organizations / Customers" eyebrow="Commercial" accent="from-violet-500/30 to-fuchsia-500/20">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-sm text-slate-400">Active organizations</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">{orgSummary.active}</p>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <p className="text-sm text-slate-400">Suspended organizations</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">{orgSummary.suspended}</p>
-                </div>
-              </div>
-              <p className="mt-4 text-sm text-slate-400">
-                Customer operations stay read-only here. Use Super Admin for organization-level review and manual controls.
-              </p>
-            </SectionCard>
+            <OrganizationsPanel orgs={orgs} onOpen={setOrgDetailId} />
 
             <SectionCard icon={Server} title="Dev / System" eyebrow="Engineering" accent="from-sky-500/30 to-cyan-500/20">
               <div className="space-y-3">
@@ -1984,6 +2476,17 @@ function OwnerCockpit() {
 
         {loading ? <p className="text-sm text-slate-500">Loading owner cockpit data...</p> : null}
       </div>
+
+      {orgDetailId != null ? (
+        <OrgDetailDrawer
+          orgId={orgDetailId}
+          onClose={() => setOrgDetailId(null)}
+          onSuspend={suspendOrg}
+          onRestore={restoreOrg}
+          onUserRole={setUserRole}
+          onUserStatus={setUserStatus}
+        />
+      ) : null}
 
       {openTicketId != null ? (
         <TicketDetailDrawer

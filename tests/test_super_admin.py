@@ -174,3 +174,98 @@ def test_suspended_org_blocks_guarded_access(env):
     assert e.value.status_code == 403
     # The default org is never treated as suspended (lockout guard).
     assert svc.is_org_suspended(DEFAULT_ORG_ID) is False
+
+
+# ── Owner-side user management (role + status) ───────────────────────────────
+
+def _role_url(env, uid):
+    return f"/api/super-admin/organizations/{env['oa']}/users/{uid}/role"
+
+
+def _status_url(env, uid):
+    return f"/api/super-admin/organizations/{env['oa']}/users/{uid}/status"
+
+
+def test_user_mutations_require_super_admin(env):
+    c = env["client"]
+    # Unauthenticated → 401.
+    env["holder"]["user"] = None
+    assert c.post(_role_url(env, "m_a"), json={"role": "org_admin"}).status_code == 401
+    assert c.post(_status_url(env, "m_a"), json={"status": "disabled"}).status_code == 401
+    # Org admin (not platform owner) → 403.
+    env["as_user"]("admin_a")
+    assert c.post(_role_url(env, "m_a"), json={"role": "org_admin"}).status_code == 403
+    assert c.post(_status_url(env, "m_a"), json={"status": "disabled"}).status_code == 403
+
+
+def test_super_admin_changes_user_role(env):
+    c = env["client"]
+    env["as_super"]()
+    # Promote member → org_admin.
+    body = c.post(_role_url(env, "m_a"), json={"role": "org_admin"}).json()
+    assert body["success"] is True
+    assert body["staff"]["org_role"] == "org_admin"
+    assert env["svc"].get_profile_by_uid("m_a").org_role == "org_admin"
+    # Demote back to member (now two admins exist, so this is allowed).
+    body = c.post(_role_url(env, "m_a"), json={"role": "member"}).json()
+    assert body["staff"]["org_role"] == "member"
+
+
+def test_super_admin_changes_user_status(env):
+    c = env["client"]
+    env["as_super"]()
+    disabled = c.post(_status_url(env, "m_a"), json={"status": "disabled"}).json()
+    assert disabled["staff"]["status"] == "disabled"
+    assert env["svc"].get_profile_by_uid("m_a").is_active is False
+    enabled = c.post(_status_url(env, "m_a"), json={"status": "active"}).json()
+    assert enabled["staff"]["status"] == "active"
+    assert env["svc"].get_profile_by_uid("m_a").is_active is True
+
+
+def test_invalid_role_and_status_rejected(env):
+    c = env["client"]
+    env["as_super"]()
+    assert c.post(_role_url(env, "m_a"), json={"role": "superuser"}).status_code == 422
+    assert c.post(_status_url(env, "m_a"), json={"status": "deleted"}).status_code == 422
+
+
+def test_last_org_admin_protected(env):
+    """admin_a is Org A's only active org admin — neither demotion nor disable
+    may strip the org of its last admin."""
+    c = env["client"]
+    env["as_super"]()
+    assert c.post(_role_url(env, "admin_a"), json={"role": "member"}).status_code == 400
+    assert c.post(_status_url(env, "admin_a"), json={"status": "disabled"}).status_code == 400
+    # admin_a remains an active org admin.
+    assert env["svc"].get_profile_by_uid("admin_a").org_role == ORG_ADMIN_ROLE
+    assert env["svc"].get_profile_by_uid("admin_a").is_active is True
+
+
+def test_owner_actions_audit_is_safe(env):
+    """Owner org/user actions are recorded as safe enum metadata — no PHI, with
+    the acting owner's email and only the new status/role as detail."""
+    c = env["client"]
+    env["as_super"]()
+    c.post(f"/api/super-admin/organizations/{env['ob']}/suspend", json={})
+    c.post(_role_url(env, "m_a"), json={"role": "org_admin"})
+    c.post(_status_url(env, "m_a"), json={"status": "disabled"})
+
+    body = c.get("/api/super-admin/owner-actions").json()
+    assert body["success"] is True
+    actions = body["actions"]
+    kinds = {a["action"] for a in actions}
+    assert {"owner_org_status_changed", "owner_user_role_changed", "owner_user_status_changed"} <= kinds
+    # Every event carries the acting owner and a SAFE enum detail, never PHI.
+    for a in actions:
+        assert a["actor_email"] == SUPER_EMAIL
+        assert a["detail"] in ("suspended", "active", "org_admin", "member", "disabled", None)
+    assert not any(k in json.dumps(body).lower() for k in PHI_KEYS)
+
+
+def test_user_mutations_return_no_client_details(env):
+    c = env["client"]
+    env["as_super"]()
+    role_body = c.post(_role_url(env, "m_a"), json={"role": "org_admin"}).json()
+    status_body = c.post(_status_url(env, "m_a"), json={"status": "disabled"}).json()
+    blob = (json.dumps(role_body) + json.dumps(status_body)).lower()
+    assert not any(k in blob for k in PHI_KEYS)

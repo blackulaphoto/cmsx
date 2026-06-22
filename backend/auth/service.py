@@ -30,6 +30,12 @@ CASE_MANAGER_ROLE = "case_manager"
 ALLOWED_ROLES = {ADMIN_ROLE, CASE_MANAGER_ROLE}
 ORG_ADMIN_ROLE = "org_admin"
 ORG_MEMBER_ROLE = "member"
+# Owner-action audit event types (safe enums — never free text).
+OWNER_ACTION_ORG_STATUS_CHANGED = "owner_org_status_changed"
+OWNER_ACTION_USER_ROLE_CHANGED = "owner_user_role_changed"
+OWNER_ACTION_USER_STATUS_CHANGED = "owner_user_status_changed"
+# Allowlisted account statuses for owner-side user mutations.
+STAFF_STATUSES = ("active", "disabled")
 BOOTSTRAP_ADMIN_EMAILS = {"blackulaphotography@gmail.com"}
 # Platform owner / super-admin allowlist — DISTINCT from org admins. Only these
 # accounts may reach the Super Admin Panel. Extend via PLATFORM_SUPER_ADMIN_EMAILS
@@ -212,6 +218,32 @@ class FirebaseAuthService:
                 conn.execute("ALTER TABLE invites ADD COLUMN cancelled_at TEXT")
             if "invited_name" not in invite_columns:
                 conn.execute("ALTER TABLE invites ADD COLUMN invited_name TEXT")
+
+            # ── Owner-action audit log (platform super-admin) ───────────────
+            # A tiny, safe trail of owner-side org/user management actions.
+            # Carries only the action type, a target type/id (org_id or
+            # firebase_uid — not PHI), the acting owner's email, and a SAFE
+            # enum detail (the new status/role value — never free text, names,
+            # notes, or client data). Consistent with the support owner-action
+            # audit pattern.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS owner_admin_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    action TEXT NOT NULL,
+                    target_type TEXT NOT NULL,
+                    target_id TEXT,
+                    org_id TEXT,
+                    actor_email TEXT,
+                    detail TEXT,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_owner_admin_events_created_at"
+                " ON owner_admin_events(created_at)"
+            )
 
             conn.commit()
             self._seed_default_org(conn)
@@ -900,6 +932,26 @@ class FirebaseAuthService:
             conn.commit()
         return {"firebase_uid": target_uid, "is_active": False, "status": "disabled"}
 
+    def set_staff_status(self, org_id: str, target_uid: str, status: str) -> Dict[str, Any]:
+        """Enable or disable a staff member's account (no physical delete).
+
+        ``status`` is allowlisted to active/disabled. Disabling preserves the
+        last-active-org-admin protection (an org can never be left without an
+        admin). Used by the platform super-admin owner controls."""
+        new_status = (status or "").strip().lower()
+        if new_status not in STAFF_STATUSES:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        if new_status == "disabled":
+            return self.disable_staff(org_id, target_uid)
+        with self._connect() as conn:
+            self._staff_in_org(conn, org_id, target_uid)
+            conn.execute(
+                "UPDATE user_profiles SET is_active = 1, updated_at = ? WHERE firebase_uid = ? AND org_id = ?",
+                (datetime.utcnow().isoformat(), target_uid, org_id),
+            )
+            conn.commit()
+        return {"firebase_uid": target_uid, "is_active": True, "status": "active"}
+
     # ── Platform super-admin (owner command center) ─────────────────────────
     #
     # Super-admin is an email allowlist, deliberately separate from org/app admin
@@ -1057,6 +1109,70 @@ class FirebaseAuthService:
             conn.commit()
         logger.info("SUPER-ADMIN: org %s status set to %s", org_id, new_status)
         return {"org_id": org_id, "status": new_status}
+
+    # ── Owner-action audit log (platform super-admin) ───────────────────────
+    #
+    # A small, safe trail of owner-side org/user management actions. By design
+    # it carries no free text — only the action type, a target type/id (org_id
+    # or firebase_uid, which are not PHI), the acting owner's email, and a SAFE
+    # enum detail (the new status/role). Never logs names, notes, or client data.
+
+    def record_owner_admin_action(
+        self,
+        action: str,
+        *,
+        target_type: str,
+        target_id: Optional[str] = None,
+        org_id: Optional[str] = None,
+        actor_email: Optional[str] = None,
+        detail: Optional[str] = None,
+    ) -> None:
+        """Append one safe owner-action audit event. ``detail`` is expected to be
+        a safe enum value (status/role) or None — never free text. Best-effort:
+        an audit failure must never break the underlying owner action."""
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO owner_admin_events (action, target_type, target_id,"
+                    " org_id, actor_email, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(action)[:64],
+                        str(target_type)[:32],
+                        (str(target_id)[:128] if target_id is not None else None),
+                        (str(org_id)[:128] if org_id is not None else None),
+                        (str(actor_email)[:200] if actor_email is not None else None),
+                        (str(detail)[:64] if detail is not None else None),
+                        datetime.utcnow().isoformat(),
+                    ),
+                )
+                conn.commit()
+        except Exception:  # noqa: BLE001 — audit write is best-effort
+            logger.warning("Failed to record owner admin action %s", action, exc_info=True)
+
+    def recent_owner_admin_actions(self, *, limit: int = 50) -> list:
+        """Newest-first owner-action audit events. Safe by construction — carries
+        no names, notes, or client data, only action/target/enum metadata."""
+        try:
+            with self._connect() as conn:
+                rows = conn.execute(
+                    "SELECT action, target_type, target_id, org_id, actor_email, detail, created_at"
+                    " FROM owner_admin_events ORDER BY id DESC LIMIT ?",
+                    (int(limit),),
+                ).fetchall()
+            return [
+                {
+                    "action": r["action"],
+                    "target_type": r["target_type"],
+                    "target_id": r["target_id"],
+                    "org_id": r["org_id"],
+                    "actor_email": r["actor_email"],
+                    "detail": r["detail"],
+                    "created_at": r["created_at"],
+                }
+                for r in rows
+            ]
+        except Exception:  # noqa: BLE001 — audit read is best-effort
+            return []
 
     # ── Billing + plan limits (internal model; Stripe-disabled) ─────────────
     #
