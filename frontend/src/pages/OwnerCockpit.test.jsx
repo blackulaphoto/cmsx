@@ -642,3 +642,71 @@ describe('Owner Cockpit marketing campaign tracker', () => {
     expect(EMPTY_MARKETING.ad_platforms_connected).toBe(false)
   })
 })
+
+describe('Owner Cockpit section navigation', () => {
+  beforeEach(() => {
+    useAuth.mockReturnValue({ ...BASE, isSuperAdmin: true })
+    mockOwnerApi()
+  })
+
+  const SECTIONS = [
+    ['Overview', 'overview'],
+    ['Growth', 'growth'],
+    ['Support', 'support'],
+    ['Billing', 'billing'],
+    ['System', 'system'],
+  ]
+
+  it('renders the five cockpit section nav buttons', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Ember HQ')
+    const nav = screen.getByRole('navigation', { name: /Owner HQ sections/i })
+    expect(nav).toBeInTheDocument()
+    SECTIONS.forEach(([label]) => {
+      expect(screen.getByRole('button', { name: `Jump to ${label}` })).toBeInTheDocument()
+    })
+  })
+
+  it('renders an anchored section group for each nav target', async () => {
+    const { container } = render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Ember HQ')
+    SECTIONS.forEach(([label, id]) => {
+      const section = container.querySelector(`#${id}`)
+      expect(section).toBeTruthy()
+      // Each group exposes a heading matching its label.
+      expect(screen.getByRole('heading', { name: label })).toBeInTheDocument()
+    })
+  })
+
+  it('jumps to a section without error when a nav button is clicked', async () => {
+    const { container } = render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Ember HQ')
+    // scrollIntoView is guarded, so this must not throw even in jsdom.
+    fireEvent.click(screen.getByRole('button', { name: 'Jump to Growth' }))
+    expect(container.querySelector('#growth')).toBeTruthy()
+    expect(screen.getByText('Marketing & Campaign Tracker')).toBeInTheDocument()
+  })
+
+  it('provides a Back to top control', async () => {
+    render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Ember HQ')
+    const backToTop = screen.getAllByRole('button', { name: 'Back to top' })
+    expect(backToTop.length).toBeGreaterThan(0)
+    // Clicking it must not throw (window.scrollTo is guarded).
+    fireEvent.click(backToTop[0])
+  })
+
+  it('keeps each group’s key content within its section', async () => {
+    const { container } = render(<MemoryRouter><OwnerCockpit /></MemoryRouter>)
+    await screen.findByText('Ember HQ')
+    // Growth → Campaign Tracker
+    expect(container.querySelector('#growth')).toContainElement(screen.getByText('Marketing & Campaign Tracker'))
+    // Support → Support Queue
+    expect(container.querySelector('#support')).toContainElement(screen.getByText('Support Queue'))
+    // Billing → Activation Controls + Billing & Stripe
+    expect(container.querySelector('#billing')).toContainElement(screen.getByText('Activation Controls'))
+    expect(container.querySelector('#billing')).toContainElement(screen.getByText('Billing & Stripe'))
+    // System → Dev / System + Internal Team
+    expect(container.querySelector('#system')).toContainElement(screen.getByText('Dev / System'))
+  })
+})

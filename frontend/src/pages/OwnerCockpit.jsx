@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  ArrowUp,
   BarChart3,
   Building2,
   CheckCircle2,
@@ -1389,6 +1390,90 @@ function CampaignTracker({ summary, campaigns, onCreate, onUpdate }) {
   )
 }
 
+// ── Section navigation + grouping ────────────────────────────────────────────
+// Five cockpit sections. Each id matches an OwnerGroup below so the sticky nav can
+// jump to it. Pure layout — no data, no behavior change.
+const OWNER_SECTIONS = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'growth', label: 'Growth' },
+  { id: 'support', label: 'Support' },
+  { id: 'billing', label: 'Billing' },
+  { id: 'system', label: 'System' },
+]
+
+// Smooth-scroll to a section by id. Guarded so it is a no-op where scrollIntoView
+// is unavailable (e.g. jsdom in tests) instead of throwing.
+function scrollToSection(id) {
+  if (typeof document === 'undefined') return
+  const el = document.getElementById(id)
+  if (!el) return
+  try {
+    if (typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  } catch {
+    /* scrollIntoView unsupported in this environment — safe no-op */
+  }
+}
+
+function scrollToTop() {
+  if (typeof window === 'undefined') return
+  try {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  } catch {
+    /* unsupported — safe no-op */
+  }
+}
+
+function SectionNav() {
+  return (
+    <nav
+      aria-label="Owner HQ sections"
+      className="sticky top-2 z-30 rounded-2xl border border-white/10 bg-slate-950/80 px-2 py-2 shadow-lg shadow-black/30 backdrop-blur"
+    >
+      <ul className="flex flex-wrap items-center gap-1.5">
+        {OWNER_SECTIONS.map((section) => (
+          <li key={section.id}>
+            <button
+              type="button"
+              onClick={() => scrollToSection(section.id)}
+              aria-label={`Jump to ${section.label}`}
+              className="rounded-xl px-3.5 py-1.5 text-sm font-medium text-slate-300 transition hover:bg-white/[0.08] hover:text-white"
+            >
+              {section.label}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+// A titled, anchored group. ``scroll-mt-24`` keeps the sticky nav from covering
+// the header when jumped to. Children are the existing cards, unchanged.
+function OwnerGroup({ id, eyebrow, title, description, children }) {
+  return (
+    <section id={id} aria-labelledby={`${id}-heading`} className="scroll-mt-24 space-y-5">
+      <div className="flex items-end justify-between gap-4 border-b border-white/10 pb-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-amber-200/80">{eyebrow}</p>
+          <h2 id={`${id}-heading`} className="mt-1 text-2xl font-semibold tracking-tight text-white">{title}</h2>
+          {description ? <p className="mt-1 max-w-2xl text-sm text-slate-400">{description}</p> : null}
+        </div>
+        <button
+          type="button"
+          onClick={scrollToTop}
+          aria-label="Back to top"
+          className="hidden shrink-0 items-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-slate-300 transition hover:bg-white/[0.08] hover:text-white sm:inline-flex"
+        >
+          <ArrowUp className="h-3.5 w-3.5" /> Top
+        </button>
+      </div>
+      {children}
+    </section>
+  )
+}
+
 function OwnerCockpit() {
   const [overview, setOverview] = useState(null)
   const [orgs, setOrgs] = useState([])
@@ -1646,137 +1731,147 @@ function OwnerCockpit() {
           <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error}</div>
         ) : null}
 
-        <div className="flex flex-col gap-3 rounded-[24px] border border-white/10 bg-slate-950/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-slate-300">
-              <BarChart3 className="h-4 w-4" />
-            </span>
-            <div>
-              <p className="text-sm font-medium text-white">{formatNumber(totalEvents)} tracked events</p>
-              <p className="text-xs text-slate-400">Usage, marketing, and activity below reflect the selected window.</p>
+        <SectionNav />
+
+        {/* ── Overview ──────────────────────────────────────────────────── */}
+        <OwnerGroup
+          id="overview"
+          eyebrow="Platform"
+          title="Overview"
+          description="Org, user, client, and revenue posture with product-usage analytics for the selected window."
+        >
+          <div className="flex flex-col gap-3 rounded-[24px] border border-white/10 bg-slate-950/60 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/[0.05] text-slate-300">
+                <BarChart3 className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-sm font-medium text-white">{formatNumber(totalEvents)} tracked events</p>
+                <p className="text-xs text-slate-400">Usage, marketing, and activity below reflect the selected window.</p>
+              </div>
+            </div>
+            <div className="inline-flex items-center gap-1 rounded-2xl border border-white/10 bg-black/20 p-1" role="group" aria-label="Time window">
+              {WINDOW_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setWindowSel(opt.value)}
+                  aria-pressed={windowSel === opt.value}
+                  className={`rounded-xl px-3 py-1.5 text-sm transition ${
+                    windowSel === opt.value
+                      ? 'bg-amber-500/20 text-amber-100'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
-          <div className="inline-flex items-center gap-1 rounded-2xl border border-white/10 bg-black/20 p-1" role="group" aria-label="Time window">
-            {WINDOW_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                onClick={() => setWindowSel(opt.value)}
-                aria-pressed={windowSel === opt.value}
-                className={`rounded-xl px-3 py-1.5 text-sm transition ${
-                  windowSel === opt.value
-                    ? 'bg-amber-500/20 text-amber-100'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <MetricCard icon={Building2} label="Organizations" value={analytics?.total_orgs ?? overview?.total_orgs ?? '—'} hint={`${analytics?.active_orgs ?? orgSummary.active} active, ${analytics?.suspended_orgs ?? orgSummary.suspended} suspended`} />
-          <MetricCard icon={Users} label="Users" value={analytics?.total_users ?? overview?.total_users ?? '—'} hint={`${analytics?.active_users ?? overview?.active_users ?? 0} active users`} />
-          <MetricCard icon={ShieldCheck} label="Clients" value={analytics?.total_clients ?? overview?.total_clients ?? '—'} hint="Read-only platform total" />
-          <MetricCard icon={DollarSign} label="Estimated MRR" value={formatCurrency(estimatedMrr)} hint="From internal plan fields — not Stripe" />
-        </section>
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <MetricCard icon={Building2} label="Organizations" value={analytics?.total_orgs ?? overview?.total_orgs ?? '—'} hint={`${analytics?.active_orgs ?? orgSummary.active} active, ${analytics?.suspended_orgs ?? orgSummary.suspended} suspended`} />
+            <MetricCard icon={Users} label="Users" value={analytics?.total_users ?? overview?.total_users ?? '—'} hint={`${analytics?.active_users ?? overview?.active_users ?? 0} active users`} />
+            <MetricCard icon={ShieldCheck} label="Clients" value={analytics?.total_clients ?? overview?.total_clients ?? '—'} hint="Read-only platform total" />
+            <MetricCard icon={DollarSign} label="Estimated MRR" value={formatCurrency(estimatedMrr)} hint="From internal plan fields — not Stripe" />
+          </section>
 
-        <section className="grid gap-6 xl:grid-cols-2">
-          <SectionCard icon={Layers} title="Plan Breakdown" eyebrow="Revenue mix" accent="from-amber-500/30 to-orange-500/20">
-            <CountRows rows={analyticsRows.planRows} emptyLabel="No plan data yet" />
-            <p className="mt-4 text-sm text-slate-400">
-              Estimated MRR <span className="font-semibold text-white">{formatCurrency(estimatedMrr)}</span> from internal plan fields only. Stripe is dormant and never queried.
-            </p>
-          </SectionCard>
+          <section className="grid gap-6 xl:grid-cols-2">
+            <SectionCard icon={Layers} title="Plan Breakdown" eyebrow="Revenue mix" accent="from-amber-500/30 to-orange-500/20">
+              <CountRows rows={analyticsRows.planRows} emptyLabel="No plan data yet" />
+              <p className="mt-4 text-sm text-slate-400">
+                Estimated MRR <span className="font-semibold text-white">{formatCurrency(estimatedMrr)}</span> from internal plan fields only. Stripe is dormant and never queried.
+              </p>
+            </SectionCard>
 
-          <SectionCard icon={CreditCard} title="Billing Status" eyebrow="Lifecycle" accent="from-emerald-500/30 to-teal-500/20">
-            <CountRows rows={analyticsRows.statusRows} emptyLabel="No billing status data yet" />
-          </SectionCard>
+            <SectionCard icon={CreditCard} title="Billing Status" eyebrow="Lifecycle" accent="from-emerald-500/30 to-teal-500/20">
+              <CountRows rows={analyticsRows.statusRows} emptyLabel="No billing status data yet" />
+            </SectionCard>
 
-          <SectionCard icon={TrendingUp} title="Top Used Modules" eyebrow="Product usage" accent="from-cyan-500/30 to-blue-500/20">
-            {hasUsageData ? (
-              <CountRows rows={analyticsRows.topModules} emptyLabel="No usage data yet" />
-            ) : (
-              <EmptyHint>No usage data yet</EmptyHint>
-            )}
-          </SectionCard>
+            <SectionCard icon={TrendingUp} title="Top Used Modules" eyebrow="Product usage" accent="from-cyan-500/30 to-blue-500/20">
+              {hasUsageData ? (
+                <CountRows rows={analyticsRows.topModules} emptyLabel="No usage data yet" />
+              ) : (
+                <EmptyHint>No usage data yet</EmptyHint>
+              )}
+            </SectionCard>
 
-          <SectionCard icon={TrendingDown} title="Least Used Modules" eyebrow="Coverage gaps" accent="from-slate-400/30 to-slate-200/10">
-            {hasUsageData ? (
-              <CountRows rows={analyticsRows.leastModules} emptyLabel="No usage data yet" />
-            ) : (
-              <EmptyHint>No usage data yet</EmptyHint>
-            )}
-          </SectionCard>
-        </section>
+            <SectionCard icon={TrendingDown} title="Least Used Modules" eyebrow="Coverage gaps" accent="from-slate-400/30 to-slate-200/10">
+              {hasUsageData ? (
+                <CountRows rows={analyticsRows.leastModules} emptyLabel="No usage data yet" />
+              ) : (
+                <EmptyHint>No usage data yet</EmptyHint>
+              )}
+            </SectionCard>
+          </section>
 
-        <section className="grid gap-6 xl:grid-cols-2">
-          <SectionCard icon={Clock} title="Event Counts by Day" eyebrow="Recent activity" accent="from-indigo-500/30 to-violet-500/20">
-            {analyticsRows.activityByDay.length > 0 ? (
-              <DayActivity rows={analyticsRows.activityByDay} />
-            ) : (
-              <EmptyHint>No activity recorded in this window yet</EmptyHint>
-            )}
-          </SectionCard>
+          <section className="grid gap-6 xl:grid-cols-2">
+            <SectionCard icon={Clock} title="Event Counts by Day" eyebrow="Recent activity" accent="from-indigo-500/30 to-violet-500/20">
+              {analyticsRows.activityByDay.length > 0 ? (
+                <DayActivity rows={analyticsRows.activityByDay} />
+              ) : (
+                <EmptyHint>No activity recorded in this window yet</EmptyHint>
+              )}
+            </SectionCard>
 
-          <SectionCard icon={MousePointerClick} title="Latest Events" eyebrow="Module views" accent="from-cyan-500/30 to-blue-500/20">
-            {analyticsRows.recentEvents.length > 0 ? (
-              <ul className="space-y-2">
-                {analyticsRows.recentEvents.map((evt) => (
-                  <li
-                    key={evt.key}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm"
-                  >
-                    <span className="min-w-0">
-                      <span className="font-medium text-white">{evt.moduleLabel}</span>
-                      <span className="ml-2 text-slate-400">{evt.eventLabel}</span>
-                    </span>
-                    <span className="shrink-0 text-xs text-slate-500">{evt.time}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <EmptyHint>No events recorded in this window yet</EmptyHint>
-            )}
-            <p className="mt-4 text-xs text-slate-500">
-              Activity is safe-by-design: only event type, module, and time are shown — never client names, notes, documents, or message content.
-            </p>
-          </SectionCard>
-        </section>
+            <SectionCard icon={MousePointerClick} title="Latest Events" eyebrow="Module views" accent="from-cyan-500/30 to-blue-500/20">
+              {analyticsRows.recentEvents.length > 0 ? (
+                <ul className="space-y-2">
+                  {analyticsRows.recentEvents.map((evt) => (
+                    <li
+                      key={evt.key}
+                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-sm"
+                    >
+                      <span className="min-w-0">
+                        <span className="font-medium text-white">{evt.moduleLabel}</span>
+                        <span className="ml-2 text-slate-400">{evt.eventLabel}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-slate-500">{evt.time}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <EmptyHint>No events recorded in this window yet</EmptyHint>
+              )}
+              <p className="mt-4 text-xs text-slate-500">
+                Activity is safe-by-design: only event type, module, and time are shown — never client names, notes, documents, or message content.
+              </p>
+            </SectionCard>
+          </section>
+        </OwnerGroup>
 
-        <section className="grid gap-6 xl:grid-cols-2">
-          <SectionCard icon={Activity} title="Platform Overview" eyebrow="Operations" accent="from-cyan-500/30 to-blue-500/20">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <p className="text-sm text-slate-400">Platform scope</p>
-                <p className="mt-2 text-lg font-semibold text-white">{overview?.total_orgs ?? '—'} organizations</p>
-                <p className="mt-1 text-sm text-slate-400">{overview?.total_users ?? '—'} users and {overview?.total_clients ?? '—'} clients tracked</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <p className="text-sm text-slate-400">HQ route readiness</p>
-                <p className="mt-2 text-lg font-semibold text-white">Ready for `/owner` now</p>
-                <p className="mt-1 text-sm text-slate-400">Future HQ domain can point at this same cockpit without a separate deployment.</p>
-              </div>
-            </div>
-          </SectionCard>
+        {/* ── Growth ────────────────────────────────────────────────────── */}
+        <OwnerGroup
+          id="growth"
+          eyebrow="Marketing"
+          title="Growth"
+          description="Campaigns, UTM attribution, budget and manual spend, and landing readiness. No external ad platforms connected."
+        >
+          <CampaignTracker
+            summary={marketing}
+            campaigns={campaigns}
+            onCreate={createCampaign}
+            onUpdate={updateCampaign}
+          />
+        </OwnerGroup>
 
-          <SectionCard icon={Building2} title="Organizations / Customers" eyebrow="Commercial" accent="from-violet-500/30 to-fuchsia-500/20">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <p className="text-sm text-slate-400">Active organizations</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{orgSummary.active}</p>
-              </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <p className="text-sm text-slate-400">Suspended organizations</p>
-                <p className="mt-2 text-2xl font-semibold text-white">{orgSummary.suspended}</p>
-              </div>
-            </div>
-            <p className="mt-4 text-sm text-slate-400">
-              Customer operations stay read-only here. Use Super Admin for organization-level review and manual controls.
-            </p>
-          </SectionCard>
+        {/* ── Support ───────────────────────────────────────────────────── */}
+        <OwnerGroup
+          id="support"
+          eyebrow="Customers"
+          title="Support"
+          description="Internal support queue with triage and a safe, PHI-free detail view."
+        >
+          <SupportQueue summary={support} onPatch={patchSupportTicket} onOpen={setOpenTicketId} />
+        </OwnerGroup>
 
+        {/* ── Billing ───────────────────────────────────────────────────── */}
+        <OwnerGroup
+          id="billing"
+          eyebrow="Revenue"
+          title="Billing"
+          description="Stripe posture and read-only activation controls. Billing stays dormant until enabled outside this shell."
+        >
           <SectionCard icon={CreditCard} title="Billing & Stripe" eyebrow="Revenue" accent="from-amber-500/30 to-orange-500/20">
             {stripe ? (
               <div className="space-y-3">
@@ -1801,59 +1896,91 @@ function OwnerCockpit() {
             )}
           </SectionCard>
 
-          <SectionCard icon={Server} title="Dev / System" eyebrow="Engineering" accent="from-sky-500/30 to-cyan-500/20">
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <p className="text-sm text-slate-400">Backend health</p>
-                <a
-                  href={`${API_BASE_URL || ''}/api/health`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
-                >
-                  Open health endpoint
-                  <ArrowRight className="h-4 w-4" />
-                </a>
+          <ActivationControls overview={overview} stripe={stripe} onViewChecklist={setChecklistKey} />
+        </OwnerGroup>
+
+        {/* ── System ────────────────────────────────────────────────────── */}
+        <OwnerGroup
+          id="system"
+          eyebrow="Operations"
+          title="System"
+          description="Platform operations, engineering health, and internal team."
+        >
+          <section className="grid gap-6 xl:grid-cols-2">
+            <SectionCard icon={Activity} title="Platform Overview" eyebrow="Operations" accent="from-cyan-500/30 to-blue-500/20">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm text-slate-400">Platform scope</p>
+                  <p className="mt-2 text-lg font-semibold text-white">{overview?.total_orgs ?? '—'} organizations</p>
+                  <p className="mt-1 text-sm text-slate-400">{overview?.total_users ?? '—'} users and {overview?.total_clients ?? '—'} clients tracked</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm text-slate-400">HQ route readiness</p>
+                  <p className="mt-2 text-lg font-semibold text-white">Ready for `/owner` now</p>
+                  <p className="mt-1 text-sm text-slate-400">Future HQ domain can point at this same cockpit without a separate deployment.</p>
+                </div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                <p className="text-sm text-slate-400">Tenant model</p>
-                <p className="mt-2 text-sm text-white">{overview?.multi_tenant_enabled ? 'Multi-tenant mode is enabled.' : 'Single-tenant mode remains in place.'}</p>
+            </SectionCard>
+
+            <SectionCard icon={Building2} title="Organizations / Customers" eyebrow="Commercial" accent="from-violet-500/30 to-fuchsia-500/20">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm text-slate-400">Active organizations</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{orgSummary.active}</p>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm text-slate-400">Suspended organizations</p>
+                  <p className="mt-2 text-2xl font-semibold text-white">{orgSummary.suspended}</p>
+                </div>
               </div>
+              <p className="mt-4 text-sm text-slate-400">
+                Customer operations stay read-only here. Use Super Admin for organization-level review and manual controls.
+              </p>
+            </SectionCard>
+
+            <SectionCard icon={Server} title="Dev / System" eyebrow="Engineering" accent="from-sky-500/30 to-cyan-500/20">
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm text-slate-400">Backend health</p>
+                  <a
+                    href={`${API_BASE_URL || ''}/api/health`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex items-center gap-2 text-sm text-cyan-300 hover:text-cyan-200"
+                  >
+                    Open health endpoint
+                    <ArrowRight className="h-4 w-4" />
+                  </a>
+                </div>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="text-sm text-slate-400">Tenant model</p>
+                  <p className="mt-2 text-sm text-white">{overview?.multi_tenant_enabled ? 'Multi-tenant mode is enabled.' : 'Single-tenant mode remains in place.'}</p>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard icon={Globe} title="Internal Team" eyebrow="People" accent="from-slate-400/30 to-slate-200/10">
+              <p className="text-sm text-slate-300">Coming next: internal team roles</p>
+              <p className="mt-3 text-sm text-slate-400">Owner-side staffing, accountability lanes, and internal permissions will land here when the model is ready.</p>
+            </SectionCard>
+          </section>
+
+          <div className={panel}>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-white">Need org-level intervention?</p>
+                <p className="mt-1 text-sm text-slate-400">Super Admin remains the separate workspace for direct organization review and manual billing/status controls.</p>
+              </div>
+              <Link
+                to="/super-admin"
+                className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white transition hover:bg-white/[0.08]"
+              >
+                Open Super Admin
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
-          </SectionCard>
-
-          <SectionCard icon={Globe} title="Internal Team" eyebrow="People" accent="from-slate-400/30 to-slate-200/10">
-            <p className="text-sm text-slate-300">Coming next: internal team roles</p>
-            <p className="mt-3 text-sm text-slate-400">Owner-side staffing, accountability lanes, and internal permissions will land here when the model is ready.</p>
-          </SectionCard>
-        </section>
-
-        <CampaignTracker
-          summary={marketing}
-          campaigns={campaigns}
-          onCreate={createCampaign}
-          onUpdate={updateCampaign}
-        />
-
-        <ActivationControls overview={overview} stripe={stripe} onViewChecklist={setChecklistKey} />
-
-        <SupportQueue summary={support} onPatch={patchSupportTicket} onOpen={setOpenTicketId} />
-
-        <div className={panel}>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-sm font-medium text-white">Need org-level intervention?</p>
-              <p className="mt-1 text-sm text-slate-400">Super Admin remains the separate workspace for direct organization review and manual billing/status controls.</p>
-            </div>
-            <Link
-              to="/super-admin"
-              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white transition hover:bg-white/[0.08]"
-            >
-              Open Super Admin
-              <ArrowRight className="h-4 w-4" />
-            </Link>
           </div>
-        </div>
+        </OwnerGroup>
 
         {loading ? <p className="text-sm text-slate-500">Loading owner cockpit data...</p> : null}
       </div>
