@@ -6,11 +6,13 @@ import { MemoryRouter } from 'react-router-dom'
 
 vi.mock('../contexts/AuthContext', () => ({ useAuth: vi.fn() }))
 vi.mock('../api/config', () => ({
+  apiCall: vi.fn(() => Promise.resolve({ success: true, ticket_id: 1, status: 'open' })),
   apiFetch: vi.fn(() => Promise.resolve({ ok: false, json: async () => ({}) })),
   messagesAPI: { unreadCount: vi.fn(() => Promise.resolve({ count: 0 })) },
 }))
 
 import { useAuth } from '../contexts/AuthContext'
+import { apiCall } from '../api/config'
 import Layout from '../components/Layout'
 import Profile from './Profile'
 import Settings from './Settings'
@@ -83,5 +85,24 @@ describe('Help & Support page', () => {
     expect(screen.getByText('AI Assistant tips')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Case Management/i })).toHaveAttribute('href', '/case-management')
     expect(screen.getByText(/Report an issue/i)).toBeInTheDocument()
+  })
+
+  it('warns users not to include client PHI in the ticket form', () => {
+    useAuth.mockReturnValue(ADMIN)
+    render(<MemoryRouter><Support /></MemoryRouter>)
+    expect(screen.getByText(/do not include client names, PHI/i)).toBeInTheDocument()
+  })
+
+  it('submits a support ticket to the API', async () => {
+    useAuth.mockReturnValue(ADMIN)
+    render(<MemoryRouter><Support /></MemoryRouter>)
+    fireEvent.change(screen.getByPlaceholderText(/Short summary/i), { target: { value: 'Cannot log in' } })
+    fireEvent.change(screen.getByPlaceholderText(/What happened/i), { target: { value: 'Sign-in page errors out.' } })
+    fireEvent.click(screen.getByRole('button', { name: /Submit ticket/i }))
+    await screen.findByText(/your ticket was submitted/i)
+    const posted = apiCall.mock.calls.some(
+      ([url, opts]) => url === '/api/support/tickets' && opts?.method === 'POST',
+    )
+    expect(posted).toBe(true)
   })
 })

@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { LifeBuoy, LayoutDashboard, Users, UserCog, Sparkles, Mail, Bug, CheckCircle2 } from 'lucide-react'
+import { LifeBuoy, LayoutDashboard, Users, UserCog, Sparkles, Mail, Bug, CheckCircle2, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { apiCall } from '../api/config'
 
 const CHECKLIST = [
   'Review your caseload in Case Management.',
@@ -14,6 +16,162 @@ const AI_TIPS = [
   'Ask “who has court next week?” for upcoming dates.',
   'Ask it to draft a document or research a resource.',
 ]
+
+const TICKET_CATEGORIES = [
+  { value: 'bug', label: 'Bug / something broken' },
+  { value: 'account', label: 'Account / login' },
+  { value: 'billing', label: 'Billing question' },
+  { value: 'feature_request', label: 'Feature request' },
+  { value: 'usability', label: 'Usability / confusing' },
+  { value: 'other', label: 'Other' },
+]
+
+const TICKET_PRIORITIES = [
+  { value: 'low', label: 'Low' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'High' },
+  { value: 'urgent', label: 'Urgent' },
+]
+
+const SUBJECT_MAX = 200
+const DESCRIPTION_MAX = 5000
+
+function ReportIssueForm() {
+  const [category, setCategory] = useState('bug')
+  const [priority, setPriority] = useState('normal')
+  const [subject, setSubject] = useState('')
+  const [description, setDescription] = useState('')
+  const [state, setState] = useState('idle') // idle | submitting | success | error
+  const [message, setMessage] = useState('')
+
+  const submitting = state === 'submitting'
+
+  const handleSubmit = async (event) => {
+    event.preventDefault()
+    const trimmedSubject = subject.trim()
+    const trimmedDescription = description.trim()
+    if (!trimmedSubject || !trimmedDescription) {
+      setState('error')
+      setMessage('Please add a short subject and a description.')
+      return
+    }
+    setState('submitting')
+    setMessage('')
+    try {
+      await apiCall('/api/support/tickets', {
+        method: 'POST',
+        body: JSON.stringify({
+          category,
+          priority,
+          subject: trimmedSubject.slice(0, SUBJECT_MAX),
+          description: trimmedDescription.slice(0, DESCRIPTION_MAX),
+        }),
+      })
+      setState('success')
+      setMessage('Thanks — your ticket was submitted. Our team will follow up.')
+      setSubject('')
+      setDescription('')
+      setPriority('normal')
+      setCategory('bug')
+    } catch (err) {
+      setState('error')
+      setMessage(err?.message || 'Something went wrong submitting your ticket. Please try again.')
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl">
+      <h2 className="mb-1 flex items-center gap-2 text-lg font-semibold"><Bug className="h-5 w-5 text-gray-300" /> Report an issue</h2>
+      <p className="text-sm text-gray-400">Bugs, account or billing questions, feature requests — tell us what you need.</p>
+
+      <div className="mt-4 flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+        <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+        <p>
+          Please <strong>do not include client names, PHI, case notes, documents, or any protected client details</strong>.
+          Describe the issue in general terms only.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block text-sm">
+            <span className="mb-1 block text-gray-300">Category</span>
+            <select
+              value={category}
+              onChange={(event) => setCategory(event.target.value)}
+              disabled={submitting}
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-white"
+            >
+              {TICKET_CATEGORIES.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm">
+            <span className="mb-1 block text-gray-300">Priority</span>
+            <select
+              value={priority}
+              onChange={(event) => setPriority(event.target.value)}
+              disabled={submitting}
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-white"
+            >
+              {TICKET_PRIORITIES.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <label className="block text-sm">
+          <span className="mb-1 block text-gray-300">Subject</span>
+          <input
+            type="text"
+            value={subject}
+            onChange={(event) => setSubject(event.target.value)}
+            disabled={submitting}
+            maxLength={SUBJECT_MAX}
+            placeholder="Short summary (no client names)"
+            className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-white placeholder:text-gray-500"
+          />
+        </label>
+
+        <label className="block text-sm">
+          <span className="mb-1 block text-gray-300">Description</span>
+          <textarea
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+            disabled={submitting}
+            maxLength={DESCRIPTION_MAX}
+            rows={5}
+            placeholder="What happened, what you expected, and steps to reproduce — in general terms only."
+            className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-white placeholder:text-gray-500"
+          />
+        </label>
+
+        {message ? (
+          <p
+            role="status"
+            className={`rounded-xl border px-4 py-3 text-sm ${
+              state === 'success'
+                ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-100'
+                : 'border-red-400/30 bg-red-500/10 text-red-100'
+            }`}
+          >
+            {message}
+          </p>
+        ) : null}
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 px-5 py-2.5 font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+        >
+          {submitting ? 'Submitting…' : 'Submit ticket'}
+        </button>
+      </form>
+    </div>
+  )
+}
 
 function QuickLink({ to, icon: Icon, label }) {
   return (
@@ -70,15 +228,11 @@ function Support() {
           </ul>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-            <p className="flex items-center gap-2 font-semibold text-gray-200"><Mail className="h-5 w-5 text-gray-300" /> Contact support</p>
-            <p className="mt-1 text-sm text-gray-400">A support contact channel is coming later.</p>
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
-            <p className="flex items-center gap-2 font-semibold text-gray-200"><Bug className="h-5 w-5 text-gray-300" /> Report an issue</p>
-            <p className="mt-1 text-sm text-gray-400">Issue reporting is coming later.</p>
-          </div>
+        <ReportIssueForm />
+
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <p className="flex items-center gap-2 font-semibold text-gray-200"><Mail className="h-5 w-5 text-gray-300" /> Contact support</p>
+          <p className="mt-1 text-sm text-gray-400">Submitting a ticket above is the fastest way to reach us. A direct email channel is coming later.</p>
         </div>
       </div>
     </div>

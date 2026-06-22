@@ -81,6 +81,8 @@ from backend.auth.super_admin_routes import router as super_admin_router
 from backend.billing.routes import router as billing_router
 from backend.analytics.routes import event_router as analytics_event_router
 from backend.analytics.routes import owner_router as owner_analytics_router
+from backend.support.routes import ticket_router as support_ticket_router
+from backend.support.routes import owner_router as owner_support_router
 from backend.auth.service import auth_service
 
 # Lifespan event handler
@@ -494,6 +496,8 @@ try:
     app.include_router(billing_router)
     app.include_router(analytics_event_router)
     app.include_router(owner_analytics_router)
+    app.include_router(support_ticket_router)
+    app.include_router(owner_support_router)
     loaded_modules["auth"] = "loaded"
     logger.info("Firebase auth routes loaded successfully")
 except Exception as e:

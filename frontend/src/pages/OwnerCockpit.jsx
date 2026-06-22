@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   BarChart3,
   Building2,
@@ -10,6 +11,7 @@ import {
   DollarSign,
   Flame,
   Globe,
+  Inbox,
   Layers,
   LifeBuoy,
   Megaphone,
@@ -185,10 +187,212 @@ function StripeFlag({ label, value }) {
   )
 }
 
+// ── Support Queue ────────────────────────────────────────────────────────────
+const SUPPORT_CATEGORIES = ['bug', 'account', 'billing', 'feature_request', 'usability', 'other']
+const SUPPORT_PRIORITIES = ['low', 'normal', 'high', 'urgent']
+const SUPPORT_STATUSES = ['open', 'in_progress', 'waiting', 'resolved', 'closed']
+
+const SUPPORT_LABELS = {
+  bug: 'Bug',
+  account: 'Account',
+  billing: 'Billing',
+  feature_request: 'Feature request',
+  usability: 'Usability',
+  other: 'Other',
+  low: 'Low',
+  normal: 'Normal',
+  high: 'High',
+  urgent: 'Urgent',
+  open: 'Open',
+  in_progress: 'In progress',
+  waiting: 'Waiting',
+  resolved: 'Resolved',
+  closed: 'Closed',
+}
+
+const supportLabel = (key) =>
+  SUPPORT_LABELS[key] || String(key || '').replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+
+const PRIORITY_BADGE = {
+  urgent: 'bg-red-500/15 text-red-200',
+  high: 'bg-orange-500/15 text-orange-200',
+  normal: 'bg-slate-500/15 text-slate-300',
+  low: 'bg-slate-500/10 text-slate-400',
+}
+
+function SupportTicketRow({ ticket, onPatch }) {
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const patch = async (body) => {
+    setBusy(true)
+    setSaved(false)
+    try {
+      await onPatch(ticket.id, body)
+      setSaved(true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submitNote = async (event) => {
+    event.preventDefault()
+    const trimmed = note.trim()
+    if (!trimmed) return
+    await patch({ internal_notes: trimmed })
+    setNote('')
+  }
+
+  return (
+    <li className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-medium text-white">{ticket.subject}</p>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+            <span className="rounded-full bg-white/[0.06] px-2 py-0.5">{supportLabel(ticket.category)}</span>
+            <span className={`rounded-full px-2 py-0.5 ${PRIORITY_BADGE[ticket.priority] || PRIORITY_BADGE.normal}`}>
+              {supportLabel(ticket.priority)}
+            </span>
+            <span className="text-slate-500">#{ticket.id}</span>
+            {ticket.assigned_to ? <span className="text-slate-500">→ {ticket.assigned_to}</span> : null}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="sr-only" htmlFor={`status-${ticket.id}`}>Status</label>
+          <select
+            id={`status-${ticket.id}`}
+            aria-label={`Status for ticket ${ticket.id}`}
+            value={ticket.status}
+            disabled={busy}
+            onChange={(event) => patch({ status: event.target.value })}
+            className="rounded-xl border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
+          >
+            {SUPPORT_STATUSES.map((value) => (
+              <option key={value} value={value}>{supportLabel(value)}</option>
+            ))}
+          </select>
+          <label className="sr-only" htmlFor={`priority-${ticket.id}`}>Priority</label>
+          <select
+            id={`priority-${ticket.id}`}
+            aria-label={`Priority for ticket ${ticket.id}`}
+            value={ticket.priority}
+            disabled={busy}
+            onChange={(event) => patch({ priority: event.target.value })}
+            className="rounded-xl border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
+          >
+            {SUPPORT_PRIORITIES.map((value) => (
+              <option key={value} value={value}>{supportLabel(value)}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <form onSubmit={submitNote} className="mt-3 flex items-center gap-2">
+        <input
+          type="text"
+          value={note}
+          disabled={busy}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Add internal note (owner-only)"
+          aria-label={`Internal note for ticket ${ticket.id}`}
+          className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-white placeholder:text-slate-500"
+        />
+        <button
+          type="submit"
+          disabled={busy || !note.trim()}
+          className="shrink-0 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white transition hover:bg-white/[0.1] disabled:opacity-40"
+        >
+          Save note
+        </button>
+        {saved ? <span className="shrink-0 text-xs text-emerald-300">Saved</span> : null}
+      </form>
+    </li>
+  )
+}
+
+function SupportQueue({ summary, onPatch }) {
+  const tickets = summary?.recent_tickets || []
+  const total = summary?.total_tickets ?? 0
+  const open = summary?.open_tickets ?? 0
+  const highPriority = summary?.high_priority_tickets ?? 0
+
+  const statusRows = SUPPORT_STATUSES
+    .map((key) => ({ key, label: supportLabel(key), value: summary?.by_status?.[key] ?? 0 }))
+    .filter((row) => row.value > 0)
+  const categoryRows = SUPPORT_CATEGORIES
+    .map((key) => ({ key, label: supportLabel(key), value: summary?.by_category?.[key] ?? 0 }))
+    .filter((row) => row.value > 0)
+
+  const hasTickets = total > 0
+
+  return (
+    <section className="rounded-[28px] border border-white/10 bg-slate-950/70 p-6 shadow-xl shadow-black/20 backdrop-blur">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.28em] text-slate-500">Service</p>
+          <h2 className="mt-2 text-xl font-semibold text-white">Support Queue</h2>
+        </div>
+        <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500/30 to-teal-500/20 text-white">
+          <LifeBuoy className="h-5 w-5" />
+        </span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-500"><Inbox className="h-4 w-4" /> Total</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(total)}</p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-500"><LifeBuoy className="h-4 w-4" /> Open</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(open)}</p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+          <p className="flex items-center gap-2 text-xs uppercase tracking-[0.2em] text-slate-500"><AlertTriangle className="h-4 w-4" /> High / urgent</p>
+          <p className="mt-2 text-2xl font-semibold text-white">{formatNumber(highPriority)}</p>
+        </div>
+      </div>
+
+      {hasTickets ? (
+        <div className="mt-5 grid gap-6 lg:grid-cols-[1fr,1.4fr]">
+          <div className="space-y-5">
+            <div>
+              <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">By status</p>
+              <CountRows rows={statusRows} emptyLabel="No status data yet" />
+            </div>
+            <div>
+              <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">By category</p>
+              <CountRows rows={categoryRows} emptyLabel="No category data yet" />
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs uppercase tracking-[0.2em] text-slate-500">Recent tickets</p>
+            <ul className="space-y-2">
+              {tickets.map((ticket) => (
+                <SupportTicketRow key={ticket.id} ticket={ticket} onPatch={onPatch} />
+              ))}
+            </ul>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-5">
+          <EmptyHint>No support tickets yet</EmptyHint>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-slate-500">
+        Tickets are issue reports only — they never store client names, notes, documents, or message content.
+        Internal notes and assignments are owner-only and never visible to customers.
+      </p>
+    </section>
+  )
+}
+
 function OwnerCockpit() {
   const [overview, setOverview] = useState(null)
   const [orgs, setOrgs] = useState([])
   const [analytics, setAnalytics] = useState(null)
+  const [support, setSupport] = useState(null)
+  const [supportRefresh, setSupportRefresh] = useState(0)
   const [windowSel, setWindowSel] = useState('all')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -241,6 +445,30 @@ function OwnerCockpit() {
       cancelled = true
     }
   }, [windowSel])
+
+  // Support queue summary: refetched after any ticket mutation. Additive — a
+  // failure never blocks the rest of the cockpit (renders the empty state).
+  useEffect(() => {
+    let cancelled = false
+    apiCall('/api/owner/support/summary')
+      .then((data) => {
+        if (!cancelled) setSupport(data)
+      })
+      .catch(() => {
+        if (!cancelled) setSupport(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [supportRefresh])
+
+  const patchSupportTicket = async (ticketId, patch) => {
+    await apiCall(`/api/owner/support/tickets/${ticketId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    })
+    setSupportRefresh((n) => n + 1)
+  }
 
   const orgSummary = useMemo(() => {
     const active = orgs.filter((org) => org.status !== 'suspended').length
@@ -547,11 +775,6 @@ function OwnerCockpit() {
             </p>
           </SectionCard>
 
-          <SectionCard icon={LifeBuoy} title="Support" eyebrow="Service" accent="from-emerald-500/30 to-teal-500/20">
-            <p className="text-sm text-slate-300">Coming next: support queue</p>
-            <p className="mt-3 text-sm text-slate-400">Customer help workflows and escalation status are intentionally left as placeholders until the queue model exists.</p>
-          </SectionCard>
-
           <SectionCard icon={Server} title="Dev / System" eyebrow="Engineering" accent="from-sky-500/30 to-cyan-500/20">
             <div className="space-y-3">
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
@@ -578,6 +801,8 @@ function OwnerCockpit() {
             <p className="mt-3 text-sm text-slate-400">Owner-side staffing, accountability lanes, and internal permissions will land here when the model is ready.</p>
           </SectionCard>
         </section>
+
+        <SupportQueue summary={support} onPatch={patchSupportTicket} />
 
         <div className={panel}>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
