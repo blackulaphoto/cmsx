@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { useAuth } from '../contexts/AuthContext'
+import { LEGAL_LINKS } from '../components/LegalPageLayout'
 
 function Login() {
   const navigate = useNavigate()
@@ -40,7 +41,7 @@ function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 px-4 py-10">
       <form onSubmit={handleSubmit} className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-900 p-8 text-white shadow-2xl">
         <h1 className="text-2xl font-semibold">{mode === 'register' ? 'Create account' : 'Sign in'}</h1>
         <p className="mt-2 text-sm text-slate-300">Firebase Auth is required for all case data access.</p>
@@ -64,6 +65,14 @@ function Login() {
           {mode === 'register' ? 'Already have an account? Sign in' : 'Need an account? Register'}
         </button>
       </form>
+
+      <nav className="mt-6 flex w-full max-w-md flex-wrap items-center justify-center gap-x-4 gap-y-2 text-xs text-slate-500">
+        {LEGAL_LINKS.map((link) => (
+          <Link key={link.path} to={link.path} className="transition-colors hover:text-slate-300">
+            {link.label}
+          </Link>
+        ))}
+      </nav>
     </div>
   )
 }
