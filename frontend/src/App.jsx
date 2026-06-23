@@ -3,6 +3,13 @@ import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import Onboarding from './pages/Onboarding'
 
+// Public legal / compliance pages (no authentication required)
+import PrivacyPolicy from './pages/legal/PrivacyPolicy'
+import TermsOfService from './pages/legal/TermsOfService'
+import DataSecurity from './pages/legal/DataSecurity'
+import Compliance from './pages/legal/Compliance'
+import HipaaBaa from './pages/legal/HipaaBaa'
+
 // Import layout component
 import Layout from './components/Layout'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -70,6 +77,12 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* Public legal / compliance pages — accessible without authentication */}
+      <Route path="/privacy" element={<PrivacyPolicy />} />
+      <Route path="/terms" element={<TermsOfService />} />
+      <Route path="/data-security" element={<DataSecurity />} />
+      <Route path="/compliance" element={<Compliance />} />
+      <Route path="/hipaa-baa" element={<HipaaBaa />} />
       <Route path="/onboarding" element={
         <ProtectedRoute allowOnboarding>
           <Onboarding />

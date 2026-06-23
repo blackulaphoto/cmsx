@@ -7,18 +7,25 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Ember brand identity. `primary` is the Ember purple already used
+        // throughout the app shell (logo accents, gradients, focus rings); it
+        // replaces the previous generic blue scale that did not match the UI.
+        // These shades mirror Tailwind's `purple` palette so existing
+        // purple-* utilities and the `primary` token stay visually identical.
         primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
+          50: '#faf5ff',
+          100: '#f3e8ff',
+          200: '#e9d5ff',
+          300: '#d8b4fe',
+          400: '#c084fc',
+          500: '#a855f7',
+          600: '#9333ea',
+          700: '#7e22ce',
+          800: '#6b21a8',
+          900: '#581c87',
         },
+        // `secondary` is the Ember slate surface scale (already matched the
+        // real UI — mirrors Tailwind `slate`). Kept as-is for compatibility.
         secondary: {
           50: '#f8fafc',
           100: '#f1f5f9',
@@ -30,6 +37,21 @@ export default {
           700: '#334155',
           800: '#1e293b',
           900: '#0f172a',
+        },
+        // Semantic Ember tokens describing the actual implemented theme. Values
+        // intentionally equal the Tailwind utilities already in the markup
+        // (slate-900/800, purple-900/500, orange/red/pink-500) so adopting a
+        // token never changes a rendered color.
+        ember: {
+          bg: '#0f172a',        // slate-900 — app gradient base / dark surface
+          surface: '#1e293b',   // slate-800 — raised panels
+          midnight: '#581c87',  // purple-900 — gradient midtone
+          accent: '#a855f7',    // purple-500 — interactive accent
+          flame: {
+            start: '#f97316',   // orange-500 — Ember flame gradient start
+            mid: '#ef4444',     // red-500    — Ember flame gradient middle
+            end: '#ec4899',     // pink-500   — Ember flame gradient end
+          },
         },
         success: {
           50: '#f0fdf4',

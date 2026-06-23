@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Users,
-  Home,
+  LayoutDashboard,
+  MapPin,
+  Hotel,
   DollarSign,
   Scale,
   FileText,
@@ -60,12 +62,12 @@ const Layout = ({ children }) => {
   const displayRole = canAccessSupervisorMode ? 'Admin / Supervisor' : 'Case Manager'
 
   const navigationItems = [
-    { path: '/', label: 'Dashboard', icon: Home, gradient: 'from-blue-500 to-cyan-500' },
+    { path: '/', label: 'Dashboard', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
     { path: '/case-management', label: 'Case Management', icon: Users, gradient: 'from-purple-500 to-indigo-500' },
     { path: '/admissions', label: 'Admissions', icon: ClipboardCheck, gradient: 'from-cyan-500 to-blue-600' },
     { path: '/documentation', label: 'Documentation', icon: ClipboardList, gradient: 'from-cyan-500 to-blue-500' },
-    { path: '/housing', label: 'Housing', icon: Home, gradient: 'from-blue-500 to-cyan-500' },
-    { path: '/sober-living', label: 'Sober Living', icon: Home, gradient: 'from-teal-500 to-emerald-500' },
+    { path: '/housing', label: 'Housing', icon: MapPin, gradient: 'from-blue-500 to-cyan-500' },
+    { path: '/sober-living', label: 'Sober Living', icon: Hotel, gradient: 'from-teal-500 to-emerald-500' },
     { path: '/groups', label: 'Groups', icon: BookOpen, gradient: 'from-teal-400 to-cyan-500' },
     { path: '/sober-living-directory', label: 'Sober Directory', icon: Building2, gradient: 'from-teal-500 to-cyan-500' },
     { path: '/benefits', label: 'Benefits', icon: Heart, gradient: 'from-pink-500 to-rose-500' },
@@ -258,7 +260,7 @@ const Layout = ({ children }) => {
             <Link to="/" className="flex min-w-0 items-center gap-3 group cursor-pointer">
               <div className="relative flex-shrink-0">
                 {/* Ember Logo with Glow Effect */}
-                <div className="bg-gradient-to-r from-orange-500 via-red-500 to-pink-500 p-2 rounded-xl shadow-lg group-hover:shadow-2xl group-hover:shadow-orange-500/50 transition-all duration-500 group-hover:scale-110">
+                <div className="bg-gradient-to-r from-ember-flame-start via-ember-flame-mid to-ember-flame-end p-2 rounded-xl shadow-lg group-hover:shadow-2xl group-hover:shadow-orange-500/50 transition-all duration-500 group-hover:scale-110">
                   <Flame className="h-6 w-6 text-white" />
                 </div>
                 {/* Floating Sparkles */}
@@ -563,74 +565,6 @@ const Layout = ({ children }) => {
       <main className="flex-1 w-full min-w-0">
         {children}
       </main>
-
-      {/* Footer */}
-      <footer className="bg-gradient-to-r from-slate-900 to-purple-900 text-white border-t border-white/10">
-        <div className="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-8">
-            {/* About */}
-            <div>
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <Flame className="h-5 w-5 text-orange-400" />
-                Ember
-              </h3>
-              <p className="text-gray-300 text-sm">
-                Comprehensive reentry services platform supporting formerly incarcerated individuals 
-                with housing, employment, legal services, and benefits coordination.
-              </p>
-            </div>
-
-            {/* Services */}
-            <div>
-              <h3 className="text-lg font-semibold mb-4">Services</h3>
-              <ul className="space-y-2 text-sm text-gray-300">
-                <li><Link to="/housing" className="hover:text-white transition-colors">Housing Search</Link></li>
-                <li><Link to="/benefits" className="hover:text-white transition-colors">Benefits Assistance</Link></li>
-                <li><Link to="/medical" className="hover:text-white transition-colors">Medical Access</Link></li>
-                <li><Link to="/rolodex" className="hover:text-white transition-colors">Case Manager Rolodex</Link></li>
-                <li><Link to="/documentation" className="hover:text-white transition-colors">Documentation Center</Link></li>
-                <li><Link to="/legal" className="hover:text-white transition-colors">Legal Services</Link></li>
-                <li><Link to="/resume" className="hover:text-white transition-colors">Resume Builder</Link></li>
-                <li><Link to="/jobs" className="hover:text-white transition-colors">Job Search</Link></li>
-              </ul>
-            </div>
-
-            {/* Support */}
-            <div>
-              <h3 className="text-lg font-semibold mb-4">Support</h3>
-              <ul className="space-y-2 text-sm text-gray-300">
-                <li><Link to="/ai-chat" className="hover:text-white transition-colors">AI Assistant</Link></li>
-                <li><Link to="/services" className="hover:text-white transition-colors">Services Directory</Link></li>
-                <li><Link to="/smart-dashboard" className="hover:text-white transition-colors">Smart Dashboard</Link></li>
-                <li><a href="#" className="hover:text-white transition-colors">Help Center</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Contact Support</a></li>
-              </ul>
-            </div>
-
-            {/* Legal */}
-            <div>
-              <h3 className="text-lg font-semibold mb-4">Legal</h3>
-              <ul className="space-y-2 text-sm text-gray-300">
-                <li><a href="#" className="hover:text-white transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Terms of Service</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Data Security</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Compliance</a></li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="border-t border-white/10 mt-8 pt-8 flex flex-col md:flex-row justify-between items-center">
-            <p className="text-gray-300 text-sm">
-              © 2024 Ember Case Management Suite. All rights reserved.
-            </p>
-            <div className="flex space-x-6 mt-4 md:mt-0">
-              <a href="#" className="text-gray-300 hover:text-white text-sm transition-colors">Accessibility</a>
-              <a href="#" className="text-gray-300 hover:text-white text-sm transition-colors">Security</a>
-              <a href="#" className="text-gray-300 hover:text-white text-sm transition-colors">Status</a>
-            </div>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 };
