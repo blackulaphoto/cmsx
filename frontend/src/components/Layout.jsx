@@ -2,29 +2,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Users,
-  LayoutDashboard,
-  MapPin,
-  Hotel,
-  DollarSign,
-  Scale,
-  FileText,
   ClipboardList,
   MessageSquare,
-  Building2,
   Calendar,
-  Briefcase,
   User,
   Bell,
   Flame,
   Sparkles,
-  Heart,
   BarChart3,
-  Stethoscope,
-  Contact,
   ChevronDown,
-  BookOpen,
-  Brain,
-  ClipboardCheck,
   AlertTriangle,
   Settings,
   LifeBuoy,
@@ -34,6 +20,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch, messagesAPI } from '../api/config';
+import AppSidebar from './AppSidebar';
+import { NAV_ITEMS } from '../config/navigation';
 
 const TONE_BADGE = {
   danger: 'bg-red-500/20 text-red-200 border-red-400/30',
@@ -52,7 +40,6 @@ const Layout = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { profile, logout, isSuperAdmin } = useAuth();
-  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [messagesUnreadCount, setMessagesUnreadCount] = useState(0);
   const [serviceAlerts, setServiceAlerts] = useState([]);
   const [openMenu, setOpenMenu] = useState(null); // 'alerts' | 'user' | null
@@ -61,38 +48,12 @@ const Layout = ({ children }) => {
   const displayName = profile?.full_name || 'Signed in user'
   const displayRole = canAccessSupervisorMode ? 'Admin / Supervisor' : 'Case Manager'
 
-  const navigationItems = [
-    { path: '/', label: 'Dashboard', icon: LayoutDashboard, gradient: 'from-blue-500 to-cyan-500' },
-    { path: '/case-management', label: 'Case Management', icon: Users, gradient: 'from-purple-500 to-indigo-500' },
-    { path: '/admissions', label: 'Admissions', icon: ClipboardCheck, gradient: 'from-cyan-500 to-blue-600' },
-    { path: '/documentation', label: 'Documentation', icon: ClipboardList, gradient: 'from-cyan-500 to-blue-500' },
-    { path: '/housing', label: 'Housing', icon: MapPin, gradient: 'from-blue-500 to-cyan-500' },
-    { path: '/sober-living', label: 'Sober Living', icon: Hotel, gradient: 'from-teal-500 to-emerald-500' },
-    { path: '/groups', label: 'Groups', icon: BookOpen, gradient: 'from-teal-400 to-cyan-500' },
-    { path: '/sober-living-directory', label: 'Sober Directory', icon: Building2, gradient: 'from-teal-500 to-cyan-500' },
-    { path: '/benefits', label: 'Benefits', icon: Heart, gradient: 'from-pink-500 to-rose-500' },
-    { path: '/medical', label: 'Medical', icon: Stethoscope, gradient: 'from-teal-500 to-cyan-500' },
-    { path: '/rolodex', label: 'Rolodex', icon: Contact, gradient: 'from-cyan-500 to-sky-500' },
-    { path: '/legal', label: 'Legal', icon: Scale, gradient: 'from-indigo-500 to-purple-500' },
-    { path: '/fmla', label: 'FMLA', icon: ClipboardList, gradient: 'from-cyan-500 to-sky-500' },
-    { path: '/ur', label: 'UR', icon: Bell, gradient: 'from-amber-500 to-orange-500' },
-    { path: '/resume', label: 'Resume', icon: FileText, gradient: 'from-emerald-500 to-green-500' },
-    { path: '/jobs', label: 'Jobs', icon: Briefcase, gradient: 'from-emerald-500 to-green-500' },
-    { path: '/supervisor-dashboard', label: 'Supervisor', icon: BarChart3, gradient: 'from-cyan-500 to-blue-500' },
-    { path: '/services', label: 'Services', icon: Building2, gradient: 'from-orange-500 to-amber-500' },
-    { path: '/messages', label: 'Messages', icon: MessageSquare, gradient: 'from-cyan-500 to-blue-500', badge: messagesUnreadCount },
-    { path: '/ai-chat', label: 'AI Assistant', icon: MessageSquare, gradient: 'from-yellow-500 to-amber-500' },
-    { path: '/smart-dashboard', label: 'Smart Daily', icon: Calendar, gradient: 'from-purple-500 to-pink-500' },
-    { path: '/treatment-plan', label: 'Treatment Plan', icon: Brain, gradient: 'from-emerald-500 to-cyan-500' }
-  ];
-  const visibleNavigationItems = navigationItems.filter((item) => canAccessSupervisorMode || item.path !== '/supervisor-dashboard');
-  const primaryNavigationItems = visibleNavigationItems.slice(0, 6);
-  const secondaryNavigationItems = visibleNavigationItems.slice(6);
-  const hasActiveSecondaryItem = secondaryNavigationItems.some((item) => location.pathname === item.path);
-
-  useEffect(() => {
-    setIsMoreOpen(false);
-  }, [location.pathname]);
+  // Role context for the grouped desktop sidebar (mirrors the prior inline
+  // gating: only the Supervisor dashboard is admin-gated). The mobile scroll
+  // strip below intentionally keeps rendering the full flat NAV_ITEMS list,
+  // unchanged from before Phase 2B.
+  const roleCtx = { isAdmin: canAccessSupervisorMode, isSuperAdmin };
+  const resolveBadge = (item) => (item.badgeKey === 'messagesUnread' ? messagesUnreadCount : 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -278,75 +239,8 @@ const Layout = ({ children }) => {
               </div>
             </Link>
 
-            {/* Navigation - Desktop */}
-            <nav className="hidden xl:flex items-center gap-1 min-w-0 flex-1 justify-center">
-              {primaryNavigationItems.map((item) => {
-                const IconComponent = item.icon;
-                const isActive = location.pathname === item.path;
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`group flex items-center gap-2 px-3 2xl:px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:bg-white/10 hover:backdrop-blur-md hover:scale-105 hover:shadow-lg hover:shadow-purple-500/25 border border-transparent hover:border-white/20 ${
-                      isActive ? 'bg-white/10 border-white/20' : ''
-                    }`}
-                  >
-                    <div className={`p-1 bg-gradient-to-r ${item.gradient} rounded-md transition-all duration-300`}>
-                      <IconComponent className="h-3 w-3 text-white" />
-                    </div>
-                    <span className={`group-hover:text-purple-200 transition-colors duration-300 ${isActive ? 'text-white' : 'text-gray-300'}`}>
-                      {item.label}
-                    </span>
-                    {item.badge > 0 && (
-                      <span className="ml-0.5 rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-                        {item.badge > 99 ? '99+' : item.badge}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsMoreOpen((current) => !current)}
-                  className={`group flex items-center gap-2 px-3 2xl:px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 hover:bg-white/10 hover:backdrop-blur-md hover:shadow-lg hover:shadow-purple-500/25 border border-transparent hover:border-white/20 ${
-                    hasActiveSecondaryItem || isMoreOpen ? 'bg-white/10 border-white/20 text-white' : 'text-gray-300'
-                  }`}
-                >
-                  <span className="text-sm">More</span>
-                  <ChevronDown className={`h-4 w-4 transition-transform duration-200 ${isMoreOpen ? 'rotate-180' : ''}`} />
-                </button>
-                {isMoreOpen && (
-                  <div className="absolute right-0 mt-2 w-64 rounded-2xl border border-white/15 bg-slate-950/95 p-2 shadow-2xl shadow-purple-900/50 backdrop-blur-xl">
-                    <div className="grid gap-1">
-                      {secondaryNavigationItems.map((item) => {
-                        const IconComponent = item.icon;
-                        const isActive = location.pathname === item.path;
-                        return (
-                          <Link
-                            key={item.path}
-                            to={item.path}
-                            className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-all duration-200 hover:bg-white/10 ${
-                              isActive ? 'bg-white/10 text-white' : 'text-gray-300'
-                            }`}
-                          >
-                            <div className={`p-1 bg-gradient-to-r ${item.gradient} rounded-md flex-shrink-0`}>
-                              <IconComponent className="h-3 w-3 text-white" />
-                            </div>
-                            <span className="truncate">{item.label}</span>
-                            {item.badge > 0 && (
-                              <span className="ml-auto rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-                                {item.badge > 99 ? '99+' : item.badge}
-                              </span>
-                            )}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </nav>
+            {/* Desktop primary navigation now lives in the left sidebar
+                (components/AppSidebar.jsx). The header keeps brand + utilities. */}
 
             {/* User Menu */}
             <div ref={headerControlsRef} className="flex min-w-0 items-center justify-end gap-2 lg:gap-3">
@@ -530,12 +424,14 @@ const Layout = ({ children }) => {
             </div>
           </div>
 
-          {/* Mobile Navigation */}
+          {/* Mobile Navigation — unchanged in Phase 2B: the same flat scroll
+              strip rendering every nav item in the original order. */}
           <div className="xl:hidden border-t border-white/10">
             <div className="flex overflow-x-auto py-2 gap-1 -mx-4 sm:-mx-6 px-4 sm:px-6 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-              {navigationItems.map((item) => {
+              {NAV_ITEMS.map((item) => {
                 const IconComponent = item.icon;
                 const isActive = location.pathname === item.path;
+                const badge = resolveBadge(item);
                 return (
                   <Link
                     key={item.path}
@@ -548,9 +444,9 @@ const Layout = ({ children }) => {
                       <IconComponent className="h-3 w-3 text-white" />
                     </div>
                     <span>{item.label}</span>
-                    {item.badge > 0 && (
+                    {badge > 0 && (
                       <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-                        {item.badge > 99 ? '99+' : item.badge}
+                        {badge > 99 ? '99+' : badge}
                       </span>
                     )}
                   </Link>
@@ -561,10 +457,14 @@ const Layout = ({ children }) => {
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 w-full min-w-0">
-        {children}
-      </main>
+      {/* Body: desktop sidebar (xl+) beside the scrollable main column. The
+          mobile scroll strip above remains the navigation surface below xl. */}
+      <div className="flex flex-1 w-full min-h-0">
+        <AppSidebar roleCtx={roleCtx} messagesUnreadCount={messagesUnreadCount} />
+        <main className="flex-1 w-full min-w-0">
+          {children}
+        </main>
+      </div>
     </div>
   );
 };
