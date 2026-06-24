@@ -3,6 +3,9 @@ import { MessageCircle, Minimize2, Send, X } from 'lucide-react'
 import AIAssistantButton from './AIAssistantButton'
 import { apiFetch } from '../../api/config'
 
+const assistantMessageClasses =
+  'bg-gray-100 text-gray-900 whitespace-pre-wrap break-words leading-7'
+
 export default function AIAssistantPopup() {
   const [isOpen, setIsOpen] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
@@ -116,8 +119,9 @@ export default function AIAssistantPopup() {
               className={`max-w-[80%] p-3 rounded-lg ${
                 msg.role === 'user'
                   ? 'bg-blue-500 text-white'
-                  : 'bg-gray-100 text-gray-900'
+                  : assistantMessageClasses
               }`}
+              data-testid={msg.role === 'assistant' ? 'assistant-message' : undefined}
             >
               {msg.content}
             </div>
@@ -161,6 +165,7 @@ export default function AIAssistantPopup() {
             onClick={sendMessage}
             disabled={loading || !input.trim()}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+            aria-label="Send message"
           >
             <Send className="w-4 h-4" />
           </button>
