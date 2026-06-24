@@ -22,6 +22,17 @@ QUESTION_PATTERNS = [
     "how do you use",
 ]
 
+ROUTE_REQUEST_PATTERNS = [
+    "route",
+    "path",
+    "url",
+    "link",
+    "deep link",
+    "routing",
+    "sidebar route",
+    "page route",
+]
+
 
 def match_module_for_route(current_route: Optional[str]) -> Optional[Dict[str, object]]:
     route = (current_route or "").strip()
@@ -149,6 +160,7 @@ def build_platform_guide_context(
     user_role: Optional[str] = None,
     is_super_admin: bool = False,
 ) -> str:
+    expose_routes = _should_expose_routes(message)
     current_module = match_module_for_route(current_route)
     selected_modules = select_relevant_modules(
         message,
@@ -175,7 +187,10 @@ def build_platform_guide_context(
     lines = [
         "Ember popup assistant manual selector:",
         "Prioritize Ember-specific navigation and data-entry guidance before generic case-management advice.",
-        "Use exact module names. Include routes only when they clarify the path.",
+        "Routes are internal navigation metadata for matching and route-aware context selection.",
+        "In normal user-facing answers, use module names and click or open language instead of raw routes or URLs.",
+        "Say things like 'Click Dashboard,' 'open Smart Daily,' or 'go to Case Management' unless the user explicitly asks for the route, path, or URL.",
+        "Only expose raw routes when the user explicitly asks for route or path details or is clearly asking about routing behavior.",
         "Explain what data belongs in the module, how it connects to the next module, what should be documented, and what follow-up should go into Smart Daily when applicable.",
         "If live selected-client context is missing, say so plainly and tell the user to select or open the client first.",
         "If a feature seems incomplete or unclear, say 'The closest available place in Ember is ...' and do not invent features.",
@@ -185,22 +200,25 @@ def build_platform_guide_context(
 
     if current_route:
         if current_module:
-            lines.append(f"Current route context: {current_module['display_name']} ({current_module['routes'][0]}).")
+            lines.append(_current_route_context_line(current_module, include_route=expose_routes))
         else:
-            lines.append(f"Current route context: {current_route}.")
+            if expose_routes:
+                lines.append(f"Current route context: {current_route}.")
+            else:
+                lines.append("Current route context: a page is already open in Ember; use that page as the starting point if it matches the question.")
 
     lines.append(_role_instruction(user_role, is_super_admin))
     lines.append("Short platform index:")
-    lines.extend(_platform_index_lines(visible_modules))
+    lines.extend(_platform_index_lines(visible_modules, include_routes=expose_routes))
 
     lines.append("Selected module manual sections:")
     for module in selected_modules:
-        lines.extend(_module_context_lines(module))
+        lines.extend(_module_context_lines(module, include_routes=expose_routes))
 
     if selected_workflows:
         lines.append("Selected workflow recipes:")
         for workflow in selected_workflows:
-            lines.extend(_workflow_context_lines(workflow))
+            lines.extend(_workflow_context_lines(workflow, visible_by_key, include_routes=expose_routes))
 
     if not selected_workflows:
         lines.append("Workflow guidance: if the user asks for steps, choose the closest workflow from the selected modules and say which part of Ember is the closest available place.")
@@ -208,15 +226,14 @@ def build_platform_guide_context(
     return "\n".join(lines)
 
 
-def _module_context_lines(module: Dict[str, object]) -> List[str]:
-    route = module["routes"][0]
+def _module_context_lines(module: Dict[str, object], *, include_routes: bool) -> List[str]:
     return [
-        f"- Module: {module['display_name']} ({route})",
+        _module_heading_line(module, include_route=include_routes),
         f"  Purpose: {module['purpose']}",
         f"  Use when: {module['use_when']}",
         f"  Data belongs here: {', '.join(module['required_or_useful_data'])}",
         f"  How to use: {' | '.join(module['step_by_step'])}",
-        f"  Related modules: {', '.join(module['related_modules'])}",
+        f"  Related modules: {', '.join(_display_names_for_module_keys(module['related_modules']))}",
         f"  What to document: {module['what_to_document']}",
         f"  Role restrictions: {module['role_restrictions']}",
         f"  Known limitations: {'; '.join(module['known_limitations'])}",
@@ -224,11 +241,17 @@ def _module_context_lines(module: Dict[str, object]) -> List[str]:
     ]
 
 
-def _workflow_context_lines(workflow: Dict[str, object]) -> List[str]:
+def _workflow_context_lines(
+    workflow: Dict[str, object],
+    visible_by_key: Dict[str, Dict[str, object]],
+    *,
+    include_routes: bool,
+) -> List[str]:
+    module_order = _display_names_for_workflow(workflow["modules_to_open_in_order"], visible_by_key, include_routes)
     return [
         f"- Workflow: {workflow['display_name']}",
         f"  Trigger examples: {'; '.join(workflow['trigger_question_examples'])}",
-        f"  Open modules in order: {' -> '.join(workflow['modules_to_open_in_order'])}",
+        f"  Open modules in order: {' -> '.join(module_order)}",
         f"  Steps: {' | '.join(workflow['step_by_step_actions'])}",
         f"  Data needed: {', '.join(workflow['data_needed'])}",
         f"  Documentation output: {workflow['documentation_output']}",
@@ -238,7 +261,7 @@ def _workflow_context_lines(workflow: Dict[str, object]) -> List[str]:
     ]
 
 
-def _platform_index_lines(visible_modules: List[Dict[str, object]]) -> List[str]:
+def _platform_index_lines(visible_modules: List[Dict[str, object]], *, include_routes: bool) -> List[str]:
     index_order = []
     for key in [
         "dashboard",
@@ -272,7 +295,10 @@ def _platform_index_lines(visible_modules: List[Dict[str, object]]) -> List[str]
     ]:
         module = next((m for m in visible_modules if m["key"] == key), None)
         if module:
-            index_order.append(f"- {module['display_name']}: {module['routes'][0]}")
+            if include_routes:
+                index_order.append(f"- {module['display_name']}: {module['routes'][0]}")
+            else:
+                index_order.append(f"- {module['display_name']}")
     return index_order
 
 
@@ -305,3 +331,48 @@ def _role_instruction(user_role: Optional[str], is_super_admin: bool) -> str:
 
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _should_expose_routes(message: str) -> bool:
+    text = _normalize(message)
+    if any(pattern in text for pattern in ROUTE_REQUEST_PATTERNS):
+        return True
+    return "/" in (message or "")
+
+
+def _current_route_context_line(module: Dict[str, object], *, include_route: bool) -> str:
+    if include_route:
+        return f"Current route context: {module['display_name']} ({module['routes'][0]})."
+    return f"Current route context: {module['display_name']}."
+
+
+def _module_heading_line(module: Dict[str, object], *, include_route: bool) -> str:
+    if include_route:
+        return f"- Module: {module['display_name']} ({module['routes'][0]})"
+    return f"- Module: {module['display_name']}"
+
+
+def _display_names_for_module_keys(module_keys: List[str]) -> List[str]:
+    names = []
+    for key in module_keys:
+        module = next((entry for entry in PLATFORM_MANUAL if entry["key"] == key), None)
+        names.append(str(module["display_name"]) if module else str(key))
+    return names
+
+
+def _display_names_for_workflow(
+    module_keys: List[str],
+    visible_by_key: Dict[str, Dict[str, object]],
+    include_routes: bool,
+) -> List[str]:
+    names = []
+    for key in module_keys:
+        module = visible_by_key.get(key)
+        if module:
+            if include_routes:
+                names.append(f"{module['display_name']} ({module['routes'][0]})")
+            else:
+                names.append(str(module["display_name"]))
+        else:
+            names.append(str(key))
+    return names

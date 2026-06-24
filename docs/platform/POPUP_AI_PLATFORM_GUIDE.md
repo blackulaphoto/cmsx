@@ -27,6 +27,18 @@ The selector currently does three things:
 
 This is a safe keyword-based selector, not a dynamic retrieval engine.
 
+## User-facing response style
+
+The popup may use route data internally, but normal user-facing answers should not expose raw routes by default.
+
+- Keep routes in the structured manual for current-route matching, module lookup, tests, and future deep-link support.
+- In popup answers, prefer module names and click/open language such as:
+  - `Click Dashboard`
+  - `Open Smart Daily`
+  - `Go to Case Management`
+  - `Select Documentation`
+- Do not show raw route strings like `/smart-dashboard`, `/case-management`, or `/ur` unless the user explicitly asks for the route, path, or URL, or the discussion is clearly about routing behavior.
+
 ## How to update it
 
 When new modules or routes are added:
