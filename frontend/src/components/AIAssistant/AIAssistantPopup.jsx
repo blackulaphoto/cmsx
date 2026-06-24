@@ -1,10 +1,25 @@
 import { useEffect, useRef, useState } from 'react'
 import { MessageCircle, Minimize2, Send, X } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import AIAssistantButton from './AIAssistantButton'
 import { apiFetch } from '../../api/config'
 
-const assistantMessageClasses =
-  'bg-gray-100 text-gray-900 whitespace-pre-wrap break-words leading-7'
+const assistantMessageClasses = 'bg-gray-100 text-gray-900 break-words leading-relaxed'
+
+const markdownComponents = {
+  h1: ({ children }) => <p className="font-semibold text-gray-900 mb-1">{children}</p>,
+  h2: ({ children }) => <p className="font-semibold text-gray-900 mb-1">{children}</p>,
+  h3: ({ children }) => <p className="font-semibold text-gray-900 mb-1">{children}</p>,
+  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+  ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-0.5">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-0.5">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  code: ({ children }) => (
+    <code className="bg-gray-200 rounded px-1 py-0.5 text-xs font-mono">{children}</code>
+  ),
+}
 
 export default function AIAssistantPopup() {
   const [isOpen, setIsOpen] = useState(false)
@@ -123,7 +138,13 @@ export default function AIAssistantPopup() {
               }`}
               data-testid={msg.role === 'assistant' ? 'assistant-message' : undefined}
             >
-              {msg.content}
+              {msg.role === 'assistant' ? (
+                <ReactMarkdown components={markdownComponents}>
+                  {msg.content}
+                </ReactMarkdown>
+              ) : (
+                msg.content
+              )}
             </div>
           </div>
         ))}

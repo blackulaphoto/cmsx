@@ -188,3 +188,73 @@ def test_explicit_route_question_allows_route_output():
     assert "Current route context: Smart Daily (/smart-dashboard)." in context
     assert "Smart Daily: /smart-dashboard" in context
     assert "Module: Smart Daily (/smart-dashboard)" in context
+
+
+# ---------------------------------------------------------------------------
+# v4 response-style rule tests
+# ---------------------------------------------------------------------------
+
+
+def test_morning_workflow_hides_routes_by_default():
+    """Morning workflow context must not expose raw route paths."""
+    context = build_platform_guide_context(
+        "What should I check every morning?",
+        current_route="/",
+        user_role="case_manager",
+        is_super_admin=False,
+    )
+    assert "Module: Dashboard" in context
+    assert "Module: Smart Daily" in context
+    assert "Module: Messages" in context
+    assert "Module: Case Management" in context
+    assert "Workflow: Daily Case Manager Morning Workflow" in context
+    # Route paths must be absent when not explicitly requested
+    assert "/smart-dashboard" not in context
+    assert "/case-management" not in context
+    assert "/messages" not in context
+
+
+def test_platform_guide_discourages_route_action_focus_blocks():
+    """System prompt must explicitly ban Route/Action/Focus label blocks."""
+    context = build_platform_guide_context(
+        "How do I use the app?",
+        current_route="/",
+        user_role="case_manager",
+        is_super_admin=False,
+    )
+    assert "Do not use 'Route:', 'Action:', or 'Focus:' label blocks" in context
+
+
+def test_platform_guide_instructs_best_next_step():
+    """System prompt must include a 'Best next step:' guidance instruction."""
+    context = build_platform_guide_context(
+        "What should I do first today?",
+        current_route="/",
+        user_role="case_manager",
+        is_super_admin=False,
+    )
+    assert "Best next step:" in context
+
+
+def test_platform_guide_uses_plain_action_language_instruction():
+    """System prompt must instruct use of click/open/go-to action words."""
+    context = build_platform_guide_context(
+        "How do I work in Ember today?",
+        current_route="/",
+        user_role="case_manager",
+        is_super_admin=False,
+    )
+    assert "Click Dashboard" in context
+    assert "Open Smart Daily" in context
+    assert "Go to Case Management" in context
+
+
+def test_platform_guide_discourages_corporate_phrases():
+    """System prompt must warn against 'streamlined process' style language."""
+    context = build_platform_guide_context(
+        "How do I get started?",
+        current_route="/",
+        user_role="case_manager",
+        is_super_admin=False,
+    )
+    assert "streamlined process" in context  # appears in the warning rule itself

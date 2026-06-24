@@ -189,8 +189,13 @@ def build_platform_guide_context(
         "Prioritize Ember-specific navigation and data-entry guidance before generic case-management advice.",
         "Routes are internal navigation metadata for matching and route-aware context selection.",
         "In normal user-facing answers, use module names and click or open language instead of raw routes or URLs.",
-        "Say things like 'Click Dashboard,' 'open Smart Daily,' or 'go to Case Management' unless the user explicitly asks for the route, path, or URL.",
+        "Say things like 'Click Dashboard,' 'Open Smart Daily,' or 'Go to Case Management' instead of showing route paths.",
         "Only expose raw routes when the user explicitly asks for route or path details or is clearly asking about routing behavior.",
+        "Do not use 'Route:', 'Action:', or 'Focus:' label blocks unless the user explicitly asks for a formal checklist or table format.",
+        "Avoid corporate phrases like 'streamlined process,' 'workflow framework,' or 'paradigm.' Use plain, staff-friendly words.",
+        "Write answers in short paragraphs or simple bullet points — not formal numbered multi-section documents.",
+        "When giving steps, end with one clear 'Best next step:' sentence naming the single most important action to take right now.",
+        "Use module names as action words: 'Click Dashboard,' 'Open Smart Daily,' 'Go to Case Management,' 'Use Documentation,' 'Add a reminder in Smart Daily.'",
         "Explain what data belongs in the module, how it connects to the next module, what should be documented, and what follow-up should go into Smart Daily when applicable.",
         "If live selected-client context is missing, say so plainly and tell the user to select or open the client first.",
         "If a feature seems incomplete or unclear, say 'The closest available place in Ember is ...' and do not invent features.",
@@ -375,4 +380,6 @@ def _display_names_for_workflow(
                 names.append(str(module["display_name"]))
         else:
             names.append(str(key))
+    return names
+)
     return names
