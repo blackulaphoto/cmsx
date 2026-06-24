@@ -20,12 +20,16 @@ def test_platform_guide_intake_workflow_includes_required_modules():
         user_role="case_manager",
         is_super_admin=False,
     )
-    assert "Current route context: Smart Daily (/smart-dashboard)." in context
-    assert "Module: Admissions (/admissions)" in context
-    assert "Module: Case Management (/case-management)" in context
-    assert "Module: Documentation (/documentation)" in context
-    assert "Module: Treatment Plan (/treatment-plan)" in context
-    assert "Open modules in order: admissions -> case_management -> documentation -> treatment_plan -> smart_daily" in context
+    assert "Current route context: Smart Daily." in context
+    assert "Module: Admissions" in context
+    assert "Module: Case Management" in context
+    assert "Module: Documentation" in context
+    assert "Module: Treatment Plan" in context
+    assert "Open modules in order: Admissions -> Case Management -> Documentation -> Treatment Plan -> Smart Daily" in context
+    assert "/smart-dashboard" not in context
+    assert "/case-management" not in context
+    assert "/documentation" not in context
+    assert "/treatment-plan" not in context
 
 
 def test_platform_guide_hides_admin_only_modules_for_case_manager():
@@ -36,9 +40,9 @@ def test_platform_guide_hides_admin_only_modules_for_case_manager():
         is_super_admin=False,
     )
     assert "Do not present Team Management, Supervisor Dashboard, Owner Cockpit, or Super Admin" in context
-    assert "Supervisor Dashboard: /supervisor-dashboard" not in context
-    assert "Team Management: /team" not in context
-    assert "Owner Cockpit: /owner" not in context
+    assert "- Supervisor Dashboard" not in context
+    assert "- Team Management" not in context
+    assert "- Owner Cockpit" not in context
 
 
 def test_platform_guide_shows_supervisor_for_admin():
@@ -49,7 +53,7 @@ def test_platform_guide_shows_supervisor_for_admin():
         is_super_admin=False,
     )
     assert "Role context: this user is an admin." in context
-    assert "Supervisor Dashboard: /supervisor-dashboard" in context
+    assert "Supervisor Dashboard" in context
 
 
 def test_ur_question_selects_ur_module_and_workflow():
@@ -76,10 +80,13 @@ def test_court_question_returns_legal_documentation_and_smart_daily_context():
         user_role="case_manager",
         is_super_admin=False,
     )
-    assert "Module: Legal (/legal)" in context
-    assert "Module: Documentation (/documentation)" in context
-    assert "Module: Smart Daily (/smart-dashboard)" in context
+    assert "Module: Legal" in context
+    assert "Module: Documentation" in context
+    assert "Module: Smart Daily" in context
     assert "Workflow: Legal, Probation, and Court Update Workflow" in context
+    assert "/legal" not in context
+    assert "/documentation" not in context
+    assert "/smart-dashboard" not in context
 
 
 def test_housing_question_returns_housing_documentation_and_smart_daily_context():
@@ -89,9 +96,9 @@ def test_housing_question_returns_housing_documentation_and_smart_daily_context(
         user_role="case_manager",
         is_super_admin=False,
     )
-    assert "Module: Housing (/housing)" in context
-    assert "Module: Documentation (/documentation)" in context
-    assert "Module: Smart Daily (/smart-dashboard)" in context
+    assert "Module: Housing" in context
+    assert "Module: Documentation" in context
+    assert "Module: Smart Daily" in context
 
 
 def test_benefits_question_returns_benefits_and_admissions_context():
@@ -101,8 +108,8 @@ def test_benefits_question_returns_benefits_and_admissions_context():
         user_role="case_manager",
         is_super_admin=False,
     )
-    assert "Module: Benefits (/benefits)" in context
-    assert "Module: Admissions (/admissions)" in context
+    assert "Module: Benefits" in context
+    assert "Module: Admissions" in context
 
 
 def test_morning_workflow_returns_dashboard_and_smart_daily():
@@ -112,9 +119,12 @@ def test_morning_workflow_returns_dashboard_and_smart_daily():
         user_role="case_manager",
         is_super_admin=False,
     )
-    assert "Module: Dashboard (/)" in context
-    assert "Module: Smart Daily (/smart-dashboard)" in context
+    assert "Module: Dashboard" in context
+    assert "Module: Smart Daily" in context
     assert "Workflow: Daily Case Manager Morning Workflow" in context
+    assert "Open modules in order: Dashboard -> Smart Daily -> Messages -> Case Management" in context
+    assert "/smart-dashboard" not in context
+    assert "/case-management" not in context
 
 
 def test_discharge_planning_returns_cross_module_guidance():
@@ -125,7 +135,7 @@ def test_discharge_planning_returns_cross_module_guidance():
         is_super_admin=False,
     )
     assert "Workflow: Discharge Planning" in context
-    assert "case_management -> documentation -> treatment_plan -> housing -> benefits -> medical -> legal -> jobs -> smart_daily" in context
+    assert "Case Management -> Documentation -> Treatment Plan -> Housing -> Benefits -> Medical -> Legal -> Jobs -> Smart Daily" in context
 
 
 def test_unknown_feature_guidance_prefers_closest_available_module_rule():
@@ -151,5 +161,30 @@ def test_current_route_changes_selected_module_context():
         user_role="case_manager",
         is_super_admin=False,
     )
-    assert "Current route context: Benefits (/benefits)." in benefits_context
-    assert "Current route context: Utilization Review (/ur)." in ur_context
+    assert "Current route context: Benefits." in benefits_context
+    assert "Current route context: Utilization Review." in ur_context
+
+
+def test_ur_guidance_hides_raw_routes_by_default():
+    context = build_platform_guide_context(
+        "How do I use UR?",
+        current_route="/ur",
+        user_role="case_manager",
+        is_super_admin=False,
+    )
+    assert "Module: Utilization Review" in context
+    assert "Module: Documentation" in context
+    assert "Module: Smart Daily" in context
+    assert "/ur" not in context
+
+
+def test_explicit_route_question_allows_route_output():
+    context = build_platform_guide_context(
+        "What is the route for Smart Daily?",
+        current_route="/smart-dashboard",
+        user_role="case_manager",
+        is_super_admin=False,
+    )
+    assert "Current route context: Smart Daily (/smart-dashboard)." in context
+    assert "Smart Daily: /smart-dashboard" in context
+    assert "Module: Smart Daily (/smart-dashboard)" in context
