@@ -31,7 +31,10 @@ export default function AIAssistantPopup() {
         timeoutMs: 30000,
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: messageText }),
+        body: JSON.stringify({
+          message: messageText,
+          current_route: window.location.pathname,
+        }),
       })
 
       if (!response.ok) {
