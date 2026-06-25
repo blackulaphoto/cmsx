@@ -120,8 +120,12 @@ nul
 logs/
 *.log
 
-# Database files (optional - uncomment if you don't want to track them)
-# databases/*.db
+# Database files (local runtime/test artifacts only)
+databases/*.db
+backend/databases/*.db
+databases/*_test.db
+databases/*_smoke.db
+databases/sober_living_directory_*.db
 databases/*.db-shm
 databases/*.db-wal
 databases/**/*.json
