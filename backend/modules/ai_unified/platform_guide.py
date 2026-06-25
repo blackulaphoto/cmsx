@@ -381,5 +381,3 @@ def _display_names_for_workflow(
         else:
             names.append(str(key))
     return names
-)
-    return names
