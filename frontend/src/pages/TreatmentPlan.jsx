@@ -16,6 +16,10 @@ import {
   AlertTriangle,
   Tag,
   Zap,
+  Pencil,
+  Save,
+  Plus,
+  Trash2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ClientSelector from '../components/ClientSelector'
@@ -108,6 +112,9 @@ export default function TreatmentPlan() {
   const [approving, setApproving] = useState(false)
   const [createdTasks, setCreatedTasks] = useState([])
   const [loading, setLoading] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [editForm, setEditForm] = useState(null)
 
   useEffect(() => {
     const clientId = searchParams.get('client')
@@ -119,6 +126,8 @@ export default function TreatmentPlan() {
   }, [searchParams])
 
   useEffect(() => {
+    setEditing(false)
+    setEditForm(null)
     if (!selectedClient?.client_id) {
       setPlans([])
       setSelectedPlan(null)
@@ -199,6 +208,320 @@ export default function TreatmentPlan() {
 
   const listOrEmpty = (val) => (Array.isArray(val) ? val : [])
 
+  // ---- Draft edit mode ----------------------------------------------------
+  const handleSelectPlan = (plan) => {
+    setEditing(false)
+    setEditForm(null)
+    setSelectedPlan(plan)
+  }
+
+  const beginEdit = () => {
+    if (!selectedPlan) return
+    const toObj = (item, key = 'description') =>
+      typeof item === 'string' ? { [key]: item } : { ...(item || {}) }
+    setEditForm({
+      problems: listOrEmpty(selectedPlan.problems).map((p) => toObj(p)),
+      goals: listOrEmpty(selectedPlan.goals).map((g) => toObj(g)),
+      objectives: listOrEmpty(selectedPlan.objectives).map((o) => toObj(o)),
+      interventions: listOrEmpty(selectedPlan.interventions).map((iv) => toObj(iv)),
+      aftercare_plan: { ...(selectedPlan.aftercare_plan && typeof selectedPlan.aftercare_plan === 'object' ? selectedPlan.aftercare_plan : {}) },
+      completion_criteria: listOrEmpty(selectedPlan.completion_criteria).map((c) =>
+        typeof c === 'string' ? c : (c?.description || ''),
+      ),
+      operational_needs: listOrEmpty(selectedPlan.operational_needs).map((n) => ({ ...(n || {}) })),
+    })
+    setEditing(true)
+  }
+
+  const cancelEdit = () => {
+    setEditing(false)
+    setEditForm(null)
+  }
+
+  const updateItem = (section, index, field, value) => {
+    setEditForm((prev) => {
+      const list = [...(prev[section] || [])]
+      list[index] = { ...list[index], [field]: value }
+      return { ...prev, [section]: list }
+    })
+  }
+
+  const removeItem = (section, index) => {
+    setEditForm((prev) => ({
+      ...prev,
+      [section]: (prev[section] || []).filter((_, i) => i !== index),
+    }))
+  }
+
+  const addItem = (section, blank) => {
+    setEditForm((prev) => ({ ...prev, [section]: [...(prev[section] || []), blank] }))
+  }
+
+  const updateCriterion = (index, value) => {
+    setEditForm((prev) => {
+      const list = [...(prev.completion_criteria || [])]
+      list[index] = value
+      return { ...prev, completion_criteria: list }
+    })
+  }
+
+  const updateAftercare = (field, value) => {
+    setEditForm((prev) => ({ ...prev, aftercare_plan: { ...prev.aftercare_plan, [field]: value } }))
+  }
+
+  const handleSaveEdit = async () => {
+    if (!selectedClient?.client_id || !selectedPlan?.plan_id || !editForm) return
+    setSaving(true)
+    try {
+      const res = await apiFetch(
+        `/api/clients/${encodeURIComponent(selectedClient.client_id)}/treatment-plan/${encodeURIComponent(selectedPlan.plan_id)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            problems: editForm.problems,
+            goals: editForm.goals,
+            objectives: editForm.objectives,
+            interventions: editForm.interventions,
+            aftercare_plan: editForm.aftercare_plan,
+            completion_criteria: (editForm.completion_criteria || [])
+              .map((c) => (typeof c === 'string' ? c.trim() : c))
+              .filter(Boolean),
+            operational_needs: editForm.operational_needs,
+          }),
+        },
+      )
+      if (!res.ok) throw new Error('Save failed')
+      const data = await res.json()
+      toast.success('Treatment plan updated')
+      setEditing(false)
+      setEditForm(null)
+      if (data.plan) setSelectedPlan(data.plan)
+      await loadPlans(selectedClient.client_id)
+    } catch {
+      toast.error('Failed to save treatment plan')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const inputCls =
+    'w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-500/50'
+
+  const AddRowButton = ({ onClick, label }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 bg-white/5 hover:bg-white/10 text-xs font-medium text-gray-200 transition-colors"
+    >
+      <Plus size={12} /> {label}
+    </button>
+  )
+
+  const RemoveRowButton = ({ onClick }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Remove item"
+      className="flex-shrink-0 p-1.5 rounded-lg border border-white/10 text-gray-400 hover:text-red-300 hover:border-red-500/30 hover:bg-red-500/10 transition-colors"
+    >
+      <Trash2 size={13} />
+    </button>
+  )
+
+  const renderEditForm = () => {
+    if (!editForm) return null
+    return (
+      <div className="space-y-4">
+        {/* Problems */}
+        <SectionCard title="Problems" icon={AlertTriangle}>
+          <div className="space-y-3 pt-1">
+            {editForm.problems.map((p, i) => (
+              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
+                <div className="flex-1 space-y-2">
+                  <input
+                    className={inputCls}
+                    placeholder="Domain (e.g. housing)"
+                    value={p.domain || ''}
+                    onChange={(e) => updateItem('problems', i, 'domain', e.target.value)}
+                  />
+                  <textarea
+                    className={inputCls}
+                    rows={2}
+                    placeholder="Problem description"
+                    value={p.description || ''}
+                    onChange={(e) => updateItem('problems', i, 'description', e.target.value)}
+                  />
+                </div>
+                <RemoveRowButton onClick={() => removeItem('problems', i)} />
+              </div>
+            ))}
+            <AddRowButton onClick={() => addItem('problems', { domain: '', description: '' })} label="Add problem" />
+          </div>
+        </SectionCard>
+
+        {/* Goals */}
+        <SectionCard title="Goals" icon={Target}>
+          <div className="space-y-3 pt-1">
+            {editForm.goals.map((g, i) => (
+              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
+                <div className="flex-1 space-y-2">
+                  <textarea
+                    className={inputCls}
+                    rows={2}
+                    placeholder="Goal description"
+                    value={g.description || ''}
+                    onChange={(e) => updateItem('goals', i, 'description', e.target.value)}
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input
+                      className={inputCls}
+                      placeholder="Target date"
+                      value={g.target_date || ''}
+                      onChange={(e) => updateItem('goals', i, 'target_date', e.target.value)}
+                    />
+                    <select
+                      className={inputCls}
+                      value={g.status || 'draft'}
+                      onChange={(e) => updateItem('goals', i, 'status', e.target.value)}
+                    >
+                      <option className="bg-gray-800" value="draft">draft</option>
+                      <option className="bg-gray-800" value="active">active</option>
+                      <option className="bg-gray-800" value="completed">completed</option>
+                    </select>
+                  </div>
+                </div>
+                <RemoveRowButton onClick={() => removeItem('goals', i)} />
+              </div>
+            ))}
+            <AddRowButton onClick={() => addItem('goals', { description: '', status: 'draft' })} label="Add goal" />
+          </div>
+        </SectionCard>
+
+        {/* Objectives */}
+        <SectionCard title="Objectives" icon={ChevronRight}>
+          <div className="space-y-3 pt-1">
+            {editForm.objectives.map((o, i) => (
+              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
+                <div className="flex-1 space-y-2">
+                  <textarea
+                    className={inputCls}
+                    rows={2}
+                    placeholder="Objective description"
+                    value={o.description || ''}
+                    onChange={(e) => updateItem('objectives', i, 'description', e.target.value)}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder="Measure"
+                    value={o.measure || ''}
+                    onChange={(e) => updateItem('objectives', i, 'measure', e.target.value)}
+                  />
+                </div>
+                <RemoveRowButton onClick={() => removeItem('objectives', i)} />
+              </div>
+            ))}
+            <AddRowButton onClick={() => addItem('objectives', { description: '', measure: '' })} label="Add objective" />
+          </div>
+        </SectionCard>
+
+        {/* Interventions */}
+        <SectionCard title="Interventions" icon={Zap}>
+          <div className="space-y-3 pt-1">
+            {editForm.interventions.map((iv, i) => (
+              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
+                <div className="flex-1 space-y-2">
+                  <textarea
+                    className={inputCls}
+                    rows={2}
+                    placeholder="Intervention description"
+                    value={iv.description || ''}
+                    onChange={(e) => updateItem('interventions', i, 'description', e.target.value)}
+                  />
+                  <input
+                    className={inputCls}
+                    placeholder="Frequency (e.g. weekly)"
+                    value={iv.frequency || ''}
+                    onChange={(e) => updateItem('interventions', i, 'frequency', e.target.value)}
+                  />
+                </div>
+                <RemoveRowButton onClick={() => removeItem('interventions', i)} />
+              </div>
+            ))}
+            <AddRowButton onClick={() => addItem('interventions', { description: '', frequency: '' })} label="Add intervention" />
+          </div>
+        </SectionCard>
+
+        {/* Aftercare Plan */}
+        <SectionCard title="Aftercare Plan" icon={ClipboardList} defaultOpen={false}>
+          <div className="space-y-2 pt-1">
+            <input
+              className={inputCls}
+              placeholder="Aftercare summary"
+              value={editForm.aftercare_plan.summary || ''}
+              onChange={(e) => updateAftercare('summary', e.target.value)}
+            />
+            <textarea
+              className={inputCls}
+              rows={3}
+              placeholder="Aftercare notes"
+              value={editForm.aftercare_plan.notes || ''}
+              onChange={(e) => updateAftercare('notes', e.target.value)}
+            />
+          </div>
+        </SectionCard>
+
+        {/* Completion Criteria */}
+        <SectionCard title="Completion Criteria" icon={CheckCircle} defaultOpen={false}>
+          <div className="space-y-2 pt-1">
+            {editForm.completion_criteria.map((c, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  className={inputCls}
+                  placeholder="Completion criterion"
+                  value={c}
+                  onChange={(e) => updateCriterion(i, e.target.value)}
+                />
+                <RemoveRowButton onClick={() => removeItem('completion_criteria', i)} />
+              </div>
+            ))}
+            <AddRowButton onClick={() => addItem('completion_criteria', '')} label="Add criterion" />
+          </div>
+        </SectionCard>
+
+        {/* Operational Needs */}
+        <SectionCard title="Operational Needs" icon={Tag} defaultOpen={false}>
+          <div className="space-y-3 pt-1">
+            {editForm.operational_needs.map((n, i) => (
+              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    className={inputCls}
+                    placeholder="Need key (e.g. dental)"
+                    value={n.need_key || ''}
+                    onChange={(e) => updateItem('operational_needs', i, 'need_key', e.target.value)}
+                  />
+                  <select
+                    className={inputCls}
+                    value={(n.priority || 'medium').toLowerCase()}
+                    onChange={(e) => updateItem('operational_needs', i, 'priority', e.target.value)}
+                  >
+                    <option className="bg-gray-800" value="urgent">urgent</option>
+                    <option className="bg-gray-800" value="high">high</option>
+                    <option className="bg-gray-800" value="medium">medium</option>
+                    <option className="bg-gray-800" value="low">low</option>
+                  </select>
+                </div>
+                <RemoveRowButton onClick={() => removeItem('operational_needs', i)} />
+              </div>
+            ))}
+            <AddRowButton onClick={() => addItem('operational_needs', { need_key: '', priority: 'medium' })} label="Add need" />
+          </div>
+        </SectionCard>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4 sm:p-6">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -241,7 +564,7 @@ export default function TreatmentPlan() {
                 ) : plans.length === 0 ? (
                   <p className="text-gray-500 text-sm">No plans yet.</p>
                 ) : (
-                  <PlanList plans={plans} selectedId={selectedPlan?.plan_id} onSelect={setSelectedPlan} />
+                  <PlanList plans={plans} selectedId={selectedPlan?.plan_id} onSelect={handleSelectPlan} />
                 )}
 
                 <button
@@ -313,22 +636,63 @@ export default function TreatmentPlan() {
                         </p>
                       </div>
 
-                      {selectedPlan.status === 'draft' && (
-                        <button
-                          onClick={handleApprovePlan}
-                          disabled={approving}
-                          className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 text-white rounded-xl font-semibold text-sm transition-all"
-                        >
-                          {approving ? (
-                            <><RefreshCw size={14} className="animate-spin" /> Approving…</>
-                          ) : (
-                            <><ThumbsUp size={14} /> Approve Plan</>
-                          )}
-                        </button>
+                      {selectedPlan.status === 'draft' && !editing && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={beginEdit}
+                            className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/15 border border-white/15 text-white rounded-xl font-semibold text-sm transition-all"
+                          >
+                            <Pencil size={14} /> Edit Draft
+                          </button>
+                          <button
+                            onClick={handleApprovePlan}
+                            disabled={approving}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 disabled:opacity-50 text-white rounded-xl font-semibold text-sm transition-all"
+                          >
+                            {approving ? (
+                              <><RefreshCw size={14} className="animate-spin" /> Approving…</>
+                            ) : (
+                              <><ThumbsUp size={14} /> Approve Plan</>
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {selectedPlan.status === 'draft' && editing && (
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={handleSaveEdit}
+                            disabled={saving}
+                            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 disabled:opacity-50 text-white rounded-xl font-semibold text-sm transition-all"
+                          >
+                            {saving ? (
+                              <><RefreshCw size={14} className="animate-spin" /> Saving…</>
+                            ) : (
+                              <><Save size={14} /> Save Changes</>
+                            )}
+                          </button>
+                          <button
+                            onClick={cancelEdit}
+                            disabled={saving}
+                            className="flex items-center gap-2 px-4 py-2.5 bg-white/10 hover:bg-white/15 border border-white/15 disabled:opacity-50 text-white rounded-xl font-semibold text-sm transition-all"
+                          >
+                            <X size={14} /> Cancel
+                          </button>
+                        </div>
+                      )}
+
+                      {selectedPlan.status !== 'draft' && (
+                        <p className="text-xs text-gray-400 max-w-[14rem] text-right">
+                          Approved plans require a revision before editing.
+                        </p>
                       )}
                     </div>
                   </div>
 
+                  {editing && renderEditForm()}
+
+                  {!editing && (
+                  <>
                   {/* Operational Needs */}
                   {listOrEmpty(selectedPlan.operational_needs).length > 0 && (
                     <SectionCard title="Operational Needs" icon={Target}>
@@ -488,6 +852,8 @@ export default function TreatmentPlan() {
                         ))}
                       </div>
                     </div>
+                  )}
+                  </>
                   )}
                 </>
               )}
