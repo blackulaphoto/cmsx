@@ -117,3 +117,23 @@ describe('Layout mobile drawer', () => {
     expect(within(adminDialog).getByRole('link', { name: /Supervisor/i })).toHaveAttribute('href', '/supervisor-dashboard')
   })
 })
+
+describe('Layout header actions', () => {
+  it('renders the required header actions, including the notifications/alerts button', () => {
+    renderLayout()
+
+    // Hamburger / mobile menu trigger.
+    expect(screen.getByRole('button', { name: /open navigation menu/i })).toBeInTheDocument()
+    // Notifications / alerts button must be present (restored on mobile).
+    expect(screen.getByRole('button', { name: /action alerts/i })).toBeInTheDocument()
+    // Existing header actions that should remain visible.
+    expect(screen.getByRole('link', { name: /messenger/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /user menu/i })).toBeInTheDocument()
+  })
+
+  it('opens the alerts dropdown when the notifications button is clicked', () => {
+    renderLayout()
+    fireEvent.click(screen.getByRole('button', { name: /action alerts/i }))
+    expect(screen.getByText('Action Alerts')).toBeInTheDocument()
+  })
+})

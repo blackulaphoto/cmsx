@@ -284,7 +284,7 @@ const Layout = ({ children }) => {
                 )}
               </Link>
 
-              <div className="relative hidden flex-shrink-0 sm:block">
+              <div className="relative block flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setOpenMenu((current) => (current === 'alerts' ? null : 'alerts'))}
