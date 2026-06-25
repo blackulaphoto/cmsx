@@ -17,11 +17,12 @@ import {
   ShieldAlert,
   Landmark,
   LogOut,
+  Menu,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { apiFetch, messagesAPI } from '../api/config';
 import AppSidebar from './AppSidebar';
-import { NAV_ITEMS } from '../config/navigation';
+import MobileNavDrawer from './MobileNavDrawer';
 
 const TONE_BADGE = {
   danger: 'bg-red-500/20 text-red-200 border-red-400/30',
@@ -43,17 +44,16 @@ const Layout = ({ children }) => {
   const [messagesUnreadCount, setMessagesUnreadCount] = useState(0);
   const [serviceAlerts, setServiceAlerts] = useState([]);
   const [openMenu, setOpenMenu] = useState(null); // 'alerts' | 'user' | null
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
   const headerControlsRef = useRef(null);
   const canAccessSupervisorMode = profile?.role === 'admin';
-  const displayName = profile?.full_name || 'Signed in user'
-  const displayRole = canAccessSupervisorMode ? 'Admin / Supervisor' : 'Case Manager'
+  const displayName = profile?.full_name || 'Signed in user';
+  const displayRole = canAccessSupervisorMode ? 'Admin / Supervisor' : 'Case Manager';
 
-  // Role context for the grouped desktop sidebar (mirrors the prior inline
-  // gating: only the Supervisor dashboard is admin-gated). The mobile scroll
-  // strip below intentionally keeps rendering the full flat NAV_ITEMS list,
-  // unchanged from before Phase 2B.
+  // Role context for the grouped sidebar surfaces. This preserves the current
+  // admin-only gating for Supervisor while keeping owner/super-admin links in
+  // the separate account dropdown.
   const roleCtx = { isAdmin: canAccessSupervisorMode, isSuperAdmin };
-  const resolveBadge = (item) => (item.badgeKey === 'messagesUnread' ? messagesUnreadCount : 0);
 
   useEffect(() => {
     let cancelled = false;
@@ -111,7 +111,7 @@ const Layout = ({ children }) => {
           (buckets.next_3_days || []).forEach((task) => pushReminder(task, 'Due soon', 'info'));
         }
       } catch (error) {
-        // reminders unavailable — skip silently, other sources still populate
+        // reminders unavailable - skip silently, other sources still populate
       }
       try {
         const res = await apiFetch(`/api/fmla/summary?case_manager_id=${encodeURIComponent(cmId)}`);
@@ -143,7 +143,7 @@ const Layout = ({ children }) => {
           }
         }
       } catch (error) {
-        // FMLA summary unavailable — skip silently
+        // FMLA summary unavailable - skip silently
       }
       if (!cancelled) setServiceAlerts(next);
     };
@@ -175,7 +175,7 @@ const Layout = ({ children }) => {
 
   const visibleAlerts = alerts.slice(0, 8);
 
-  // Close dropdowns on outside click or Escape
+  // Close dropdowns on outside click or Escape.
   useEffect(() => {
     if (!openMenu) return undefined;
     const handleClick = (event) => {
@@ -194,92 +194,109 @@ const Layout = ({ children }) => {
     };
   }, [openMenu]);
 
-  // Close dropdowns when navigating
+  // Close menus when navigating.
   useEffect(() => {
     setOpenMenu(null);
+    setMobileDrawerOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileDrawerOpen) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKey = (event) => {
+      if (event.key === 'Escape') {
+        setMobileDrawerOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleKey);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [mobileDrawerOpen]);
 
   const openOwnerCockpit = () => {
     setOpenMenu(null);
     navigate('/owner');
   };
 
-
   return (
     <div className="min-h-screen w-full flex flex-col bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      {/* REDESIGNED HEADER */}
-      <header className="w-full bg-gradient-to-r from-slate-900/95 via-purple-900/95 to-slate-900/95 backdrop-blur-xl border-b border-white/10 text-white sticky top-0 z-50 shadow-2xl shadow-purple-500/20">
-        {/* Animated Background Elements */}
+      <header className="sticky top-0 z-50 w-full border-b border-white/10 bg-gradient-to-r from-slate-900/95 via-purple-900/95 to-slate-900/95 text-white shadow-2xl shadow-purple-500/20 backdrop-blur-xl">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute -top-4 -right-20 w-40 h-40 bg-orange-500/5 rounded-full blur-2xl animate-pulse"></div>
-          <div className="absolute -top-4 -left-20 w-40 h-40 bg-pink-500/5 rounded-full blur-2xl animate-pulse delay-1000"></div>
+          <div className="absolute -top-4 -right-20 h-40 w-40 animate-pulse rounded-full bg-orange-500/5 blur-2xl"></div>
+          <div className="absolute -top-4 -left-20 h-40 w-40 animate-pulse rounded-full bg-pink-500/5 blur-2xl delay-1000"></div>
         </div>
 
-        <div className="relative z-10 w-full max-w-[96rem] mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between gap-3 lg:gap-4 min-h-16 py-3">
-            {/* Logo */}
-            <Link to="/" className="flex min-w-0 items-center gap-3 group cursor-pointer">
+        <div className="relative z-10 mx-auto w-full max-w-[96rem] px-4 sm:px-6 lg:px-8">
+          <div className="flex min-h-16 items-center justify-between gap-3 py-3 lg:gap-4">
+            <Link to="/" className="group flex min-w-0 items-center gap-3 cursor-pointer">
               <div className="relative flex-shrink-0">
-                {/* Ember Logo with Glow Effect */}
-                <div className="bg-gradient-to-r from-ember-flame-start via-ember-flame-mid to-ember-flame-end p-2 rounded-xl shadow-lg group-hover:shadow-2xl group-hover:shadow-orange-500/50 transition-all duration-500 group-hover:scale-110">
+                <div className="rounded-xl bg-gradient-to-r from-ember-flame-start via-ember-flame-mid to-ember-flame-end p-2 shadow-lg transition-all duration-500 group-hover:scale-110 group-hover:shadow-2xl group-hover:shadow-orange-500/50">
                   <Flame className="h-6 w-6 text-white" />
                 </div>
-                {/* Floating Sparkles */}
-                <div className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
-                  <Sparkles className="h-3 w-3 text-yellow-400 animate-pulse" />
+                <div className="absolute -top-1 -right-1 opacity-0 transition-opacity duration-500 group-hover:opacity-100">
+                  <Sparkles className="h-3 w-3 animate-pulse text-yellow-400" />
                 </div>
               </div>
               <div className="min-w-0">
-                <h1 className="truncate text-xl font-bold bg-gradient-to-r from-white via-orange-200 to-pink-200 bg-clip-text text-transparent group-hover:from-orange-300 group-hover:via-red-300 group-hover:to-pink-300 transition-all duration-500">
+                <h1 className="truncate bg-gradient-to-r from-white via-orange-200 to-pink-200 bg-clip-text text-xl font-bold text-transparent transition-all duration-500 group-hover:from-orange-300 group-hover:via-red-300 group-hover:to-pink-300">
                   Ember
                 </h1>
-                <p className="hidden sm:block text-xs text-gray-400 group-hover:text-gray-300 transition-colors duration-300">
+                <p className="hidden text-xs text-gray-400 transition-colors duration-300 group-hover:text-gray-300 sm:block">
                   Case Management Suite
                 </p>
               </div>
             </Link>
 
-            {/* Desktop primary navigation now lives in the left sidebar
-                (components/AppSidebar.jsx). The header keeps brand + utilities. */}
-
-            {/* User Menu */}
             <div ref={headerControlsRef} className="flex min-w-0 items-center justify-end gap-2 lg:gap-3">
-              {/* Messenger */}
+              <button
+                type="button"
+                onClick={() => setMobileDrawerOpen(true)}
+                aria-label="Open navigation menu"
+                className="rounded-lg border border-white/10 bg-white/5 p-2 text-white transition-all duration-300 hover:border-white/20 hover:bg-white/10 xl:hidden"
+              >
+                <Menu className="h-5 w-5" />
+              </button>
+
               <Link
                 to="/messages"
                 aria-label="Messenger"
                 title="Messenger"
                 className="group relative cursor-pointer flex-shrink-0"
               >
-                <div className={`p-2 rounded-lg backdrop-blur-sm border transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-cyan-500/25 ${
+                <div className={`rounded-lg border p-2 backdrop-blur-sm transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-cyan-500/25 ${
                   location.pathname === '/messages'
                     ? 'bg-white/15 border-white/30'
                     : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
                 }`}>
-                  <MessageSquare className="h-4 w-4 text-white group-hover:text-cyan-200 transition-colors duration-300" />
+                  <MessageSquare className="h-4 w-4 text-white transition-colors duration-300 group-hover:text-cyan-200" />
                 </div>
-                {/* Unread Badge */}
                 {messagesUnreadCount > 0 && (
-                  <div className="absolute -top-1 -right-1 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-full min-w-4 h-4 px-1 text-[10px] flex items-center justify-center font-bold shadow-lg">
+                  <div className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 px-1 text-[10px] font-bold text-white shadow-lg">
                     {messagesUnreadCount > 99 ? '99+' : messagesUnreadCount}
                   </div>
                 )}
               </Link>
 
-              {/* Notifications / Action Alerts */}
-              <div className="relative hidden sm:block flex-shrink-0">
+              <div className="relative hidden flex-shrink-0 sm:block">
                 <button
                   type="button"
                   onClick={() => setOpenMenu((current) => (current === 'alerts' ? null : 'alerts'))}
                   aria-label="Action alerts"
                   aria-expanded={openMenu === 'alerts'}
-                  className={`group relative block rounded-lg p-2 backdrop-blur-sm border transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-orange-500/25 ${
+                  className={`group relative block rounded-lg border p-2 backdrop-blur-sm transition-all duration-300 hover:scale-110 hover:shadow-lg hover:shadow-orange-500/25 ${
                     openMenu === 'alerts' ? 'bg-white/15 border-white/30' : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
                   }`}
                 >
-                  <Bell className="h-4 w-4 text-white group-hover:text-orange-200 transition-colors duration-300" />
+                  <Bell className="h-4 w-4 text-white transition-colors duration-300 group-hover:text-orange-200" />
                   {alerts.length > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-full min-w-4 h-4 px-1 text-[10px] flex items-center justify-center font-bold shadow-lg">
+                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-gradient-to-r from-orange-500 to-red-500 px-1 text-[10px] font-bold text-white shadow-lg">
                       {alerts.length > 99 ? '99+' : alerts.length}
                     </span>
                   )}
@@ -332,14 +349,13 @@ const Layout = ({ children }) => {
                 )}
               </div>
 
-              {/* User / Workspace menu */}
               <div className="relative min-w-0 flex-shrink-0">
                 <button
                   type="button"
                   onClick={() => setOpenMenu((current) => (current === 'user' ? null : 'user'))}
                   aria-label="User menu"
                   aria-expanded={openMenu === 'user'}
-                  className={`group flex min-w-0 max-w-[10rem] items-center gap-2 rounded-lg p-2 backdrop-blur-sm border transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-purple-500/25 sm:max-w-[13rem] lg:max-w-[15rem] ${
+                  className={`group flex min-w-0 max-w-[10rem] items-center gap-2 rounded-lg border p-2 backdrop-blur-sm transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-purple-500/25 sm:max-w-[13rem] lg:max-w-[15rem] ${
                     openMenu === 'user'
                       ? 'from-purple-500/30 to-pink-500/30 border-white/30 bg-gradient-to-r'
                       : 'from-purple-500/20 to-pink-500/20 border-white/20 bg-gradient-to-r hover:from-purple-500/30 hover:to-pink-500/30 hover:border-white/30'
@@ -349,7 +365,7 @@ const Layout = ({ children }) => {
                     <User className="h-3 w-3 text-white" />
                     <span className="absolute -bottom-0.5 -left-0.5 h-2 w-2 rounded-full border border-slate-900 bg-gradient-to-r from-green-400 to-emerald-400 shadow-lg"></span>
                   </span>
-                  <span className="min-w-0 hidden text-left sm:block">
+                  <span className="hidden min-w-0 text-left sm:block">
                     <span className="block truncate text-xs font-medium text-white">{displayName}</span>
                     <span className="block truncate text-xs text-gray-400">{displayRole}</span>
                   </span>
@@ -423,42 +439,16 @@ const Layout = ({ children }) => {
               </div>
             </div>
           </div>
-
-          {/* Mobile Navigation — unchanged in Phase 2B: the same flat scroll
-              strip rendering every nav item in the original order. */}
-          <div className="xl:hidden border-t border-white/10">
-            <div className="flex overflow-x-auto py-2 gap-1 -mx-4 sm:-mx-6 px-4 sm:px-6 scrollbar-none" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
-              {NAV_ITEMS.map((item) => {
-                const IconComponent = item.icon;
-                const isActive = location.pathname === item.path;
-                const badge = resolveBadge(item);
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`group flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-300 hover:bg-white/10 border border-transparent hover:border-white/20 ${
-                      isActive ? 'bg-white/10 border-white/20 text-white' : 'text-gray-300'
-                    }`}
-                  >
-                    <div className={`p-1 bg-gradient-to-r ${item.gradient} rounded-md flex-shrink-0`}>
-                      <IconComponent className="h-3 w-3 text-white" />
-                    </div>
-                    <span>{item.label}</span>
-                    {badge > 0 && (
-                      <span className="rounded-full bg-orange-500 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-                        {badge > 99 ? '99+' : badge}
-                      </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
         </div>
       </header>
 
-      {/* Body: desktop sidebar (xl+) beside the scrollable main column. The
-          mobile scroll strip above remains the navigation surface below xl. */}
+      <MobileNavDrawer
+        isOpen={mobileDrawerOpen}
+        onClose={() => setMobileDrawerOpen(false)}
+        roleCtx={roleCtx}
+        messagesUnreadCount={messagesUnreadCount}
+      />
+
       <div className="flex flex-1 w-full min-h-0">
         <AppSidebar roleCtx={roleCtx} messagesUnreadCount={messagesUnreadCount} />
         <main className="flex-1 w-full min-w-0">
