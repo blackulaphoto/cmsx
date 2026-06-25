@@ -118,6 +118,22 @@ describe('Layout mobile drawer', () => {
   })
 })
 
+describe('Layout breadcrumbs', () => {
+  it('renders app breadcrumbs in the authenticated shell without breaking the sidebar', () => {
+    renderLayout(BASE_AUTH, '/case-management')
+    const nav = screen.getByRole('navigation', { name: /breadcrumb/i })
+    expect(within(nav).getByText('Case Management')).toBeInTheDocument()
+    // Desktop sidebar remains mounted alongside the breadcrumbs.
+    expect(screen.getByLabelText('Primary')).toBeInTheDocument()
+  })
+
+  it('shows a single Dashboard crumb on the dashboard route (no duplicate)', () => {
+    renderLayout(BASE_AUTH, '/')
+    const nav = screen.getByRole('navigation', { name: /breadcrumb/i })
+    expect(within(nav).getAllByRole('listitem')).toHaveLength(1)
+  })
+})
+
 describe('Layout header actions', () => {
   it('renders the required header actions, including the notifications/alerts button', () => {
     renderLayout()
