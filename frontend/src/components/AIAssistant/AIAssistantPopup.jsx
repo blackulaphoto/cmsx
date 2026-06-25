@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { MessageCircle, Minimize2, Send, X } from 'lucide-react'
+import { MessageCircle, Minimize2, PenSquare, Send, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import AIAssistantButton from './AIAssistantButton'
 import { apiFetch } from '../../api/config'
 
 const assistantMessageClasses = 'bg-gray-100 text-gray-900 break-words leading-relaxed'
+
+// Initial conversation state. An empty history renders the assistant greeting
+// (see the empty-state block below). Reused by the "New Chat" reset so the
+// reset behaviour stays clean and testable.
+const INITIAL_MESSAGES = []
 
 const markdownComponents = {
   h1: ({ children }) => <p className="font-semibold text-gray-900 mb-1">{children}</p>,
@@ -24,10 +29,19 @@ const markdownComponents = {
 export default function AIAssistantPopup() {
   const [isOpen, setIsOpen] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
-  const [messages, setMessages] = useState([])
+  const [messages, setMessages] = useState(INITIAL_MESSAGES)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const containerRef = useRef(null)
+
+  // Clears the in-popup conversation back to the initial greeting. Frontend-only:
+  // no backend call, no logout, no app/client/page state touched. Disabled while
+  // a request is in flight to avoid resetting mid-response.
+  const startNewChat = () => {
+    if (loading) return
+    setMessages(INITIAL_MESSAGES)
+    setInput('')
+  }
 
   useEffect(() => {
     if (!isOpen || isMinimized) return
@@ -99,7 +113,17 @@ export default function AIAssistantPopup() {
           <MessageCircle className="w-5 h-5 text-white" />
           <h3 className="font-semibold text-white">AI Assistant</h3>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={startNewChat}
+            disabled={loading}
+            className="flex items-center gap-1 text-white hover:bg-white/20 px-2 py-1 rounded text-xs font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            aria-label="Start new chat"
+            title="New Chat"
+          >
+            <PenSquare className="w-4 h-4" />
+            <span className="hidden sm:inline">New Chat</span>
+          </button>
           <button
             onClick={() => setIsMinimized(true)}
             className="text-white hover:bg-white/20 p-1 rounded"
