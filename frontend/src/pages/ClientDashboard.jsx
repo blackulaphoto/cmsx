@@ -44,10 +44,75 @@ import TasksList from '../components/TasksList'
 import TaskViewModal from '../components/TaskViewModal'
 import { apiFetch } from '../api/config'
 
+const listOrEmpty = (value) => (Array.isArray(value) ? value : [])
+
+const formatPlanLabel = (value) =>
+  String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim()
+
+const getPlanItemText = (item, fields = ['description', 'summary', 'title', 'need_key', 'reason']) => {
+  if (typeof item === 'string') return item
+  if (!item || typeof item !== 'object') return ''
+  for (const field of fields) {
+    if (item[field]) return String(item[field])
+  }
+  return ''
+}
+
+const getAftercareEntries = (aftercarePlan) => {
+  if (!aftercarePlan || typeof aftercarePlan !== 'object') return []
+  return Object.entries(aftercarePlan).flatMap(([key, value]) => {
+    if (!value) return []
+    if (typeof value === 'boolean') return [formatPlanLabel(key.replace(/_needed$/i, ''))]
+    if (typeof value === 'string') return [{ label: formatPlanLabel(key), value }]
+    return []
+  })
+}
+
+const buildPlanTasks = (plan) => {
+  if (!plan) return []
+
+  const tasks = [
+    ...listOrEmpty(plan.operational_needs).map((need) => ({
+      source: 'Operational need',
+      text: need.reason || formatPlanLabel(need.need_key || need.domain || 'Need'),
+      meta: [need.priority, need.domain].filter(Boolean).map(formatPlanLabel).join(' · '),
+    })),
+    ...listOrEmpty(plan.objectives).map((objective) => ({
+      source: 'Objective',
+      text: getPlanItemText(objective, ['description', 'summary', 'title']),
+      meta: objective?.measure ? `Measure: ${objective.measure}` : '',
+    })),
+    ...listOrEmpty(plan.interventions).map((intervention) => ({
+      source: 'Intervention',
+      text: getPlanItemText(intervention, ['description', 'summary', 'title']),
+      meta: [intervention?.assigned_module && `Module: ${formatPlanLabel(intervention.assigned_module)}`, intervention?.frequency].filter(Boolean).join(' · '),
+    })),
+    ...getAftercareEntries(plan.aftercare_plan).map((entry) => ({
+      source: 'Aftercare',
+      text: typeof entry === 'string' ? entry : `${entry.label}: ${entry.value}`,
+      meta: '',
+    })),
+  ]
+
+  const seen = new Set()
+  return tasks.filter((task) => {
+    const text = String(task.text || '').trim()
+    if (!text) return false
+    const key = text.toLowerCase()
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
 const ClientDashboard = () => {
   const { clientId } = useParams()
   const navigate = useNavigate()
   const [clientData, setClientData] = useState(null)
+  const [treatmentPlan, setTreatmentPlan] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
@@ -119,6 +184,7 @@ const ClientDashboard = () => {
   useEffect(() => {
     if (clientId) {
       fetchClientData()
+      fetchTreatmentPlan()
       fetchIntelligentTasks()
       fetchSearchRecommendations()
       fetchAppointments()
@@ -166,6 +232,19 @@ const ClientDashboard = () => {
       }
     } catch (error) {
       console.log('Intelligent tasks system not available:', error)
+    }
+  }
+
+  const fetchTreatmentPlan = async () => {
+    try {
+      const response = await apiFetch(`/api/clients/${clientId}/treatment-plan`)
+      if (!response.ok) return
+      const data = await response.json()
+      if (data.success) {
+        setTreatmentPlan(data.current_plan || null)
+      }
+    } catch (error) {
+      console.log('Treatment plan not available on dashboard:', error)
     }
   }
 
@@ -635,6 +714,14 @@ const ClientDashboard = () => {
   const pendingMilestones = (clientData.program_milestones || [])
     .filter((milestone) => `${milestone.status || ''}`.toLowerCase() !== 'completed')
     .slice(0, 5)
+  const dashboardGoals = listOrEmpty(treatmentPlan?.goals).length > 0 ? listOrEmpty(treatmentPlan.goals) : listOrEmpty(clientData.goals)
+  const dashboardBarriers = listOrEmpty(treatmentPlan?.problems).length > 0 ? listOrEmpty(treatmentPlan.problems) : listOrEmpty(clientData.barriers)
+  const planObjectives = listOrEmpty(treatmentPlan?.objectives)
+  const planInterventions = listOrEmpty(treatmentPlan?.interventions)
+  const planOperationalNeeds = listOrEmpty(treatmentPlan?.operational_needs)
+  const planAftercareEntries = getAftercareEntries(treatmentPlan?.aftercare_plan)
+  const planTasks = buildPlanTasks(treatmentPlan)
+  const hasTreatmentPlan = Boolean(treatmentPlan)
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: User, gradient: 'from-blue-500 to-indigo-500' },
@@ -939,17 +1026,19 @@ const ClientDashboard = () => {
                       <h3 className="text-xl font-bold text-white">Goals</h3>
                     </div>
                     <div className="space-y-4">
-                      {clientData.goals?.map((goal, index) => (
+                      {dashboardGoals.length > 0 ? dashboardGoals.map((goal, index) => (
                         <div key={index} className="flex items-center justify-between p-4 bg-gradient-to-br from-green-500/20 to-emerald-500/20 backdrop-blur-sm rounded-xl border border-green-500/30">
                           <div>
-                            <p className="font-medium text-white">{goal.description}</p>
-                            <p className="text-sm text-green-200 capitalize">{goal.goal_type}</p>
+                            <p className="font-medium text-white">{getPlanItemText(goal, ['description', 'summary', 'title']) || 'Untitled goal'}</p>
+                            <p className="text-sm text-green-200 capitalize">{goal.goal_type || goal.target_date || goal.status || 'Treatment plan goal'}</p>
                           </div>
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(goal.status)}`}>
-                            {goal.status}
-                          </span>
+                          {goal.status && (
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(goal.status)}`}>
+                              {goal.status}
+                            </span>
+                          )}
                         </div>
-                      )) || <p className="text-gray-400">No goals set</p>}
+                      )) : <p className="text-gray-400">No goals set</p>}
                     </div>
                   </div>
 
@@ -961,19 +1050,152 @@ const ClientDashboard = () => {
                       <h3 className="text-xl font-bold text-white">Barriers</h3>
                     </div>
                     <div className="space-y-4">
-                      {clientData.barriers?.map((barrier, index) => (
+                      {dashboardBarriers.length > 0 ? dashboardBarriers.map((barrier, index) => (
                         <div key={index} className="flex items-center justify-between p-4 bg-gradient-to-br from-red-500/20 to-pink-500/20 backdrop-blur-sm rounded-xl border border-red-500/30">
                           <div>
-                            <p className="font-medium text-white">{barrier.description}</p>
-                            <p className="text-sm text-red-200 capitalize">{barrier.barrier_type}</p>
+                            <p className="font-medium text-white">{getPlanItemText(barrier, ['description', 'summary', 'title']) || 'Untitled barrier'}</p>
+                            <p className="text-sm text-red-200 capitalize">{barrier.barrier_type || barrier.domain || barrier.source || 'Treatment plan problem'}</p>
                           </div>
-                          <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(barrier.severity)}`}>
-                            {barrier.severity}
-                          </span>
+                          {(barrier.severity || barrier.priority) && (
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${getPriorityColor(barrier.severity || barrier.priority)}`}>
+                              {barrier.severity || barrier.priority}
+                            </span>
+                          )}
                         </div>
-                      )) || <p className="text-gray-400">No barriers identified</p>}
+                      )) : <p className="text-gray-400">No barriers identified</p>}
                     </div>
                   </div>
+                </div>
+
+                <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg">
+                        <ClipboardList className="h-6 w-6 text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-white">Treatment Plan Snapshot</h3>
+                        <p className="text-sm text-cyan-200">Daily overview sourced from the client&apos;s current treatment plan.</p>
+                      </div>
+                    </div>
+                    <Link
+                      to={`/treatment-plan?client=${encodeURIComponent(clientId)}`}
+                      className="inline-flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/15 border border-white/15 rounded-lg text-sm font-medium text-white transition-colors"
+                    >
+                      Open Treatment Plan
+                      <ExternalLink className="h-4 w-4" />
+                    </Link>
+                  </div>
+
+                  {!hasTreatmentPlan ? (
+                    <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 px-6 py-8 text-center">
+                      <p className="text-white font-medium">No treatment plan yet. Generate or create one in Treatment Plan.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-8">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-sm text-gray-300">Current plan status</span>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(treatmentPlan.status)}`}>
+                          {treatmentPlan.status || 'draft'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+                        <div className="space-y-6">
+                          <div>
+                            <h4 className="text-sm font-semibold uppercase tracking-wide text-cyan-200 mb-3">Objectives</h4>
+                            {planObjectives.length > 0 ? (
+                              <div className="space-y-3">
+                                {planObjectives.map((objective, index) => (
+                                  <div key={index} className="p-4 rounded-xl border border-white/10 bg-white/5">
+                                    <p className="text-sm text-white">{getPlanItemText(objective, ['description', 'summary', 'title'])}</p>
+                                    {objective.measure && <p className="text-xs text-gray-400 mt-2">Measure: {objective.measure}</p>}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : <p className="text-sm text-gray-400">No objectives in the current plan.</p>}
+                          </div>
+
+                          <div>
+                            <h4 className="text-sm font-semibold uppercase tracking-wide text-cyan-200 mb-3">Interventions</h4>
+                            {planInterventions.length > 0 ? (
+                              <div className="space-y-3">
+                                {planInterventions.map((intervention, index) => (
+                                  <div key={index} className="p-4 rounded-xl border border-white/10 bg-white/5">
+                                    <p className="text-sm text-white">{getPlanItemText(intervention, ['description', 'summary', 'title'])}</p>
+                                    {(intervention.frequency || intervention.assigned_module) && (
+                                      <p className="text-xs text-gray-400 mt-2">
+                                        {[intervention.frequency, intervention.assigned_module && formatPlanLabel(intervention.assigned_module)].filter(Boolean).join(' · ')}
+                                      </p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : <p className="text-sm text-gray-400">No interventions in the current plan.</p>}
+                          </div>
+                        </div>
+
+                        <div className="space-y-6">
+                          <div>
+                            <h4 className="text-sm font-semibold uppercase tracking-wide text-cyan-200 mb-3">Aftercare Plan</h4>
+                            {planAftercareEntries.length > 0 ? (
+                              <div className="space-y-3">
+                                {planAftercareEntries.map((entry, index) => (
+                                  <div key={index} className="p-4 rounded-xl border border-white/10 bg-white/5">
+                                    {typeof entry === 'string' ? (
+                                      <p className="text-sm text-white">{entry}</p>
+                                    ) : (
+                                      <>
+                                        <p className="text-sm font-medium text-white">{entry.label}</p>
+                                        <p className="text-sm text-gray-300 mt-1">{entry.value}</p>
+                                      </>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : <p className="text-sm text-gray-400">No aftercare plan documented yet.</p>}
+                          </div>
+
+                          <div>
+                            <h4 className="text-sm font-semibold uppercase tracking-wide text-cyan-200 mb-3">Operational Needs</h4>
+                            {planOperationalNeeds.length > 0 ? (
+                              <div className="flex flex-wrap gap-3">
+                                {planOperationalNeeds.map((need, index) => (
+                                  <div key={index} className="px-4 py-3 rounded-xl border border-white/10 bg-white/5 min-w-[12rem]">
+                                    <p className="text-sm font-medium text-white">{formatPlanLabel(need.need_key || need.domain || 'Need')}</p>
+                                    <p className="text-xs text-gray-400 mt-1">
+                                      {[need.priority && formatPlanLabel(need.priority), need.reason].filter(Boolean).join(' · ')}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : <p className="text-sm text-gray-400">No operational needs attached to the current plan.</p>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h4 className="text-sm font-semibold uppercase tracking-wide text-cyan-200 mb-3">Plan Tasks</h4>
+                        {planTasks.length > 0 ? (
+                          <div className="space-y-3">
+                            {planTasks.map((task, index) => (
+                              <div key={`${task.source}-${index}`} className="p-4 rounded-xl border border-white/10 bg-gradient-to-br from-cyan-500/10 to-blue-500/10">
+                                <div className="flex items-start justify-between gap-4">
+                                  <div>
+                                    <p className="text-sm font-medium text-white">{task.text}</p>
+                                    {task.meta && <p className="text-xs text-gray-400 mt-1">{task.meta}</p>}
+                                  </div>
+                                  <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-white/10 text-cyan-100 border border-white/10">
+                                    {task.source}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : <p className="text-sm text-gray-400">No treatment-plan-driven tasks available yet.</p>}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 
