@@ -97,4 +97,74 @@ describe('AIAssistantPopup', () => {
     const assistantMessage = await screen.findByTestId('assistant-message')
     expect(assistantMessage).toHaveTextContent('Error')
   })
+
+  it('shows the New Chat button when the popup is open', () => {
+    render(<AIAssistantPopup />)
+    fireEvent.click(screen.getByRole('button', { name: /open ai assistant/i }))
+    expect(screen.getByRole('button', { name: /start new chat/i })).toBeInTheDocument()
+  })
+
+  it('clears prior messages and restores the greeting when New Chat is clicked', async () => {
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: 'Here is your answer.' }),
+    })
+
+    render(<AIAssistantPopup />)
+
+    fireEvent.click(screen.getByRole('button', { name: /open ai assistant/i }))
+    fireEvent.change(screen.getByPlaceholderText(/ask me anything/i), {
+      target: { value: 'Help me with **bold** text' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send message/i }))
+
+    // Both user and assistant messages are present before reset.
+    await screen.findByTestId('assistant-message')
+    expect(screen.getAllByText('Help me with **bold** text').length).toBeGreaterThan(0)
+
+    fireEvent.click(screen.getByRole('button', { name: /start new chat/i }))
+
+    // Prior user + assistant messages are gone...
+    expect(screen.queryByText('Help me with **bold** text')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('assistant-message')).not.toBeInTheDocument()
+    // ...and the initial greeting is restored.
+    expect(screen.getByText('AI Research Assistant')).toBeInTheDocument()
+  })
+
+  it('keeps send working after a New Chat reset, preserving markdown + plain-text rendering', async () => {
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: 'First **answer**.' }),
+    })
+
+    render(<AIAssistantPopup />)
+
+    fireEvent.click(screen.getByRole('button', { name: /open ai assistant/i }))
+    fireEvent.change(screen.getByPlaceholderText(/ask me anything/i), {
+      target: { value: 'First question' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send message/i }))
+    await screen.findByTestId('assistant-message')
+
+    // Reset, then send a fresh message.
+    fireEvent.click(screen.getByRole('button', { name: /start new chat/i }))
+
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: 'Second **answer**.' }),
+    })
+    fireEvent.change(screen.getByPlaceholderText(/ask me anything/i), {
+      target: { value: 'Second **question**' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send message/i }))
+
+    const assistantMessage = await screen.findByTestId('assistant-message')
+    // Assistant markdown still renders without raw markers.
+    expect(assistantMessage).toHaveTextContent('Second answer.')
+    expect(assistantMessage).not.toHaveTextContent('**answer**')
+    // User message remains plain text exactly as typed.
+    expect(screen.getAllByText('Second **question**').length).toBeGreaterThan(0)
+    // The first conversation did not leak through.
+    expect(screen.queryByText('First question')).not.toBeInTheDocument()
+  })
 })
