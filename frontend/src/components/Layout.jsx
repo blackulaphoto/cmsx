@@ -23,6 +23,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { apiFetch, messagesAPI } from '../api/config';
 import AppSidebar from './AppSidebar';
 import MobileNavDrawer from './MobileNavDrawer';
+import AppBreadcrumbs from './AppBreadcrumbs';
 
 const TONE_BADGE = {
   danger: 'bg-red-500/20 text-red-200 border-red-400/30',
@@ -452,6 +453,7 @@ const Layout = ({ children }) => {
       <div className="flex flex-1 w-full min-h-0">
         <AppSidebar roleCtx={roleCtx} messagesUnreadCount={messagesUnreadCount} />
         <main className="flex-1 w-full min-w-0">
+          <AppBreadcrumbs />
           {children}
         </main>
       </div>
