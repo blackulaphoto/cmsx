@@ -253,6 +253,18 @@ const EMPTY_COMPOSER = {
   createdBy: 'Case Manager',
 }
 
+const slugifyFileName = (value) =>
+  String(value || 'document')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'document'
+
+const toClientDocType = (selectedTemplate, noteType) =>
+  String(selectedTemplate?.noteKind || noteType || 'other')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || 'other'
+
 function DocumentationCenter() {
   const [mode, setMode] = useState('note')
   const [inputMode, setInputMode] = useState('type')
@@ -264,8 +276,10 @@ function DocumentationCenter() {
   const [composer, setComposer] = useState(EMPTY_COMPOSER)
   const [notes, setNotes] = useState([])
   const [docs, setDocs] = useState([])
+  const [clientDocs, setClientDocs] = useState([])
   const [loadingNotes, setLoadingNotes] = useState(false)
   const [loadingDocs, setLoadingDocs] = useState(false)
+  const [loadingClientDocs, setLoadingClientDocs] = useState(false)
   const [saving, setSaving] = useState(false)
   const [editingItem, setEditingItem] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
@@ -306,7 +320,9 @@ function DocumentationCenter() {
   const selectedTemplate =
     availableTemplates.find((template) => template.id === selectedTemplateId) || null
 
-  const recentItems = mode === 'note' ? notes : docs
+  const showingClientDocuments = mode === 'document' && Boolean(selectedClient?.client_id)
+  const recentItems = mode === 'note' ? notes : showingClientDocuments ? clientDocs : docs
+  const isTreatmentPlanDocumentTemplate = mode === 'document' && selectedTemplate?.noteKind === 'treatment_plan'
 
   useEffect(() => {
     loadTemplates()
@@ -317,8 +333,10 @@ function DocumentationCenter() {
   useEffect(() => {
     if (selectedClient?.client_id) {
       loadNotes(selectedClient.client_id)
+      loadClientDocs(selectedClient.client_id)
     } else {
       setNotes([])
+      setClientDocs([])
     }
   }, [selectedClient?.client_id])
 
@@ -511,6 +529,21 @@ function DocumentationCenter() {
     setDraftQuality(null)
   }
 
+  const loadClientDocs = async (clientId) => {
+    try {
+      setLoadingClientDocs(true)
+      const response = await apiFetch(`/api/clients/${clientId}/documents`)
+      if (!response.ok) throw new Error('Failed to load client documents')
+      const data = await response.json()
+      setClientDocs(Array.isArray(data.documents) ? data.documents : [])
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || 'Failed to load client documents')
+    } finally {
+      setLoadingClientDocs(false)
+    }
+  }
+
   const applyTemplate = (template) => {
     const clientLabel = selectedClient ? ` - ${selectedClient.first_name} ${selectedClient.last_name}` : ''
     setSelectedTemplateId(template.id)
@@ -638,6 +671,27 @@ function DocumentationCenter() {
         }
         await loadNotes(selectedClient.client_id)
         toast.success(editingItem?.source === 'note' ? 'Note updated' : 'Note saved')
+      } else if (selectedClient?.client_id) {
+        const file = new File(
+          [composer.body],
+          `${slugifyFileName(composer.title)}.txt`,
+          { type: 'text/plain' }
+        )
+        const body = new FormData()
+        body.append('title', composer.title)
+        body.append('doc_type', toClientDocType(selectedTemplate, composer.noteType))
+        if (composer.url) body.append('url', composer.url)
+        body.append('file', file)
+
+        const response = await apiFetch(`/api/clients/${selectedClient.client_id}/documents`, {
+          method: 'POST',
+          body,
+        })
+        if (!response.ok) {
+          throw new Error('Failed to save client document')
+        }
+        await loadClientDocs(selectedClient.client_id)
+        toast.success('Document saved to client documents')
       } else {
         const endpoint = editingItem?.source === 'doc'
           ? `/api/dashboard/docs/${editingItem.id}`
@@ -698,12 +752,16 @@ function DocumentationCenter() {
       const endpoint =
         source === 'note'
           ? `/api/case-management/notes/${item.note_id}`
+          : source === 'client-doc'
+            ? `/api/clients/${selectedClient.client_id}/documents/${item.doc_id}`
           : `/api/dashboard/docs/${item.id}`
       const response = await apiFetch(endpoint, { method: 'DELETE' })
       if (!response.ok) throw new Error(`Failed to delete ${source}`)
 
       if (source === 'note' && selectedClient?.client_id) {
         await loadNotes(selectedClient.client_id)
+      } else if (source === 'client-doc' && selectedClient?.client_id) {
+        await loadClientDocs(selectedClient.client_id)
       } else if (source === 'doc') {
         await loadDocs()
       }
@@ -746,6 +804,14 @@ function DocumentationCenter() {
       console.error(error)
       toast.error(error.message || 'Failed to download document')
     }
+  }
+
+  const getClientDocumentViewUrl = (item) => {
+    if (!selectedClient?.client_id) return item.url || ''
+    if (item.file_path || item.file_name) {
+      return `/api/clients/${selectedClient.client_id}/documents/${item.doc_id}/view`
+    }
+    return item.url || ''
   }
 
   const uploadBrandResource = async () => {
@@ -1078,6 +1144,31 @@ function DocumentationCenter() {
               </div>
             )}
 
+            {isTreatmentPlanDocumentTemplate && (
+              <div className="rounded-[24px] border border-amber-400/20 bg-amber-500/10 p-5">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-2xl bg-amber-500/20 p-3 text-amber-200">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-base font-semibold text-white">Treatment Plan Handoff</h3>
+                    <p className="text-sm text-slate-300">
+                      Saved as a document only. Use Treatment Plan to create/edit the structured plan.
+                    </p>
+                    {selectedClient?.client_id && (
+                      <a
+                        href={`/treatment-plan?client=${selectedClient.client_id}`}
+                        className="inline-flex items-center gap-2 rounded-xl border border-amber-400/20 bg-white/5 px-4 py-2 text-sm font-medium text-amber-100 transition hover:bg-white/10"
+                      >
+                        Open Treatment Plan
+                        <ArrowRight className="h-4 w-4" />
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <label className="block text-sm font-medium text-slate-300">Final draft</label>
@@ -1118,7 +1209,7 @@ function DocumentationCenter() {
             {shouldShowDraftSummary && (
               <p className="text-xs text-slate-400">
                 {selectedTemplate ? `Template: ${selectedTemplate.label}` : ''}
-                {selectedTemplate ? ` ? Saving to: ${mode === 'note' ? 'Client note record' : 'Document library'}` : ''}
+                {selectedTemplate ? ` ? Saving to: ${mode === 'note' ? 'Client note record' : selectedClient ? 'Client documents' : 'Document library'}` : ''}
                 {selectedClient ? ` ? Client: ${selectedClient.first_name} ${selectedClient.last_name}` : ''}
               </p>
             )}
@@ -1157,11 +1248,19 @@ function DocumentationCenter() {
                   ? selectedClient
                     ? `Showing client-linked notes for ${selectedClient.first_name} ${selectedClient.last_name}.`
                     : 'Select a client to review and edit saved notes.'
-                  : 'Recent documents from the suite library.'}
+                  : selectedClient
+                    ? `Showing client-linked documents for ${selectedClient.first_name} ${selectedClient.last_name}.`
+                    : 'Recent documents from the suite library.'}
               </p>
             </div>
             <button
-              onClick={() => (mode === 'note' && selectedClient?.client_id ? loadNotes(selectedClient.client_id) : loadDocs())}
+              onClick={() => (
+                mode === 'note' && selectedClient?.client_id
+                  ? loadNotes(selectedClient.client_id)
+                  : mode === 'document' && selectedClient?.client_id
+                    ? loadClientDocs(selectedClient.client_id)
+                    : loadDocs()
+              )}
               className="rounded-xl border border-white/10 bg-white/5 p-3 text-slate-200 transition hover:bg-white/10"
             >
               <RefreshCw className="h-4 w-4" />
@@ -1175,29 +1274,43 @@ function DocumentationCenter() {
                 title="Select a client first"
                 body="Client notes stay tied to one case record. Choose a client to open the note library."
               />
-            ) : loadingNotes || loadingDocs ? (
+            ) : loadingNotes || loadingDocs || loadingClientDocs ? (
               <div className="py-10 text-center text-slate-400">Loading saved items...</div>
             ) : recentItems.length === 0 ? (
               <EmptyState
                 icon={mode === 'note' ? FileText : FolderOpen}
                 title={mode === 'note' ? 'No notes saved yet' : 'No documents saved yet'}
-                body="Use the template gallery and writer to create the first item."
+                body={
+                  showingClientDocuments
+                    ? 'Save a document while this client is selected to add it to the client profile Documents tab.'
+                    : 'Use the template gallery and writer to create the first item.'
+                }
               />
             ) : (
-              recentItems.map((item) => (
-                <div key={item.note_id || item.id} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+              recentItems.map((item) => {
+                const itemSource = mode === 'note' ? 'note' : showingClientDocuments ? 'client-doc' : 'doc'
+                const previewText =
+                  item.content || item.file_name || item.url || 'No preview available'
+                const viewUrl = itemSource === 'client-doc' ? getClientDocumentViewUrl(item) : null
+
+                return (
+                <div key={item.note_id || item.doc_id || item.id} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-white">{item.title || item.note_type || 'Untitled'}</p>
-                      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">{mode === 'note' ? item.note_type || 'note' : 'document'}</p>
+                      <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
+                        {mode === 'note' ? item.note_type || 'note' : item.doc_type || 'document'}
+                      </p>
                     </div>
-                    <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-slate-300">{mode === 'note' ? 'Note' : 'Doc'}</span>
+                    <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] text-slate-300">
+                      {mode === 'note' ? 'Note' : itemSource === 'client-doc' ? 'Client Doc' : 'Doc'}
+                    </span>
                   </div>
-                  <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-300">{item.content || 'No content'}</p>
+                  <p className="mt-3 line-clamp-4 text-sm leading-6 text-slate-300">{previewText}</p>
                   <div className="mt-4 flex items-center justify-between gap-3 text-xs text-slate-400">
                     <span>{formatSavedDate(item.updated_at || item.created_at)}</span>
                     <div className="flex items-center gap-2">
-                      {mode === 'document' && (
+                      {itemSource === 'doc' && (
                         <button
                           onClick={() => downloadDocument(item)}
                           className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-100 transition hover:bg-emerald-500/20"
@@ -1206,14 +1319,25 @@ function DocumentationCenter() {
                           Download PDF
                         </button>
                       )}
+                      {itemSource === 'client-doc' && viewUrl ? (
+                        <a
+                          href={viewUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"
+                        >
+                          View
+                        </a>
+                      ) : (
+                        <button
+                          onClick={() => loadItemIntoEditor(item, mode === 'note' ? 'note' : 'doc')}
+                          className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"
+                        >
+                          Edit
+                        </button>
+                      )}
                       <button
-                        onClick={() => loadItemIntoEditor(item, mode === 'note' ? 'note' : 'doc')}
-                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deleteItem(item, mode === 'note' ? 'note' : 'doc')}
+                        onClick={() => deleteItem(item, itemSource)}
                         className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5 text-red-200 transition hover:bg-red-500/20"
                       >
                         Delete
@@ -1221,7 +1345,7 @@ function DocumentationCenter() {
                     </div>
                   </div>
                 </div>
-              ))
+              )})
             )}
           </div>
         </section>
