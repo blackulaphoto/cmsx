@@ -28,6 +28,8 @@ import {
   X,
   Minus,
   EyeOff,
+  ArrowRight,
+  BadgeCheck,
 } from 'lucide-react'
 import { apiFetch } from '../api/config'
 import FinancialCoordinationPanel from '../components/admissions/FinancialCoordinationPanel'
@@ -135,6 +137,44 @@ function calcStats(forms) {
   return { total, completed: completed.length, needsSig: needsSig.length, missingRequired: missingRequired.length, expiringSoon: expiringSoon.length, progress }
 }
 
+function formatDate(value) {
+  if (!value) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+// Derive a readiness label for the packet header from the completion stats.
+// Purely presentational — does not alter packet/form status.
+function packetReadiness(stats) {
+  if (stats.missingRequired > 0) {
+    return { label: 'Action Needed', tone: 'bg-rose-500/15 border-rose-500/30 text-rose-300' }
+  }
+  if (stats.needsSig > 0) {
+    return { label: 'Awaiting Signatures', tone: 'bg-purple-500/15 border-purple-500/30 text-purple-300' }
+  }
+  if (stats.progress === 100) {
+    return { label: 'Ready for Review', tone: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' }
+  }
+  return { label: 'In Progress', tone: 'bg-cyan-500/15 border-cyan-500/30 text-cyan-300' }
+}
+
+// Pick the single next form a case manager should open. Required incomplete
+// forms come first (in packet order), then optional incomplete forms. Returns
+// null when nothing is outstanding. Read-only over the existing forms array.
+function nextBestAction(forms) {
+  const incomplete = (f) => f.status !== 'Completed' && f.status !== 'Revoked'
+  const nextRequired = forms.find((f) => f.required && incomplete(f))
+  if (nextRequired) {
+    return { form: nextRequired, kind: 'required' }
+  }
+  const nextOptional = forms.find((f) => !f.required && incomplete(f))
+  if (nextOptional) {
+    return { form: nextOptional, kind: 'optional' }
+  }
+  return null
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }) {
@@ -143,6 +183,18 @@ function StatusBadge({ status }) {
     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs border ${cfg.bg} ${cfg.color}`}>
       <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
       {status}
+    </span>
+  )
+}
+
+// Static (non-animated) leading status glyph for a form row — gives each row a
+// clear, scannable completion indicator without changing any status logic.
+function StatusGlyph({ status }) {
+  const cfg = STATUS_CONFIG[status] || STATUS_CONFIG['Not Started']
+  const Icon = cfg.icon
+  return (
+    <span className={`flex items-center justify-center w-8 h-8 rounded-lg border flex-shrink-0 ${cfg.bg} ${cfg.color}`}>
+      <Icon className="h-4 w-4" />
     </span>
   )
 }
@@ -214,15 +266,24 @@ function FormRow({ form, packetId, clientId, onUpdate }) {
   return (
     <div className={`flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5 rounded-xl border transition-colors ${
       form.status === 'Completed'
-        ? 'bg-emerald-500/5 border-emerald-500/15'
+        ? 'bg-emerald-500/8 border-emerald-500/25 shadow-sm shadow-emerald-900/10'
         : 'bg-white/4 border-white/8 hover:bg-white/6'
     }`}>
+      {/* Leading status glyph */}
+      <StatusGlyph status={form.status} />
+
       {/* Name + badges */}
       <div className="flex-1 min-w-0">
         <div className="flex flex-wrap items-center gap-2 mb-1">
-          <span className={`text-sm font-medium truncate ${form.status === 'Completed' ? 'text-emerald-200/80 line-through decoration-emerald-500/40' : 'text-gray-100'}`}>
+          <span className={`text-sm font-medium truncate ${form.status === 'Completed' ? 'text-emerald-100' : 'text-gray-100'}`}>
             {form.form_name}
           </span>
+          {form.status === 'Completed' && form.completed_at && (
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-400/90">
+              <CheckCircle2 className="h-3 w-3" />
+              Completed {formatDate(form.completed_at)}
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <span className={`text-xs px-1.5 py-0.5 rounded border ${
@@ -292,15 +353,22 @@ function TimingSection({ timingKey, forms, packetId, clientId, onUpdate }) {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-2.5 px-1">
-        <Clock className={`h-3.5 w-3.5 ${allDone ? 'text-emerald-400' : 'text-purple-400'}`} />
+      <div className="flex items-center gap-2.5 mb-3 px-1">
+        <span className={`flex items-center justify-center w-6 h-6 rounded-lg border flex-shrink-0 ${
+          allDone ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300' : 'bg-purple-500/15 border-purple-500/25 text-purple-300'
+        }`}>
+          {allDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
+        </span>
         <span className={`text-xs font-semibold uppercase tracking-wider ${allDone ? 'text-emerald-300' : 'text-purple-300'}`}>
           {label}
         </span>
-        <span className="text-xs text-gray-500">
+        <span className={`text-xs px-1.5 py-0.5 rounded-full border ${
+          allDone ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-white/8 border-white/10 text-gray-400'
+        }`}>
           {completed}/{forms.length}
           {allDone && ' · Complete'}
         </span>
+        <span className="flex-1 h-px bg-white/8" />
       </div>
       <div className="space-y-2">
         {forms.map((form) => (
@@ -773,6 +841,8 @@ export default function AdmissionsPacket() {
   const forms = packet.forms || []
   const stats = calcStats(forms)
   const grouped = groupForms(forms)
+  const readiness = packetReadiness(stats)
+  const nextAction = nextBestAction(forms)
 
   const progressColor =
     stats.progress === 100
@@ -823,13 +893,20 @@ export default function AdmissionsPacket() {
                 {(packet.client_name?.[0] || '?').toUpperCase()}
               </div>
               <div className="min-w-0">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-cyan-300/80 mb-0.5">
+                  <ClipboardCheck className="h-3 w-3" />
+                  Clinical Assessment Packet
+                </p>
                 <h1 className="text-xl font-bold text-white truncate">{packet.client_name}</h1>
-                <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                <div className="flex flex-wrap items-center gap-2 mt-1">
                   <span className="flex items-center gap-1 text-xs text-gray-400">
                     <User className="h-3 w-3" />
                     {packet.client_id}
                   </span>
                   <span className="text-gray-600">·</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border ${readiness.tone}`}>
+                    {readiness.label}
+                  </span>
                   <span className={`text-xs px-2 py-0.5 rounded-full border ${
                     packet.status === 'Completed'
                       ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
@@ -927,6 +1004,50 @@ export default function AdmissionsPacket() {
           </div>
         )}
 
+        {/* Next best action — guided "what to do next" for the case manager */}
+        {nextAction ? (
+          <div className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl border ${
+            nextAction.kind === 'required'
+              ? 'bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border-cyan-500/25'
+              : 'bg-white/4 border-white/10'
+          }`}>
+            <div className={`flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0 ${
+              nextAction.kind === 'required' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/8 text-gray-300'
+            }`}>
+              <CircleDot className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Next Best Action</p>
+              <p className="text-sm font-medium text-white truncate">
+                {nextAction.kind === 'required'
+                  ? `Continue packet — ${nextAction.form.form_name}`
+                  : `Optional remaining — ${nextAction.form.form_name}`}
+              </p>
+            </div>
+            <Link
+              to={`/admissions/${client_id}/forms/${nextAction.form.form_key}`}
+              className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium flex-shrink-0 transition-all ${
+                nextAction.kind === 'required'
+                  ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 shadow-lg shadow-cyan-500/20'
+                  : 'bg-white/8 text-gray-200 border border-white/12 hover:bg-white/12'
+              }`}
+            >
+              {nextAction.kind === 'required' ? 'Open next required form' : 'Open form'}
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 p-4 rounded-2xl border bg-emerald-500/8 border-emerald-500/25">
+            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-300 flex-shrink-0">
+              <BadgeCheck className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-emerald-200">Packet complete — all forms addressed</p>
+              <p className="text-xs text-emerald-400/70 mt-0.5">No outstanding forms remain in this assessment packet.</p>
+            </div>
+          </div>
+        )}
+
         {/* Operational Summary panel */}
         <OperationalSummaryPanel
           clientId={client_id}
@@ -937,6 +1058,11 @@ export default function AdmissionsPacket() {
         <FinancialCoordinationPanel clientId={client_id} />
 
         {/* Grouped checklist */}
+        <div className="flex items-center gap-2 pt-1">
+          <ClipboardCheck className="h-4 w-4 text-cyan-400" />
+          <h2 className="text-sm font-semibold text-white">Assessment Forms</h2>
+          <span className="text-xs text-gray-500">{stats.completed}/{stats.total} complete</span>
+        </div>
         <div className="space-y-7">
           {TIMING_ORDER.filter((k) => grouped[k]?.length > 0).map((timingKey) => (
             <TimingSection
