@@ -18,6 +18,17 @@ Correct Railway project:
 Important deployment boundary:
 - `satisfied-radiance` is Persona Emulator and must not deploy CMSX.
 
+## Deployment Boundary Rules
+
+- CMSX GitHub repo is `blackulaphoto/cmsx`.
+- Correct Railway project for CMSX is `CSMX`.
+- Correct production frontend for CMSX is Vercel `cmsx-tau`.
+- Persona Emulator is a separate project and must never deploy, check, report status on, or attach to CMSX commits, PRs, or `master`.
+- If any commit status, PR check, deploy check, or integration report shows `persona emulator - cmsx` or any non-`CSMX` deploy/check attached to CMSX, stop and audit integrations before merging.
+- Agents must report any non-`CSMX` deploy/check attached to CMSX commits or PRs, including the exact check name, provider, and target URL when available.
+- Do not treat Persona Emulator success as CMSX deployment proof.
+- Do not change Railway, Vercel, GitHub app, or deployment settings during that audit unless Brandon explicitly approves.
+
 ## Before Coding
 
 Always verify the current repo before making edits:
