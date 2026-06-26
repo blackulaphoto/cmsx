@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { ClipboardList, Loader2, Sparkles, Copy, CheckCheck } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
@@ -59,6 +60,81 @@ const ProblemSection = ({ problem }) => (
   </div>
 )
 
+const slugify = (value, fallback = 'item') =>
+  String(value || fallback)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '') || fallback
+
+const buildDraftPayload = ({ result, aftercarePlan, barriers, needs }) => {
+  const problems = (result?.problems || []).map((problem, index) => ({
+    problem_id: `problem_${index + 1}`,
+    domain: slugify(problem.title || 'case_management', 'case_management'),
+    description: problem.title || barriers || 'Treatment plan problem requires review',
+    source: 'treatment_plan_assist',
+  }))
+
+  const goals = (result?.problems || [])
+    .map((problem, index) => problem?.goal ? {
+      goal_id: `goal_${index + 1}`,
+      description: problem.goal,
+      status: 'draft',
+      source: 'treatment_plan_assist',
+    } : null)
+    .filter(Boolean)
+
+  const objectives = (result?.problems || [])
+    .map((problem, index) => problem?.objective ? {
+      objective_id: `objective_${index + 1}`,
+      description: problem.objective,
+      measure: problem.frequency || 'Case manager review',
+      status: 'draft',
+      source: 'treatment_plan_assist',
+    } : null)
+    .filter(Boolean)
+
+  const interventions = (result?.problems || []).flatMap((problem, problemIndex) =>
+    (problem?.plan_items || []).map((item, itemIndex) => ({
+      intervention_id: `intervention_${problemIndex + 1}_${itemIndex + 1}`,
+      description: item,
+      frequency: problem.frequency || '',
+      assigned_to: 'case_manager',
+      status: 'draft',
+      source: 'treatment_plan_assist',
+    }))
+  )
+
+  const operationalNeeds = (needs || []).map((need, index) => ({
+    need_id: `need_${index + 1}`,
+    need_key: slugify(need, `need_${index + 1}`),
+    domain: slugify(need, 'case_management'),
+    priority: 'medium',
+    status: 'pending',
+    source: 'treatment_plan_assist',
+    reason: `Identified during treatment plan assist: ${need}`,
+  }))
+
+  const payload = {
+    source: 'treatment_plan_assist',
+    problems,
+    goals,
+    objectives,
+    interventions,
+    operational_needs: operationalNeeds,
+  }
+
+  const aftercareSummary = result?.aftercare_plan || aftercarePlan
+  if (aftercareSummary) {
+    payload.aftercare_plan = {
+      summary: aftercareSummary,
+      notes: result?.progress_summary || '',
+      source: 'treatment_plan_assist',
+    }
+  }
+
+  return payload
+}
+
 const TreatmentPlanAssistCard = ({
   clientId = '',
   clientName = '',
@@ -83,7 +159,9 @@ const TreatmentPlanAssistCard = ({
   needs = [],
   onApplySuggestions
 }) => {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
+  const [creatingDraft, setCreatingDraft] = useState(false)
   const [result, setResult] = useState(null)
   const [copied, setCopied] = useState(false)
 
@@ -184,6 +262,34 @@ const TreatmentPlanAssistCard = ({
     })
   }
 
+  const handleCreateDraft = async () => {
+    if (!clientId) {
+      toast.error('Save the client before creating a treatment plan draft')
+      return
+    }
+    if (!result) {
+      toast.error('Generate treatment plan suggestions first')
+      return
+    }
+
+    try {
+      setCreatingDraft(true)
+      const response = await apiFetch(`/api/clients/${encodeURIComponent(clientId)}/treatment-plan/draft`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildDraftPayload({ result, aftercarePlan, barriers, needs })),
+      })
+      if (!response.ok) throw new Error('Failed to create treatment plan draft')
+      toast.success('Treatment plan draft created')
+      navigate(`/treatment-plan?client=${encodeURIComponent(clientId)}`)
+    } catch (error) {
+      console.error(error)
+      toast.error(error.message || 'Failed to create treatment plan draft')
+    } finally {
+      setCreatingDraft(false)
+    }
+  }
+
   return (
     <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -270,6 +376,14 @@ const TreatmentPlanAssistCard = ({
           {/* Action buttons */}
           <div className="flex flex-wrap gap-2 pt-1">
             <button
+              onClick={handleCreateDraft}
+              disabled={!clientId || creatingDraft}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-60"
+            >
+              {creatingDraft ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              Create Treatment Plan Draft
+            </button>
+            <button
               onClick={handleCopy}
               className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/10"
             >
@@ -280,7 +394,7 @@ const TreatmentPlanAssistCard = ({
               onClick={() => onApplySuggestions?.(result)}
               className="inline-flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200 transition hover:bg-emerald-500/20"
             >
-              Apply Goal to Client Form
+              Apply Suggestions to Intake Form
             </button>
           </div>
         </div>

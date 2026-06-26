@@ -67,6 +67,7 @@ describe('DocumentationCenter client-linked saves', () => {
 
     expect(await screen.findByText('Treatment Plan Handoff')).toBeInTheDocument()
     expect(screen.getByText('Saved as a document only. Use Treatment Plan to create/edit the structured plan.')).toBeInTheDocument()
+    expect(screen.getByText('This document is saved to the client profile. Use Treatment Plan to create the canonical draft.')).toBeInTheDocument()
 
     const link = screen.getByRole('link', { name: /Open Treatment Plan/i })
     expect(link).toHaveAttribute('href', '/treatment-plan?client=client-1')

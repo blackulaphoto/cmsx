@@ -1155,6 +1155,9 @@ function DocumentationCenter() {
                     <p className="text-sm text-slate-300">
                       Saved as a document only. Use Treatment Plan to create/edit the structured plan.
                     </p>
+                    <p className="text-sm text-slate-400">
+                      This document is saved to the client profile. Use Treatment Plan to create the canonical draft.
+                    </p>
                     {selectedClient?.client_id && (
                       <a
                         href={`/treatment-plan?client=${selectedClient.client_id}`}
