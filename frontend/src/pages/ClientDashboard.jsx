@@ -42,6 +42,7 @@ import useTasks from '../hooks/useTasks'
 import TaskForm from '../components/TaskForm'
 import TasksList from '../components/TasksList'
 import TaskViewModal from '../components/TaskViewModal'
+import RoiConsentTracker from '../components/RoiConsentTracker'
 import { apiFetch } from '../api/config'
 
 const listOrEmpty = (value) => (Array.isArray(value) ? value : [])
@@ -2068,6 +2069,7 @@ const ClientDashboard = () => {
           {/* DOCUMENTS TAB */}
           {activeTab === 'docs' && (
             <div className="space-y-8">
+              <RoiConsentTracker clientId={clientId} />
               <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
