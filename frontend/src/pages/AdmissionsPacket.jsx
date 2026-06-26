@@ -187,14 +187,16 @@ function StatusBadge({ status }) {
   )
 }
 
-// Static (non-animated) leading status glyph for a form row — gives each row a
-// clear, scannable completion indicator without changing any status logic.
-function StatusGlyph({ status }) {
+// Static (non-animated) leading status glyph for a form card — gives each card
+// a clear, scannable completion indicator without changing any status logic.
+function StatusGlyph({ status, size = 'md' }) {
   const cfg = STATUS_CONFIG[status] || STATUS_CONFIG['Not Started']
   const Icon = cfg.icon
+  const box = size === 'lg' ? 'w-11 h-11 rounded-xl' : 'w-8 h-8 rounded-lg'
+  const glyph = size === 'lg' ? 'h-5 w-5' : 'h-4 w-4'
   return (
-    <span className={`flex items-center justify-center w-8 h-8 rounded-lg border flex-shrink-0 ${cfg.bg} ${cfg.color}`}>
-      <Icon className="h-4 w-4" />
+    <span className={`flex items-center justify-center border flex-shrink-0 ${box} ${cfg.bg} ${cfg.color}`}>
+      <Icon className={glyph} />
     </span>
   )
 }
@@ -262,117 +264,198 @@ function StatusDropdown({ form, packetId, onUpdate, disabled }) {
   )
 }
 
-function FormRow({ form, packetId, clientId, onUpdate }) {
+// Visual treatment for a form card derived from its (unchanged) status. This is
+// purely presentational — it never alters status or completion logic.
+function cardVariant(form) {
+  if (form.status === 'Completed') return 'completed'
+  if (form.status === 'Revoked' || form.status === 'Expired') return 'inactive'
+  if (form.required && (form.status === 'Not Started' || form.status === 'Missing Attachment')) {
+    return 'pending'
+  }
+  if (form.status === 'Needs Signature') return 'signature'
+  return 'default'
+}
+
+const CARD_VARIANTS = {
+  completed: 'bg-emerald-500/[0.07] border-emerald-500/30 border-l-4 border-l-emerald-400/70',
+  pending:   'bg-rose-500/[0.05] border-rose-500/20 border-l-4 border-l-rose-400/60',
+  signature: 'bg-purple-500/[0.05] border-purple-500/20 border-l-4 border-l-purple-400/60',
+  inactive:  'bg-white/[0.02] border-white/8 border-l-4 border-l-gray-600/60',
+  default:   'bg-white/[0.035] border-white/10 border-l-4 border-l-white/15 hover:bg-white/[0.06]',
+}
+
+function FormCard({ form, packetId, clientId, onUpdate }) {
+  const variant = cardVariant(form)
+  const completed = form.status === 'Completed'
+
   return (
-    <div className={`flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3.5 rounded-xl border transition-colors ${
-      form.status === 'Completed'
-        ? 'bg-emerald-500/8 border-emerald-500/25 shadow-sm shadow-emerald-900/10'
-        : 'bg-white/4 border-white/8 hover:bg-white/6'
-    }`}>
-      {/* Leading status glyph */}
-      <StatusGlyph status={form.status} />
+    <div className={`rounded-xl border transition-colors ${CARD_VARIANTS[variant]}`}>
+      <div className="flex flex-col sm:flex-row sm:items-start gap-3.5 p-4">
+        {/* Leading status glyph */}
+        <StatusGlyph status={form.status} size="lg" />
 
-      {/* Name + badges */}
-      <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap items-center gap-2 mb-1">
-          <span className={`text-sm font-medium truncate ${form.status === 'Completed' ? 'text-emerald-100' : 'text-gray-100'}`}>
-            {form.form_name}
-          </span>
-          {form.status === 'Completed' && form.completed_at && (
-            <span className="inline-flex items-center gap-1 text-xs text-emerald-400/90">
-              <CheckCircle2 className="h-3 w-3" />
-              Completed {formatDate(form.completed_at)}
-            </span>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className={`text-xs px-1.5 py-0.5 rounded border ${
-            form.required
-              ? 'bg-rose-500/15 border-rose-500/25 text-rose-300'
-              : 'bg-white/8 border-white/10 text-gray-500'
-          }`}>
-            {form.required ? 'Required' : 'Optional'}
-          </span>
-          <span className="text-xs text-gray-600">{form.category}</span>
-          {form.requires_signature && (
-            <span className="inline-flex items-center gap-1 text-xs text-purple-400">
-              <PenLine className="h-3 w-3" />
-              {form.signatures_required?.join(', ') || 'Signature'}
-            </span>
-          )}
-          {(form.allow_attachments || form.attachment_count > 0) && (
-            <span className="inline-flex items-center gap-1 text-xs text-sky-400">
-              <Paperclip className="h-3 w-3" />
-              {form.attachment_count > 0 ? (
-                <>{form.attachment_count} file{form.attachment_count !== 1 ? 's' : ''}</>
-              ) : 'Attachments'}
-            </span>
-          )}
-          {form.review_status && form.review_status !== 'Not Reviewed' && (
-            <span className={`text-xs px-1.5 py-0.5 rounded border ${
-              form.review_status === 'Approved'
-                ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
-                : 'bg-amber-500/15 border-amber-500/25 text-amber-300'
+        {/* Title + metadata */}
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h4 className={`text-base font-semibold leading-tight ${completed ? 'text-emerald-50' : 'text-white'}`}>
+              {form.form_name}
+            </h4>
+            {completed && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/20 border border-emerald-500/40 text-emerald-200">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                {form.completed_at ? `Completed ${formatDate(form.completed_at)}` : 'Completed'}
+              </span>
+            )}
+          </div>
+
+          {/* Required / category — the primary classification line */}
+          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-md border ${
+              form.required
+                ? 'bg-rose-500/15 border-rose-500/30 text-rose-200'
+                : 'bg-white/8 border-white/12 text-gray-400'
             }`}>
-              {form.review_status}
+              {form.required ? 'Required' : 'Optional'}
             </span>
-          )}
-          {form.expires_at && (
-            <span className="inline-flex items-center gap-1 text-xs text-amber-400">
-              <Clock className="h-3 w-3" />
-              Exp {new Date(form.expires_at).toLocaleDateString()}
-            </span>
-          )}
-          {form.allow_revocation && (
-            <span className="inline-flex items-center gap-1 text-xs text-gray-500">
-              <RotateCcw className="h-3 w-3" />
-              Revocable
-            </span>
+            {form.category && (
+              <span className="text-xs px-2 py-0.5 rounded-md border bg-white/5 border-white/10 text-gray-300">
+                {form.category}
+              </span>
+            )}
+          </div>
+
+          {/* Secondary metadata — signatures, attachments, review, expiry */}
+          {(form.requires_signature ||
+            form.allow_attachments || form.attachment_count > 0 ||
+            (form.review_status && form.review_status !== 'Not Reviewed') ||
+            form.expires_at || form.allow_revocation) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 mt-2 text-xs">
+              {form.requires_signature && (
+                <span className="inline-flex items-center gap-1 text-purple-300">
+                  <PenLine className="h-3 w-3" />
+                  {form.signatures_required?.join(', ') || 'Signature'}
+                </span>
+              )}
+              {(form.allow_attachments || form.attachment_count > 0) && (
+                <span className="inline-flex items-center gap-1 text-sky-300">
+                  <Paperclip className="h-3 w-3" />
+                  {form.attachment_count > 0
+                    ? `${form.attachment_count} file${form.attachment_count !== 1 ? 's' : ''}`
+                    : 'Attachments'}
+                </span>
+              )}
+              {form.review_status && form.review_status !== 'Not Reviewed' && (
+                <span className={`inline-flex items-center px-1.5 py-0.5 rounded border ${
+                  form.review_status === 'Approved'
+                    ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300'
+                    : 'bg-amber-500/15 border-amber-500/25 text-amber-300'
+                }`}>
+                  {form.review_status}
+                </span>
+              )}
+              {form.expires_at && (
+                <span className="inline-flex items-center gap-1 text-amber-300">
+                  <Clock className="h-3 w-3" />
+                  Exp {new Date(form.expires_at).toLocaleDateString()}
+                </span>
+              )}
+              {form.allow_revocation && (
+                <span className="inline-flex items-center gap-1 text-gray-500">
+                  <RotateCcw className="h-3 w-3" />
+                  Revocable
+                </span>
+              )}
+            </div>
           )}
         </div>
-      </div>
 
-      {/* Status + open */}
-      <div className="flex items-center gap-3 flex-shrink-0">
-        <StatusDropdown form={form} packetId={packetId} onUpdate={onUpdate} disabled={false} />
-        <Link
-          to={`/admissions/${clientId}/forms/${form.form_key}`}
-          className="px-3 py-1.5 rounded-lg text-xs text-gray-200 border border-white/10 bg-white/5 hover:bg-white/12 hover:border-white/20 transition-colors"
-        >
-          Open
-        </Link>
+        {/* Status + action */}
+        <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2 flex-shrink-0 sm:pt-0.5">
+          <StatusDropdown form={form} packetId={packetId} onUpdate={onUpdate} disabled={false} />
+          <Link
+            to={`/admissions/${clientId}/forms/${form.form_key}`}
+            className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              completed
+                ? 'text-emerald-200 border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20'
+                : 'text-gray-100 border border-white/15 bg-white/8 hover:bg-white/15 hover:border-white/25'
+            }`}
+          >
+            {completed ? 'Review' : 'Open'}
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
       </div>
     </div>
   )
 }
 
+// Per-stage completion stats — read-only over the (unchanged) forms list.
+function sectionStats(forms) {
+  const total = forms.length
+  const completed = forms.filter((f) => f.status === 'Completed').length
+  const requiredCount = forms.filter((f) => f.required).length
+  const missingRequired = forms.filter(
+    (f) => f.required && (f.status === 'Not Started' || f.status === 'Missing Attachment')
+  ).length
+  const pct = total ? Math.round((completed / total) * 100) : 0
+  return { total, completed, requiredCount, missingRequired, pct, allDone: completed === total }
+}
+
 function TimingSection({ timingKey, forms, packetId, clientId, onUpdate }) {
   const label = TIMING_LABELS[timingKey] || timingKey
-  const completed = forms.filter((f) => f.status === 'Completed').length
-  const allDone = completed === forms.length
+  const s = sectionStats(forms)
+
+  // Stage tone: complete → emerald, missing required → rose, otherwise active.
+  const tone = s.allDone ? 'emerald' : s.missingRequired > 0 ? 'rose' : 'cyan'
+  const TONES = {
+    emerald: { head: 'bg-emerald-500/10 border-emerald-500/25', icon: 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300', title: 'text-emerald-200', bar: 'bg-emerald-400' },
+    rose:    { head: 'bg-rose-500/[0.07] border-rose-500/20', icon: 'bg-rose-500/15 border-rose-500/25 text-rose-300', title: 'text-rose-100', bar: 'bg-gradient-to-r from-orange-400 to-amber-400' },
+    cyan:    { head: 'bg-white/[0.04] border-white/10', icon: 'bg-purple-500/15 border-purple-500/25 text-purple-300', title: 'text-purple-200', bar: 'bg-gradient-to-r from-cyan-400 to-blue-500' },
+  }
+  const t = TONES[tone]
 
   return (
-    <div>
-      <div className="flex items-center gap-2.5 mb-3 px-1">
-        <span className={`flex items-center justify-center w-6 h-6 rounded-lg border flex-shrink-0 ${
-          allDone ? 'bg-emerald-500/15 border-emerald-500/25 text-emerald-300' : 'bg-purple-500/15 border-purple-500/25 text-purple-300'
-        }`}>
-          {allDone ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Clock className="h-3.5 w-3.5" />}
-        </span>
-        <span className={`text-xs font-semibold uppercase tracking-wider ${allDone ? 'text-emerald-300' : 'text-purple-300'}`}>
-          {label}
-        </span>
-        <span className={`text-xs px-1.5 py-0.5 rounded-full border ${
-          allDone ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-white/8 border-white/10 text-gray-400'
-        }`}>
-          {completed}/{forms.length}
-          {allDone && ' · Complete'}
-        </span>
-        <span className="flex-1 h-px bg-white/8" />
+    <div className="rounded-2xl border border-white/10 bg-white/[0.02] overflow-hidden">
+      {/* Stage header */}
+      <div className={`flex flex-col sm:flex-row sm:items-center gap-3 px-4 sm:px-5 py-3.5 border-b ${t.head}`}>
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <span className={`flex items-center justify-center w-7 h-7 rounded-lg border flex-shrink-0 ${t.icon}`}>
+            {s.allDone ? <CheckCircle2 className="h-4 w-4" /> : <Clock className="h-4 w-4" />}
+          </span>
+          <div className="min-w-0">
+            <h3 className={`text-sm font-bold ${t.title}`}>{label}</h3>
+            <p className="text-xs text-gray-500">Clinical assessment stage</p>
+          </div>
+        </div>
+        {/* Stat chips */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-emerald-500/12 border border-emerald-500/20 text-emerald-300">
+            <CheckCircle2 className="h-3 w-3" />
+            {s.completed}/{s.total} done
+          </span>
+          {s.requiredCount > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-white/8 border border-white/12 text-gray-300">
+              {s.requiredCount} required
+            </span>
+          )}
+          {s.missingRequired > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/25 text-rose-200">
+              <AlertTriangle className="h-3 w-3" />
+              {s.missingRequired} missing
+            </span>
+          )}
+        </div>
       </div>
-      <div className="space-y-2">
+
+      {/* Stage progress bar */}
+      <div className="h-1 bg-white/5">
+        <div className={`h-full ${t.bar} transition-all duration-700`} style={{ width: `${s.pct}%` }} />
+      </div>
+
+      {/* Form cards */}
+      <div className="p-3 sm:p-4 space-y-2.5">
         {forms.map((form) => (
-          <FormRow key={form.form_key} form={form} packetId={packetId} clientId={clientId} onUpdate={onUpdate} />
+          <FormCard key={form.form_key} form={form} packetId={packetId} clientId={clientId} onUpdate={onUpdate} />
         ))}
       </div>
     </div>
@@ -1006,43 +1089,59 @@ export default function AdmissionsPacket() {
 
         {/* Next best action — guided "what to do next" for the case manager */}
         {nextAction ? (
-          <div className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl border ${
+          <div className={`relative overflow-hidden rounded-2xl border p-5 ${
             nextAction.kind === 'required'
-              ? 'bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border-cyan-500/25'
-              : 'bg-white/4 border-white/10'
+              ? 'bg-gradient-to-br from-cyan-500/15 via-blue-500/10 to-transparent border-cyan-500/30 shadow-lg shadow-cyan-900/20'
+              : 'bg-white/[0.04] border-white/12'
           }`}>
-            <div className={`flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0 ${
-              nextAction.kind === 'required' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-white/8 text-gray-300'
-            }`}>
-              <CircleDot className="h-4 w-4" />
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className={`flex items-center justify-center w-12 h-12 rounded-2xl flex-shrink-0 ${
+                nextAction.kind === 'required' ? 'bg-cyan-500/25 text-cyan-200 ring-1 ring-cyan-400/30' : 'bg-white/8 text-gray-300'
+              }`}>
+                <CircleDot className="h-5 w-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs font-bold uppercase tracking-wider ${
+                  nextAction.kind === 'required' ? 'text-cyan-300' : 'text-gray-400'
+                }`}>
+                  Next Best Action
+                </p>
+                <p className="text-lg font-semibold text-white leading-tight mt-0.5 truncate">
+                  {nextAction.form.form_name}
+                </p>
+                <p className="flex flex-wrap items-center gap-1.5 text-xs text-gray-400 mt-1">
+                  <span className={`px-1.5 py-0.5 rounded border ${
+                    nextAction.kind === 'required'
+                      ? 'bg-rose-500/15 border-rose-500/25 text-rose-200'
+                      : 'bg-white/8 border-white/12 text-gray-400'
+                  }`}>
+                    {nextAction.kind === 'required' ? 'Required' : 'Optional'}
+                  </span>
+                  <span>{TIMING_LABELS[nextAction.form.timing_group] || 'Assessment'}</span>
+                  <span className="text-gray-600">·</span>
+                  <span>Currently {nextAction.form.status}</span>
+                </p>
+              </div>
+              <Link
+                to={`/admissions/${client_id}/forms/${nextAction.form.form_key}`}
+                className={`inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold flex-shrink-0 transition-all ${
+                  nextAction.kind === 'required'
+                    ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 shadow-lg shadow-cyan-500/25'
+                    : 'bg-white/10 text-gray-100 border border-white/15 hover:bg-white/15'
+                }`}
+              >
+                {nextAction.kind === 'required' ? 'Open next required form' : 'Open form'}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Next Best Action</p>
-              <p className="text-sm font-medium text-white truncate">
-                {nextAction.kind === 'required'
-                  ? `Continue packet — ${nextAction.form.form_name}`
-                  : `Optional remaining — ${nextAction.form.form_name}`}
-              </p>
-            </div>
-            <Link
-              to={`/admissions/${client_id}/forms/${nextAction.form.form_key}`}
-              className={`inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium flex-shrink-0 transition-all ${
-                nextAction.kind === 'required'
-                  ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white hover:from-cyan-400 hover:to-blue-500 shadow-lg shadow-cyan-500/20'
-                  : 'bg-white/8 text-gray-200 border border-white/12 hover:bg-white/12'
-              }`}
-            >
-              {nextAction.kind === 'required' ? 'Open next required form' : 'Open form'}
-              <ArrowRight className="h-4 w-4" />
-            </Link>
           </div>
         ) : (
-          <div className="flex items-center gap-3 p-4 rounded-2xl border bg-emerald-500/8 border-emerald-500/25">
-            <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-300 flex-shrink-0">
-              <BadgeCheck className="h-5 w-5" />
+          <div className="flex items-center gap-4 p-5 rounded-2xl border bg-gradient-to-br from-emerald-500/15 to-transparent border-emerald-500/30 shadow-lg shadow-emerald-900/15">
+            <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-500/25 text-emerald-200 ring-1 ring-emerald-400/30 flex-shrink-0">
+              <BadgeCheck className="h-6 w-6" />
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-emerald-200">Packet complete — all forms addressed</p>
+              <p className="text-base font-semibold text-emerald-100">Packet complete — all forms addressed</p>
               <p className="text-xs text-emerald-400/70 mt-0.5">No outstanding forms remain in this assessment packet.</p>
             </div>
           </div>
@@ -1063,7 +1162,7 @@ export default function AdmissionsPacket() {
           <h2 className="text-sm font-semibold text-white">Assessment Forms</h2>
           <span className="text-xs text-gray-500">{stats.completed}/{stats.total} complete</span>
         </div>
-        <div className="space-y-7">
+        <div className="space-y-5">
           {TIMING_ORDER.filter((k) => grouped[k]?.length > 0).map((timingKey) => (
             <TimingSection
               key={timingKey}

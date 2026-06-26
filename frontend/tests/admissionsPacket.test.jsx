@@ -114,7 +114,8 @@ describe('AdmissionsPacket professional polish', () => {
     expect(await screen.findByText('Jordan Rivers')).toBeTruthy()
     expect(screen.getByText('Clinical Assessment Packet')).toBeTruthy()
     expect(screen.getByText('Consent to Treatment')).toBeTruthy()
-    expect(screen.getByText('Release of Information')).toBeTruthy()
+    // ROI also appears as the Next Best Action title, so it renders more than once.
+    expect(screen.getAllByText('Release of Information').length).toBeGreaterThan(0)
     expect(screen.getByText('Biopsychosocial Assessment')).toBeTruthy()
   })
 
@@ -134,19 +135,32 @@ describe('AdmissionsPacket professional polish', () => {
     expect(screen.getByText('1/3 complete')).toBeTruthy()
   })
 
-  it('keeps Open buttons wired to the existing form route', async () => {
+  it('keeps each form action wired to the existing form route', async () => {
     renderPacket()
     await screen.findByText('Jordan Rivers')
+    const links = screen.getAllByRole('link')
+    const href = (a) => a.getAttribute('href') || ''
+
+    // Every form's card links to its existing /admissions/:id/forms/:key route.
+    expect(links.some((a) => href(a) === '/admissions/client-1/forms/roi_form')).toBe(true)
+    expect(links.some((a) => href(a) === '/admissions/client-1/forms/consent_treatment')).toBe(true)
+    expect(links.some((a) => href(a) === '/admissions/client-1/forms/bio_psych')).toBe(true)
+
+    // Incomplete forms keep an "Open" action…
     const openLinks = screen.getAllByRole('link', { name: /^Open$/ })
-    expect(openLinks.length).toBe(3)
-    expect(openLinks.some((a) => a.getAttribute('href') === '/admissions/client-1/forms/roi_form')).toBe(true)
+    expect(openLinks.length).toBe(2)
+    // …and the completed form gets a "Review" action to the same route.
+    const review = screen.getByRole('link', { name: /^Review$/ })
+    expect(href(review)).toBe('/admissions/client-1/forms/consent_treatment')
   })
 
   it('shows a Next Best Action pointing at the next required incomplete form', async () => {
     renderPacket()
     await screen.findByText('Jordan Rivers')
-    expect(screen.getByText('Next Best Action')).toBeTruthy()
-    expect(screen.getByText(/Continue packet — Release of Information/)).toBeTruthy()
+    const nba = screen.getByText('Next Best Action').closest('div')
+    expect(within(nba).getByText('Release of Information')).toBeTruthy()
+    // Explains why this form is next (its current status)
+    expect(within(nba).getByText(/Currently Not Started/)).toBeTruthy()
     const cta = screen.getByRole('link', { name: /Open next required form/i })
     expect(cta.getAttribute('href')).toBe('/admissions/client-1/forms/roi_form')
   })
