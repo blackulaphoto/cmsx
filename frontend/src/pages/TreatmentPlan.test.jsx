@@ -82,6 +82,60 @@ describe('TreatmentPlan draft edit mode', () => {
     })
   })
 
+  it('shows edit controls only for draft plans', async () => {
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, current_plan: draftPlan, plans: [draftPlan], count: 1 }),
+    })
+
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+
+    expect(await screen.findByText('Edit Draft')).toBeInTheDocument()
+    expect(screen.queryByText('Approved plans require a revision before editing.')).not.toBeInTheDocument()
+  })
+
+  it('opens an enlarged textarea editor for a section', async () => {
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, current_plan: draftPlan, plans: [draftPlan], count: 1 }),
+    })
+
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+
+    fireEvent.click(await screen.findByText('Edit Draft'))
+
+    // The goal description should now render in a roomy <textarea>, not a tiny input.
+    const goalField = await screen.findByDisplayValue('Old goal')
+    expect(goalField.tagName).toBe('TEXTAREA')
+  })
+
+  it('cancel preserves the previous content', async () => {
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, current_plan: draftPlan, plans: [draftPlan], count: 1 }),
+    })
+
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+
+    fireEvent.click(await screen.findByText('Edit Draft'))
+
+    const goalField = await screen.findByDisplayValue('Old goal')
+    fireEvent.change(goalField, { target: { value: 'Edited but discarded' } })
+
+    fireEvent.click(screen.getByText('Cancel'))
+
+    // No PATCH should have fired, and the original draft content is preserved.
+    expect(apiFetch.mock.calls.some(([, opts]) => opts?.method === 'PATCH')).toBe(false)
+
+    // Re-opening the editor shows the original value again.
+    fireEvent.click(await screen.findByText('Edit Draft'))
+    expect(await screen.findByDisplayValue('Old goal')).toBeInTheDocument()
+    expect(screen.queryByDisplayValue('Edited but discarded')).not.toBeInTheDocument()
+  })
+
   it('locks approved plans and shows revision helper text', async () => {
     const activePlan = { ...draftPlan, status: 'active', approved_at: '2026-06-24T00:00:00Z' }
     apiFetch.mockResolvedValue({

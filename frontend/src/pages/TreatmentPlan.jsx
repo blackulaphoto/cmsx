@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   Brain,
@@ -58,6 +58,39 @@ function SectionCard({ title, icon: Icon, children, defaultOpen = true }) {
       </button>
       {open && <div className="px-5 pb-5">{children}</div>}
     </div>
+  )
+}
+
+// Auto-expanding textarea: grows with its content so case managers get a
+// roomy writing surface instead of a cramped 2-row box. Falls back gracefully
+// in jsdom (where scrollHeight is 0) by honoring the inline min-height.
+function AutoTextarea({ value, onChange, className = '', minHeight = 112, ...rest }) {
+  const ref = useRef(null)
+
+  const resize = () => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.max(el.scrollHeight, minHeight)}px`
+  }
+
+  useEffect(() => {
+    resize()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={(e) => {
+        onChange(e)
+        resize()
+      }}
+      style={{ minHeight }}
+      className={className}
+      {...rest}
+    />
   )
 }
 
@@ -308,6 +341,13 @@ export default function TreatmentPlan() {
   const inputCls =
     'w-full bg-white/5 border border-white/15 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-cyan-500/50'
 
+  // Roomy writing surface for free-text fields: larger padding, comfortable
+  // line spacing, and resize-y so a case manager can drag it taller too.
+  const textareaCls =
+    'w-full bg-white/5 border border-white/15 rounded-lg px-3.5 py-2.5 text-sm text-gray-100 placeholder-gray-500 leading-relaxed resize-y focus:outline-none focus:border-cyan-500/50'
+
+  const fieldLabelCls = 'block text-xs font-medium text-gray-400 mb-1'
+
   const AddRowButton = ({ onClick, label }) => (
     <button
       type="button"
@@ -337,21 +377,26 @@ export default function TreatmentPlan() {
         <SectionCard title="Problems" icon={AlertTriangle}>
           <div className="space-y-3 pt-1">
             {editForm.problems.map((p, i) => (
-              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
-                <div className="flex-1 space-y-2">
-                  <input
-                    className={inputCls}
-                    placeholder="Domain (e.g. housing)"
-                    value={p.domain || ''}
-                    onChange={(e) => updateItem('problems', i, 'domain', e.target.value)}
-                  />
-                  <textarea
-                    className={inputCls}
-                    rows={2}
-                    placeholder="Problem description"
-                    value={p.description || ''}
-                    onChange={(e) => updateItem('problems', i, 'description', e.target.value)}
-                  />
+              <div key={i} className="flex items-start gap-2 bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <label className={fieldLabelCls}>Domain</label>
+                    <input
+                      className={inputCls}
+                      placeholder="Domain (e.g. housing)"
+                      value={p.domain || ''}
+                      onChange={(e) => updateItem('problems', i, 'domain', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className={fieldLabelCls}>Description</label>
+                    <AutoTextarea
+                      className={textareaCls}
+                      placeholder="Describe the problem in the client's words and clinical terms…"
+                      value={p.description || ''}
+                      onChange={(e) => updateItem('problems', i, 'description', e.target.value)}
+                    />
+                  </div>
                 </div>
                 <RemoveRowButton onClick={() => removeItem('problems', i)} />
               </div>
@@ -364,15 +409,17 @@ export default function TreatmentPlan() {
         <SectionCard title="Goals" icon={Target}>
           <div className="space-y-3 pt-1">
             {editForm.goals.map((g, i) => (
-              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
-                <div className="flex-1 space-y-2">
-                  <textarea
-                    className={inputCls}
-                    rows={2}
-                    placeholder="Goal description"
-                    value={g.description || ''}
-                    onChange={(e) => updateItem('goals', i, 'description', e.target.value)}
-                  />
+              <div key={i} className="flex items-start gap-2 bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <label className={fieldLabelCls}>Goal</label>
+                    <AutoTextarea
+                      className={textareaCls}
+                      placeholder="Describe the goal the client is working toward…"
+                      value={g.description || ''}
+                      onChange={(e) => updateItem('goals', i, 'description', e.target.value)}
+                    />
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <input
                       className={inputCls}
@@ -402,21 +449,26 @@ export default function TreatmentPlan() {
         <SectionCard title="Objectives" icon={ChevronRight}>
           <div className="space-y-3 pt-1">
             {editForm.objectives.map((o, i) => (
-              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
-                <div className="flex-1 space-y-2">
-                  <textarea
-                    className={inputCls}
-                    rows={2}
-                    placeholder="Objective description"
-                    value={o.description || ''}
-                    onChange={(e) => updateItem('objectives', i, 'description', e.target.value)}
-                  />
-                  <input
-                    className={inputCls}
-                    placeholder="Measure"
-                    value={o.measure || ''}
-                    onChange={(e) => updateItem('objectives', i, 'measure', e.target.value)}
-                  />
+              <div key={i} className="flex items-start gap-2 bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <label className={fieldLabelCls}>Objective</label>
+                    <AutoTextarea
+                      className={textareaCls}
+                      placeholder="Describe the measurable step toward the goal…"
+                      value={o.description || ''}
+                      onChange={(e) => updateItem('objectives', i, 'description', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className={fieldLabelCls}>Measure</label>
+                    <input
+                      className={inputCls}
+                      placeholder="How progress is measured"
+                      value={o.measure || ''}
+                      onChange={(e) => updateItem('objectives', i, 'measure', e.target.value)}
+                    />
+                  </div>
                 </div>
                 <RemoveRowButton onClick={() => removeItem('objectives', i)} />
               </div>
@@ -429,21 +481,26 @@ export default function TreatmentPlan() {
         <SectionCard title="Interventions" icon={Zap}>
           <div className="space-y-3 pt-1">
             {editForm.interventions.map((iv, i) => (
-              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
-                <div className="flex-1 space-y-2">
-                  <textarea
-                    className={inputCls}
-                    rows={2}
-                    placeholder="Intervention description"
-                    value={iv.description || ''}
-                    onChange={(e) => updateItem('interventions', i, 'description', e.target.value)}
-                  />
-                  <input
-                    className={inputCls}
-                    placeholder="Frequency (e.g. weekly)"
-                    value={iv.frequency || ''}
-                    onChange={(e) => updateItem('interventions', i, 'frequency', e.target.value)}
-                  />
+              <div key={i} className="flex items-start gap-2 bg-white/5 border border-white/10 rounded-xl p-4">
+                <div className="flex-1 space-y-3">
+                  <div>
+                    <label className={fieldLabelCls}>Intervention</label>
+                    <AutoTextarea
+                      className={textareaCls}
+                      placeholder="Describe the service or support being provided…"
+                      value={iv.description || ''}
+                      onChange={(e) => updateItem('interventions', i, 'description', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className={fieldLabelCls}>Frequency</label>
+                    <input
+                      className={inputCls}
+                      placeholder="Frequency (e.g. weekly)"
+                      value={iv.frequency || ''}
+                      onChange={(e) => updateItem('interventions', i, 'frequency', e.target.value)}
+                    />
+                  </div>
                 </div>
                 <RemoveRowButton onClick={() => removeItem('interventions', i)} />
               </div>
@@ -454,31 +511,38 @@ export default function TreatmentPlan() {
 
         {/* Aftercare Plan */}
         <SectionCard title="Aftercare Plan" icon={ClipboardList} defaultOpen={false}>
-          <div className="space-y-2 pt-1">
-            <input
-              className={inputCls}
-              placeholder="Aftercare summary"
-              value={editForm.aftercare_plan.summary || ''}
-              onChange={(e) => updateAftercare('summary', e.target.value)}
-            />
-            <textarea
-              className={inputCls}
-              rows={3}
-              placeholder="Aftercare notes"
-              value={editForm.aftercare_plan.notes || ''}
-              onChange={(e) => updateAftercare('notes', e.target.value)}
-            />
+          <div className="space-y-3 pt-1">
+            <div>
+              <label className={fieldLabelCls}>Summary</label>
+              <input
+                className={inputCls}
+                placeholder="Aftercare summary"
+                value={editForm.aftercare_plan.summary || ''}
+                onChange={(e) => updateAftercare('summary', e.target.value)}
+              />
+            </div>
+            <div>
+              <label className={fieldLabelCls}>Notes</label>
+              <AutoTextarea
+                className={textareaCls}
+                minHeight={144}
+                placeholder="Document the aftercare plan: referrals, follow-up cadence, support network, relapse-prevention steps…"
+                value={editForm.aftercare_plan.notes || ''}
+                onChange={(e) => updateAftercare('notes', e.target.value)}
+              />
+            </div>
           </div>
         </SectionCard>
 
         {/* Completion Criteria */}
         <SectionCard title="Completion Criteria" icon={CheckCircle} defaultOpen={false}>
-          <div className="space-y-2 pt-1">
+          <div className="space-y-3 pt-1">
             {editForm.completion_criteria.map((c, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  className={inputCls}
-                  placeholder="Completion criterion"
+              <div key={i} className="flex items-start gap-2">
+                <AutoTextarea
+                  className={textareaCls}
+                  minHeight={72}
+                  placeholder="Describe what 'done' looks like for this plan…"
                   value={c}
                   onChange={(e) => updateCriterion(i, e.target.value)}
                 />
@@ -493,7 +557,7 @@ export default function TreatmentPlan() {
         <SectionCard title="Operational Needs" icon={Tag} defaultOpen={false}>
           <div className="space-y-3 pt-1">
             {editForm.operational_needs.map((n, i) => (
-              <div key={i} className="flex items-start gap-2 bg-white/5 rounded-lg p-3">
+              <div key={i} className="flex items-start gap-2 bg-white/5 border border-white/10 rounded-xl p-4">
                 <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <input
                     className={inputCls}
