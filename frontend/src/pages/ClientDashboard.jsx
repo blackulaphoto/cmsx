@@ -212,6 +212,7 @@ const ClientDashboard = () => {
   const [docBlobUrl, setDocBlobUrl] = useState(null)
   const [docBlobLoading, setDocBlobLoading] = useState(false)
   const [docBlobError, setDocBlobError] = useState(false)
+  const [docBlobText, setDocBlobText] = useState(null)
   const [docUploading, setDocUploading] = useState(false)
   const [showDocUpload, setShowDocUpload] = useState(false)
   const [docForm, setDocForm] = useState({ title: '', doc_type: 'other', url: '' })
@@ -683,6 +684,20 @@ const ClientDashboard = () => {
 
   const docViewEndpoint = (doc) => `/api/clients/${clientId}/documents/${doc.doc_id}/view`
 
+  const isTextPreviewable = (doc, blob) => {
+    const mime = doc?.file_mime || blob?.type || ''
+    if (mime.startsWith('text/')) return true
+    return /\.(txt|md|markdown)$/i.test(String(doc?.file_name || ''))
+  }
+
+  const readBlobAsText = (blob) =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result)
+      reader.onerror = () => reject(reader.error)
+      reader.readAsText(blob, 'utf-8')
+    })
+
   const openDocViewer = async (doc) => {
     setViewingDoc(doc)
     setShowDocViewer(true)
@@ -696,8 +711,14 @@ const ClientDashboard = () => {
     setDocBlobLoading(true)
     setDocBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null })
     try {
-      const { objectUrl } = await fetchClientDocumentObjectUrl(docViewEndpoint(doc))
+      const { objectUrl, blob } = await fetchClientDocumentObjectUrl(docViewEndpoint(doc))
       setDocBlobUrl(objectUrl)
+      if (isTextPreviewable(doc, blob)) {
+        const text = await readBlobAsText(blob)
+        setDocBlobText(text)
+      } else {
+        setDocBlobText(null)
+      }
     } catch {
       setDocBlobError(true)
     } finally {
@@ -710,6 +731,7 @@ const ClientDashboard = () => {
     setViewingDoc(null)
     setDocBlobLoading(false)
     setDocBlobError(false)
+    setDocBlobText(null)
     setDocBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null })
   }
 
@@ -2645,6 +2667,10 @@ const ClientDashboard = () => {
                   <img src={previewSrc} alt={viewingDoc.title} className="max-w-full mx-auto rounded-lg" />
                 ) : viewingDoc.file_mime === 'application/pdf' && previewSrc ? (
                   <iframe src={previewSrc} className="w-full h-[70vh] rounded-lg border-0" title={viewingDoc.title} />
+                ) : docBlobText !== null ? (
+                  <pre className="whitespace-pre-wrap text-sm text-gray-200 p-6 leading-relaxed font-mono overflow-auto h-full min-h-0">
+                    {docBlobText}
+                  </pre>
                 ) : viewingDoc.url ? (
                   <div className="text-center py-16">
                     <FileText className="h-12 w-12 text-violet-400 mx-auto mb-4" />

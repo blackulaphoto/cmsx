@@ -399,6 +399,203 @@ describe('ClientDashboard - authenticated document view/download', () => {
   })
 })
 
+// ── Text document preview ──────────────────────────────────────────────────────
+
+describe('ClientDashboard - text document preview', () => {
+  const TEXT_DOC = {
+    doc_id: 'doc-txt-1',
+    title: 'Letter of Presence',
+    doc_type: 'presence_letter',
+    file_name: 'letter-of-presence.txt',
+    file_mime: 'text/plain',
+    file_path: 'uploads/clients/client-1/abc_letter.txt',
+    created_at: '2026-06-27',
+  }
+
+  const TXT_EXT_DOC = {
+    doc_id: 'doc-txt-2',
+    title: 'Court Letter',
+    doc_type: 'court_letter',
+    file_name: 'court_letter.txt',
+    file_path: 'uploads/clients/client-1/xyz_court.txt',
+    created_at: '2026-06-27',
+  }
+
+  const UNSUPPORTED_DOC = {
+    doc_id: 'doc-bin-1',
+    title: 'Unknown File',
+    doc_type: 'other',
+    file_name: 'data.bin',
+    file_mime: 'application/octet-stream',
+    file_path: 'uploads/clients/client-1/data.bin',
+    created_at: '2026-06-27',
+  }
+
+  const textView = (content, mime = 'text/plain') => () => ({
+    ok: true,
+    blob: async () => new Blob([content], { type: mime }),
+    headers: { get: () => null },
+  })
+
+  const binView = () => ({
+    ok: true,
+    blob: async () => new Blob([new Uint8Array([0x00, 0x01])], { type: 'application/octet-stream' }),
+    headers: { get: () => null },
+  })
+
+  const routeTextDocs = (documents, viewResponse) => (url) => {
+    if (url.includes('/unified-view')) {
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+    }
+    if (url.includes('/api/admissions/packets/')) {
+      return Promise.resolve({ ok: true, json: async () => packetWithPendingRoi })
+    }
+    if (url.includes('/documents/') && url.endsWith('/view')) {
+      return Promise.resolve(viewResponse())
+    }
+    if (url.endsWith('/documents')) {
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, documents }) })
+    }
+    return Promise.resolve({ ok: true, json: async () => ({ success: true }) })
+  }
+
+  const openDocumentsTab = async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Documents' }))
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    global.URL.createObjectURL = vi.fn(() => 'blob:mock-url')
+    global.URL.revokeObjectURL = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('renders text/plain content inside the preview modal', async () => {
+    const content = 'This letter confirms client attendance.'
+    apiFetch.mockImplementation(routeTextDocs([TEXT_DOC], textView(content)))
+    await openDocumentsTab()
+
+    expect(await screen.findByText('Letter of Presence')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('View'))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-txt-1/view'),
+    )
+    expect(await screen.findByText(content)).toBeInTheDocument()
+    expect(screen.queryByText('Preview not available for this file type.')).toBeNull()
+  })
+
+  it('previews a .txt filename even when file_mime is absent', async () => {
+    const content = 'Court order content here.'
+    apiFetch.mockImplementation(routeTextDocs([TXT_EXT_DOC], textView(content)))
+    await openDocumentsTab()
+
+    expect(await screen.findByText('Court Letter')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('View'))
+
+    expect(await screen.findByText(content)).toBeInTheDocument()
+    expect(screen.queryByText('Preview not available for this file type.')).toBeNull()
+  })
+
+  it('preserves line breaks in the text preview', async () => {
+    const content = 'Line one.\nLine two.\nLine three.'
+    apiFetch.mockImplementation(routeTextDocs([TEXT_DOC], textView(content)))
+    await openDocumentsTab()
+
+    fireEvent.click(await screen.findByTitle('View'))
+
+    const pre = await screen.findByText(/Line one/)
+    expect(pre.tagName).toBe('PRE')
+    expect(pre.textContent).toContain('Line two.')
+    expect(pre.textContent).toContain('Line three.')
+  })
+
+  it('does not use dangerouslySetInnerHTML for text content', async () => {
+    const content = '<script>alert("xss")</script>'
+    apiFetch.mockImplementation(routeTextDocs([TEXT_DOC], textView(content)))
+    await openDocumentsTab()
+
+    fireEvent.click(await screen.findByTitle('View'))
+
+    // Wait for the text content to render (FileReader is async after the apiFetch call).
+    const el = await screen.findByText(/alert\("xss"\)/)
+    expect(el).toBeInTheDocument()
+    expect(document.querySelector('script')).toBeNull()
+  })
+
+  it('download button still works when previewing a text document', async () => {
+    const content = 'Downloadable letter content.'
+    apiFetch.mockImplementation(routeTextDocs([TEXT_DOC], textView(content)))
+    let downloadName = null
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
+      downloadName = this.download
+    })
+    await openDocumentsTab()
+
+    fireEvent.click(await screen.findByTitle('View'))
+    await screen.findByText(content)
+
+    // When the modal is open there are two "Download" buttons (doc card + modal header).
+    // Pick the modal's download button (last in DOM order — modal renders after the list).
+    const downloadBtns = screen.getAllByTitle('Download')
+    fireEvent.click(downloadBtns[downloadBtns.length - 1])
+    await waitFor(() => expect(downloadName).toBe('letter-of-presence.txt'))
+  })
+
+  it('unsupported binary file still shows "Preview not available for this file type."', async () => {
+    apiFetch.mockImplementation(routeTextDocs([UNSUPPORTED_DOC], binView))
+    await openDocumentsTab()
+
+    expect(await screen.findByText('Unknown File')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('View'))
+
+    expect(await screen.findByText('Preview not available for this file type.')).toBeInTheDocument()
+  })
+
+  it('image document still previews via blob URL (existing behavior unchanged)', async () => {
+    const IMG_DOC = {
+      doc_id: 'doc-img-1',
+      title: 'ID Photo',
+      doc_type: 'id',
+      file_name: 'photo.png',
+      file_mime: 'image/png',
+      file_path: 'uploads/clients/client-1/photo.png',
+      created_at: '2026-06-27',
+    }
+    const imgView = () => ({
+      ok: true,
+      blob: async () => new Blob(['imgdata'], { type: 'image/png' }),
+      headers: { get: () => null },
+    })
+    apiFetch.mockImplementation(routeTextDocs([IMG_DOC], imgView))
+    await openDocumentsTab()
+
+    fireEvent.click(await screen.findByTitle('View'))
+
+    const img = await screen.findByAltText('ID Photo')
+    expect(img).toHaveAttribute('src', 'blob:mock-url')
+    expect(screen.queryByText('Preview not available for this file type.')).toBeNull()
+  })
+
+  it('authenticated fetch still goes through the blob helper, not a raw href', async () => {
+    const content = 'Secured text document.'
+    apiFetch.mockImplementation(routeTextDocs([TEXT_DOC], textView(content)))
+    await openDocumentsTab()
+
+    fireEvent.click(await screen.findByTitle('View'))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-txt-1/view'),
+    )
+    const rawLinks = document.querySelectorAll('a[href*="/documents/"][href*="/view"]')
+    expect(rawLinks.length).toBe(0)
+  })
+})
+
 // ── Document Vault categorization ─────────────────────────────────────────────
 
 const makeDocRoute = (documents) => (url) => {
