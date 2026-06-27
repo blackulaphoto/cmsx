@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { MemoryRouter } from 'react-router-dom'
+import toast from 'react-hot-toast'
 
 vi.mock('../api/config', () => ({ apiFetch: vi.fn() }))
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }))
@@ -428,5 +429,122 @@ describe('DocumentationCenter client-linked saves', () => {
     fireEvent.click(screen.getByRole('button', { name: /Generate Draft/i }))
 
     expect(await screen.findByText('AI provider unavailable; using structured fallback.')).toBeInTheDocument()
+  })
+})
+
+describe('DocumentationCenter authenticated client document view', () => {
+  const CLIENT_DOC = {
+    doc_id: 'doc-1',
+    title: 'Court Letter Scan',
+    doc_type: 'court',
+    file_name: 'court_letter.pdf',
+    file_path: 'uploads/clients/client-1/x_court_letter.pdf',
+  }
+
+  // Authenticated blob response for the protected /view route.
+  const successView = () => ({
+    ok: true,
+    blob: async () => new Blob(['x'], { type: 'application/pdf' }),
+    headers: {
+      get: (key) =>
+        String(key).toLowerCase() === 'content-disposition'
+          ? 'attachment; filename="court_letter.pdf"'
+          : null,
+    },
+  })
+
+  const routeDocs = (documents, viewResponse) => (url) => {
+    if (url === '/api/dashboard/docs') {
+      return Promise.resolve({ ok: true, json: async () => ({ docs: [] }) })
+    }
+    if (url === '/api/ai-documentation/templates') {
+      return Promise.resolve({ ok: true, json: async () => ({ templates: [] }) })
+    }
+    if (url === '/api/ai-documentation/brand-resources') {
+      return Promise.resolve({ ok: true, json: async () => ({ resources: [] }) })
+    }
+    if (url === '/api/case-management/notes/list/client-1') {
+      return Promise.resolve({ ok: true, json: async () => ({ notes: [] }) })
+    }
+    if (url === '/api/clients/client-1/documents') {
+      return Promise.resolve({ ok: true, json: async () => ({ documents }) })
+    }
+    if (/\/api\/clients\/client-1\/documents\/[^/]+\/view$/.test(url)) {
+      return Promise.resolve(viewResponse())
+    }
+    return Promise.resolve({ ok: true, json: async () => ({}) })
+  }
+
+  const showClientDocuments = async () => {
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Documents' }))
+  }
+
+  beforeEach(() => {
+    global.URL.createObjectURL = vi.fn(() => 'blob:mock-url')
+    global.URL.revokeObjectURL = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('opens a saved client document via the authenticated helper, not a raw protected href', async () => {
+    apiFetch.mockImplementation(routeDocs([CLIENT_DOC], successView))
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+
+    await showClientDocuments()
+    expect(await screen.findByText('Court Letter Scan')).toBeInTheDocument()
+
+    // The protected route must never be rendered as a raw, token-less link.
+    const hrefs = screen.queryAllByRole('link').map((a) => a.getAttribute('href') || '')
+    expect(hrefs).not.toContain('/api/clients/client-1/documents/doc-1/view')
+
+    fireEvent.click(screen.getByRole('button', { name: 'View' }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-1/view'),
+    )
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith('blob:mock-url', '_blank', 'noopener,noreferrer'),
+    )
+  })
+
+  it('shows a friendly error (never raw JSON) when the authenticated open fails', async () => {
+    const failView = () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ detail: 'Missing Firebase bearer token' }),
+    })
+    apiFetch.mockImplementation(routeDocs([CLIENT_DOC], failView))
+    vi.spyOn(window, 'open').mockReturnValue({})
+
+    await showClientDocuments()
+    expect(await screen.findByText('Court Letter Scan')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View' }))
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Could not open document. Please try again.'),
+    )
+    expect(screen.queryByText(/Missing Firebase bearer token/)).toBeNull()
+  })
+
+  it('opens an external-URL client document directly without an authenticated fetch', async () => {
+    const EXT_DOC = {
+      doc_id: 'doc-2',
+      title: 'External Link Doc',
+      doc_type: 'other',
+      url: 'https://example.com/file.pdf',
+    }
+    apiFetch.mockImplementation(routeDocs([EXT_DOC], successView))
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+
+    await showClientDocuments()
+    expect(await screen.findByText('External Link Doc')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View' }))
+
+    expect(openSpy).toHaveBeenCalledWith('https://example.com/file.pdf', '_blank', 'noopener,noreferrer')
+    expect(apiFetch).not.toHaveBeenCalledWith('/api/clients/client-1/documents/doc-2/view')
   })
 })
