@@ -32,6 +32,7 @@ import {
   Upload,
   Trash2,
   Eye,
+  Download,
   X,
   ClipboardList
 } from 'lucide-react'
@@ -45,6 +46,11 @@ import TasksList from '../components/TasksList'
 import TaskViewModal from '../components/TaskViewModal'
 import RoiConsentTracker from '../components/RoiConsentTracker'
 import { apiFetch } from '../api/config'
+import {
+  fetchClientDocumentObjectUrl,
+  openClientDocument,
+  downloadClientDocument,
+} from '../utils/clientDocuments'
 
 const listOrEmpty = (value) => (Array.isArray(value) ? value : [])
 
@@ -195,6 +201,12 @@ const ClientDashboard = () => {
   const [packetRoiPendingSignatureCount, setPacketRoiPendingSignatureCount] = useState(0)
   const [showDocViewer, setShowDocViewer] = useState(false)
   const [viewingDoc, setViewingDoc] = useState(null)
+  // Authenticated blob preview for the doc viewer. Protected files are fetched
+  // with the Firebase bearer token and surfaced as an object URL (raw src/href
+  // cannot send the token).
+  const [docBlobUrl, setDocBlobUrl] = useState(null)
+  const [docBlobLoading, setDocBlobLoading] = useState(false)
+  const [docBlobError, setDocBlobError] = useState(false)
   const [docUploading, setDocUploading] = useState(false)
   const [showDocUpload, setShowDocUpload] = useState(false)
   const [docForm, setDocForm] = useState({ title: '', doc_type: 'other', url: '' })
@@ -663,9 +675,61 @@ const ClientDashboard = () => {
     }
   }
 
-  const openDocViewer = (doc) => {
+  const docViewEndpoint = (doc) => `/api/clients/${clientId}/documents/${doc.doc_id}/view`
+
+  const openDocViewer = async (doc) => {
     setViewingDoc(doc)
     setShowDocViewer(true)
+    setDocBlobError(false)
+    // External-URL documents need no authenticated fetch; preview uses doc.url.
+    if (!doc.file_path) {
+      setDocBlobUrl(null)
+      setDocBlobLoading(false)
+      return
+    }
+    setDocBlobLoading(true)
+    setDocBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null })
+    try {
+      const { objectUrl } = await fetchClientDocumentObjectUrl(docViewEndpoint(doc))
+      setDocBlobUrl(objectUrl)
+    } catch {
+      setDocBlobError(true)
+    } finally {
+      setDocBlobLoading(false)
+    }
+  }
+
+  const closeDocViewer = () => {
+    setShowDocViewer(false)
+    setViewingDoc(null)
+    setDocBlobLoading(false)
+    setDocBlobError(false)
+    setDocBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null })
+  }
+
+  const handleOpenDocument = async (doc) => {
+    if (!doc.file_path) {
+      if (doc.url && typeof window !== 'undefined') window.open(doc.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    try {
+      const opened = await openClientDocument(docViewEndpoint(doc))
+      if (!opened) toast.error('Could not open document. Please try again.')
+    } catch {
+      toast.error('Could not open document. Please try again.')
+    }
+  }
+
+  const handleDownloadDocument = async (doc) => {
+    if (!doc.file_path) {
+      if (doc.url && typeof window !== 'undefined') window.open(doc.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    try {
+      await downloadClientDocument(docViewEndpoint(doc), doc.file_name || doc.title || 'document')
+    } catch {
+      toast.error('Could not open document. Please try again.')
+    }
   }
 
   const uploadDocument = async () => {
@@ -2293,7 +2357,7 @@ const ClientDashboard = () => {
                             <div className="flex gap-2 ml-3 shrink-0">
                               {viewUrl && (
                                 <button
-                                  onClick={() => doc.file_path ? openDocViewer(doc) : window.open(viewUrl, '_blank')}
+                                  onClick={() => doc.file_path ? openDocViewer(doc) : window.open(viewUrl, '_blank', 'noopener,noreferrer')}
                                   className="p-2 hover:bg-violet-500/20 rounded-lg text-gray-400 hover:text-violet-300 transition-colors"
                                   title="View"
                                 >
@@ -2301,15 +2365,22 @@ const ClientDashboard = () => {
                                 </button>
                               )}
                               {viewUrl && (
-                                <a
-                                  href={viewUrl}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
+                                <button
+                                  onClick={() => handleOpenDocument(doc)}
                                   className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
                                   title="Open in new tab"
                                 >
                                   <ExternalLink className="h-4 w-4" />
-                                </a>
+                                </button>
+                              )}
+                              {doc.file_path && (
+                                <button
+                                  onClick={() => handleDownloadDocument(doc)}
+                                  className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
+                                  title="Download"
+                                >
+                                  <Download className="h-4 w-4" />
+                                </button>
                               )}
                               <button
                                 onClick={() => deleteDocument(doc.doc_id)}
@@ -2446,9 +2517,13 @@ const ClientDashboard = () => {
         )}
 
         {/* Doc Viewer Modal */}
-        {showDocViewer && viewingDoc && (
+        {showDocViewer && viewingDoc && (() => {
+          // For protected uploaded files the preview source is the authenticated
+          // blob object URL; for external-URL documents it is the URL itself.
+          const previewSrc = viewingDoc.file_path ? docBlobUrl : (viewingDoc.url || null)
+          return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowDocViewer(false)} />
+            <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={closeDocViewer} />
             <div className="relative z-10 w-full max-w-4xl max-h-[90vh] bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl border border-white/20 shadow-2xl flex flex-col">
               <div className="flex items-center justify-between p-4 border-b border-white/10">
                 <div className="flex items-center gap-3">
@@ -2457,43 +2532,64 @@ const ClientDashboard = () => {
                   {viewingDoc.file_name && <span className="text-xs text-gray-400">{viewingDoc.file_name}</span>}
                 </div>
                 <div className="flex gap-2">
-                  <a href={getDocViewUrl(viewingDoc)} target="_blank" rel="noopener noreferrer"
+                  <button onClick={() => handleOpenDocument(viewingDoc)}
                     className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors" title="Open in new tab">
                     <ExternalLink className="h-4 w-4" />
-                  </a>
-                  <button onClick={() => setShowDocViewer(false)} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">
+                  </button>
+                  {viewingDoc.file_path && (
+                    <button onClick={() => handleDownloadDocument(viewingDoc)}
+                      className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors" title="Download">
+                      <Download className="h-4 w-4" />
+                    </button>
+                  )}
+                  <button onClick={closeDocViewer} className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors">
                     <X className="h-5 w-5" />
                   </button>
                 </div>
               </div>
               <div className="flex-1 overflow-auto p-2 min-h-0">
-                {viewingDoc.file_mime?.startsWith('image/') ? (
-                  <img src={getDocViewUrl(viewingDoc)} alt={viewingDoc.title} className="max-w-full mx-auto rounded-lg" />
-                ) : viewingDoc.file_mime === 'application/pdf' ? (
-                  <iframe src={getDocViewUrl(viewingDoc)} className="w-full h-[70vh] rounded-lg border-0" title={viewingDoc.title} />
+                {docBlobLoading ? (
+                  <div className="text-center py-16">
+                    <div className="animate-spin rounded-full h-8 w-8 border-4 border-violet-500/20 border-t-violet-500 mx-auto mb-4"></div>
+                    <p className="text-gray-300">Loading document…</p>
+                  </div>
+                ) : docBlobError ? (
+                  <div className="text-center py-16">
+                    <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-4" />
+                    <p className="text-gray-300 mb-4">Could not open document. Please try again.</p>
+                    <button onClick={() => openDocViewer(viewingDoc)}
+                      className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium hover:scale-105 transition-all inline-block">
+                      Retry
+                    </button>
+                  </div>
+                ) : viewingDoc.file_mime?.startsWith('image/') && previewSrc ? (
+                  <img src={previewSrc} alt={viewingDoc.title} className="max-w-full mx-auto rounded-lg" />
+                ) : viewingDoc.file_mime === 'application/pdf' && previewSrc ? (
+                  <iframe src={previewSrc} className="w-full h-[70vh] rounded-lg border-0" title={viewingDoc.title} />
                 ) : viewingDoc.url ? (
                   <div className="text-center py-16">
                     <FileText className="h-12 w-12 text-violet-400 mx-auto mb-4" />
                     <p className="text-gray-300 mb-4">This file type cannot be previewed inline.</p>
-                    <a href={getDocViewUrl(viewingDoc)} target="_blank" rel="noopener noreferrer"
+                    <button onClick={() => handleOpenDocument(viewingDoc)}
                       className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium hover:scale-105 transition-all inline-block">
                       Open Document
-                    </a>
+                    </button>
                   </div>
                 ) : (
                   <div className="text-center py-16">
                     <FileText className="h-12 w-12 text-violet-400 mx-auto mb-4" />
                     <p className="text-gray-300 mb-4">Preview not available for this file type.</p>
-                    <a href={getDocViewUrl(viewingDoc)} target="_blank" rel="noopener noreferrer"
+                    <button onClick={() => handleDownloadDocument(viewingDoc)}
                       className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium hover:scale-105 transition-all inline-block">
                       Download Document
-                    </a>
+                    </button>
                   </div>
                 )}
               </div>
             </div>
           </div>
-        )}
+          )
+        })()}
 
         {/* Edit Client Modal */}
         {showEditModal && (

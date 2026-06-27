@@ -157,9 +157,27 @@ function makeResponse(body, { ok = true, status = 200 } = {}) {
 
 // Route apiFetch by URL: the tracker self-fetches the admissions packet, the
 // client-documents list, and the structured roi-records list.
+// Authenticated blob response for the protected /view route.
+function makeViewResponse(filename = 'probation_roi.pdf') {
+  return Promise.resolve({
+    ok: true,
+    status: 200,
+    blob: () => Promise.resolve(new Blob(['x'], { type: 'application/pdf' })),
+    headers: {
+      get: (key) =>
+        String(key).toLowerCase() === 'content-disposition'
+          ? `attachment; filename="${filename}"`
+          : null,
+    },
+  })
+}
+
 function routedHandler({ packet = PACKET, documents = [], roiRecords = [] } = {}) {
   return (url) => {
     const str = String(url)
+    if (/\/documents\/[^/]+\/view$/.test(str)) {
+      return makeViewResponse()
+    }
     if (/\/api\/clients\/[^/]+\/roi-records$/.test(str)) {
       return makeResponse({ success: true, roi_records: roiRecords })
     }
@@ -381,13 +399,15 @@ describe('RoiConsentTracker — structured ROI records', () => {
     expect(screen.getAllByText(/Upload Signed Copy/i).length).toBeGreaterThanOrEqual(1)
   })
 
-  it('shows a linked-document view link when linked_document_id exists', async () => {
+  it('shows a linked-document view control when linked_document_id exists (authenticated button, not a raw link)', async () => {
     apiFetch.mockImplementation(routedHandler({ packet: null, roiRecords: ROI_RECORDS }))
     renderTracker()
     await screen.findByText('County Probation')
-    const links = screen.getAllByRole('link')
-    const hrefs = links.map((a) => a.getAttribute('href') || '')
-    expect(hrefs).toContain('/api/clients/client-1/documents/doc-signed-1/view')
+    const linkButton = screen.getByRole('button', { name: /View linked document/i })
+    expect(linkButton.tagName).toBe('BUTTON')
+    // The protected route is fetched with auth on click, never exposed as a raw href.
+    const hrefs = screen.queryAllByRole('link').map((a) => a.getAttribute('href') || '')
+    expect(hrefs).not.toContain('/api/clients/client-1/documents/doc-signed-1/view')
   })
 
   it('shows an empty state when there are no structured ROI records', async () => {
@@ -635,14 +655,59 @@ describe('RoiConsentTracker — uploaded signed ROIs (fallback)', () => {
     expect(screen.getByText(/Uploaded: Jun 20, 2026/)).toBeTruthy()
   })
 
-  it('wires Download Signed ROI to the existing client-documents view route', async () => {
+  it('downloads a signed ROI through the authenticated view route (no raw token-less link)', async () => {
     apiFetch.mockImplementation(routedHandler({ documents: ROI_DOCS }))
+    global.URL.createObjectURL = vi.fn(() => 'blob:mock-url')
+    global.URL.revokeObjectURL = vi.fn()
+    let downloadedName = null
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(function clickImpl() {
+        downloadedName = this.download
+      })
+
     renderTracker()
     await screen.findByText('Uploaded Signed ROIs')
-    const links = screen.getAllByRole('link')
-    const hrefs = links.map((a) => a.getAttribute('href') || '')
-    expect(hrefs).toContain('/api/clients/client-1/documents/doc-1/view')
-    expect(hrefs).toContain('/api/clients/client-1/documents/doc-2/view')
+
+    // The protected route must not be exposed as a raw, token-less anchor.
+    const hrefs = screen.queryAllByRole('link').map((a) => a.getAttribute('href') || '')
+    expect(hrefs).not.toContain('/api/clients/client-1/documents/doc-1/view')
+    expect(hrefs).not.toContain('/api/clients/client-1/documents/doc-2/view')
+
+    const downloadButtons = screen.getAllByRole('button', { name: /Download Signed ROI/i })
+    expect(downloadButtons.length).toBeGreaterThan(0)
+    fireEvent.click(downloadButtons[0])
+
+    await waitFor(() => {
+      const viewCalls = apiFetch.mock.calls
+        .map((c) => String(c[0]))
+        .filter((u) => /\/documents\/doc-\d+\/view$/.test(u))
+      expect(viewCalls.length).toBeGreaterThan(0)
+    })
+    await waitFor(() => expect(downloadedName).toBe('probation_roi.pdf'))
+    clickSpy.mockRestore()
+  })
+
+  it('opens a linked ROI document through the authenticated view route, not a raw link', async () => {
+    apiFetch.mockImplementation(routedHandler({ documents: [], roiRecords: ROI_RECORDS }))
+    global.URL.createObjectURL = vi.fn(() => 'blob:mock-url')
+    global.URL.revokeObjectURL = vi.fn()
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+
+    const linkButton = await screen.findByRole('button', { name: /View linked document/i })
+    expect(linkButton.tagName).toBe('BUTTON')
+    fireEvent.click(linkButton)
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-signed-1/view'),
+    )
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith('blob:mock-url', '_blank', 'noopener,noreferrer'),
+    )
+    openSpy.mockRestore()
   })
 
   it('keeps uploaded ROIs separate from structured records and packet forms', async () => {

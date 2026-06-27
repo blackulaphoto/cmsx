@@ -14,6 +14,7 @@ import {
   Pencil,
 } from 'lucide-react'
 import { apiFetch } from '../api/config'
+import { openClientDocument, downloadClientDocument } from '../utils/clientDocuments'
 
 /**
  * RoiConsentTracker — Client ROI / Releases area (dedicated client tab).
@@ -190,6 +191,8 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
   const [uploadParty, setUploadParty] = useState('')
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
+  // Friendly error for authenticated document open/download failures.
+  const [docActionError, setDocActionError] = useState('')
 
   // Load packet-derived consent forms.
   useEffect(() => {
@@ -291,6 +294,39 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
     record?.linked_document_id
       ? `/api/clients/${clientId}/documents/${record.linked_document_id}/view`
       : null
+
+  // Protected document routes require the Firebase bearer token, which a raw
+  // <a href> cannot send. Fetch via the authenticated helper and open/download
+  // through a blob object URL instead.
+  const openDocument = async (endpoint) => {
+    if (!endpoint) return
+    setDocActionError('')
+    try {
+      const opened = await openClientDocument(endpoint)
+      if (!opened) setDocActionError('Could not open document. Please try again.')
+    } catch {
+      setDocActionError('Could not open document. Please try again.')
+    }
+  }
+
+  const downloadDocument = async (doc) => {
+    if (!doc) return
+    if (doc.file_path) {
+      setDocActionError('')
+      try {
+        await downloadClientDocument(
+          `/api/clients/${clientId}/documents/${doc.doc_id}/view`,
+          doc.file_name || doc.title || 'document'
+        )
+      } catch {
+        setDocActionError('Could not open document. Please try again.')
+      }
+      return
+    }
+    if (doc.url && typeof window !== 'undefined') {
+      window.open(doc.url, '_blank', 'noopener,noreferrer')
+    }
+  }
 
   // ── ROI record handlers ─────────────────────────────────────────────────────
   const openCreateForm = () => {
@@ -400,8 +436,8 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
       const data = await res.json()
       setRecordsRefresh((n) => n + 1)
       setDocsRefresh((n) => n + 1)
-      if (data?.view_url && typeof window !== 'undefined') {
-        window.open(data.view_url, '_blank', 'noopener,noreferrer')
+      if (data?.view_url) {
+        await openDocument(data.view_url)
       }
     } catch (e) {
       // Non-fatal; surface nothing destructive.
@@ -819,15 +855,17 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
                     )}
 
                     {linkUrl && (
-                      <a
-                        href={linkUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => openDocument(linkUrl)}
                         className="inline-flex items-center gap-1.5 mt-3 text-sm text-emerald-300 hover:underline"
                       >
                         <Download className="h-4 w-4" />
                         View linked document
-                      </a>
+                      </button>
+                    )}
+                    {docActionError && (
+                      <p className="mt-2 text-xs text-red-300">{docActionError}</p>
                     )}
                   </div>
                 </div>
@@ -1093,17 +1131,19 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
                   </div>
 
                   {viewUrl ? (
-                    <a
-                      href={viewUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => downloadDocument(doc)}
                       className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 bg-white/10 border border-white/20 text-gray-200 rounded-xl hover:bg-emerald-500/20 hover:text-emerald-200 transition-all text-sm"
                     >
                       <Download className="h-4 w-4" />
                       Download Signed ROI
-                    </a>
+                    </button>
                   ) : null}
                 </div>
+                {docActionError && (
+                  <p className="mt-2 text-xs text-red-300">{docActionError}</p>
+                )}
               </div>
             )
           })}
