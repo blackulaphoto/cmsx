@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import RoiConsentTracker from '../src/components/RoiConsentTracker'
@@ -66,6 +66,13 @@ const PACKET = {
       attachment_count: 0,
     },
   ],
+}
+
+const PACKET_WITH_PENDING_ROI = {
+  ...PACKET,
+  forms: PACKET.forms.map((form) =>
+    form.form_key === 'roi' ? { ...form, status: 'Needs Signature' } : form
+  ),
 }
 
 // Uploaded signed ROI documents (doc_type === 'roi' client documents), plus a
@@ -166,8 +173,11 @@ function routedHandler({ packet = PACKET, documents = [], roiRecords = [] } = {}
 
 function renderTracker() {
   return render(
-    <MemoryRouter>
-      <RoiConsentTracker clientId="client-1" />
+    <MemoryRouter initialEntries={['/clients/client-1']}>
+      <Routes>
+        <Route path="/clients/:clientId" element={<RoiConsentTracker clientId="client-1" />} />
+        <Route path="/admissions/:clientId/*" element={<div>ADMISSIONS_ROUTE</div>} />
+      </Routes>
     </MemoryRouter>
   )
 }
@@ -217,6 +227,15 @@ describe('RoiConsentTracker — packet consent forms', () => {
     renderTracker()
     expect(await screen.findByText('Packet consent forms')).toBeTruthy()
     expect(screen.getByText('From the Admissions packet')).toBeTruthy()
+  })
+
+  it('shows packet ROI pending signature separately from client ROI records', async () => {
+    apiFetch.mockImplementation(
+      routedHandler({ packet: PACKET_WITH_PENDING_ROI, documents: [], roiRecords: [] })
+    )
+    renderTracker()
+    expect(await screen.findByText('Packet consent forms')).toBeTruthy()
+    expect(screen.getByText(/From the Admissions packet.*1 ROI pending signature/)).toBeTruthy()
   })
 })
 
@@ -316,6 +335,108 @@ describe('RoiConsentTracker — structured ROI records', () => {
     expect(relationshipOptions).toEqual(
       expect.arrayContaining(['Family', 'Court', 'Employer', 'Sober living', 'Insurance'])
     )
+  })
+
+  it('creates a structured client ROI record through the roi-records endpoint and keeps the user in ROI / Releases', async () => {
+    let roiRecordsState = []
+    const createdRecord = {
+      roi_id: 'roi-new-1',
+      client_id: 'client-1',
+      authorized_party: 'Superior Court',
+      relationship_type: 'Court',
+      purpose: 'Court/legal',
+      info_to_release: [],
+      release_method: '',
+      effective_date: '',
+      expiration_date: '',
+      revocable: true,
+      revoked: false,
+      status: 'draft',
+    }
+
+    apiFetch.mockImplementation((url, options) => {
+      const str = String(url)
+      if (/\/api\/clients\/[^/]+\/roi-records$/.test(str) && options?.method === 'POST') {
+        roiRecordsState = [createdRecord]
+        return makeResponse({ success: true, roi_record: createdRecord })
+      }
+      if (/\/api\/clients\/[^/]+\/roi-records$/.test(str)) {
+        return makeResponse({ success: true, roi_records: roiRecordsState })
+      }
+      if (/\/api\/clients\/[^/]+\/documents$/.test(str)) {
+        return makeResponse({ success: true, documents: [] })
+      }
+      if (str.includes('/api/admissions/packets/')) {
+        return makeResponse({ packet: PACKET })
+      }
+      return makeResponse({ detail: 'not found' }, { ok: false, status: 404 })
+    })
+
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+
+    fireEvent.click(screen.getByRole('button', { name: /Create New ROI/i }))
+    fireEvent.change(screen.getByLabelText('Authorized party'), { target: { value: 'Superior Court' } })
+    fireEvent.change(screen.getByLabelText('Relationship type'), { target: { value: 'Court' } })
+    fireEvent.change(screen.getByLabelText('Purpose'), { target: { value: 'Court/legal' } })
+    fireEvent.click(screen.getByRole('button', { name: /Create ROI record/i }))
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/clients/client-1/roi-records',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+    })
+
+    expect(await screen.findByText('Superior Court')).toBeTruthy()
+    expect(screen.getByText('Client ROI Records')).toBeTruthy()
+    expect(screen.queryByText('ADMISSIONS_ROUTE')).toBeNull()
+  })
+
+  it('does not auto-seed a new client ROI from packet forms', async () => {
+    let roiRecordsState = []
+    const createdRecord = {
+      roi_id: 'roi-new-2',
+      client_id: 'client-1',
+      authorized_party: 'Employer HR',
+      relationship_type: 'Employer',
+      purpose: 'Other',
+      info_to_release: [],
+      revocable: true,
+      revoked: false,
+      status: 'draft',
+    }
+
+    apiFetch.mockImplementation((url, options) => {
+      const str = String(url)
+      if (/\/api\/clients\/[^/]+\/roi-records$/.test(str) && options?.method === 'POST') {
+        roiRecordsState = [createdRecord]
+        return makeResponse({ success: true, roi_record: createdRecord })
+      }
+      if (/\/api\/clients\/[^/]+\/roi-records$/.test(str)) {
+        return makeResponse({ success: true, roi_records: roiRecordsState })
+      }
+      if (/\/api\/clients\/[^/]+\/documents$/.test(str)) {
+        return makeResponse({ success: true, documents: [] })
+      }
+      if (str.includes('/api/admissions/packets/')) {
+        return makeResponse({ packet: PACKET })
+      }
+      return makeResponse({ detail: 'not found' }, { ok: false, status: 404 })
+    })
+
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+    fireEvent.click(screen.getByRole('button', { name: /Create New ROI/i }))
+    fireEvent.change(screen.getByLabelText('Authorized party'), { target: { value: 'Employer HR' } })
+    fireEvent.click(screen.getByRole('button', { name: /Create ROI record/i }))
+
+    expect(await screen.findByText('Employer HR')).toBeTruthy()
+    expect(screen.getByText('ROI — Consent to Release or Obtain Information')).toBeTruthy()
+    expect(screen.getAllByText('Active').length).toBeGreaterThanOrEqual(1)
   })
 })
 
