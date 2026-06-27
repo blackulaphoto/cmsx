@@ -35,6 +35,7 @@ _ORG_DEFENSE_TABLES = (
     "client_appointments",
     "client_service_referrals",
     "client_documents",
+    "roi_records",
 )
 
 
@@ -269,6 +270,35 @@ class WorkspaceStore:
 
                 CREATE INDEX IF NOT EXISTS idx_client_documents_client
                 ON client_documents (client_id, created_at);
+
+                CREATE TABLE IF NOT EXISTS roi_records (
+                    roi_id TEXT PRIMARY KEY,
+                    client_id TEXT NOT NULL,
+                    authorized_party TEXT NOT NULL,
+                    relationship_type TEXT,
+                    party_address TEXT,
+                    party_contact TEXT,
+                    purpose TEXT,
+                    info_to_release TEXT NOT NULL DEFAULT '[]',
+                    release_method TEXT,
+                    effective_date TEXT,
+                    expiration_date TEXT,
+                    revocable INTEGER NOT NULL DEFAULT 1,
+                    revoked INTEGER NOT NULL DEFAULT 0,
+                    revoked_at TEXT,
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    linked_document_id TEXT,
+                    source TEXT NOT NULL DEFAULT 'created_in_ember',
+                    created_by TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_roi_records_client
+                ON roi_records (client_id, created_at);
+
+                CREATE INDEX IF NOT EXISTS idx_roi_records_client_status
+                ON roi_records (client_id, status);
                 """
             )
             note_columns = {
@@ -1574,6 +1604,217 @@ class WorkspaceStore:
             cursor = conn.execute("DELETE FROM client_documents WHERE doc_id=?", (doc_id,))
             conn.commit()
             return cursor.rowcount > 0
+
+    # ── Client ROI Records (Phase 1) ──────────────────────────────────────────
+    #
+    # Structured, multiple-per-client release-of-information records. This is the
+    # ongoing client-level ROI system and is intentionally separate from:
+    #   * Admissions packet ROI (a single intake-packet artifact), and
+    #   * Uploaded Signed ROIs (scanned/external files stored as client_documents).
+    #
+    # Status is derived defensively on read so the displayed state can never claim
+    # more than the data supports. Revoked records are preserved as history.
+
+    ALLOWED_ROI_STATUSES = ("draft", "needs_signature", "active", "expired", "revoked")
+    ALLOWED_ROI_SOURCES = (
+        "created_in_ember",
+        "uploaded_signed_file",
+        "admissions_packet_seed",
+    )
+
+    @staticmethod
+    def _is_past_date(value: Any) -> bool:
+        """True when value parses to a date strictly before today."""
+        if not value:
+            return False
+        text = str(value).strip()
+        if not text:
+            return False
+        # Accept a plain YYYY-MM-DD as well as a full ISO datetime.
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            return parsed.date() < datetime.now().date()
+        except Exception:
+            pass
+        try:
+            parsed = datetime.strptime(text[:10], "%Y-%m-%d")
+            return parsed.date() < datetime.now().date()
+        except Exception:
+            return False
+
+    @classmethod
+    def _roi_has_min_data(cls, record: Dict[str, Any]) -> bool:
+        has_party = bool(str(record.get("authorized_party") or "").strip())
+        info = record.get("info_to_release")
+        has_scope = bool(info) if isinstance(info, list) else bool(str(info or "").strip())
+        return has_party and has_scope
+
+    @classmethod
+    def _derive_roi_status(cls, record: Dict[str, Any]) -> str:
+        """Defensive, read-time status. Never claims more than the data supports."""
+        if cls._truthy(record.get("revoked")):
+            return "revoked"
+        if cls._is_past_date(record.get("expiration_date")):
+            return "expired"
+        requested = record.get("status") or "draft"
+        if requested not in cls.ALLOWED_ROI_STATUSES:
+            requested = "draft"
+        # 'revoked'/'expired' are derived-only; if stored without the underlying
+        # condition (e.g. an un-revoke), fall back to a safe non-terminal state.
+        if requested in ("revoked", "expired"):
+            requested = "needs_signature" if record.get("linked_document_id") else "draft"
+        if requested == "active":
+            if not cls._roi_has_min_data(record):
+                return "draft"
+            if not record.get("linked_document_id"):
+                return "needs_signature"
+        return requested
+
+    @staticmethod
+    def _truthy(value: Any) -> bool:
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "y", "t")
+        return bool(value)
+
+    def _roi_row_to_dict(self, row: sqlite3.Row) -> Dict[str, Any]:
+        record = self._row_to_dict(row)
+        record["info_to_release"] = self._json_loads(record.get("info_to_release"), [])
+        record["revocable"] = self._truthy(record.get("revocable"))
+        record["revoked"] = self._truthy(record.get("revoked"))
+        # Defensive read-time status overrides the stored value for display.
+        record["stored_status"] = record.get("status")
+        record["status"] = self._derive_roi_status(record)
+        return record
+
+    def list_client_roi_records(self, client_id: str) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM roi_records WHERE client_id=? ORDER BY created_at DESC",
+                (client_id,),
+            ).fetchall()
+        return [self._roi_row_to_dict(r) for r in rows]
+
+    def get_client_roi_record(self, roi_id: str) -> Optional[Dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM roi_records WHERE roi_id=?", (roi_id,)
+            ).fetchone()
+        return self._roi_row_to_dict(row) if row else None
+
+    def create_client_roi_record(
+        self, client_id: str, data: Dict[str, Any], created_by: Optional[str] = None
+    ) -> Dict[str, Any]:
+        now = self._now()
+        source = data.get("source") or "created_in_ember"
+        if source not in self.ALLOWED_ROI_SOURCES:
+            source = "created_in_ember"
+        requested_status = data.get("status") or "draft"
+        if requested_status not in self.ALLOWED_ROI_STATUSES:
+            requested_status = "draft"
+        revocable = 1 if self._truthy(data.get("revocable", True)) else 0
+        info_to_release = self._json_dumps(data.get("info_to_release"), [])
+        with self._connect() as conn:
+            roi_id = uuid4().hex
+            conn.execute(
+                """INSERT INTO roi_records
+                   (roi_id, client_id, authorized_party, relationship_type,
+                    party_address, party_contact, purpose, info_to_release,
+                    release_method, effective_date, expiration_date, revocable,
+                    revoked, revoked_at, status, linked_document_id, source,
+                    created_by, created_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    roi_id, client_id,
+                    str(data.get("authorized_party") or "").strip(),
+                    data.get("relationship_type"),
+                    data.get("party_address"),
+                    data.get("party_contact"),
+                    data.get("purpose"),
+                    info_to_release,
+                    data.get("release_method"),
+                    data.get("effective_date"),
+                    data.get("expiration_date"),
+                    revocable,
+                    0,
+                    None,
+                    requested_status,
+                    data.get("linked_document_id"),
+                    source,
+                    created_by,
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+            row = conn.execute(
+                "SELECT * FROM roi_records WHERE roi_id=?", (roi_id,)
+            ).fetchone()
+        return self._roi_row_to_dict(row)
+
+    def update_client_roi_record(
+        self, roi_id: str, updates: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        if not updates:
+            return self.get_client_roi_record(roi_id)
+        column_map = {
+            "authorized_party": lambda v: str(v or "").strip(),
+            "relationship_type": lambda v: v,
+            "party_address": lambda v: v,
+            "party_contact": lambda v: v,
+            "purpose": lambda v: v,
+            "info_to_release": lambda v: self._json_dumps(v, []),
+            "release_method": lambda v: v,
+            "effective_date": lambda v: v,
+            "expiration_date": lambda v: v,
+            "revocable": lambda v: 1 if self._truthy(v) else 0,
+            "linked_document_id": lambda v: v,
+        }
+        set_parts: List[str] = []
+        values: List[Any] = []
+        for column, transform in column_map.items():
+            if column in updates:
+                set_parts.append(f"{column} = ?")
+                values.append(transform(updates[column]))
+
+        if "status" in updates and updates["status"] is not None:
+            requested_status = updates["status"]
+            if requested_status in self.ALLOWED_ROI_STATUSES:
+                set_parts.append("status = ?")
+                values.append(requested_status)
+
+        # Revocation is sticky and preserves history: set revoked + timestamp,
+        # never delete. Allow explicit un-revoke only if the caller clears it.
+        if "revoked" in updates:
+            revoked = self._truthy(updates["revoked"])
+            set_parts.append("revoked = ?")
+            values.append(1 if revoked else 0)
+            if revoked:
+                set_parts.append("revoked_at = ?")
+                values.append(updates.get("revoked_at") or self._now())
+                set_parts.append("status = ?")
+                values.append("revoked")
+            else:
+                set_parts.append("revoked_at = ?")
+                values.append(None)
+
+        if not set_parts:
+            return self.get_client_roi_record(roi_id)
+
+        set_parts.append("updated_at = ?")
+        values.append(self._now())
+        values.append(roi_id)
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"UPDATE roi_records SET {', '.join(set_parts)} WHERE roi_id = ?",
+                values,
+            )
+            conn.commit()
+            if cursor.rowcount == 0:
+                return None
+            row = conn.execute(
+                "SELECT * FROM roi_records WHERE roi_id=?", (roi_id,)
+            ).fetchone()
+        return self._roi_row_to_dict(row) if row else None
 
 
 workspace_store = WorkspaceStore()
