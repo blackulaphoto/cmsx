@@ -27,6 +27,7 @@ import ClientSelector from '../components/ClientSelector'
 import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
 import VoiceNoteRecorder from '../components/VoiceNoteRecorder'
 import { apiFetch } from '../api/config'
+import { openClientDocument } from '../utils/clientDocuments'
 
 const TEMPLATE_CATEGORIES = ['all', 'clinical', 'planning', 'letters', 'fmla']
 const BRAND_RESOURCE_CATEGORIES = ['general', 'templates', 'style guide', 'policy', 'sample note', 'letterhead', 'workflow']
@@ -852,6 +853,30 @@ function DocumentationCenter() {
     return item.url || ''
   }
 
+  // Open a saved client document. Uploaded files live behind the protected
+  // /view route, which a raw <a href> cannot reach (the browser can't send the
+  // Firebase bearer token). Fetch those through the authenticated helper and
+  // open a blob URL; external URLs open directly.
+  const openClientDoc = async (item) => {
+    if (item.file_path || item.file_name) {
+      if (!selectedClient?.client_id) return
+      try {
+        const opened = await openClientDocument(
+          `/api/clients/${selectedClient.client_id}/documents/${item.doc_id}/view`,
+        )
+        if (!opened) {
+          toast.error('Could not open document. Please try again.')
+        }
+      } catch {
+        toast.error('Could not open document. Please try again.')
+      }
+      return
+    }
+    if (item.url && typeof window !== 'undefined') {
+      window.open(item.url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
   const uploadBrandResource = async () => {
     if (!brandUpload.file) {
       toast.error('Choose a file to upload')
@@ -1371,14 +1396,13 @@ function DocumentationCenter() {
                         </button>
                       )}
                       {itemSource === 'client-doc' && viewUrl ? (
-                        <a
-                          href={viewUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <button
+                          type="button"
+                          onClick={() => openClientDoc(item)}
                           className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"
                         >
                           View
-                        </a>
+                        </button>
                       ) : (
                         <button
                           onClick={() => loadItemIntoEditor(item, mode === 'note' ? 'note' : 'doc')}
