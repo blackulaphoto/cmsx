@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -267,5 +267,134 @@ describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
     expect(await screen.findByText('0 active')).toBeInTheDocument()
     expect(screen.getByText('1 awaiting signature')).toBeInTheDocument()
     expect(screen.getByText('Packet ROI pending signature: 1')).toBeInTheDocument()
+  })
+})
+
+describe('ClientDashboard - authenticated document view/download', () => {
+  const FILE_DOC = {
+    doc_id: 'doc-1',
+    title: 'Driver License',
+    doc_type: 'id',
+    file_name: 'license.png',
+    file_mime: 'image/png',
+    file_path: 'uploads/clients/client-1/abc_license.png',
+    created_at: '2026-06-26',
+  }
+
+  // Successful authenticated blob response for the protected /view route.
+  const successView = () => ({
+    ok: true,
+    blob: async () => new Blob(['x'], { type: 'image/png' }),
+    headers: {
+      get: (key) =>
+        String(key).toLowerCase() === 'content-disposition'
+          ? 'attachment; filename="license.png"'
+          : null,
+    },
+  })
+
+  const routeDocs = (documents, viewResponse) => (url) => {
+    if (url.includes('/unified-view')) {
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+    }
+    if (url.includes('/api/admissions/packets/')) {
+      return Promise.resolve({ ok: true, json: async () => packetWithPendingRoi })
+    }
+    if (url.includes('/documents/') && url.endsWith('/view')) {
+      return Promise.resolve(viewResponse())
+    }
+    if (url.endsWith('/documents')) {
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, documents }) })
+    }
+    return Promise.resolve({ ok: true, json: async () => ({ success: true }) })
+  }
+
+  const openDocumentsTab = async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Documents' }))
+  }
+
+  beforeEach(() => {
+    global.URL.createObjectURL = vi.fn(() => 'blob:mock-url')
+    global.URL.revokeObjectURL = vi.fn()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('View fetches the protected file with auth and previews via a blob URL (not a raw href)', async () => {
+    apiFetch.mockImplementation(routeDocs([FILE_DOC], successView))
+    await openDocumentsTab()
+
+    expect(await screen.findByText('Driver License')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('View'))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-1/view'),
+    )
+    const img = await screen.findByAltText('Driver License')
+    expect(img).toHaveAttribute('src', 'blob:mock-url')
+
+    // The protected route must never be exposed as a raw, token-less link.
+    const rawLinks = document.querySelectorAll('a[href*="/documents/"][href*="/view"]')
+    expect(rawLinks.length).toBe(0)
+  })
+
+  it('Download fetches with auth and downloads using the server-provided filename', async () => {
+    apiFetch.mockImplementation(routeDocs([FILE_DOC], successView))
+    let downloadedName = null
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function clickSpy() {
+      downloadedName = this.download
+    })
+    await openDocumentsTab()
+
+    expect(await screen.findByText('Driver License')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Download'))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-1/view'),
+    )
+    await waitFor(() => expect(downloadedName).toBe('license.png'))
+  })
+
+  it('Open in new tab fetches with auth and opens the blob URL, not the raw API path', async () => {
+    apiFetch.mockImplementation(routeDocs([FILE_DOC], successView))
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+    await openDocumentsTab()
+
+    expect(await screen.findByText('Driver License')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Open in new tab'))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-1/view'),
+    )
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith('blob:mock-url', '_blank', 'noopener,noreferrer'),
+    )
+  })
+
+  it('shows a friendly error instead of the raw auth JSON when the file fetch fails', async () => {
+    const failView = () => ({
+      ok: false,
+      status: 401,
+      json: async () => ({ detail: 'Missing Firebase bearer token' }),
+    })
+    apiFetch.mockImplementation(routeDocs([FILE_DOC], failView))
+    await openDocumentsTab()
+
+    expect(await screen.findByText('Driver License')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('View'))
+
+    expect(await screen.findByText('Could not open document. Please try again.')).toBeInTheDocument()
+    expect(screen.queryByText(/Missing Firebase bearer token/)).toBeNull()
+  })
+
+  it('keeps the documents empty state and upload action intact', async () => {
+    apiFetch.mockImplementation(routeDocs([], successView))
+    await openDocumentsTab()
+
+    expect(await screen.findByText('No Documents Yet')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Upload First Document/i })).toBeInTheDocument()
   })
 })
