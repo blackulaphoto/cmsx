@@ -8,6 +8,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, Query, Upload
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
+import html as html_lib
 import logging
 import shutil
 import sqlite3
@@ -2225,3 +2226,288 @@ async def delete_client_document(client_id: str, doc_id: str, request: Request):
             logger.warning("Could not delete file for doc %s: %s", doc_id, e)
     workspace_store.delete_client_document(doc_id)
     return {"success": True}
+
+
+# ── Client ROI Records (Phase 1) ─────────────────────────────────────────────
+#
+# Structured, multiple-per-client release-of-information records. This is the
+# ongoing client-level ROI system. It is intentionally separate from the single
+# Admissions packet ROI artifact and from the Uploaded Signed ROIs fallback
+# (scanned/external files stored as plain client_documents). Phase 1 covers
+# structured records + a printable generated form. No PDF/DOCX, no e-signature,
+# and no auto-seeding from the Admissions packet.
+
+ROI_COMPLIANCE_NOTICE = (
+    "This tool supports workflow review only. It does not guarantee HIPAA or "
+    "42 CFR Part 2 compliance and does not replace review of the signed "
+    "authorization."
+)
+
+
+class RoiRecordCreate(BaseModel):
+    authorized_party: str
+    relationship_type: Optional[str] = None
+    party_address: Optional[str] = None
+    party_contact: Optional[str] = None
+    purpose: Optional[str] = None
+    info_to_release: List[str] = Field(default_factory=list)
+    release_method: Optional[str] = None
+    effective_date: Optional[str] = None
+    expiration_date: Optional[str] = None
+    revocable: bool = True
+    status: Optional[str] = None
+    source: Optional[str] = None
+
+
+class RoiRecordUpdate(BaseModel):
+    authorized_party: Optional[str] = None
+    relationship_type: Optional[str] = None
+    party_address: Optional[str] = None
+    party_contact: Optional[str] = None
+    purpose: Optional[str] = None
+    info_to_release: Optional[List[str]] = None
+    release_method: Optional[str] = None
+    effective_date: Optional[str] = None
+    expiration_date: Optional[str] = None
+    revocable: Optional[bool] = None
+    status: Optional[str] = None
+    revoked: Optional[bool] = None
+
+
+def _render_roi_form_html(client: Dict[str, Any], roi: Dict[str, Any]) -> str:
+    """Build a clean, printable HTML ROI form from a structured record.
+
+    Output is clearly labeled as a draft/printable form until a signed copy is
+    on file. All interpolated values are HTML-escaped. No PDF/DOCX is produced.
+    """
+    esc = html_lib.escape
+
+    def field(label: str, value: Any) -> str:
+        text = esc(str(value)) if value not in (None, "") else "&mdash;"
+        return (
+            f'<tr><th style="text-align:left;vertical-align:top;padding:6px 12px 6px 0;'
+            f'white-space:nowrap;color:#374151;">{esc(label)}</th>'
+            f'<td style="padding:6px 0;color:#111827;">{text}</td></tr>'
+        )
+
+    info_items = roi.get("info_to_release") or []
+    if isinstance(info_items, list):
+        info_html = ", ".join(esc(str(i)) for i in info_items) if info_items else "&mdash;"
+    else:
+        info_html = esc(str(info_items)) if info_items else "&mdash;"
+
+    full_name = f"{client.get('first_name', '')} {client.get('last_name', '')}".strip()
+    is_signed = bool(roi.get("linked_document_id")) and roi.get("status") == "active"
+    banner = (
+        "SIGNED COPY ON FILE — review the signed authorization before disclosing"
+        if is_signed
+        else "DRAFT — PRINTABLE ROI FORM (not a signed authorization until signed)"
+    )
+    generated_at = datetime.now().strftime("%B %d, %Y %I:%M %p")
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Release of Information — {esc(full_name) or 'Client'}</title>
+<style>
+  body {{ font-family: Arial, Helvetica, sans-serif; color:#111827; max-width: 8.5in;
+          margin: 0 auto; padding: 32px; line-height: 1.45; }}
+  h1 {{ font-size: 20px; margin: 0 0 4px 0; }}
+  .banner {{ border:1px solid #b45309; background:#fffbeb; color:#92400e;
+             padding:10px 14px; border-radius:8px; font-weight:bold; margin: 12px 0 20px 0; }}
+  .section-title {{ font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+                    color:#0e7490; border-bottom: 2px solid #0e7490; padding-bottom: 4px;
+                    margin: 22px 0 8px 0; }}
+  table {{ border-collapse: collapse; width: 100%; font-size: 14px; }}
+  .sig-line {{ margin-top: 36px; }}
+  .sig-line div {{ border-top: 1px solid #111827; width: 60%; padding-top: 4px;
+                   margin-top: 28px; font-size: 12px; color:#374151; }}
+  .compliance {{ margin-top: 28px; font-size: 11px; color:#6b7280; border-top:1px solid #e5e7eb;
+                 padding-top: 10px; }}
+  @media print {{ body {{ padding: 0.5in; }} }}
+</style>
+</head>
+<body>
+  <h1>Authorization for Release / Obtaining of Confidential Information</h1>
+  <div style="font-size:12px;color:#6b7280;">Generated {esc(generated_at)}</div>
+  <div class="banner">{esc(banner)}</div>
+
+  <div class="section-title">Client</div>
+  <table>
+    {field("Client name", full_name)}
+    {field("Date of birth", client.get("date_of_birth"))}
+  </table>
+
+  <div class="section-title">Authorized party</div>
+  <table>
+    {field("Authorized party", roi.get("authorized_party"))}
+    {field("Relationship", roi.get("relationship_type"))}
+    {field("Address", roi.get("party_address"))}
+    {field("Contact", roi.get("party_contact"))}
+  </table>
+
+  <div class="section-title">Scope &amp; purpose</div>
+  <table>
+    {field("Purpose of disclosure", roi.get("purpose"))}
+    <tr><th style="text-align:left;vertical-align:top;padding:6px 12px 6px 0;white-space:nowrap;color:#374151;">Information to release</th>
+        <td style="padding:6px 0;color:#111827;">{info_html}</td></tr>
+    {field("Method of release", roi.get("release_method"))}
+  </table>
+
+  <div class="section-title">Duration &amp; revocation</div>
+  <table>
+    {field("Effective date", roi.get("effective_date"))}
+    {field("Expiration date", roi.get("expiration_date"))}
+    {field("Revocable in writing", "Yes" if roi.get("revocable") else "No")}
+    {field("Current status", roi.get("status"))}
+  </table>
+
+  <div class="sig-line">
+    <div>Client / legal guardian signature &amp; date</div>
+    <div>Witness / staff signature &amp; date</div>
+  </div>
+
+  <div class="compliance">{esc(ROI_COMPLIANCE_NOTICE)}</div>
+</body>
+</html>"""
+
+
+@router.get("/api/clients/{client_id}/roi-records")
+async def list_client_roi_records(client_id: str, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    return {
+        "success": True,
+        "roi_records": workspace_store.list_client_roi_records(client_id),
+        "compliance_notice": ROI_COMPLIANCE_NOTICE,
+    }
+
+
+@router.post("/api/clients/{client_id}/roi-records")
+async def create_client_roi_record(client_id: str, payload: RoiRecordCreate, request: Request):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    if not str(payload.authorized_party or "").strip():
+        raise HTTPException(status_code=400, detail="authorized_party is required")
+    created_by = getattr(user, "case_manager_id", None) or getattr(user, "email", None)
+    record = workspace_store.create_client_roi_record(
+        client_id, payload.dict(), created_by=created_by
+    )
+    return {"success": True, "roi_record": record}
+
+
+@router.patch("/api/clients/{client_id}/roi-records/{roi_id}")
+async def update_client_roi_record(
+    client_id: str, roi_id: str, payload: RoiRecordUpdate, request: Request
+):
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    existing = workspace_store.get_client_roi_record(roi_id)
+    if not existing or existing.get("client_id") != client_id:
+        raise HTTPException(status_code=404, detail="ROI record not found")
+    updates = payload.dict(exclude_unset=True)
+    record = workspace_store.update_client_roi_record(roi_id, updates)
+    if not record:
+        raise HTTPException(status_code=404, detail="ROI record not found")
+    return {"success": True, "roi_record": record}
+
+
+@router.post("/api/clients/{client_id}/roi-records/{roi_id}/generate-document")
+async def generate_roi_document(client_id: str, roi_id: str, request: Request):
+    """Render a clean printable HTML ROI form and save it as a client document."""
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    roi = workspace_store.get_client_roi_record(roi_id)
+    if not roi or roi.get("client_id") != client_id:
+        raise HTTPException(status_code=404, detail="ROI record not found")
+
+    client = _get_normalized_client_or_404(client_id)
+    html_content = _render_roi_form_html(client, roi)
+
+    client_dir = CLIENT_UPLOADS_DIR / client_id
+    client_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"roi_form_{roi_id}_{uuid.uuid4().hex[:8]}.html"
+    dest = client_dir / safe_name
+    try:
+        dest.write_text(html_content, encoding="utf-8")
+    except Exception as exc:
+        logger.error("Failed to write generated ROI form for %s: %s", roi_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to generate ROI form")
+
+    party = str(roi.get("authorized_party") or "ROI").strip()
+    doc = workspace_store.create_client_document(
+        client_id,
+        {
+            "title": f"ROI form (printable draft) — {party}",
+            "doc_type": "roi_generated",
+            "file_name": f"ROI_{party.replace(' ', '_')}.html",
+            "file_mime": "text/html",
+            "file_path": str(dest.relative_to(CLIENT_UPLOADS_DIR.parent.parent)),
+            "file_size": dest.stat().st_size if dest.exists() else None,
+        },
+    )
+    # Link the generated form to the record. Generating a printable draft does
+    # not by itself make the record "active" — that requires a signed copy.
+    record = workspace_store.update_client_roi_record(
+        roi_id, {"linked_document_id": doc["doc_id"]}
+    )
+    return {
+        "success": True,
+        "roi_record": record,
+        "document": doc,
+        "view_url": f"/api/clients/{client_id}/documents/{doc['doc_id']}/view",
+        "compliance_notice": ROI_COMPLIANCE_NOTICE,
+    }
+
+
+@router.post("/api/clients/{client_id}/roi-records/{roi_id}/upload-signed-document")
+async def upload_signed_roi_document(
+    client_id: str,
+    roi_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+):
+    """Attach a signed ROI file to a structured record via client_documents."""
+    user = require_authenticated_user(request)
+    assert_client_access(user, client_id)
+    roi = workspace_store.get_client_roi_record(roi_id)
+    if not roi or roi.get("client_id") != client_id:
+        raise HTTPException(status_code=404, detail="ROI record not found")
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="A signed ROI file is required")
+
+    client_dir = CLIENT_UPLOADS_DIR / client_id
+    client_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"{uuid.uuid4().hex}_{Path(file.filename).name}"
+    dest = client_dir / safe_name
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+
+    party = str(roi.get("authorized_party") or "ROI").strip()
+    data: Dict[str, Any] = {
+        "title": f"Signed ROI — {party}",
+        "doc_type": "roi_signed",
+        "file_name": file.filename,
+        "file_mime": file.content_type or "application/octet-stream",
+        "file_path": str(dest.relative_to(CLIENT_UPLOADS_DIR.parent.parent)),
+    }
+    try:
+        data["file_size"] = dest.stat().st_size
+    except Exception:
+        pass
+    doc = workspace_store.create_client_document(client_id, data)
+
+    # A signed copy on file moves the record toward "active". The store derives
+    # status defensively, so it stays non-active if data is insufficient,
+    # revoked, or expired.
+    record = workspace_store.update_client_roi_record(
+        roi_id, {"linked_document_id": doc["doc_id"], "status": "active"}
+    )
+    return {
+        "success": True,
+        "roi_record": record,
+        "document": doc,
+        "view_url": f"/api/clients/{client_id}/documents/{doc['doc_id']}/view",
+    }

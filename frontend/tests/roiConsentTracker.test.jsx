@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import RoiConsentTracker from '../src/components/RoiConsentTracker'
 
-// Mock the API layer so the component renders against fixed packet data without
+// Mock the API layer so the component renders against fixed data without
 // touching firebase/network.
 const apiFetch = vi.hoisted(() => vi.fn())
 
@@ -99,15 +99,64 @@ const ROI_DOCS = [
   },
 ]
 
+// Structured client ROI records (the real ongoing system).
+const ROI_RECORDS = [
+  {
+    roi_id: 'roi-1',
+    client_id: 'client-1',
+    authorized_party: 'County Probation',
+    relationship_type: 'Probation/parole',
+    purpose: 'Court/legal',
+    info_to_release: ['Attendance', 'Drug test results'],
+    release_method: 'Secure email/portal',
+    effective_date: '2026-06-01',
+    expiration_date: FUTURE.slice(0, 10),
+    revocable: true,
+    revoked: false,
+    status: 'active',
+    linked_document_id: 'doc-signed-1',
+    source: 'created_in_ember',
+  },
+  {
+    roi_id: 'roi-2',
+    client_id: 'client-1',
+    authorized_party: 'Mother (Jane Doe)',
+    relationship_type: 'Family',
+    purpose: 'Family involvement',
+    info_to_release: ['Attendance'],
+    revocable: true,
+    revoked: false,
+    status: 'needs_signature',
+    linked_document_id: null,
+    source: 'created_in_ember',
+  },
+  {
+    roi_id: 'roi-3',
+    client_id: 'client-1',
+    authorized_party: 'Former Employer',
+    relationship_type: 'Employer',
+    info_to_release: [],
+    revocable: true,
+    revoked: true,
+    status: 'revoked',
+    linked_document_id: null,
+    source: 'created_in_ember',
+  },
+]
+
 function makeResponse(body, { ok = true, status = 200 } = {}) {
   return Promise.resolve({ ok, status, json: () => Promise.resolve(body) })
 }
 
-// Route apiFetch by URL: the tracker self-fetches both the admissions packet and
-// the client-documents list. Tests can pass their own packet/documents.
-function routedHandler({ packet = PACKET, documents = [] } = {}) {
+// Route apiFetch by URL: the tracker self-fetches the admissions packet, the
+// client-documents list, and the structured roi-records list.
+function routedHandler({ packet = PACKET, documents = [], roiRecords = [] } = {}) {
   return (url) => {
-    if (/\/api\/clients\/[^/]+\/documents$/.test(String(url))) {
+    const str = String(url)
+    if (/\/api\/clients\/[^/]+\/roi-records$/.test(str)) {
+      return makeResponse({ success: true, roi_records: roiRecords })
+    }
+    if (/\/api\/clients\/[^/]+\/documents$/.test(str)) {
       return makeResponse({ success: true, documents })
     }
     if (packet) return makeResponse({ packet })
@@ -125,12 +174,12 @@ function renderTracker() {
 
 beforeEach(() => {
   apiFetch.mockReset()
-  apiFetch.mockImplementation(() => makeResponse({ packet: PACKET }))
+  apiFetch.mockImplementation(routedHandler({ packet: PACKET, documents: [], roiRecords: [] }))
 })
 
 afterEach(cleanup)
 
-describe('RoiConsentTracker', () => {
+describe('RoiConsentTracker — packet consent forms', () => {
   it('renders consent/ROI items from existing packet data and excludes non-consent forms', async () => {
     renderTracker()
     expect(await screen.findByText('ROI — Consent to Release or Obtain Information')).toBeTruthy()
@@ -164,23 +213,86 @@ describe('RoiConsentTracker', () => {
     expect(hrefs).toContain('/admissions/client-1/forms/treatment_consent')
   })
 
-  it('renders the compliance helper copy', async () => {
+  it('keeps Packet consent forms as their own clearly separate section', async () => {
     renderTracker()
-    await screen.findByText('ROI — Consent to Release or Obtain Information')
+    expect(await screen.findByText('Packet consent forms')).toBeTruthy()
+    expect(screen.getByText('From the Admissions packet')).toBeTruthy()
+  })
+})
+
+describe('RoiConsentTracker — compliance', () => {
+  it('renders the workflow-review compliance disclaimer', async () => {
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+    expect(
+      screen.getByText(
+        /This tool supports workflow review only\. It does not guarantee HIPAA or 42 CFR Part 2/i
+      )
+    ).toBeTruthy()
+  })
+
+  it('still renders the disclosure-review helper copy', async () => {
+    renderTracker()
+    await screen.findByText('Client ROI Records')
     expect(
       screen.getByText(/Review active ROI\/consent status before disclosing client information/i)
     ).toBeTruthy()
     expect(screen.getByText(/not legal advice or a guarantee of HIPAA/i)).toBeTruthy()
   })
+})
 
-  it('renders a clear empty state when the client has no admissions packet', async () => {
-    apiFetch.mockImplementation(() => makeResponse({ detail: 'not found' }, { ok: false, status: 404 }))
+describe('RoiConsentTracker — structured ROI records', () => {
+  it('renders the Create New ROI action', async () => {
     renderTracker()
-    expect(await screen.findByText('No ROI / consent records yet')).toBeTruthy()
+    await screen.findByText('Client ROI Records')
+    expect(screen.getByRole('button', { name: /Create New ROI/i })).toBeTruthy()
   })
 
-  // ── Uploaded signed ROIs (file-based, doc_type === 'roi') ────────────────────
+  it('renders multiple structured ROI records with authorized party prominent', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: null, roiRecords: ROI_RECORDS }))
+    renderTracker()
+    expect(await screen.findByText('County Probation')).toBeTruthy()
+    expect(screen.getByText('Mother (Jane Doe)')).toBeTruthy()
+    expect(screen.getByText('Former Employer')).toBeTruthy()
+    // Information scope renders for the records that carry it.
+    expect(screen.getByText(/Attendance, Drug test results/)).toBeTruthy()
+  })
 
+  it('renders structured status badges (active / needs signature / revoked)', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: null, roiRecords: ROI_RECORDS }))
+    renderTracker()
+    await screen.findByText('County Probation')
+    expect(screen.getByText('Needs signature')).toBeTruthy()
+    expect(screen.getAllByText('Active').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Revoked').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('renders Generate Printable ROI Form and Upload Signed Copy actions per record', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: null, roiRecords: ROI_RECORDS }))
+    renderTracker()
+    await screen.findByText('County Probation')
+    expect(screen.getAllByText(/Generate Printable ROI Form/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/Upload Signed Copy/i).length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('shows a linked-document view link when linked_document_id exists', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: null, roiRecords: ROI_RECORDS }))
+    renderTracker()
+    await screen.findByText('County Probation')
+    const links = screen.getAllByRole('link')
+    const hrefs = links.map((a) => a.getAttribute('href') || '')
+    expect(hrefs).toContain('/api/clients/client-1/documents/doc-signed-1/view')
+  })
+
+  it('shows an empty state when there are no structured ROI records', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: null, roiRecords: [] }))
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+    expect(screen.getByText(/No structured ROI records yet/i)).toBeTruthy()
+  })
+})
+
+describe('RoiConsentTracker — uploaded signed ROIs (fallback)', () => {
   it('renders the Upload Signed ROI action', async () => {
     apiFetch.mockImplementation(routedHandler({ documents: [] }))
     renderTracker()
@@ -211,14 +323,16 @@ describe('RoiConsentTracker', () => {
     expect(hrefs).toContain('/api/clients/client-1/documents/doc-2/view')
   })
 
-  it('keeps packet-derived consent forms in their own section alongside uploaded ROIs', async () => {
-    apiFetch.mockImplementation(routedHandler({ documents: ROI_DOCS }))
+  it('keeps uploaded ROIs separate from structured records and packet forms', async () => {
+    apiFetch.mockImplementation(
+      routedHandler({ documents: ROI_DOCS, roiRecords: ROI_RECORDS })
+    )
     renderTracker()
     await screen.findByText('Uploaded Signed ROIs')
-    // Packet section + its forms still render separately.
+    // All three layers render as distinct sections.
+    expect(screen.getByText('Client ROI Records')).toBeTruthy()
     expect(screen.getByText('Packet consent forms')).toBeTruthy()
     expect(screen.getByText('ROI — Consent to Release or Obtain Information')).toBeTruthy()
-    expect(screen.getByText('Consent for Behavioral Health Treatment')).toBeTruthy()
   })
 
   it('shows an uploaded-ROI empty state when there are no uploaded ROI files', async () => {
@@ -235,6 +349,8 @@ describe('RoiConsentTracker', () => {
     expect(
       screen.getByText(/Uploaded ROI files are stored as client documents/i)
     ).toBeTruthy()
-    expect(screen.getByText(/does not guarantee HIPAA or 42 CFR Part 2 compliance/i)).toBeTruthy()
+    // The uploaded-section disclaimer is its own wording ("This tracker does
+    // not guarantee…"), distinct from the top-level compliance notice.
+    expect(screen.getByText(/This tracker does not guarantee HIPAA or 42 CFR Part 2 compliance/i)).toBeTruthy()
   })
 })
