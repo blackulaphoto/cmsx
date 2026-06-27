@@ -16,7 +16,7 @@ import {
 import { apiFetch } from '../api/config'
 
 /**
- * RoiConsentTracker — Client ROI / Releases area (Documents tab).
+ * RoiConsentTracker — Client ROI / Releases area (dedicated client tab).
  *
  * Three clearly separated layers, most specific first:
  *
@@ -506,11 +506,13 @@ const RoiConsentTracker = ({ clientId }) => {
             aria-label="Relationship type"
             value={roiForm.relationship_type}
             onChange={(e) => setRoiForm((p) => ({ ...p, relationship_type: e.target.value }))}
-            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/60"
+            className="w-full px-3 py-2 bg-slate-700 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/60"
           >
-            <option value="">Select…</option>
+            <option value="" className="bg-slate-800 text-white">
+              Select…
+            </option>
             {RELATIONSHIP_OPTIONS.map((o) => (
-              <option key={o} value={o}>
+              <option key={o} value={o} className="bg-slate-800 text-white">
                 {o}
               </option>
             ))}
@@ -542,11 +544,13 @@ const RoiConsentTracker = ({ clientId }) => {
             aria-label="Purpose"
             value={roiForm.purpose}
             onChange={(e) => setRoiForm((p) => ({ ...p, purpose: e.target.value }))}
-            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/60"
+            className="w-full px-3 py-2 bg-slate-700 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/60"
           >
-            <option value="">Select…</option>
+            <option value="" className="bg-slate-800 text-white">
+              Select…
+            </option>
             {PURPOSE_OPTIONS.map((o) => (
-              <option key={o} value={o}>
+              <option key={o} value={o} className="bg-slate-800 text-white">
                 {o}
               </option>
             ))}
@@ -558,11 +562,13 @@ const RoiConsentTracker = ({ clientId }) => {
             aria-label="Release method"
             value={roiForm.release_method}
             onChange={(e) => setRoiForm((p) => ({ ...p, release_method: e.target.value }))}
-            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/60"
+            className="w-full px-3 py-2 bg-slate-700 border border-white/20 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/60"
           >
-            <option value="">Select…</option>
+            <option value="" className="bg-slate-800 text-white">
+              Select…
+            </option>
             {METHOD_OPTIONS.map((o) => (
-              <option key={o} value={o}>
+              <option key={o} value={o} className="bg-slate-800 text-white">
                 {o}
               </option>
             ))}

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -289,6 +289,33 @@ describe('RoiConsentTracker — structured ROI records', () => {
     renderTracker()
     await screen.findByText('Client ROI Records')
     expect(screen.getByText(/No structured ROI records yet/i)).toBeTruthy()
+  })
+
+  it('opens the create form and lets the user pick relationship and purpose (dropdown fix)', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: null, roiRecords: [] }))
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+
+    // Open the create form.
+    fireEvent.click(screen.getByRole('button', { name: /Create New ROI/i }))
+
+    // Relationship + purpose render as accessible native selects and are
+    // selectable (no hidden/clipped content after the dropdown fix).
+    const relationship = screen.getByLabelText('Relationship type')
+    fireEvent.change(relationship, { target: { value: 'Probation/parole' } })
+    expect(relationship.value).toBe('Probation/parole')
+
+    const purpose = screen.getByLabelText('Purpose')
+    fireEvent.change(purpose, { target: { value: 'Court/legal' } })
+    expect(purpose.value).toBe('Court/legal')
+
+    // Every option is reachable in the relationship menu.
+    const relationshipOptions = Array.from(relationship.querySelectorAll('option')).map(
+      (o) => o.value
+    )
+    expect(relationshipOptions).toEqual(
+      expect.arrayContaining(['Family', 'Court', 'Employer', 'Sober living', 'Insurance'])
+    )
   })
 })
 

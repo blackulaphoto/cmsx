@@ -23,6 +23,7 @@ import {
   TrendingUp,
   Target,
   Shield,
+  ShieldCheck,
   RefreshCw,
   Filter,
   Sparkles,
@@ -170,6 +171,9 @@ const ClientDashboard = () => {
 
   // Documents state
   const [documents, setDocuments] = useState([])
+  // Lightweight ROI record summary for the Documents-tab quick link.
+  // The full ROI manager lives on its own "ROI / Releases" tab.
+  const [roiRecords, setRoiRecords] = useState([])
   const [showDocViewer, setShowDocViewer] = useState(false)
   const [viewingDoc, setViewingDoc] = useState(null)
   const [docUploading, setDocUploading] = useState(false)
@@ -190,6 +194,7 @@ const ClientDashboard = () => {
       fetchSearchRecommendations()
       fetchAppointments()
       fetchDocuments()
+      fetchRoiRecords()
     }
   }, [clientId])
 
@@ -599,6 +604,18 @@ const ClientDashboard = () => {
     }
   }
 
+  const fetchRoiRecords = async () => {
+    try {
+      const res = await apiFetch(`/api/clients/${clientId}/roi-records`)
+      if (res.ok) {
+        const data = await res.json()
+        setRoiRecords(data?.roi_records || [])
+      }
+    } catch (e) {
+      // ROI summary is optional; the dedicated ROI / Releases tab is authoritative.
+    }
+  }
+
   const openDocViewer = (doc) => {
     setViewingDoc(doc)
     setShowDocViewer(true)
@@ -729,6 +746,7 @@ const ClientDashboard = () => {
     { id: 'timeline', label: 'Timeline', icon: MessageSquare, gradient: 'from-teal-500 to-cyan-500' },
     { id: 'appointments', label: 'Appointments', icon: Calendar, gradient: 'from-blue-500 to-cyan-500' },
     { id: 'docs', label: 'Documents', icon: FolderOpen, gradient: 'from-violet-500 to-purple-500' },
+    { id: 'roi', label: 'ROI / Releases', icon: ShieldCheck, gradient: 'from-emerald-500 to-teal-500' },
     { id: 'housing', label: 'Housing', icon: Home, gradient: 'from-orange-500 to-red-500' },
     { id: 'employment', label: 'Employment', icon: Briefcase, gradient: 'from-green-500 to-emerald-500' },
     { id: 'benefits', label: 'Benefits', icon: DollarSign, gradient: 'from-purple-500 to-violet-500' },
@@ -2066,10 +2084,47 @@ const ClientDashboard = () => {
             </div>
           )}
 
-          {/* DOCUMENTS TAB */}
+          {/* DOCUMENTS TAB — general client document vault. The full ROI manager
+              lives on its own "ROI / Releases" tab; only a compact link sits here. */}
           {activeTab === 'docs' && (
             <div className="space-y-8">
-              <RoiConsentTracker clientId={clientId} />
+              {/* Compact ROI / Releases summary + link (full manager is its own tab) */}
+              <div className="bg-gradient-to-br from-emerald-500/10 to-teal-500/10 backdrop-blur-xl p-5 rounded-2xl border border-emerald-500/25 shadow-xl shadow-emerald-500/10">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="p-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg shrink-0">
+                      <ShieldCheck className="h-6 w-6 text-white" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-bold text-white">ROI / Releases</h3>
+                      <p className="text-xs text-gray-400">
+                        Releases of information are managed on their own page, separate from the
+                        general document vault.
+                      </p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs">
+                        <span className="text-emerald-300">
+                          {roiRecords.filter((r) => r.status === 'active').length} active
+                        </span>
+                        <span className="text-amber-300">
+                          {roiRecords.filter((r) => r.status === 'needs_signature').length} need signature
+                        </span>
+                        <span className="text-red-300">
+                          {roiRecords.filter((r) => r.status === 'revoked').length} revoked
+                        </span>
+                        <span className="text-gray-400">{roiRecords.length} total</span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setActiveTab('roi')}
+                    className="shrink-0 inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl font-medium transition-all duration-300 hover:scale-105 text-sm"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                    Open ROI / Releases
+                  </button>
+                </div>
+              </div>
+
               <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-3">
@@ -2217,6 +2272,13 @@ const ClientDashboard = () => {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* ROI / RELEASES TAB — dedicated home for ongoing client ROI records */}
+          {activeTab === 'roi' && (
+            <div className="space-y-8">
+              <RoiConsentTracker clientId={clientId} />
             </div>
           )}
         </div>

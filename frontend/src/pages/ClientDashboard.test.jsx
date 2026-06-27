@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
@@ -137,5 +137,60 @@ describe('ClientDashboard treatment plan snapshot', () => {
 
     expect(await screen.findByText('Treatment Plan Snapshot')).toBeInTheDocument()
     expect(screen.getByText('No treatment plan yet. Generate or create one in Treatment Plan.')).toBeInTheDocument()
+  })
+})
+
+describe('ClientDashboard — ROI / Releases tab & Documents restoration', () => {
+  beforeEach(() => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+      }
+      // Everything else (treatment-plan, documents, roi-records, packet, etc.)
+      // resolves to a harmless empty success payload.
+      return Promise.resolve({ ok: true, json: async () => ({ success: true }) })
+    })
+  })
+
+  it('keeps the full ROI manager out of the Documents tab, showing only a compact link', async () => {
+    renderPage()
+    const docsTab = await screen.findByRole('button', { name: 'Documents' })
+    fireEvent.click(docsTab)
+
+    // The general document vault is the primary content of the Documents tab.
+    expect(screen.getByText('Client Documents')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Upload Document/i })).toBeInTheDocument()
+
+    // Only a compact ROI summary + link lives here — not the full manager.
+    expect(screen.getByRole('button', { name: /Open ROI \/ Releases/i })).toBeInTheDocument()
+    expect(screen.queryByText('Client ROI Records')).toBeNull()
+    expect(screen.queryByText('Packet consent forms')).toBeNull()
+    expect(screen.queryByText('Uploaded Signed ROIs')).toBeNull()
+  })
+
+  it('renders the full ROI manager on the dedicated ROI / Releases tab', async () => {
+    renderPage()
+    const roiTab = await screen.findByRole('button', { name: /ROI \/ Releases/i })
+    fireEvent.click(roiTab)
+
+    // The full three-layer manager renders only here.
+    expect(await screen.findByText('Client ROI Records')).toBeInTheDocument()
+    expect(screen.getByText('Packet consent forms')).toBeInTheDocument()
+    expect(screen.getByText('Uploaded Signed ROIs')).toBeInTheDocument()
+
+    // The general document vault is NOT part of the ROI tab.
+    expect(screen.queryByText('Client Documents')).toBeNull()
+  })
+
+  it('jumps from the Documents compact link to the ROI / Releases tab', async () => {
+    renderPage()
+    const docsTab = await screen.findByRole('button', { name: 'Documents' })
+    fireEvent.click(docsTab)
+
+    fireEvent.click(screen.getByRole('button', { name: /Open ROI \/ Releases/i }))
+
+    // Now on the dedicated ROI tab → full manager visible, vault gone.
+    expect(await screen.findByText('Client ROI Records')).toBeInTheDocument()
+    expect(screen.queryByText('Client Documents')).toBeNull()
   })
 })
