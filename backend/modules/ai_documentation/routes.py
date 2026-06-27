@@ -90,105 +90,31 @@ def _slugify(value: str) -> str:
 
 
 def _guess_template_metadata(file_name: str, body: str) -> Dict[str, str]:
-    normalized_name = file_name.lower()
-    normalized_body = body.lower()
-
-    if "fmla" in normalized_name or "fmla" in normalized_body:
-        return {
-            "mode": "document",
-            "category": "fmla",
-            "noteType": "FMLA",
-            "noteKind": "fmla_correspondence",
-            "bestFor": "Employer, provider, HR, and paperwork communication tied to leave management.",
-        }
-
-    if "group" in normalized_name or "group note" in normalized_body:
-        return {
-            "mode": "note",
-            "category": "clinical",
-            "noteType": "Group",
-            "noteKind": "group_note",
-            "bestFor": "Attendance, participation, interventions, and client response in groups.",
-        }
-
-    if "treatment plan" in normalized_name or "treatment plan" in normalized_body:
-        return {
-            "mode": "document",
-            "category": "planning",
-            "noteType": "Treatment Plan",
-            "noteKind": "treatment_plan",
-            "bestFor": "Goal reviews, objective updates, and intervention planning.",
-        }
-
-    if "discharge" in normalized_name or "discharge summary" in normalized_body:
-        return {
-            "mode": "document",
-            "category": "planning",
-            "noteType": "Discharge",
-            "noteKind": "discharge_summary",
-            "bestFor": "Transition planning, aftercare coordination, and discharge readiness.",
-        }
-
-    if "progress report" in normalized_name or "progress report" in normalized_body:
-        return {
-            "mode": "document",
-            "category": "letters",
-            "noteType": "Court",
-            "noteKind": "referral_summary",
-            "bestFor": "Formal treatment progress updates for court, probation, employer, or benefits requests.",
-        }
-
-    if "proof of residence" in normalized_name or "proof of residency" in normalized_body:
-        return {
-            "mode": "document",
-            "category": "letters",
-            "noteType": "Housing",
-            "noteKind": "referral_summary",
-            "bestFor": "Residency verification for sober living, benefits, DMV, court, or probation needs.",
-        }
-
-    if "presence" in normalized_name or "presence in treatment" in normalized_body:
-        return {
-            "mode": "document",
-            "category": "letters",
-            "noteType": "Court",
-            "noteKind": "referral_summary",
-            "bestFor": "Treatment presence verification for court, probation, or administrative requests.",
-        }
-
-    if "completion" in normalized_name or "successfully completed treatment" in normalized_body:
-        return {
-            "mode": "document",
-            "category": "letters",
-            "noteType": "Discharge",
-            "noteKind": "discharge_summary",
-            "bestFor": "Completion verification for court, probation, employer, housing, or aftercare coordination.",
-        }
-
-    if "initial cm note" in normalized_name or "cm-init-01" in normalized_body:
-        return {
-            "mode": "note",
-            "category": "clinical",
-            "noteType": "Progress",
-            "noteKind": "initial_note",
-            "bestFor": "Week 1 intake, treatment orientation, and early case management documentation.",
-        }
-
-    if "weekly cm note" in normalized_name or "ongoing weekly cm note" in normalized_body:
-        return {
-            "mode": "note",
-            "category": "clinical",
-            "noteType": "Progress",
-            "noteKind": "progress_note",
-            "bestFor": "Ongoing weekly case management notes and progress tracking.",
-        }
-
+    contract = documentation_ai_service.resolve_template_contract(
+        "progress_note",
+        {
+            "template_id": f"file-{_slugify(Path(file_name).stem)}",
+            "template_label": Path(file_name).stem,
+        },
+    )
+    best_for_by_family = {
+        "letter": "Formal letter output using only verified facts from the selected template and brief.",
+        "progress_report": "Formal progress update for court, probation, employer, benefits, or provider requests.",
+        "clinical_note": "Evidence-bound case-management note using only the documented brief facts.",
+        "group_note": "Attendance, participation, interventions, and client response in groups.",
+        "treatment_plan_review": "Goal reviews, objective updates, and intervention planning.",
+        "discharge": "Transition planning, aftercare coordination, and discharge readiness.",
+        "referral": "Warm handoffs, provider referrals, and service coordination.",
+        "court_letter": "Formal legal or probation communication using only documented facts.",
+        "fmla": "Employer, provider, and HR communication tied to leave management.",
+        "loc_transition": "Level-of-care changes, handoffs, and transition planning.",
+    }
     return {
-        "mode": "document",
-        "category": "planning",
-        "noteType": "General",
-        "noteKind": "progress_note",
-        "bestFor": "General documentation template.",
+        "mode": contract.get("mode", "document"),
+        "category": contract.get("category", "planning"),
+        "noteType": contract.get("note_type", "General"),
+        "noteKind": contract.get("note_kind", "progress_note"),
+        "bestFor": best_for_by_family.get(contract.get("output_family"), "General documentation template."),
     }
 
 

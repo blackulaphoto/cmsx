@@ -28,6 +28,65 @@ vi.mock('../components/VoiceNoteRecorder', () => ({ default: () => <div>VOICE_RE
 import { apiFetch } from '../api/config'
 import DocumentationCenter from './DocumentationCenter'
 
+const fileTemplates = [
+  {
+    id: 'file-completion-letter-template',
+    label: 'Completion Letter Template',
+    mode: 'document',
+    category: 'letters',
+    noteType: 'Discharge',
+    noteKind: 'completion_letter',
+    bestFor: 'Completion verification',
+    body: 'Completion body',
+  },
+  {
+    id: 'file-letter-of-presence-template',
+    label: 'Letter of Presence Template',
+    mode: 'document',
+    category: 'letters',
+    noteType: 'Court',
+    noteKind: 'presence_letter',
+    bestFor: 'Presence verification',
+    body: 'Presence body',
+  },
+  {
+    id: 'file-progress-report-template',
+    label: 'Progress Report Template',
+    mode: 'document',
+    category: 'letters',
+    noteType: 'Court',
+    noteKind: 'progress_report',
+    bestFor: 'Progress reporting',
+    body: 'Progress report body',
+  },
+  {
+    id: 'file-proof-of-residence-template',
+    label: 'Proof of Residence Template',
+    mode: 'document',
+    category: 'letters',
+    noteType: 'Housing',
+    noteKind: 'proof_of_residence',
+    bestFor: 'Residence verification',
+    body: 'Residence body',
+  },
+]
+
+const templateMetadataExpectations = [
+  ['Completion Letter Template', { note_kind: 'completion_letter', mode: 'document', category: 'letters' }],
+  ['Letter of Presence Template', { note_kind: 'presence_letter', mode: 'document', category: 'letters' }],
+  ['Progress Report Template', { note_kind: 'progress_report', mode: 'document', category: 'letters' }],
+  ['Proof of Residence Template', { note_kind: 'proof_of_residence', mode: 'document', category: 'letters' }],
+  ['Initial CM Note', { note_kind: 'initial_note', mode: 'note', category: 'clinical' }],
+  ['Weekly CM Note', { note_kind: 'progress_note', mode: 'note', category: 'clinical' }],
+  ['Treatment Plan Review', { note_kind: 'treatment_plan', mode: 'document', category: 'planning' }],
+  ['Group Note', { note_kind: 'group_note', mode: 'note', category: 'clinical' }],
+  ['Discharge Summary', { note_kind: 'discharge_summary', mode: 'document', category: 'planning' }],
+  ['Referral Summary', { note_kind: 'referral_summary', mode: 'document', category: 'planning' }],
+  ['Court / Probation Letter', { note_kind: 'court_letter', mode: 'document', category: 'letters' }],
+  ['FMLA Correspondence', { note_kind: 'fmla_correspondence', mode: 'document', category: 'fmla' }],
+  ['LOC Transition Note', { note_kind: 'loc_transition', mode: 'note', category: 'planning' }],
+]
+
 const renderPage = () =>
   render(
     <MemoryRouter>
@@ -40,6 +99,55 @@ beforeEach(() => {
 })
 
 describe('DocumentationCenter client-linked saves', () => {
+  it.each(templateMetadataExpectations)(
+    'sends the correct metadata for %s',
+    async (templateLabel, expected) => {
+      apiFetch.mockImplementation((url) => {
+        if (url === '/api/dashboard/docs') {
+          return Promise.resolve({ ok: true, json: async () => ({ docs: [] }) })
+        }
+        if (url === '/api/ai-documentation/templates') {
+          return Promise.resolve({ ok: true, json: async () => ({ templates: fileTemplates }) })
+        }
+        if (url === '/api/ai-documentation/brand-resources') {
+          return Promise.resolve({ ok: true, json: async () => ({ resources: [] }) })
+        }
+        if (url === '/api/case-management/notes/list/client-1') {
+          return Promise.resolve({ ok: true, json: async () => ({ notes: [] }) })
+        }
+        if (url === '/api/clients/client-1/documents') {
+          return Promise.resolve({ ok: true, json: async () => ({ documents: [] }) })
+        }
+        if (url === '/api/ai-documentation/note-draft') {
+          return Promise.resolve({ ok: true, json: async () => ({ draft: `${templateLabel} draft`, source: 'openai', provider_status: { model: 'gpt-4o' } }) })
+        }
+        return Promise.resolve({ ok: true, json: async () => ({}) })
+      })
+
+      renderPage()
+
+      fireEvent.click(screen.getByText('SELECT_CLIENT'))
+      fireEvent.click(await screen.findByRole('button', { name: new RegExp(templateLabel, 'i') }))
+      fireEvent.change(screen.getByPlaceholderText(/Select a template, then type your rough notes here|Example:/i), {
+        target: { value: 'Client needs a professionally rewritten brief with verified facts only.' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: /Generate Draft/i }))
+
+      await waitFor(() => {
+        expect(apiFetch).toHaveBeenCalledWith('/api/ai-documentation/note-draft', expect.anything())
+      })
+
+      const [, options] = apiFetch.mock.calls.find(([url]) => url === '/api/ai-documentation/note-draft')
+      const payload = JSON.parse(options.body)
+      expect(payload.note_kind).toBe(expected.note_kind)
+      expect(payload.context.template_label).toBe(templateLabel)
+      expect(payload.context.template_category).toBe(expected.category)
+      expect(payload.context.requested_output_mode).toBe(expected.mode)
+      expect(payload.context.linked_client_id).toBe('client-1')
+      expect(payload.context.case_manager_brief).toContain('verified facts only')
+    },
+  )
+
   it('sends weekly note template metadata, requested mode, brief text, and linked client context when generating', async () => {
     apiFetch.mockImplementation((url) => {
       if (url === '/api/dashboard/docs') {
@@ -278,5 +386,47 @@ describe('DocumentationCenter client-linked saves', () => {
       url === '/api/dashboard/docs' && options?.method === 'POST'
     )
     expect(dashboardPostCall).toBeUndefined()
+  })
+
+  it('shows an honest fallback warning when the provider is unavailable', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url === '/api/dashboard/docs') {
+        return Promise.resolve({ ok: true, json: async () => ({ docs: [] }) })
+      }
+      if (url === '/api/ai-documentation/templates') {
+        return Promise.resolve({ ok: true, json: async () => ({ templates: fileTemplates }) })
+      }
+      if (url === '/api/ai-documentation/brand-resources') {
+        return Promise.resolve({ ok: true, json: async () => ({ resources: [] }) })
+      }
+      if (url === '/api/case-management/notes/list/client-1') {
+        return Promise.resolve({ ok: true, json: async () => ({ notes: [] }) })
+      }
+      if (url === '/api/clients/client-1/documents') {
+        return Promise.resolve({ ok: true, json: async () => ({ documents: [] }) })
+      }
+      if (url === '/api/ai-documentation/note-draft') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            draft: 'Fallback draft',
+            source: 'template_fallback',
+            provider_status: { reason: 'missing_openai_api_key' },
+          }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+
+    renderPage()
+
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly CM Note/i }))
+    fireEvent.change(screen.getByPlaceholderText(/Select a template, then type your rough notes here|Example:/i), {
+      target: { value: 'Brief facts only.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Generate Draft/i }))
+
+    expect(await screen.findByText('AI provider unavailable; using structured fallback.')).toBeInTheDocument()
   })
 })

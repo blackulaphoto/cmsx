@@ -128,18 +128,16 @@ TEMPLATE_QUALITY_ANCHORS = {
         r"residing at this address|residence address",
     ],
     "Initial CM Note": [
-        r"^goal:",
-        r"^intervention:",
-        r"^response:",
-        r"^medical:",
-        r"^plan:",
+        r"initial cm note",
+        r"^summary:",
+        r"^client statement:",
+        r"^next step:",
     ],
     "Weekly CM Note": [
-        r"^goal:",
-        r"^intervention:",
-        r"^response:",
-        r"discharge from treatment",
-        r"^plan:",
+        r"weekly cm note",
+        r"^summary:",
+        r"^client statement:",
+        r"^next step:",
     ],
     "Treatment Plan Review": [
         r"treatment plan review",
@@ -186,14 +184,23 @@ TEMPLATE_QUALITY_ANCHORS = {
 }
 
 NOTE_KIND_QUALITY_ANCHORS = {
-    "progress_note": TEMPLATE_QUALITY_ANCHORS["Weekly CM Note"],
-    "initial_note": TEMPLATE_QUALITY_ANCHORS["Initial CM Note"],
+    "progress_note": [r"summary:", r"next step:"],
+    "initial_note": [r"summary:", r"next step:"],
     "group_note": TEMPLATE_QUALITY_ANCHORS["Group Note"],
     "treatment_plan": TEMPLATE_QUALITY_ANCHORS["Treatment Plan Review"],
     "referral_summary": TEMPLATE_QUALITY_ANCHORS["Referral Summary"],
     "discharge_summary": TEMPLATE_QUALITY_ANCHORS["Discharge Summary"],
     "fmla_correspondence": TEMPLATE_QUALITY_ANCHORS["FMLA Correspondence"],
 }
+
+PLACEHOLDER_STAFF_SIGNATURE_TERMS = (
+    "Case Manager Name",
+    "CADC, LCSW",
+    "License #12345",
+    "License number on file",
+    "cm@facility.org",
+    "(555) 123-4567",
+)
 
 DATA_PLACEHOLDER_WARNINGS = {
     "CLIENT DOB": "Client date of birth is missing.",
@@ -212,6 +219,210 @@ QUOTE_PLACEHOLDER_TERMS = (
 )
 
 
+def _normalize_template_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", (value or "").strip().lower()).strip("_")
+
+
+TEMPLATE_CONTRACTS = {
+    "completion_letter_template": {
+        "template_id": "file-completion-letter-template",
+        "template_label": "Completion Letter Template",
+        "note_kind": "completion_letter",
+        "mode": "document",
+        "category": "letters",
+        "note_type": "Discharge",
+        "output_family": "letter",
+        "formal_letter": True,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["date", "re", "to whom it may concern", "summary", "closing"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:", r"\bintervention:"],
+        "aliases": ["completion-letter-template", "completion letter template"],
+    },
+    "letter_of_presence_template": {
+        "template_id": "file-letter-of-presence-template",
+        "template_label": "Letter of Presence Template",
+        "note_kind": "presence_letter",
+        "mode": "document",
+        "category": "letters",
+        "note_type": "Court",
+        "output_family": "letter",
+        "formal_letter": True,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["re", "to whom it may concern", "verification", "closing"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:", r"\bintervention:"],
+        "aliases": ["letter-of-presence-template", "letter of presence template"],
+    },
+    "progress_report_template": {
+        "template_id": "file-progress-report-template",
+        "template_label": "Progress Report Template",
+        "note_kind": "progress_report",
+        "mode": "document",
+        "category": "letters",
+        "note_type": "Court",
+        "output_family": "progress_report",
+        "formal_letter": True,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["date", "re", "program", "summary", "recommendation", "closing"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:", r"\bintervention:"],
+        "aliases": ["progress-report-template", "progress report template"],
+    },
+    "proof_of_residence_template": {
+        "template_id": "file-proof-of-residence-template",
+        "template_label": "Proof of Residence Template",
+        "note_kind": "proof_of_residence",
+        "mode": "document",
+        "category": "letters",
+        "note_type": "Housing",
+        "output_family": "letter",
+        "formal_letter": True,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["date", "re", "to whom it may concern", "residence verification", "closing"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:", r"\bintervention:"],
+        "aliases": ["proof-of-residence-template", "proof of residence template"],
+    },
+    "initial_cm_note": {
+        "template_id": "initial-cm-note",
+        "template_label": "Initial CM Note",
+        "note_kind": "initial_note",
+        "mode": "note",
+        "category": "clinical",
+        "note_type": "Progress",
+        "output_family": "clinical_note",
+        "formal_letter": False,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["summary", "client statement", "next step"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:", r"\bfrequency/duration:", r"\bstatus:\s*open"],
+        "aliases": ["initial cm note"],
+    },
+    "weekly_cm_note": {
+        "template_id": "progress-note",
+        "template_label": "Weekly CM Note",
+        "note_kind": "progress_note",
+        "mode": "note",
+        "category": "clinical",
+        "note_type": "Progress",
+        "output_family": "clinical_note",
+        "formal_letter": False,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["summary", "client statement", "next step"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:", r"\bfrequency/duration:", r"\bstatus:\s*open"],
+        "aliases": ["weekly cm note"],
+    },
+    "treatment_plan_review": {
+        "template_id": "treatment-plan-review",
+        "template_label": "Treatment Plan Review",
+        "note_kind": "treatment_plan",
+        "mode": "document",
+        "category": "planning",
+        "note_type": "Treatment Plan",
+        "output_family": "treatment_plan_review",
+        "formal_letter": False,
+        "allow_treatment_plan_structure": True,
+        "allowed_sections": ["problem", "goal", "objective", "plan", "review"],
+        "forbidden_patterns": [],
+        "aliases": ["treatment plan review"],
+    },
+    "group_note": {
+        "template_id": "group-note",
+        "template_label": "Group Note",
+        "note_kind": "group_note",
+        "mode": "note",
+        "category": "clinical",
+        "note_type": "Group",
+        "output_family": "group_note",
+        "formal_letter": False,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["group topic", "intervention", "client response", "next step"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:"],
+        "aliases": ["group note"],
+    },
+    "discharge_summary": {
+        "template_id": "discharge-summary",
+        "template_label": "Discharge Summary",
+        "note_kind": "discharge_summary",
+        "mode": "document",
+        "category": "planning",
+        "note_type": "Discharge",
+        "output_family": "discharge",
+        "formal_letter": False,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["discharge status", "services completed", "outstanding risks", "aftercare plan"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:", r"\b12-step\b", r"\bsponsor\b"],
+        "aliases": ["discharge summary"],
+    },
+    "referral_summary": {
+        "template_id": "referral-summary",
+        "template_label": "Referral Summary",
+        "note_kind": "referral_summary",
+        "mode": "document",
+        "category": "planning",
+        "note_type": "Referral",
+        "output_family": "referral",
+        "formal_letter": False,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["referral need", "action taken", "client response", "next step"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:"],
+        "aliases": ["referral summary"],
+    },
+    "court_probation_letter": {
+        "template_id": "court-letter",
+        "template_label": "Court / Probation Letter",
+        "note_kind": "court_letter",
+        "mode": "document",
+        "category": "letters",
+        "note_type": "Court",
+        "output_family": "court_letter",
+        "formal_letter": True,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["date", "to whom it may concern", "current status", "clinically relevant context", "closing"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:", r"\bintervention:"],
+        "aliases": ["court / probation letter", "court probation letter"],
+    },
+    "fmla_correspondence": {
+        "template_id": "fmla-correspondence",
+        "template_label": "FMLA Correspondence",
+        "note_kind": "fmla_correspondence",
+        "mode": "document",
+        "category": "fmla",
+        "note_type": "FMLA",
+        "output_family": "fmla",
+        "formal_letter": False,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["contact method", "contacted party", "summary", "outcome", "follow-up"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:"],
+        "aliases": ["fmla correspondence"],
+    },
+    "loc_transition_note": {
+        "template_id": "loc-transition",
+        "template_label": "LOC Transition Note",
+        "note_kind": "loc_transition",
+        "mode": "note",
+        "category": "planning",
+        "note_type": "Progress",
+        "output_family": "loc_transition",
+        "formal_letter": False,
+        "allow_treatment_plan_structure": False,
+        "allowed_sections": ["current loc", "new loc / transition plan", "rationale", "coordination completed", "next step"],
+        "forbidden_patterns": [r"\bproblem 1:", r"\bobjective:"],
+        "aliases": ["loc transition note"],
+    },
+}
+
+TEMPLATE_ALIAS_LOOKUP = {}
+for contract_key, contract in TEMPLATE_CONTRACTS.items():
+    aliases = {
+        contract_key,
+        contract.get("template_id", ""),
+        contract.get("template_label", ""),
+        contract.get("note_kind", ""),
+        *(contract.get("aliases", []) or []),
+    }
+    for alias in aliases:
+        normalized_alias = _normalize_template_key(alias)
+        if normalized_alias:
+            TEMPLATE_ALIAS_LOOKUP[normalized_alias] = contract_key
+
+
 class DocumentationAIService:
     def __init__(self) -> None:
         self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
@@ -224,6 +435,53 @@ class DocumentationAIService:
     def _normalize_text(text: str, limit: int = 12000) -> str:
         normalized = re.sub(r"\s+", " ", (text or "")).strip()
         return normalized[:limit]
+
+    def _refresh_provider_client(self) -> Dict[str, Any]:
+        current_api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        current_model = os.getenv("OPENAI_DOCUMENTATION_MODEL", os.getenv("OPENAI_MODEL", "gpt-4o"))
+        provider_available = bool(current_api_key)
+        if current_api_key != self.api_key or current_model != self.model:
+            self.api_key = current_api_key
+            self.model = current_model
+            self.client = AsyncOpenAI(api_key=self.api_key) if self.api_key else None
+        return {
+            "configured": provider_available,
+            "provider": "openai",
+            "model": self.model,
+            "reason": None if provider_available else "missing_openai_api_key",
+        }
+
+    @staticmethod
+    def resolve_template_contract(note_kind: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        context = context or {}
+        candidates = [
+            context.get("template_id"),
+            context.get("template_label"),
+            context.get("template_note_kind"),
+            note_kind,
+        ]
+        for candidate in candidates:
+            contract_key = TEMPLATE_ALIAS_LOOKUP.get(_normalize_template_key(str(candidate or "")))
+            if contract_key:
+                return TEMPLATE_CONTRACTS[contract_key]
+
+        fallback_note_kind_map = {
+            "initial_note": "initial_cm_note",
+            "progress_note": "weekly_cm_note",
+            "group_note": "group_note",
+            "treatment_plan": "treatment_plan_review",
+            "discharge_summary": "discharge_summary",
+            "referral_summary": "referral_summary",
+            "fmla_correspondence": "fmla_correspondence",
+            "loc_transition": "loc_transition_note",
+            "court_letter": "court_probation_letter",
+            "progress_report": "progress_report_template",
+            "completion_letter": "completion_letter_template",
+            "presence_letter": "letter_of_presence_template",
+            "proof_of_residence": "proof_of_residence_template",
+        }
+        contract_key = fallback_note_kind_map.get(note_kind, "weekly_cm_note")
+        return TEMPLATE_CONTRACTS[contract_key]
 
     @staticmethod
     def _placeholder_value(value: Any, default: str) -> str:
@@ -675,16 +933,227 @@ class DocumentationAIService:
                 return self.template_library_text[idx: idx + 3500]
         return self.template_library_text[:2500]
 
+    @classmethod
+    def _is_treatment_plan_template(cls, note_kind: str, context: Dict[str, Any]) -> bool:
+        contract = cls.resolve_template_contract(note_kind, context)
+        return bool(contract.get("allow_treatment_plan_structure"))
+
+    @classmethod
+    def _is_evidence_bound_template(cls, note_kind: str, context: Dict[str, Any]) -> bool:
+        return not cls._is_treatment_plan_template(note_kind, context)
+
+    @staticmethod
+    def _extract_brief_sentences(text: str) -> List[str]:
+        normalized = re.sub(r"\s+", " ", (text or "")).strip()
+        if not normalized:
+            return []
+        return [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", normalized) if segment.strip()]
+
+    @staticmethod
+    def _extract_direct_quote(text: str) -> str:
+        match = re.search(r'"([^"]+)"', text or "")
+        return match.group(1).strip() if match else ""
+
+    @classmethod
+    def _strip_placeholder_staff_signature(cls, text: str) -> str:
+        lines = []
+        for raw_line in (text or "").splitlines():
+            line = raw_line.strip()
+            if line and any(term.lower() in line.lower() for term in PLACEHOLDER_STAFF_SIGNATURE_TERMS):
+                continue
+            lines.append(raw_line)
+        return "\n".join(lines).strip()
+
+    @classmethod
+    def _build_evidence_bound_template_fallback(
+        cls,
+        payload: Dict[str, Any],
+        current_text: str,
+    ) -> str:
+        context = payload.get("context") or {}
+        note_kind = payload.get("note_kind", "progress_note")
+        contract = cls.resolve_template_contract(note_kind, context)
+        template_label = contract.get("template_label") or context.get("template_label") or note_kind.replace("_", " ").title()
+        brief_text = (context.get("case_manager_brief") or payload.get("user_prompt") or "").strip()
+        sentences = cls._extract_brief_sentences(brief_text)
+        quote = cls._extract_direct_quote(brief_text)
+        next_steps = [
+            sentence
+            for sentence in sentences
+            if re.search(r"\b(cm will|case manager will|follow up|follow-up|next step|will contact|will call|will request)\b", sentence, flags=re.IGNORECASE)
+        ]
+        summary_sentences = [sentence for sentence in sentences if sentence not in next_steps]
+        no_info = "No additional information was provided."
+        no_quote = "No direct client quote was documented."
+        summary_text = " ".join(summary_sentences) if summary_sentences else (brief_text or no_info)
+        next_step_text = " ".join(next_steps) if next_steps else no_info
+        client_name = payload.get("client_name") or "Client"
+        family = contract.get("output_family")
+
+        if family == "group_note":
+            return "\n".join(
+                [
+                    template_label.upper(),
+                    "",
+                    "GROUP TOPIC:",
+                    summary_sentences[0] if summary_sentences else no_info,
+                    "",
+                    "INTERVENTION:",
+                    summary_text,
+                    "",
+                    "CLIENT RESPONSE:",
+                    quote if quote else (summary_sentences[1] if len(summary_sentences) > 1 else no_quote),
+                    "",
+                    "NEXT STEP:",
+                    next_step_text,
+                ]
+            ).strip()
+
+        if family == "referral":
+            return "\n".join(
+                [
+                    template_label.upper(),
+                    "",
+                    "REFERRAL NEED:",
+                    summary_text,
+                    "",
+                    "ACTION TAKEN:",
+                    summary_text,
+                    "",
+                    "CLIENT RESPONSE:",
+                    quote if quote else no_quote,
+                    "",
+                    "NEXT STEP:",
+                    next_step_text,
+                ]
+            ).strip()
+
+        if family == "discharge":
+            return "\n".join(
+                [
+                    template_label.upper(),
+                    "",
+                    "DISCHARGE STATUS:",
+                    summary_text,
+                    "",
+                    "SERVICES COMPLETED:",
+                    summary_text,
+                    "",
+                    "OUTSTANDING RISKS:",
+                    no_info,
+                    "",
+                    "AFTERCARE PLAN:",
+                    next_step_text,
+                ]
+            ).strip()
+
+        if family == "fmla":
+            return "\n".join(
+                [
+                    template_label.upper(),
+                    "",
+                    "CONTACT METHOD:",
+                    "Not documented.",
+                    "",
+                    "CONTACTED PARTY:",
+                    "Not documented.",
+                    "",
+                    "SUMMARY:",
+                    summary_text,
+                    "",
+                    "OUTCOME:",
+                    quote if quote else no_info,
+                    "",
+                    "FOLLOW-UP:",
+                    next_step_text,
+                ]
+            ).strip()
+
+        if family == "loc_transition":
+            return "\n".join(
+                [
+                    template_label.upper(),
+                    "",
+                    "CURRENT LOC:",
+                    "Not documented.",
+                    "",
+                    "NEW LOC / TRANSITION PLAN:",
+                    summary_text,
+                    "",
+                    "RATIONALE:",
+                    summary_text,
+                    "",
+                    "COORDINATION COMPLETED:",
+                    no_info,
+                    "",
+                    "NEXT STEP:",
+                    next_step_text,
+                ]
+            ).strip()
+
+        if family in {"letter", "court_letter", "progress_report"}:
+            subject_line = {
+                "completion_letter": f"RE: Completion Letter - {client_name}",
+                "presence_letter": f"RE: Letter of Presence - {client_name}",
+                "proof_of_residence": f"RE: Proof of Residence - {client_name}",
+                "court_letter": f"RE: Court / Probation Update - {client_name}",
+                "progress_report": f"RE: Progress Report - {client_name}",
+            }.get(contract.get("note_kind"), f"RE: {template_label} - {client_name}")
+            intro_line = {
+                "completion_letter": "This letter summarizes the verified completion-related information documented in the case manager brief.",
+                "presence_letter": "This letter verifies the documented presence and participation information provided in the case manager brief.",
+                "proof_of_residence": "This letter documents the residence-related information verified in the case manager brief.",
+                "court_letter": "This letter provides a professional status update using only the verified facts documented in the case manager brief.",
+                "progress_report": "This progress report summarizes the verified participation and care-coordination facts documented in the case manager brief.",
+            }.get(contract.get("note_kind"), "This letter summarizes the verified information documented in the case manager brief.")
+            return "\n".join(
+                [
+                    template_label.upper(),
+                    "",
+                    f"DATE: {datetime.now().strftime('%B %d, %Y')}",
+                    subject_line,
+                    "",
+                    "To Whom It May Concern,",
+                    "",
+                    intro_line,
+                    "",
+                    summary_text,
+                    "",
+                    f"Client statement: {quote if quote else no_quote}",
+                    f"Next step: {next_step_text}",
+                    "",
+                    "Sincerely,",
+                    "Case Manager",
+                ]
+            ).strip()
+
+        return "\n".join(
+            [
+                template_label.upper(),
+                "",
+                "SUMMARY:",
+                summary_text,
+                "",
+                "CLIENT STATEMENT:",
+                quote if quote else no_quote,
+                "",
+                "NEXT STEP:",
+                next_step_text,
+            ]
+        ).strip()
+
     @staticmethod
     def _build_template_guardrails(note_kind: str, context: Dict[str, Any]) -> List[str]:
-        template_label = str((context or {}).get("template_label") or note_kind.replace("_", " ").title()).strip()
+        contract = DocumentationAIService.resolve_template_contract(note_kind, context)
+        template_label = str(contract.get("template_label") or (context or {}).get("template_label") or note_kind.replace("_", " ").title()).strip()
         requested_output_mode = str((context or {}).get("requested_output_mode") or "").strip() or "note"
         guardrails = [
             f"Selected template label: {template_label}.",
             f"Requested output mode: {requested_output_mode}.",
+            f"Output family: {contract.get('output_family')}.",
         ]
 
-        if note_kind == "treatment_plan":
+        if contract.get("allow_treatment_plan_structure"):
             guardrails.extend(
                 [
                     "Produce a treatment plan review structure with problem, goal, objective, plan, and review details.",
@@ -693,11 +1162,51 @@ class DocumentationAIService:
             )
             return guardrails
 
-        if note_kind in {"progress_note", "initial_note"}:
+        if contract.get("output_family") == "clinical_note":
             guardrails.extend(
                 [
-                    "Keep the output in case-management note structure only.",
-                    "Do not introduce treatment-plan headings such as 'Problem 1', 'Objective', 'Frequency/Duration', 'Status: open', or 'Outcome: in progress' unless they already exist in the selected template body.",
+                    "Keep the output in concise case-management note structure only.",
+                    "Use only facts from the case manager brief as the substantive source of truth.",
+                    "Do not introduce treatment-plan headings such as 'Problem 1', 'Objective', 'Frequency/Duration', 'Status: open', or 'Outcome: in progress'.",
+                    "Do not add 12-step, sponsor, medication compliance, aftercare, discharge planning, treatment plan goals, or other generic filler unless the brief explicitly states them.",
+                    "Do not add signature lines, credentials, license placeholders, or staff contact placeholders unless verified values were explicitly provided.",
+                ]
+            )
+            return guardrails
+
+        if contract.get("formal_letter"):
+            guardrails.extend(
+                [
+                    "Write a formal letter matching the selected template, with a salutation and professional closing.",
+                    "Do not switch into clinical-note headings unless they are explicitly part of the selected letter template.",
+                    "Do not add unsupported signatures, license numbers, credentials, diagnoses, services, or attendance facts.",
+                ]
+            )
+            return guardrails
+
+        if contract.get("output_family") == "fmla":
+            guardrails.extend(
+                [
+                    "Use FMLA correspondence structure only.",
+                    "Do not invent medical facts, provider opinions, diagnoses, or leave dates.",
+                ]
+            )
+            return guardrails
+
+        if contract.get("output_family") == "referral":
+            guardrails.extend(
+                [
+                    "Use referral-summary headings only: Referral Need, Action Taken, Client Response, Next Step.",
+                    "Do not drift into letter format or treatment-plan structure.",
+                ]
+            )
+            return guardrails
+
+        if contract.get("output_family") == "loc_transition":
+            guardrails.extend(
+                [
+                    "Use LOC transition note headings only.",
+                    "Do not convert the draft into treatment-plan or weekly-note structure.",
                 ]
             )
             return guardrails
@@ -705,6 +1214,8 @@ class DocumentationAIService:
         guardrails.append(
             "Do not switch formats. Stay inside the structure and heading style of the selected template."
         )
+        guardrails.append("Use only facts from the case manager brief as the substantive source of truth.")
+        guardrails.append("Do not invent services, referrals, medication issues, aftercare plans, treatment goals, attendance, risk, or symptoms that were not documented.")
         return guardrails
 
     def _infer_note_kind_from_query(self, query: str) -> str:
@@ -932,6 +1443,10 @@ class DocumentationAIService:
             return ""
 
         context = payload.get("context") or {}
+        note_kind = payload.get("note_kind", "progress_note")
+        if self._is_evidence_bound_template(note_kind, context):
+            return self._build_evidence_bound_template_fallback(payload, current_text)
+
         template_label = context.get("template_label") or payload.get("note_kind", "Documentation").replace("_", " ").title()
         current_date = datetime.now().strftime("%B %d, %Y")
         draft = current_text.strip()
@@ -958,7 +1473,7 @@ class DocumentationAIService:
             draft = f"{draft}\n\n{context_block}"
 
         header = f"Template: {template_label}\nDate generated: {current_date}\n\n"
-        return f"{header}{draft}".strip()
+        return self._strip_placeholder_staff_signature(f"{header}{draft}".strip())
 
     def _build_fallback_draft(self, payload: Dict[str, Any], recent_notes: List[Dict[str, Any]]) -> str:
         """Build a complete template-style draft using bracket placeholders and real client data."""
@@ -971,6 +1486,9 @@ class DocumentationAIService:
             return selected_template_draft
 
         context = payload.get("context") or {}
+        if self._is_evidence_bound_template(note_kind, context):
+            return self._strip_placeholder_staff_signature(selected_template_draft or self._build_evidence_bound_template_fallback(payload, current_text))
+
         direct_quotes = context.get("direct_quotes") or []
         observations = context.get("observations") or ""
         client_name = payload.get("client_name") or "[CT NAME]"
@@ -1162,7 +1680,9 @@ class DocumentationAIService:
 
         draft = "\n".join(output).strip()
         # Auto-fill all placeholders with real data
-        return self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
+        return self._strip_placeholder_staff_signature(
+            self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
+        )
 
     def _build_suggested_tasks(self, payload: Dict[str, Any], draft: str, review: Dict[str, Any]) -> List[Dict[str, Any]]:
         due_date = (datetime.now() + timedelta(days=3)).date().isoformat()
@@ -1229,12 +1749,18 @@ class DocumentationAIService:
         return placeholders
 
     def _build_template_quality_review(self, text: str, note_kind: str, context: Dict[str, Any]) -> Dict[str, Any]:
-        template_label = (context or {}).get("template_label") or ""
+        contract = self.resolve_template_contract(note_kind, context)
+        template_label = (context or {}).get("template_label") or contract.get("template_label") or ""
         anchors = TEMPLATE_QUALITY_ANCHORS.get(template_label) or NOTE_KIND_QUALITY_ANCHORS.get(note_kind, [])
         missing_anchors = [
             pattern
             for pattern in anchors
             if not re.search(pattern, text or "", flags=re.IGNORECASE | re.MULTILINE)
+        ]
+        forbidden_sections_found = [
+            pattern
+            for pattern in contract.get("forbidden_patterns", [])
+            if re.search(pattern, text or "", flags=re.IGNORECASE | re.MULTILINE)
         ]
 
         unresolved_placeholders = self._extract_unresolved_placeholders(text)
@@ -1250,16 +1776,23 @@ class DocumentationAIService:
             for placeholder in unresolved_placeholders
             if any(term in placeholder.upper() for term in QUOTE_PLACEHOLDER_TERMS)
         ]
+        placeholder_staff_signature = [
+            term
+            for term in PLACEHOLDER_STAFF_SIGNATURE_TERMS
+            if term.lower() in (text or "").lower()
+        ]
 
         score = 100
         score -= len(missing_anchors) * 12
+        score -= len(forbidden_sections_found) * 14
         score -= len(unresolved_placeholders) * 10
         score -= len(data_warnings) * 4
+        score -= len(placeholder_staff_signature) * 8
         score = max(0, min(100, score))
 
-        if missing_anchors or len(unresolved_placeholders) >= 3 or score < 70:
+        if missing_anchors or forbidden_sections_found or len(unresolved_placeholders) >= 3 or score < 70:
             status = "needs_revision"
-        elif data_warnings or unresolved_placeholders or score < 90:
+        elif data_warnings or unresolved_placeholders or placeholder_staff_signature or score < 90:
             status = "needs_review"
         else:
             status = "pass"
@@ -1267,10 +1800,14 @@ class DocumentationAIService:
         warnings = []
         if missing_anchors:
             warnings.append("Draft may not be following the selected template structure.")
+        if forbidden_sections_found:
+            warnings.append("Draft contains headings or phrasing that are forbidden for the selected template.")
         if unresolved_placeholders:
             warnings.append("Draft still contains unresolved placeholders that need review.")
         if quote_placeholders:
             warnings.append("Draft still needs case-manager quote verification.")
+        if placeholder_staff_signature:
+            warnings.append("Draft still contains placeholder staff signature or credential text.")
         warnings.extend(data_warnings)
 
         return {
@@ -1278,8 +1815,10 @@ class DocumentationAIService:
             "score": score,
             "status": status,
             "missing_template_anchors": missing_anchors,
+            "forbidden_sections_found": forbidden_sections_found,
             "unresolved_placeholders": unresolved_placeholders,
             "quote_placeholders": quote_placeholders,
+            "placeholder_staff_signature": placeholder_staff_signature,
             "data_warnings": data_warnings,
             "warnings": warnings,
         }
@@ -1582,6 +2121,7 @@ class DocumentationAIService:
             }
 
     async def generate_note_draft(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        provider_status = self._refresh_provider_client()
         recent_notes = self._get_recent_note_context(payload.get("client_id"))
         selected_template_body = (payload.get("current_text") or "").strip()
         library_excerpt = self._get_template_excerpt(payload.get("note_kind", "progress_note"))
@@ -1595,7 +2135,17 @@ class DocumentationAIService:
             }
         )
 
+        template_context = payload.get("context") or {}
+        contract = self.resolve_template_contract(payload.get("note_kind", "progress_note"), template_context)
+
         if not self.client:
+            logger.info(
+                "Documentation draft using structured fallback; provider unavailable. template=%s note_kind=%s reason=%s client_selected=%s",
+                contract.get("template_label"),
+                payload.get("note_kind", "progress_note"),
+                provider_status.get("reason"),
+                bool(payload.get("client_id")),
+            )
             return {
                 "draft": fallback_draft,
                 "source": "template_fallback",
@@ -1603,6 +2153,7 @@ class DocumentationAIService:
                 "compliance_preview": review,
                 "quality_review": review.get("quality_review"),
                 "suggested_tasks": self._build_suggested_tasks(payload, fallback_draft, review),
+                "provider_status": provider_status,
             }
 
         # Pull comprehensive client data for intelligent auto-population
@@ -1616,9 +2167,10 @@ class DocumentationAIService:
         user_prompt = (payload.get("user_prompt") or "").strip()
         client_name = payload.get("client_name") or "[Client Name]"
         note_kind = payload.get("note_kind", "progress_note")
-        template_label = (payload.get("context") or {}).get("template_label", note_kind.replace("_", " ").title())
-        template_category = (payload.get("context") or {}).get("template_category", "")
-        template_guardrails = self._build_template_guardrails(note_kind, payload.get("context") or {})
+        template_label = template_context.get("template_label", note_kind.replace("_", " ").title())
+        template_category = template_context.get("template_category", "")
+        evidence_bound = self._is_evidence_bound_template(note_kind, template_context)
+        template_guardrails = self._build_template_guardrails(note_kind, template_context)
         current_date = datetime.now().strftime("%B %d, %Y")
         reference_guidance_context = self._get_reference_library_context(
             query=user_prompt or payload.get("current_text") or note_kind,
@@ -1683,8 +2235,17 @@ class DocumentationAIService:
         else:
             client_context_parts.append(f"CLIENT: {client_name} (limited data available)")
 
+        if evidence_bound and (core_data or case_mgmt_data):
+            full_name = intake_context["full_name"] or client_name
+            client_context_parts = [
+                "CLIENT PROFILE (from database):",
+                f"- Name: {full_name}",
+                f"- Record number: {intake_context['client_record_number']}",
+                "- Use client profile for identity only. Do not introduce extra services, symptoms, diagnoses, goals, plans, or history unless they are explicitly supported by the case manager brief or form data.",
+            ]
+
         # Add recent notes context
-        if recent_case_notes:
+        if recent_case_notes and not evidence_bound:
             client_context_parts.append("")
             client_context_parts.append("RECENT CASE NOTES (for continuity):")
             for note in recent_case_notes[:3]:
@@ -1747,6 +2308,7 @@ class DocumentationAIService:
             "8. Write full narrative paragraphs using ONLY documented facts",
             "9. Follow the EXACT structure and formatting from the selected template",
             "10. Follow organization-specific guidance materials when they are provided below",
+            "11. For evidence-bound case-management notes, use the case manager brief as the primary evidence source and keep unsupported details out of the draft",
             "",
             f"SELECTED TEMPLATE: {template_label}",
             f"TEMPLATE CATEGORY: {template_category}",
@@ -1773,14 +2335,15 @@ class DocumentationAIService:
             "- Copy the SELECTED TEMPLATE format EXACTLY as shown above",
             "- Do NOT switch to a treatment plan or CM note format unless the selected template is actually that format",
             "- Fill fields using INTAKE FORM DATA first, then CLIENT PROFILE data as supplement",
+            "- Use the client profile for identity only unless the case manager brief or form data explicitly supports additional facts",
             "- For RESPONSE section: ONLY use demographics and history that are explicitly in the provided data — never assume race, age, gender, or background",
             "- If strengths/weaknesses/reason for treatment/discharge plans are provided, include them as direct CT quotes using 'CT stated'",
             "- If a data point is not documented, write 'not documented' rather than inventing a plausible value",
             "- If case manager provided session notes, incorporate them into the narrative",
-            "- If no session notes provided, use recent case notes or intake form data to write the note",
-            "- If a client quote is available, use the exact quote. If not, write a complete sentence stating that no direct quote was documented",
+            "- If no session notes were provided, write only what the template and provided data support. Use 'No additional information was provided.' where needed instead of inventing filler",
+            "- If a client quote is available, use the exact quote. If not, write a complete sentence stating that no direct client quote was documented",
             "- Use professional case management language matching the template style",
-            "- Make it comprehensive so the case manager only needs to verify facts, dates, and any quote wording",
+            "- Make it documentation-ready without generic clinical filler, canned treatment-plan language, or placeholder signature blocks",
             "",
             "TEMPLATE GUARDRAILS:",
             *[f"- {instruction}" for instruction in template_guardrails],
@@ -1800,12 +2363,20 @@ class DocumentationAIService:
             draft = (response.choices[0].message.content or "").strip() or fallback_draft
             # Auto-fill all remaining placeholders with real client data
             draft = self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
+            if evidence_bound:
+                draft = self._strip_placeholder_staff_signature(draft)
             review = self.compliance_review(
                 {
                     "draft": draft,
                     "note_kind": payload.get("note_kind", "progress_note"),
                     "context": payload.get("context") or {},
                 }
+            )
+            logger.info(
+                "Documentation draft generated with provider. template=%s note_kind=%s client_selected=%s",
+                contract.get("template_label"),
+                payload.get("note_kind", "progress_note"),
+                bool(payload.get("client_id")),
             )
             return {
                 "draft": draft,
@@ -1814,6 +2385,7 @@ class DocumentationAIService:
                 "compliance_preview": review,
                 "quality_review": review.get("quality_review"),
                 "suggested_tasks": self._build_suggested_tasks(payload, draft, review),
+                "provider_status": provider_status,
             }
         except Exception as exc:
             logger.warning("Documentation AI draft generation failed, using fallback: %s", exc)
@@ -1824,6 +2396,7 @@ class DocumentationAIService:
                 "compliance_preview": review,
                 "quality_review": review.get("quality_review"),
                 "suggested_tasks": self._build_suggested_tasks(payload, fallback_draft, review),
+                "provider_status": {**provider_status, "reason": exc.__class__.__name__},
             }
 
     def create_follow_up_task(self, client_id: str, task_payload: Dict[str, Any]) -> Dict[str, Any]:

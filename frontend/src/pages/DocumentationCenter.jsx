@@ -31,6 +31,22 @@ import { apiFetch } from '../api/config'
 const TEMPLATE_CATEGORIES = ['all', 'clinical', 'planning', 'letters', 'fmla']
 const BRAND_RESOURCE_CATEGORIES = ['general', 'templates', 'style guide', 'policy', 'sample note', 'letterhead', 'workflow']
 
+const TEMPLATE_CONTRACTS = {
+  'completion letter template': { noteKind: 'completion_letter', mode: 'document', category: 'letters', noteType: 'Discharge' },
+  'letter of presence template': { noteKind: 'presence_letter', mode: 'document', category: 'letters', noteType: 'Court' },
+  'progress report template': { noteKind: 'progress_report', mode: 'document', category: 'letters', noteType: 'Court' },
+  'proof of residence template': { noteKind: 'proof_of_residence', mode: 'document', category: 'letters', noteType: 'Housing' },
+  'initial cm note': { noteKind: 'initial_note', mode: 'note', category: 'clinical', noteType: 'Progress' },
+  'weekly cm note': { noteKind: 'progress_note', mode: 'note', category: 'clinical', noteType: 'Progress' },
+  'treatment plan review': { noteKind: 'treatment_plan', mode: 'document', category: 'planning', noteType: 'Treatment Plan' },
+  'group note': { noteKind: 'group_note', mode: 'note', category: 'clinical', noteType: 'Group' },
+  'discharge summary': { noteKind: 'discharge_summary', mode: 'document', category: 'planning', noteType: 'Discharge' },
+  'referral summary': { noteKind: 'referral_summary', mode: 'document', category: 'planning', noteType: 'Referral' },
+  'court probation letter': { noteKind: 'court_letter', mode: 'document', category: 'letters', noteType: 'Court' },
+  'fmla correspondence': { noteKind: 'fmla_correspondence', mode: 'document', category: 'fmla', noteType: 'FMLA' },
+  'loc transition note': { noteKind: 'loc_transition', mode: 'note', category: 'planning', noteType: 'Progress' },
+}
+
 const FALLBACK_DOCUMENTATION_TEMPLATES = [
   {
     id: 'initial-cm-note',
@@ -40,34 +56,16 @@ const FALLBACK_DOCUMENTATION_TEMPLATES = [
     noteType: 'Progress',
     noteKind: 'initial_note',
     bestFor: 'Week 1 intake - introduce treatment team, establish client goals and treatment plan.',
-    body: `GOAL:
-Introduce client to the current treatment team and establish client's treatment plan. Answer any questions the client has about the program and establish any needs the client has. Establish client goals to stabilize condition medically, behaviorally, emotionally, and cognitively, and return to functioning within normal parameters.
+    body: `INITIAL CM NOTE
 
-INTERVENTION:
-CM and client began the discussion of aftercare.
-CM addressed immediate needs.
-CM assessed for financial stability.
-CM inquired about legal issues and FMLA.
-CM inquired about discharge planning.
-CM asked about 12-step / sponsor involvement.
-CM encouraged client to get the most out of treatment by engaging in groups and 1:1 sessions with TH and CM.
-CM used open-ended questions, positive affirmations, motivational interviewing, reflection, and enduring questions.
+SUMMARY:
+Document only the facts provided in the case manager brief.
 
-RESPONSE:
-Client is a [AGE]-year-old [RACE], [GENDER] with a history of [SUBSTANCES / PRESENTING CONCERNS]. Client [DID / DID NOT] report current medical issues and reported [LEGAL STATUS]. Client [HAS / DOES NOT HAVE] children; if applicable, [CUSTODY / CAREGIVER ARRANGEMENT].
+CLIENT STATEMENT:
+Include only direct client statements documented in the brief. If none were provided, state that no direct client quote was documented.
 
-Client reported [EMPLOYMENT / ID / VOCATIONAL STATUS]. Client's long-term goals after completing the program include [GOALS]. Client identified strengths as [STRENGTHS] and identified [WEAKNESS / BARRIER]. Client presents [MOTIVATION / AFFECT / ENGAGEMENT].
-
-Client stated, "[VERBATIM DISCHARGE / MOTIVATION QUOTE]"
-
-MEDICAL:
-Client will stabilize on all medications as prescribed and comply with physician's orders. No intervention needed at this time.
-
-PLAN:
-CM will continue to meet with the client on a weekly basis to solidify a discharge treatment plan. Client's tentative step-down / discharge date: [DATE].
-
-[CM NAME], Case Manager [CM CREDENTIALS] [CM LICENSE #]
-Date: [TODAY]`,
+NEXT STEP:
+Document only the follow-up or plan specifically described in the brief. If none was provided, state that no additional information was provided.`,
   },
   {
     id: 'progress-note',
@@ -77,32 +75,16 @@ Date: [TODAY]`,
     noteType: 'Progress',
     noteKind: 'progress_note',
     bestFor: 'Ongoing weekly notes after week 1 - discharge planning and progress tracking.',
-    body: `GOAL:
-To discuss and plan a comprehensive discharge from treatment. Identify any needs for transition including sober living, aftercare, and financial stability.
+    body: `WEEKLY CM NOTE
 
-INTERVENTION:
-CM validated client's feelings and addressed concerns.
-CM addressed immediate needs.
-CM assessed for financial stability.
-CM inquired about legal issues and FMLA.
-CM inquired about discharge planning.
-CM asked about 12-step / sponsor involvement.
-CM continued to encourage client to engage in groups and 1:1 sessions with TH and CM.
-CM used open-ended questions, positive affirmations, motivational interviewing, reflection, and enduring questions.
+SUMMARY:
+Document only the observed facts and case-management actions described in the brief.
 
-RESPONSE:
-CM and client discussed aftercare plans, which is an ongoing conversation.
-Client stated, "[VERBATIM CLIENT QUOTE THIS WEEK]"
-CM and client will continue making progress toward discharge plans and treatment plan goals.
+CLIENT STATEMENT:
+Include only direct client statements documented in the brief. If none were provided, state that no direct client quote was documented.
 
-MEDICAL:
-Client will stabilize on all medications as prescribed and comply with physician's orders. No intervention needed at this time.
-
-PLAN:
-CM will continue to meet with the client on a weekly basis to solidify a discharge treatment plan. Client's tentative step-down / discharge date: [DATE].
-
-[CM NAME], Case Manager [CM CREDENTIALS] [CM LICENSE #]
-Date: [TODAY]`,
+NEXT STEP:
+Document only the follow-up or plan specifically described in the brief. If none was provided, state that no additional information was provided.`,
   },
   {
     id: 'treatment-plan-review',
@@ -259,6 +241,29 @@ const slugifyFileName = (value) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'document'
 
+const normalizeTemplateLookupKey = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+
+const normalizeTemplateContract = (template) => {
+  const contract =
+    TEMPLATE_CONTRACTS[normalizeTemplateLookupKey(template?.label)] ||
+    TEMPLATE_CONTRACTS[normalizeTemplateLookupKey(template?.id)] ||
+    null
+
+  if (!contract) return template
+
+  return {
+    ...template,
+    mode: contract.mode,
+    category: contract.category,
+    noteType: contract.noteType,
+    noteKind: contract.noteKind,
+  }
+}
+
 const toClientDocType = (selectedTemplate, noteType) =>
   String(selectedTemplate?.noteKind || noteType || 'other')
     .toLowerCase()
@@ -279,6 +284,27 @@ const buildGenerationContext = ({ selectedTemplate, selectedClient, requestedOut
   next_steps: '',
   direct_quotes: [],
 })
+
+const buildGenerationStatus = (data) => {
+  const providerStatus = data?.provider_status || {}
+  const source = data?.source || 'unknown'
+  if (source === 'openai') {
+    return {
+      tone: 'success',
+      message: `AI provider generated this draft${providerStatus?.model ? ` using ${providerStatus.model}` : ''}.`,
+    }
+  }
+  if (providerStatus?.reason === 'missing_openai_api_key') {
+    return {
+      tone: 'warning',
+      message: 'AI provider unavailable; using structured fallback.',
+    }
+  }
+  return {
+    tone: 'warning',
+    message: 'Draft generated from structured fallback. Review before saving.',
+  }
+}
 
 function DocumentationCenter() {
   const [mode, setMode] = useState('note')
@@ -301,6 +327,7 @@ function DocumentationCenter() {
   const [roughNotes, setRoughNotes] = useState('')
   const [generatingDraft, setGeneratingDraft] = useState(false)
   const [draftQuality, setDraftQuality] = useState(null)
+  const [generationStatus, setGenerationStatus] = useState(null)
   const [brandResources, setBrandResources] = useState([])
   const [loadingBrandResources, setLoadingBrandResources] = useState(false)
   const [uploadingBrandResource, setUploadingBrandResource] = useState(false)
@@ -312,9 +339,10 @@ function DocumentationCenter() {
 
   const availableTemplates = useMemo(() => {
     const seen = new Set()
-    return [...fileTemplates, ...FALLBACK_DOCUMENTATION_TEMPLATES].filter((template) => {
-      if (!template?.id || seen.has(template.id)) return false
-      seen.add(template.id)
+    return [...fileTemplates, ...FALLBACK_DOCUMENTATION_TEMPLATES].map(normalizeTemplateContract).filter((template) => {
+      const identity = template?.id || template?.label
+      if (!identity || seen.has(identity)) return false
+      seen.add(identity)
       return true
     })
   }, [fileTemplates])
@@ -427,6 +455,8 @@ function DocumentationCenter() {
     setRoughNotes('')
     setInputMode('type')
     setDraftQuality(null)
+    setGenerationStatus(null)
+    setGenerationStatus(null)
     setComposer({
       ...EMPTY_COMPOSER,
       noteType: selectedTemplate?.noteType || 'Progress',
@@ -506,12 +536,14 @@ function DocumentationCenter() {
 
       const data = await response.json().catch(() => ({}))
       if (response.ok && data.draft) {
+        setGenerationStatus(buildGenerationStatus(data))
         setDraftQuality(data.quality_review || data.compliance_preview?.quality_review || null)
         applyDraftToComposer(data.draft)
         return
       }
 
       if (!selectedClient?.client_id) {
+        setGenerationStatus(null)
         setDraftQuality(null)
         applyDraftToComposer(transcript)
         toast.error(data.detail || 'Template draft failed. Loaded transcript for manual review.')
@@ -519,6 +551,7 @@ function DocumentationCenter() {
       }
     } catch (error) {
       if (!selectedClient?.client_id) {
+        setGenerationStatus(null)
         setDraftQuality(null)
         applyDraftToComposer(transcript)
         toast.error('Template draft failed. Loaded transcript for manual review.')
@@ -585,6 +618,7 @@ function DocumentationCenter() {
     setEditingItem(null)
     setRoughNotes('')
     setDraftQuality(null)
+    setGenerationStatus(null)
     setComposer({
       ...EMPTY_COMPOSER,
       title: '',
@@ -621,6 +655,7 @@ function DocumentationCenter() {
       }
 
       const data = await response.json()
+      setGenerationStatus(buildGenerationStatus(data))
       setDraftQuality(data.quality_review || data.compliance_preview?.quality_review || null)
       setComposer((prev) => ({
         ...prev,
@@ -631,7 +666,7 @@ function DocumentationCenter() {
         noteType: selectedTemplate.noteType,
         body: data.draft || '',
       }))
-      toast.success('Draft generated from your rough notes')
+      toast.success(data.source === 'openai' ? 'Draft generated from your rough notes' : 'Structured fallback draft generated from your rough notes')
     } catch (error) {
       console.error(error)
       toast.error(error.message || 'Failed to generate draft')
@@ -1211,6 +1246,16 @@ function DocumentationCenter() {
                 </button>
               )}
             </div>
+
+            {generationStatus && (
+              <div className={`rounded-2xl border px-4 py-3 text-sm ${
+                generationStatus.tone === 'success'
+                  ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100'
+                  : 'border-amber-400/30 bg-amber-500/10 text-amber-100'
+              }`}>
+                {generationStatus.message}
+              </div>
+            )}
 
             {shouldShowDraftSummary && (
               <p className="text-xs text-slate-400">

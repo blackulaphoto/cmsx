@@ -73,6 +73,16 @@ const getAftercareEntries = (aftercarePlan) => {
   })
 }
 
+const getRoiSummaryStats = (records) => {
+  const roiRecords = Array.isArray(records) ? records : []
+  return {
+    active: roiRecords.filter((record) => record?.status === 'active').length,
+    awaitingSignature: roiRecords.filter((record) => ['draft', 'needs_signature'].includes(record?.status)).length,
+    revoked: roiRecords.filter((record) => record?.status === 'revoked').length,
+    total: roiRecords.length,
+  }
+}
+
 const buildPlanTasks = (plan) => {
   if (!plan) return []
 
@@ -197,6 +207,12 @@ const ClientDashboard = () => {
       fetchRoiRecords()
     }
   }, [clientId])
+
+  useEffect(() => {
+    if (clientId && (activeTab === 'docs' || activeTab === 'roi')) {
+      fetchRoiRecords()
+    }
+  }, [activeTab, clientId])
 
   const fetchClientData = async () => {
     try {
@@ -644,6 +660,8 @@ const ClientDashboard = () => {
       setDocUploading(false)
     }
   }
+
+  const roiSummary = getRoiSummaryStats(roiRecords)
 
   const deleteDocument = async (docId) => {
     if (!window.confirm('Delete this document?')) return
@@ -2103,15 +2121,15 @@ const ClientDashboard = () => {
                       </p>
                       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs">
                         <span className="text-emerald-300">
-                          {roiRecords.filter((r) => r.status === 'active').length} active
+                          {roiSummary.active} active
                         </span>
                         <span className="text-amber-300">
-                          {roiRecords.filter((r) => r.status === 'needs_signature').length} need signature
+                          {roiSummary.awaitingSignature} awaiting signature
                         </span>
                         <span className="text-red-300">
-                          {roiRecords.filter((r) => r.status === 'revoked').length} revoked
+                          {roiSummary.revoked} revoked
                         </span>
-                        <span className="text-gray-400">{roiRecords.length} total</span>
+                        <span className="text-gray-400">{roiSummary.total} total</span>
                       </div>
                     </div>
                   </div>
