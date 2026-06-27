@@ -2278,7 +2278,7 @@ const ClientDashboard = () => {
           {/* ROI / RELEASES TAB — dedicated home for ongoing client ROI records */}
           {activeTab === 'roi' && (
             <div className="space-y-8">
-              <RoiConsentTracker clientId={clientId} />
+              <RoiConsentTracker clientId={clientId} onRoiRecordsChange={setRoiRecords} />
             </div>
           )}
         </div>

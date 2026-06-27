@@ -140,14 +140,12 @@ describe('ClientDashboard treatment plan snapshot', () => {
   })
 })
 
-describe('ClientDashboard — ROI / Releases tab & Documents restoration', () => {
+describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
   beforeEach(() => {
     apiFetch.mockImplementation((url) => {
       if (url.includes('/unified-view')) {
         return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
       }
-      // Everything else (treatment-plan, documents, roi-records, packet, etc.)
-      // resolves to a harmless empty success payload.
       return Promise.resolve({ ok: true, json: async () => ({ success: true }) })
     })
   })
@@ -157,11 +155,8 @@ describe('ClientDashboard — ROI / Releases tab & Documents restoration', () =>
     const docsTab = await screen.findByRole('button', { name: 'Documents' })
     fireEvent.click(docsTab)
 
-    // The general document vault is the primary content of the Documents tab.
     expect(screen.getByText('Client Documents')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Upload Document/i })).toBeInTheDocument()
-
-    // Only a compact ROI summary + link lives here — not the full manager.
     expect(screen.getByRole('button', { name: /Open ROI \/ Releases/i })).toBeInTheDocument()
     expect(screen.queryByText('Client ROI Records')).toBeNull()
     expect(screen.queryByText('Packet consent forms')).toBeNull()
@@ -173,12 +168,9 @@ describe('ClientDashboard — ROI / Releases tab & Documents restoration', () =>
     const roiTab = await screen.findByRole('button', { name: /ROI \/ Releases/i })
     fireEvent.click(roiTab)
 
-    // The full three-layer manager renders only here.
     expect(await screen.findByText('Client ROI Records')).toBeInTheDocument()
     expect(screen.getByText('Packet consent forms')).toBeInTheDocument()
     expect(screen.getByText('Uploaded Signed ROIs')).toBeInTheDocument()
-
-    // The general document vault is NOT part of the ROI tab.
     expect(screen.queryByText('Client Documents')).toBeNull()
   })
 
@@ -189,8 +181,37 @@ describe('ClientDashboard — ROI / Releases tab & Documents restoration', () =>
 
     fireEvent.click(screen.getByRole('button', { name: /Open ROI \/ Releases/i }))
 
-    // Now on the dedicated ROI tab → full manager visible, vault gone.
     expect(await screen.findByText('Client ROI Records')).toBeInTheDocument()
     expect(screen.queryByText('Client Documents')).toBeNull()
+  })
+
+  it('shows compact ROI summary counts from the canonical roi-records source', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+      }
+      if (url.includes('/roi-records')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            roi_records: [
+              { roi_id: 'roi-1', status: 'active' },
+              { roi_id: 'roi-2', status: 'needs_signature' },
+              { roi_id: 'roi-3', status: 'draft' },
+            ],
+          }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, documents: [] }) })
+    })
+
+    renderPage()
+    const docsTab = await screen.findByRole('button', { name: 'Documents' })
+    fireEvent.click(docsTab)
+
+    expect(await screen.findByText('1 active')).toBeInTheDocument()
+    expect(screen.getByText('1 need signature')).toBeInTheDocument()
+    expect(screen.getByText('3 total')).toBeInTheDocument()
   })
 })
