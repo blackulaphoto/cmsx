@@ -730,7 +730,7 @@ function DocumentationCenter() {
           throw new Error('Failed to save client document')
         }
         await loadClientDocs(selectedClient.client_id)
-        toast.success('Document saved to client documents')
+        toast.success('Saved to Client Documents.')
       } else {
         const endpoint = editingItem?.source === 'doc'
           ? `/api/dashboard/docs/${editingItem.id}`
