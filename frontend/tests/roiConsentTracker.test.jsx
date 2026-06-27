@@ -239,6 +239,93 @@ describe('RoiConsentTracker — packet consent forms', () => {
   })
 })
 
+describe('RoiConsentTracker — tracker summary', () => {
+  it('renders a tracker summary with the client ROI record count', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: null, roiRecords: ROI_RECORDS }))
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+    expect(screen.getByText(/Client ROI records: 3/)).toBeTruthy()
+  })
+
+  it('shows the awaiting-signature count for draft/needs_signature client ROI records', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: null, roiRecords: ROI_RECORDS }))
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+    // ROI_RECORDS has one active, one needs_signature, one revoked.
+    expect(screen.getByText(/1 awaiting signature/)).toBeTruthy()
+    expect(screen.getByText(/1 active/)).toBeTruthy()
+    expect(screen.getByText(/1 revoked/)).toBeTruthy()
+  })
+
+  it('shows the packet ROI pending-signature count when the packet ROI is pending', async () => {
+    apiFetch.mockImplementation(
+      routedHandler({ packet: PACKET_WITH_PENDING_ROI, roiRecords: ROI_RECORDS })
+    )
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+    expect(screen.getByText(/Packet ROI pending signature: 1/)).toBeTruthy()
+  })
+
+  it('omits the packet ROI pending line when no packet ROI is pending', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: PACKET, roiRecords: ROI_RECORDS }))
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+    // Default PACKET ROI is Completed → no pending packet ROI line, no callout.
+    expect(screen.queryByText(/Packet ROI pending signature/)).toBeNull()
+    expect(screen.queryByText(/Admissions packet ROI is pending signature/)).toBeNull()
+  })
+
+  it('shows a top-level packet ROI callout linking to the Admissions form route when pending', async () => {
+    apiFetch.mockImplementation(
+      routedHandler({ packet: PACKET_WITH_PENDING_ROI, roiRecords: [] })
+    )
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+    expect(screen.getByText(/Admissions packet ROI is pending signature/)).toBeTruthy()
+    const calloutLink = screen.getByRole('link', { name: /Open Packet ROI/i })
+    expect(calloutLink.getAttribute('href')).toBe('/admissions/client-1/forms/roi')
+  })
+})
+
+describe('RoiConsentTracker — packet ROI action label', () => {
+  it('labels a completed/non-pending packet ROI row "Open Packet ROI" (not generic Open)', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: PACKET, roiRecords: [] }))
+    renderTracker()
+    await screen.findByText('ROI — Consent to Release or Obtain Information')
+    // PACKET ROI is Completed → not pending → "Open Packet ROI", no callout duplicate.
+    expect(screen.getByText('Open Packet ROI')).toBeTruthy()
+    expect(screen.queryByText('Complete Packet ROI')).toBeNull()
+  })
+
+  it('labels a pending packet ROI row "Complete Packet ROI"', async () => {
+    apiFetch.mockImplementation(
+      routedHandler({ packet: PACKET_WITH_PENDING_ROI, roiRecords: [] })
+    )
+    renderTracker()
+    await screen.findByText('ROI — Consent to Release or Obtain Information')
+    // The row action becomes "Complete Packet ROI"; the callout uses "Open Packet ROI".
+    expect(screen.getByText('Complete Packet ROI')).toBeTruthy()
+  })
+
+  it('keeps non-ROI packet consent rows on the generic "Open" action', async () => {
+    apiFetch.mockImplementation(routedHandler({ packet: PACKET, roiRecords: [] }))
+    renderTracker()
+    await screen.findByText('Consent for Behavioral Health Treatment')
+    // treatment_consent + hipaa_npp are non-ROI consent rows → generic "Open".
+    expect(screen.getAllByText('Open').length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('routes the packet ROI action to the existing Admissions form route', async () => {
+    apiFetch.mockImplementation(
+      routedHandler({ packet: PACKET_WITH_PENDING_ROI, roiRecords: [] })
+    )
+    renderTracker()
+    await screen.findByText('ROI — Consent to Release or Obtain Information')
+    const completeLink = screen.getByRole('link', { name: /Complete Packet ROI/i })
+    expect(completeLink.getAttribute('href')).toBe('/admissions/client-1/forms/roi')
+  })
+})
+
 describe('RoiConsentTracker — compliance', () => {
   it('renders the workflow-review compliance disclaimer', async () => {
     renderTracker()

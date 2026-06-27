@@ -486,9 +486,67 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
   const hasPacketForms = hasPacket && forms.length > 0
   const hasRoiDocs = roiDocs.length > 0
   const hasRoiRecords = roiRecords.length > 0
+
+  // Tracker summary (client-level ROI records). Mirrors the Documents compact card.
+  const roiSummary = {
+    total: roiRecords.length,
+    active: roiRecords.filter((record) => record?.status === 'active').length,
+    awaitingSignature: roiRecords.filter((record) =>
+      ['draft', 'needs_signature'].includes(record?.status)
+    ).length,
+    revoked: roiRecords.filter((record) => record?.status === 'revoked').length,
+  }
+
+  const pendingPacketRoiForm = forms.find(
+    (form) => isPacketRoiForm(form) && String(form?.status || '') === 'Needs Signature'
+  )
   const packetRoiPendingCount = forms.filter(
     (form) => isPacketRoiForm(form) && String(form?.status || '') === 'Needs Signature'
   ).length
+  const packetRoiRoute = pendingPacketRoiForm
+    ? `/admissions/${clientId}/forms/${pendingPacketRoiForm.form_key}`
+    : `/admissions/${clientId}`
+
+  // Tracker summary card — the ROI / Releases tab's command-center header.
+  const trackerSummary = (
+    <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/5 p-4">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+        <span className="font-semibold text-white">
+          Client ROI records: {roiSummary.total}
+        </span>
+        <span className="text-emerald-200">{roiSummary.active} active</span>
+        <span className="text-amber-300">{roiSummary.awaitingSignature} awaiting signature</span>
+        <span className="text-red-300">{roiSummary.revoked} revoked</span>
+        {packetRoiPendingCount > 0 && (
+          <span className="text-sky-300">
+            Packet ROI pending signature: {packetRoiPendingCount}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+
+  // Top-level callout when the Admissions packet ROI still needs signing.
+  const packetRoiCallout = packetRoiPendingCount > 0 && (
+    <div className="rounded-xl border border-sky-500/30 bg-sky-500/10 p-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-sky-300 shrink-0 mt-0.5" />
+          <p className="text-sm text-sky-100">
+            Admissions packet ROI is pending signature. This is an Admissions packet artifact,
+            separate from Client ROI Records.
+          </p>
+        </div>
+        <Link
+          to={packetRoiRoute}
+          className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-500 transition-all"
+        >
+          <ExternalLink className="h-4 w-4" />
+          Open Packet ROI
+        </Link>
+      </div>
+    </div>
+  )
 
   const header = (
     <div className="flex items-center gap-3 mb-2">
@@ -851,6 +909,14 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
             const recipient =
               type === 'ROI' ? String(sharedProfile?.roi_contact_name || '').trim() : ''
             const hasAttachment = Number(form.attachment_count || 0) > 0
+            const isRoiRow = isPacketRoiForm(form)
+            const roiNeedsSignature = isRoiRow && String(form.status || '') === 'Needs Signature'
+            // Packet ROI row gets an explicit, non-generic action label.
+            const actionLabel = isRoiRow
+              ? roiNeedsSignature
+                ? 'Complete Packet ROI'
+                : 'Open Packet ROI'
+              : 'Open'
             return (
               <div
                 key={form.form_key}
@@ -895,10 +961,14 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
 
                   <Link
                     to={`/admissions/${clientId}/forms/${form.form_key}`}
-                    className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 bg-white/10 border border-white/20 text-gray-200 rounded-xl hover:bg-emerald-500/20 hover:text-emerald-200 transition-all text-sm"
+                    className={`shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl transition-all text-sm ${
+                      roiNeedsSignature
+                        ? 'bg-sky-600 text-white hover:bg-sky-500'
+                        : 'bg-white/10 border border-white/20 text-gray-200 hover:bg-emerald-500/20 hover:text-emerald-200'
+                    }`}
                   >
                     <ExternalLink className="h-4 w-4" />
-                    Open
+                    {actionLabel}
                   </Link>
                 </div>
               </div>
@@ -1056,6 +1126,10 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
         system), plus a signed-file upload fallback and read-only admissions-packet consent status.
       </p>
       <p className="text-xs text-gray-500 mb-5">{COMPLIANCE_NOTICE}</p>
+
+      <div className="mb-5">{trackerSummary}</div>
+
+      {packetRoiCallout && <div className="mb-5">{packetRoiCallout}</div>}
 
       <div className="mb-6">{helper}</div>
 
