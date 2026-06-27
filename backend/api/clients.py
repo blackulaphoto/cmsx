@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import html as html_lib
 import logging
+import os
 import shutil
 import sqlite3
 import uuid
@@ -1985,8 +1986,26 @@ def propagate_client_to_modules(client_id: str, client_data: Dict[str, Any]) -> 
 
 # ── Client Appointments ──────────────────────────────────────────────────────
 
-CLIENT_UPLOADS_DIR = Path(__file__).resolve().parents[2] / "uploads" / "clients"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _resolve_uploads_root() -> Path:
+    volume_root = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "").strip()
+    if volume_root:
+        return Path(volume_root) / "uploads"
+    return PROJECT_ROOT / "uploads"
+
+
+CLIENT_UPLOADS_ROOT = _resolve_uploads_root()
+CLIENT_UPLOADS_DIR = CLIENT_UPLOADS_ROOT / "clients"
 CLIENT_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _resolve_client_document_path(storage_path: str) -> Path:
+    stored = str(storage_path or "").strip().replace("\\", "/")
+    if stored.startswith("uploads/"):
+        return (CLIENT_UPLOADS_ROOT.parent / stored).resolve()
+    return (CLIENT_UPLOADS_DIR / stored).resolve()
 
 
 class AppointmentPayload(BaseModel):
@@ -2176,7 +2195,7 @@ async def upload_client_document(
             shutil.copyfileobj(file.file, f)
         data["file_name"] = file.filename
         data["file_mime"] = file.content_type or "application/octet-stream"
-        data["file_path"] = str(dest.relative_to(CLIENT_UPLOADS_DIR.parent.parent))
+        data["file_path"] = dest.relative_to(CLIENT_UPLOADS_ROOT.parent).as_posix()
         try:
             data["file_size"] = dest.stat().st_size
         except Exception:
@@ -2194,8 +2213,8 @@ async def view_client_document(client_id: str, doc_id: str, request: Request):
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     if doc.get("file_path"):
-        file_path = (Path(__file__).resolve().parents[2] / doc["file_path"]).resolve()
-        uploads_root = CLIENT_UPLOADS_DIR.parent.parent.resolve()
+        file_path = _resolve_client_document_path(doc["file_path"])
+        uploads_root = CLIENT_UPLOADS_ROOT.resolve()
         try:
             file_path.relative_to(uploads_root)
         except ValueError:
@@ -2219,7 +2238,7 @@ async def delete_client_document(client_id: str, doc_id: str, request: Request):
         raise HTTPException(status_code=404, detail="Document not found")
     if doc.get("file_path"):
         try:
-            fp = (Path(__file__).resolve().parents[2] / doc["file_path"]).resolve()
+            fp = _resolve_client_document_path(doc["file_path"])
             if fp.exists():
                 fp.unlink()
         except Exception as e:
@@ -2444,7 +2463,7 @@ async def generate_roi_document(client_id: str, roi_id: str, request: Request):
             "doc_type": "roi_generated",
             "file_name": f"ROI_{party.replace(' ', '_')}.html",
             "file_mime": "text/html",
-            "file_path": str(dest.relative_to(CLIENT_UPLOADS_DIR.parent.parent)),
+            "file_path": dest.relative_to(CLIENT_UPLOADS_ROOT.parent).as_posix(),
             "file_size": dest.stat().st_size if dest.exists() else None,
         },
     )
@@ -2491,7 +2510,7 @@ async def upload_signed_roi_document(
         "doc_type": "roi_signed",
         "file_name": file.filename,
         "file_mime": file.content_type or "application/octet-stream",
-        "file_path": str(dest.relative_to(CLIENT_UPLOADS_DIR.parent.parent)),
+        "file_path": dest.relative_to(CLIENT_UPLOADS_ROOT.parent).as_posix(),
     }
     try:
         data["file_size"] = dest.stat().st_size
