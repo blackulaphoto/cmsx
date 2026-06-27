@@ -51,6 +51,11 @@ import {
   openClientDocument,
   downloadClientDocument,
 } from '../utils/clientDocuments'
+import {
+  deriveDocumentCategory,
+  VAULT_CATEGORIES,
+  categoryLabel,
+} from '../utils/documentCategories'
 
 const listOrEmpty = (value) => (Array.isArray(value) ? value : [])
 
@@ -211,6 +216,7 @@ const ClientDashboard = () => {
   const [showDocUpload, setShowDocUpload] = useState(false)
   const [docForm, setDocForm] = useState({ title: '', doc_type: 'other', url: '' })
   const [docFile, setDocFile] = useState(null)
+  const [docVaultFilter, setDocVaultFilter] = useState('all')
 
   // Edit client modal
   const [showEditModal, setShowEditModal] = useState(false)
@@ -757,6 +763,10 @@ const ClientDashboard = () => {
   }
 
   const roiSummary = getRoiSummaryStats(roiRecords)
+
+  const filteredDocs = docVaultFilter === 'all'
+    ? documents
+    : documents.filter((d) => deriveDocumentCategory(d) === docVaultFilter)
 
   const deleteDocument = async (docId) => {
     if (!window.confirm('Delete this document?')) return
@@ -2243,14 +2253,21 @@ const ClientDashboard = () => {
                 </div>
               </div>
 
-              <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10">
-                <div className="flex items-center justify-between mb-6">
+              <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10 overflow-hidden">
+
+                {/* Vault header */}
+                <div className="flex items-center justify-between p-6 pb-4 border-b border-white/10">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-gradient-to-r from-violet-500 to-purple-500 rounded-lg">
                       <FolderOpen className="h-6 w-6 text-white" />
                     </div>
-                    <h3 className="text-2xl font-bold text-white">Client Documents</h3>
-                    <span className="px-3 py-1 bg-violet-500/20 rounded-full text-violet-300 text-sm">{documents.length} files</span>
+                    <div>
+                      <h3 className="text-2xl font-bold text-white">Client Documents</h3>
+                      <p className="text-xs text-gray-400">
+                        {documents.length} {documents.length === 1 ? 'file' : 'files'} in vault
+                        {docVaultFilter !== 'all' && ` · ${filteredDocs.length} shown`}
+                      </p>
+                    </div>
                   </div>
                   <button
                     onClick={() => setShowDocUpload(true)}
@@ -2261,141 +2278,203 @@ const ClientDashboard = () => {
                   </button>
                 </div>
 
-                {showDocUpload && (
-                  <div className="mb-6 p-5 bg-violet-500/10 border border-violet-500/30 rounded-xl">
-                    <h4 className="font-medium text-white mb-4">Upload New Document</h4>
-                    <div className="space-y-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-400 mb-1">Title *</label>
-                        <input
-                          type="text"
-                          placeholder="e.g. State ID, Insurance Card"
-                          value={docForm.title}
-                          onChange={e => setDocForm(f => ({ ...f, title: e.target.value }))}
-                          className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-400 mb-1">Document Type</label>
-                        <select
-                          value={docForm.doc_type}
-                          onChange={e => setDocForm(f => ({ ...f, doc_type: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-700 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50"
-                        >
-                          <option value="id">Government ID</option>
-                          <option value="insurance">Insurance Card</option>
-                          <option value="medical">Medical Record</option>
-                          <option value="legal">Legal Document</option>
-                          <option value="housing">Housing Document</option>
-                          <option value="employment">Employment Document</option>
-                          <option value="benefits">Benefits Document</option>
-                          <option value="other">Other</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-400 mb-1">Upload File</label>
-                        <input
-                          type="file"
-                          onChange={e => setDocFile(e.target.files[0])}
-                          className="w-full text-sm text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-violet-600 file:text-white hover:file:bg-violet-500 cursor-pointer"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-400 mb-1">Or Enter URL</label>
-                        <input
-                          type="url"
-                          placeholder="https://..."
-                          value={docForm.url}
-                          onChange={e => setDocForm(f => ({ ...f, url: e.target.value }))}
-                          className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
-                        />
-                      </div>
-                    </div>
-                    <div className="flex gap-3 mt-4">
+                {/* Category filter chips — only rendered when vault has documents */}
+                {documents.length > 0 && (
+                  <div className="px-6 py-3 border-b border-white/10 overflow-x-auto">
+                    <div className="flex gap-2 min-w-max">
                       <button
-                        onClick={() => { setShowDocUpload(false); setDocForm({ title: '', doc_type: 'other', url: '' }); setDocFile(null) }}
-                        className="flex-1 px-4 py-2 bg-white/10 border border-white/20 text-gray-300 rounded-xl hover:bg-white/20 transition-all"
+                        onClick={() => setDocVaultFilter('all')}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                          docVaultFilter === 'all'
+                            ? 'bg-violet-600 text-white'
+                            : 'bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
+                        }`}
                       >
-                        Cancel
+                        All ({documents.length})
                       </button>
-                      <button
-                        onClick={uploadDocument}
-                        disabled={docUploading}
-                        className="flex-1 px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-medium transition-all disabled:opacity-50"
-                      >
-                        {docUploading ? 'Uploading...' : 'Upload'}
-                      </button>
+                      {VAULT_CATEGORIES.filter((c) => c.key !== 'all').map((cat) => {
+                        const count = documents.filter((d) => deriveDocumentCategory(d) === cat.key).length
+                        if (count === 0) return null
+                        return (
+                          <button
+                            key={cat.key}
+                            onClick={() => setDocVaultFilter(cat.key)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                              docVaultFilter === cat.key
+                                ? 'bg-violet-600 text-white'
+                                : 'bg-white/10 text-gray-300 hover:bg-white/20 hover:text-white'
+                            }`}
+                          >
+                            {cat.label} ({count})
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
 
-                {documents.length === 0 && !showDocUpload ? (
-                  <div className="text-center py-16 bg-gradient-to-br from-violet-500/20 to-purple-500/20 backdrop-blur-sm rounded-xl border border-violet-500/30">
-                    <FolderOpen className="h-12 w-12 text-violet-400 mx-auto mb-4" />
-                    <h4 className="text-lg font-medium text-white mb-2">No Documents Yet</h4>
-                    <p className="text-violet-200 mb-4">Upload IDs, insurance cards, and other client documents.</p>
-                    <button onClick={() => setShowDocUpload(true)} className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium hover:scale-105 transition-all">
-                      Upload First Document
-                    </button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {documents.map((doc) => {
-                      const viewUrl = getDocViewUrl(doc)
-                      const isImage = doc.file_mime?.startsWith('image/')
-                      const isPdf = doc.file_mime === 'application/pdf'
-                      return (
-                        <div key={doc.doc_id} className="p-5 bg-gradient-to-br from-violet-500/15 to-purple-500/15 backdrop-blur-sm rounded-xl border border-violet-500/25 hover:border-violet-500/40 transition-all">
-                          <div className="flex justify-between items-start">
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-bold text-white truncate">{doc.title}</h4>
-                              <p className="text-xs text-violet-300 capitalize">{(doc.doc_type || 'other').replace('_', ' ')}</p>
-                              {doc.file_name && <p className="text-xs text-gray-400 truncate mt-1">{doc.file_name}</p>}
-                              {doc.file_size && <p className="text-xs text-gray-500">{(doc.file_size / 1024).toFixed(1)} KB</p>}
-                              <p className="text-xs text-gray-500 mt-1">{formatDate(doc.created_at)}</p>
-                            </div>
-                            <div className="flex gap-2 ml-3 shrink-0">
-                              {viewUrl && (
+                <div className="p-6">
+                  {showDocUpload && (
+                    <div className="mb-6 p-5 bg-violet-500/10 border border-violet-500/30 rounded-xl">
+                      <h4 className="font-medium text-white mb-4">Upload New Document</h4>
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400 mb-1">Title *</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. State ID, Insurance Card"
+                            value={docForm.title}
+                            onChange={e => setDocForm(f => ({ ...f, title: e.target.value }))}
+                            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400 mb-1">Document Type</label>
+                          <select
+                            value={docForm.doc_type}
+                            onChange={e => setDocForm(f => ({ ...f, doc_type: e.target.value }))}
+                            className="w-full px-3 py-2 bg-slate-700 border border-white/20 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                          >
+                            <option value="id">Government ID</option>
+                            <option value="insurance">Insurance Card</option>
+                            <option value="medical">Medical Record</option>
+                            <option value="legal">Legal Document</option>
+                            <option value="housing">Housing Document</option>
+                            <option value="employment">Employment Document</option>
+                            <option value="benefits">Benefits Document</option>
+                            <option value="admissions">Admissions / Intake</option>
+                            <option value="discharge">Discharge / Transition</option>
+                            <option value="generated">Generated Letter or Form</option>
+                            <option value="other">Other</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400 mb-1">Upload File</label>
+                          <input
+                            type="file"
+                            onChange={e => setDocFile(e.target.files[0])}
+                            className="w-full text-sm text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:bg-violet-600 file:text-white hover:file:bg-violet-500 cursor-pointer"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400 mb-1">Or Enter URL</label>
+                          <input
+                            type="url"
+                            placeholder="https://..."
+                            value={docForm.url}
+                            onChange={e => setDocForm(f => ({ ...f, url: e.target.value }))}
+                            className="w-full px-3 py-2 bg-white/10 border border-white/20 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex gap-3 mt-4">
+                        <button
+                          onClick={() => { setShowDocUpload(false); setDocForm({ title: '', doc_type: 'other', url: '' }); setDocFile(null) }}
+                          className="flex-1 px-4 py-2 bg-white/10 border border-white/20 text-gray-300 rounded-xl hover:bg-white/20 transition-all"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={uploadDocument}
+                          disabled={docUploading}
+                          className="flex-1 px-4 py-2 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white rounded-xl font-medium transition-all disabled:opacity-50"
+                        >
+                          {docUploading ? 'Uploading...' : 'Upload'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {filteredDocs.length === 0 && !showDocUpload ? (
+                    documents.length === 0 ? (
+                      <div className="text-center py-16 bg-gradient-to-br from-violet-500/20 to-purple-500/20 backdrop-blur-sm rounded-xl border border-violet-500/30">
+                        <FolderOpen className="h-12 w-12 text-violet-400 mx-auto mb-4" />
+                        <h4 className="text-lg font-medium text-white mb-2">No Documents Yet</h4>
+                        <p className="text-violet-200 mb-4">Upload IDs, insurance cards, and other client documents.</p>
+                        <button onClick={() => setShowDocUpload(true)} className="px-6 py-3 bg-gradient-to-r from-violet-600 to-purple-600 text-white rounded-xl font-medium hover:scale-105 transition-all">
+                          Upload First Document
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="text-center py-12 bg-white/5 rounded-xl border border-white/10">
+                        <FolderOpen className="h-10 w-10 text-violet-400/60 mx-auto mb-3" />
+                        <p className="text-gray-400 text-sm">No documents in this category.</p>
+                        <button
+                          onClick={() => setDocVaultFilter('all')}
+                          className="mt-3 text-violet-400 hover:text-violet-300 text-xs underline transition-colors"
+                        >
+                          Show all documents
+                        </button>
+                      </div>
+                    )
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {filteredDocs.map((doc) => {
+                        const viewUrl = getDocViewUrl(doc)
+                        const docCat = deriveDocumentCategory(doc)
+                        const docCatLabel = categoryLabel(docCat)
+                        return (
+                          <div key={doc.doc_id} className="p-5 bg-gradient-to-br from-violet-500/15 to-purple-500/15 backdrop-blur-sm rounded-xl border border-violet-500/25 hover:border-violet-500/40 transition-all">
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1 min-w-0">
+                                <h4 className="font-bold text-white truncate">{doc.title}</h4>
+                                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                  <span className="px-2 py-0.5 bg-violet-500/20 text-violet-300 rounded text-xs font-medium">
+                                    {docCatLabel}
+                                  </span>
+                                  {doc.doc_type && doc.doc_type !== 'other' && (
+                                    <span className="text-xs text-gray-500 capitalize">
+                                      {doc.doc_type.replace(/_/g, ' ')}
+                                    </span>
+                                  )}
+                                </div>
+                                {doc.file_name && <p className="text-xs text-gray-400 truncate mt-1">{doc.file_name}</p>}
+                                {doc.file_size && <p className="text-xs text-gray-500">{(doc.file_size / 1024).toFixed(1)} KB</p>}
+                                <p className="text-xs text-gray-500 mt-1">{formatDate(doc.created_at)}</p>
+                              </div>
+                              <div className="flex gap-2 ml-3 shrink-0">
+                                {viewUrl && (
+                                  <button
+                                    onClick={() => doc.file_path ? openDocViewer(doc) : window.open(viewUrl, '_blank', 'noopener,noreferrer')}
+                                    className="p-2 hover:bg-violet-500/20 rounded-lg text-gray-400 hover:text-violet-300 transition-colors"
+                                    title="View"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </button>
+                                )}
+                                {viewUrl && (
+                                  <button
+                                    onClick={() => handleOpenDocument(doc)}
+                                    className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
+                                    title="Open in new tab"
+                                  >
+                                    <ExternalLink className="h-4 w-4" />
+                                  </button>
+                                )}
+                                {doc.file_path && (
+                                  <button
+                                    onClick={() => handleDownloadDocument(doc)}
+                                    className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
+                                    title="Download"
+                                  >
+                                    <Download className="h-4 w-4" />
+                                  </button>
+                                )}
                                 <button
-                                  onClick={() => doc.file_path ? openDocViewer(doc) : window.open(viewUrl, '_blank', 'noopener,noreferrer')}
-                                  className="p-2 hover:bg-violet-500/20 rounded-lg text-gray-400 hover:text-violet-300 transition-colors"
-                                  title="View"
+                                  onClick={() => deleteDocument(doc.doc_id)}
+                                  className="p-2 hover:bg-red-500/20 rounded-lg text-gray-400 hover:text-red-300 transition-colors"
+                                  title="Delete"
                                 >
-                                  <Eye className="h-4 w-4" />
+                                  <Trash2 className="h-4 w-4" />
                                 </button>
-                              )}
-                              {viewUrl && (
-                                <button
-                                  onClick={() => handleOpenDocument(doc)}
-                                  className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
-                                  title="Open in new tab"
-                                >
-                                  <ExternalLink className="h-4 w-4" />
-                                </button>
-                              )}
-                              {doc.file_path && (
-                                <button
-                                  onClick={() => handleDownloadDocument(doc)}
-                                  className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
-                                  title="Download"
-                                >
-                                  <Download className="h-4 w-4" />
-                                </button>
-                              )}
-                              <button
-                                onClick={() => deleteDocument(doc.doc_id)}
-                                className="p-2 hover:bg-red-500/20 rounded-lg text-gray-400 hover:text-red-300 transition-colors"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
