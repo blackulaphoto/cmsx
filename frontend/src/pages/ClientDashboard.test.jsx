@@ -78,6 +78,23 @@ const currentPlan = {
   aftercare_plan: { summary: 'Continue outpatient treatment after discharge', sponsor_needed: true },
 }
 
+const packetWithPendingRoi = {
+  packet: {
+    forms: [
+      {
+        form_key: 'roi',
+        category: 'Consent',
+        status: 'Needs Signature',
+      },
+      {
+        form_key: 'treatment_consent',
+        category: 'Consent',
+        status: 'Completed',
+      },
+    ],
+  },
+}
+
 const renderPage = () =>
   render(
     <MemoryRouter initialEntries={['/clients/client-1']}>
@@ -146,6 +163,9 @@ describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
       if (url.includes('/unified-view')) {
         return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
       }
+      if (url.includes('/api/admissions/packets/')) {
+        return Promise.resolve({ ok: true, json: async () => packetWithPendingRoi })
+      }
       return Promise.resolve({ ok: true, json: async () => ({ success: true }) })
     })
   })
@@ -190,6 +210,9 @@ describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
       if (url.includes('/unified-view')) {
         return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
       }
+      if (url.includes('/api/admissions/packets/')) {
+        return Promise.resolve({ ok: true, json: async () => packetWithPendingRoi })
+      }
       if (url.includes('/roi-records')) {
         return Promise.resolve({
           ok: true,
@@ -210,15 +233,19 @@ describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
     const docsTab = await screen.findByRole('button', { name: 'Documents' })
     fireEvent.click(docsTab)
 
-    expect(await screen.findByText('1 active')).toBeInTheDocument()
+    expect(await screen.findByText('Client ROI records: 3')).toBeInTheDocument()
+    expect(screen.getByText('1 active')).toBeInTheDocument()
     expect(screen.getByText('2 awaiting signature')).toBeInTheDocument()
-    expect(screen.getByText('3 total')).toBeInTheDocument()
+    expect(screen.getByText('Packet ROI pending signature: 1')).toBeInTheDocument()
   })
 
   it('counts draft roi records in the compact awaiting-signature total after the documents tab refreshes', async () => {
     apiFetch.mockImplementation((url) => {
       if (url.includes('/unified-view')) {
         return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+      }
+      if (url.includes('/api/admissions/packets/')) {
+        return Promise.resolve({ ok: true, json: async () => packetWithPendingRoi })
       }
       if (url.includes('/roi-records')) {
         return Promise.resolve({
@@ -236,8 +263,9 @@ describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
     const docsTab = await screen.findByRole('button', { name: 'Documents' })
     fireEvent.click(docsTab)
 
+    expect(await screen.findByText('Client ROI records: 1')).toBeInTheDocument()
     expect(await screen.findByText('0 active')).toBeInTheDocument()
     expect(screen.getByText('1 awaiting signature')).toBeInTheDocument()
-    expect(screen.getByText('1 total')).toBeInTheDocument()
+    expect(screen.getByText('Packet ROI pending signature: 1')).toBeInTheDocument()
   })
 })

@@ -131,6 +131,8 @@ const statusMeta = (status) =>
 const isConsentForm = (form) =>
   String(form?.category || '').toLowerCase().includes('consent')
 
+const isPacketRoiForm = (form) => deriveType(form?.form_key) === 'ROI'
+
 const isRoiDoc = (doc) =>
   String(doc?.doc_type || '').toLowerCase() === 'roi'
 
@@ -352,6 +354,16 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
         body: JSON.stringify(roiForm),
       })
       if (!res.ok) throw new Error('save failed')
+      const data = await res.json().catch(() => ({}))
+      const savedRecord = data?.roi_record
+      if (savedRecord?.roi_id) {
+        setRoiRecords((prev) => {
+          if (editingRoiId) {
+            return prev.map((record) => (record.roi_id === savedRecord.roi_id ? savedRecord : record))
+          }
+          return [savedRecord, ...prev.filter((record) => record.roi_id !== savedRecord.roi_id)]
+        })
+      }
       closeForm()
       setRecordsRefresh((n) => n + 1)
     } catch (e) {
@@ -462,6 +474,10 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
             This is a workflow tracker, not legal advice or a guarantee of HIPAA / 42 CFR Part 2
             compliance. It does not replace a signed ROI/consent document or approve any disclosure.
           </p>
+          <p className="text-xs text-emerald-300/80 mt-1">
+            Create New ROI creates an ongoing client-level release record. Admissions packet forms
+            remain separate.
+          </p>
         </div>
       </div>
     </div>
@@ -470,6 +486,9 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
   const hasPacketForms = hasPacket && forms.length > 0
   const hasRoiDocs = roiDocs.length > 0
   const hasRoiRecords = roiRecords.length > 0
+  const packetRoiPendingCount = forms.filter(
+    (form) => isPacketRoiForm(form) && String(form?.status || '') === 'Needs Signature'
+  ).length
 
   const header = (
     <div className="flex items-center gap-3 mb-2">
@@ -804,7 +823,8 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
         <div className="p-4 rounded-xl border border-white/10 bg-white/5 text-sm text-gray-400">
           No structured ROI records yet. Use “Create New ROI” to add a release of information for
           family, spouse, probation/parole, court, providers, employers, sober living, insurance,
-          or other collateral contacts.
+          or other collateral contacts. This creates and keeps the ROI inside Client ROI Records,
+          not Admissions.
         </div>
       )}
     </div>
@@ -815,7 +835,9 @@ const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
     <div>
       <div className="flex items-center justify-between gap-3 mb-3">
         <h4 className="text-lg font-semibold text-white">Packet consent forms</h4>
-        <span className="text-xs text-gray-500">From the Admissions packet</span>
+        <span className="text-xs text-gray-500">
+          From the Admissions packet{packetRoiPendingCount > 0 ? ` · ${packetRoiPendingCount} ROI pending signature` : ''}
+        </span>
       </div>
       {hasPacketForms ? (
         <div className="grid grid-cols-1 gap-4">

@@ -83,6 +83,14 @@ const getRoiSummaryStats = (records) => {
   }
 }
 
+const isConsentForm = (form) =>
+  String(form?.category || '').toLowerCase().includes('consent')
+
+const isPacketRoiForm = (form) => {
+  const key = String(form?.form_key || '').toLowerCase()
+  return key.includes('roi') || key.includes('release')
+}
+
 const buildPlanTasks = (plan) => {
   if (!plan) return []
 
@@ -184,6 +192,7 @@ const ClientDashboard = () => {
   // Lightweight ROI record summary for the Documents-tab quick link.
   // The full ROI manager lives on its own "ROI / Releases" tab.
   const [roiRecords, setRoiRecords] = useState([])
+  const [packetRoiPendingSignatureCount, setPacketRoiPendingSignatureCount] = useState(0)
   const [showDocViewer, setShowDocViewer] = useState(false)
   const [viewingDoc, setViewingDoc] = useState(null)
   const [docUploading, setDocUploading] = useState(false)
@@ -205,6 +214,7 @@ const ClientDashboard = () => {
       fetchAppointments()
       fetchDocuments()
       fetchRoiRecords()
+      fetchPacketRoiStatus()
     }
   }, [clientId])
 
@@ -629,6 +639,27 @@ const ClientDashboard = () => {
       }
     } catch (e) {
       // ROI summary is optional; the dedicated ROI / Releases tab is authoritative.
+    }
+  }
+
+  const fetchPacketRoiStatus = async () => {
+    try {
+      const res = await apiFetch(`/api/admissions/packets/${clientId}`)
+      if (!res.ok) {
+        setPacketRoiPendingSignatureCount(0)
+        return
+      }
+      const data = await res.json()
+      const packetForms = Array.isArray(data?.packet?.forms) ? data.packet.forms : []
+      const pendingCount = packetForms.filter(
+        (form) =>
+          isConsentForm(form) &&
+          isPacketRoiForm(form) &&
+          String(form?.status || '') === 'Needs Signature'
+      ).length
+      setPacketRoiPendingSignatureCount(pendingCount)
+    } catch (e) {
+      setPacketRoiPendingSignatureCount(0)
     }
   }
 
@@ -2116,11 +2147,14 @@ const ClientDashboard = () => {
                     <div className="min-w-0">
                       <h3 className="text-lg font-bold text-white">ROI / Releases</h3>
                       <p className="text-xs text-gray-400">
-                        Releases of information are managed on their own page, separate from the
-                        general document vault.
+                        Client ROI records are managed on their own page, separate from the
+                        Admissions packet and the general document vault.
                       </p>
                       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs">
                         <span className="text-emerald-300">
+                          Client ROI records: {roiSummary.total}
+                        </span>
+                        <span className="text-emerald-200">
                           {roiSummary.active} active
                         </span>
                         <span className="text-amber-300">
@@ -2129,7 +2163,9 @@ const ClientDashboard = () => {
                         <span className="text-red-300">
                           {roiSummary.revoked} revoked
                         </span>
-                        <span className="text-gray-400">{roiSummary.total} total</span>
+                        <span className="text-sky-300">
+                          Packet ROI pending signature: {packetRoiPendingSignatureCount}
+                        </span>
                       </div>
                     </div>
                   </div>
