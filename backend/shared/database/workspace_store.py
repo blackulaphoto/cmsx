@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from backend.shared.db_path import DB_DIR
 from backend.shared.tenancy import DEFAULT_ORG_ID
 
 logger = logging.getLogger(__name__)
@@ -43,12 +44,23 @@ class WorkspaceStore:
     """Persist lightweight notes, tasks, and dashboard content in SQLite."""
 
     def __init__(self) -> None:
-        project_root = Path(__file__).resolve().parents[3]
-        self.db_path = project_root / "databases" / "workspace_content.db"
+        # Resolve from the central DB_DIR so production persists on the Railway
+        # volume (RAILWAY_VOLUME_MOUNT_PATH -> /mnt/data/databases) and the SaaS
+        # harness/tests honor CMSX_DB_DIR — exactly like every other store.
+        #
+        # Previously this hardcoded a repo-relative path (project_root/databases).
+        # That path is both ephemeral on Railway AND a git-tracked file, so every
+        # deploy/restart overwrote runtime data (client ROI records, notes, tasks,
+        # documents, etc.) with the stale committed snapshot — the cause of newly
+        # created ROI records disappearing on refresh.
+        self.db_path = DB_DIR / "workspace_content.db"
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
+        # Ensure the parent dir exists for whatever db_path is currently set
+        # (volume path in prod, tmp dir under tests), mirroring the other stores.
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
