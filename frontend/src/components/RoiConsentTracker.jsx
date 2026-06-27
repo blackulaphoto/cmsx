@@ -161,7 +161,7 @@ const EMPTY_ROI_FORM = {
   revocable: true,
 }
 
-const RoiConsentTracker = ({ clientId }) => {
+const RoiConsentTracker = ({ clientId, onRoiRecordsChange }) => {
   const [forms, setForms] = useState([])
   const [sharedProfile, setSharedProfile] = useState({})
   const [loading, setLoading] = useState(true)
@@ -272,6 +272,12 @@ const RoiConsentTracker = ({ clientId }) => {
       cancelled = true
     }
   }, [clientId, recordsRefresh])
+
+  useEffect(() => {
+    if (typeof onRoiRecordsChange === 'function') {
+      onRoiRecordsChange(roiRecords)
+    }
+  }, [onRoiRecordsChange, roiRecords])
 
   const docViewUrl = (doc) => {
     if (doc?.file_path) return `/api/clients/${clientId}/documents/${doc.doc_id}/view`

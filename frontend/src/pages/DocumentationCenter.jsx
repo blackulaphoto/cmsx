@@ -265,6 +265,21 @@ const toClientDocType = (selectedTemplate, noteType) =>
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '') || 'other'
 
+const buildGenerationContext = ({ selectedTemplate, selectedClient, requestedOutputMode, briefText, source }) => ({
+  template_id: selectedTemplate?.id || '',
+  template_label: selectedTemplate?.label || '',
+  template_category: selectedTemplate?.category || '',
+  template_mode: selectedTemplate?.mode || '',
+  template_note_type: selectedTemplate?.noteType || '',
+  template_note_kind: selectedTemplate?.noteKind || '',
+  requested_output_mode: requestedOutputMode,
+  linked_client_id: selectedClient?.client_id || '',
+  case_manager_brief: briefText,
+  observations: `Template: ${selectedTemplate?.label || 'No template selected'}. Template mode: ${selectedTemplate?.mode || 'unknown'}. Requested output mode: ${requestedOutputMode}. Source: ${source}.`,
+  next_steps: '',
+  direct_quotes: [],
+})
+
 function DocumentationCenter() {
   const [mode, setMode] = useState('note')
   const [inputMode, setInputMode] = useState('type')
@@ -423,6 +438,22 @@ function DocumentationCenter() {
   const buildClientLabel = () =>
     selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : ''
 
+  const buildGenerationRequest = ({ briefText, source }) => ({
+    module: source === 'dictated transcript' ? 'documentation_center_voice' : 'documentation_center',
+    note_kind: selectedTemplate?.noteKind,
+    client_id: selectedClient?.client_id || undefined,
+    client_name: selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : undefined,
+    user_prompt: briefText,
+    current_text: selectedTemplate?.body || '',
+    context: buildGenerationContext({
+      selectedTemplate,
+      selectedClient,
+      requestedOutputMode: mode,
+      briefText,
+      source,
+    }),
+  })
+
   const insertTranscriptIntoBrief = (transcript) => {
     setRoughNotes(transcript)
     setInputMode('type')
@@ -470,21 +501,7 @@ function DocumentationCenter() {
       const response = await apiFetch('/api/ai-documentation/note-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          module: 'documentation_center_voice',
-          note_kind: selectedTemplate.noteKind,
-          client_id: selectedClient?.client_id || undefined,
-          client_name: selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : undefined,
-          user_prompt: transcript,
-          current_text: selectedTemplate.body,
-          context: {
-            template_label: selectedTemplate.label,
-            template_category: selectedTemplate.category,
-            observations: `Template: ${selectedTemplate.label}. Mode: ${mode}. Source: dictated transcript.`,
-            next_steps: '',
-            direct_quotes: [],
-          },
-        }),
+        body: JSON.stringify(buildGenerationRequest({ briefText: transcript, source: 'dictated transcript' })),
       })
 
       const data = await response.json().catch(() => ({}))
@@ -596,21 +613,7 @@ function DocumentationCenter() {
       const response = await apiFetch('/api/ai-documentation/note-draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          module: 'documentation_center',
-          note_kind: selectedTemplate.noteKind,
-          client_id: selectedClient?.client_id || undefined,
-          client_name: selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : undefined,
-          user_prompt: roughNotes,
-          current_text: selectedTemplate.body,
-          context: {
-            template_label: selectedTemplate.label,
-            template_category: selectedTemplate.category,
-            observations: `Template: ${selectedTemplate.label}. Mode: ${mode}.`,
-            next_steps: '',
-            direct_quotes: [],
-          },
-        }),
+        body: JSON.stringify(buildGenerationRequest({ briefText: roughNotes, source: 'case manager brief' })),
       })
 
       if (!response.ok) {

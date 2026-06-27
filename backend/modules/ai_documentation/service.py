@@ -675,6 +675,38 @@ class DocumentationAIService:
                 return self.template_library_text[idx: idx + 3500]
         return self.template_library_text[:2500]
 
+    @staticmethod
+    def _build_template_guardrails(note_kind: str, context: Dict[str, Any]) -> List[str]:
+        template_label = str((context or {}).get("template_label") or note_kind.replace("_", " ").title()).strip()
+        requested_output_mode = str((context or {}).get("requested_output_mode") or "").strip() or "note"
+        guardrails = [
+            f"Selected template label: {template_label}.",
+            f"Requested output mode: {requested_output_mode}.",
+        ]
+
+        if note_kind == "treatment_plan":
+            guardrails.extend(
+                [
+                    "Produce a treatment plan review structure with problem, goal, objective, plan, and review details.",
+                    "Treatment-plan language is allowed because the selected template is treatment-plan based.",
+                ]
+            )
+            return guardrails
+
+        if note_kind in {"progress_note", "initial_note"}:
+            guardrails.extend(
+                [
+                    "Keep the output in case-management note structure only.",
+                    "Do not introduce treatment-plan headings such as 'Problem 1', 'Objective', 'Frequency/Duration', 'Status: open', or 'Outcome: in progress' unless they already exist in the selected template body.",
+                ]
+            )
+            return guardrails
+
+        guardrails.append(
+            "Do not switch formats. Stay inside the structure and heading style of the selected template."
+        )
+        return guardrails
+
     def _infer_note_kind_from_query(self, query: str) -> str:
         lowered = (query or "").lower()
         for note_kind, hints in TEMPLATE_QUERY_HINTS.items():
@@ -1586,6 +1618,7 @@ class DocumentationAIService:
         note_kind = payload.get("note_kind", "progress_note")
         template_label = (payload.get("context") or {}).get("template_label", note_kind.replace("_", " ").title())
         template_category = (payload.get("context") or {}).get("template_category", "")
+        template_guardrails = self._build_template_guardrails(note_kind, payload.get("context") or {})
         current_date = datetime.now().strftime("%B %d, %Y")
         reference_guidance_context = self._get_reference_library_context(
             query=user_prompt or payload.get("current_text") or note_kind,
@@ -1748,6 +1781,9 @@ class DocumentationAIService:
             "- If a client quote is available, use the exact quote. If not, write a complete sentence stating that no direct quote was documented",
             "- Use professional case management language matching the template style",
             "- Make it comprehensive so the case manager only needs to verify facts, dates, and any quote wording",
+            "",
+            "TEMPLATE GUARDRAILS:",
+            *[f"- {instruction}" for instruction in template_guardrails],
             "",
             "Return ONLY the formatted note - no explanations, no meta-commentary.",
         ]

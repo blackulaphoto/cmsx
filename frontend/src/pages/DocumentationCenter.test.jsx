@@ -40,6 +40,154 @@ beforeEach(() => {
 })
 
 describe('DocumentationCenter client-linked saves', () => {
+  it('sends weekly note template metadata, requested mode, brief text, and linked client context when generating', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url === '/api/dashboard/docs') {
+        return Promise.resolve({ ok: true, json: async () => ({ docs: [] }) })
+      }
+      if (url === '/api/ai-documentation/templates') {
+        return Promise.resolve({ ok: true, json: async () => ({ templates: [] }) })
+      }
+      if (url === '/api/ai-documentation/brand-resources') {
+        return Promise.resolve({ ok: true, json: async () => ({ resources: [] }) })
+      }
+      if (url === '/api/case-management/notes/list/client-1') {
+        return Promise.resolve({ ok: true, json: async () => ({ notes: [] }) })
+      }
+      if (url === '/api/clients/client-1/documents') {
+        return Promise.resolve({ ok: true, json: async () => ({ documents: [] }) })
+      }
+      if (url === '/api/ai-documentation/note-draft') {
+        return Promise.resolve({ ok: true, json: async () => ({ draft: 'Generated weekly note' }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+
+    renderPage()
+
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly CM Note/i }))
+    fireEvent.change(screen.getByPlaceholderText(/Select a template, then type your rough notes here|Example:/i), {
+      target: { value: 'Client needs dental care and probation follow-up this week.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Generate Draft/i }))
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/ai-documentation/note-draft',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    })
+
+    const [, options] = apiFetch.mock.calls.find(([url]) => url === '/api/ai-documentation/note-draft')
+    const payload = JSON.parse(options.body)
+    expect(payload.note_kind).toBe('progress_note')
+    expect(payload.user_prompt).toContain('dental care')
+    expect(payload.client_id).toBe('client-1')
+    expect(payload.context.template_label).toBe('Weekly CM Note')
+    expect(payload.context.template_mode).toBe('note')
+    expect(payload.context.requested_output_mode).toBe('note')
+    expect(payload.context.case_manager_brief).toContain('probation follow-up')
+    expect(payload.context.linked_client_id).toBe('client-1')
+  })
+
+  it('keeps treatment plan review generation explicitly treatment-plan scoped', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url === '/api/dashboard/docs') {
+        return Promise.resolve({ ok: true, json: async () => ({ docs: [] }) })
+      }
+      if (url === '/api/ai-documentation/templates') {
+        return Promise.resolve({ ok: true, json: async () => ({ templates: [] }) })
+      }
+      if (url === '/api/ai-documentation/brand-resources') {
+        return Promise.resolve({ ok: true, json: async () => ({ resources: [] }) })
+      }
+      if (url === '/api/case-management/notes/list/client-1') {
+        return Promise.resolve({ ok: true, json: async () => ({ notes: [] }) })
+      }
+      if (url === '/api/clients/client-1/documents') {
+        return Promise.resolve({ ok: true, json: async () => ({ documents: [] }) })
+      }
+      if (url === '/api/ai-documentation/note-draft') {
+        return Promise.resolve({ ok: true, json: async () => ({ draft: 'Generated treatment plan review' }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+
+    renderPage()
+
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Treatment Plan Review/i }))
+    fireEvent.change(screen.getByPlaceholderText(/Select a template, then type your rough notes here|Example:/i), {
+      target: { value: 'Client needs a 30-day treatment plan review.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Generate Draft/i }))
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith('/api/ai-documentation/note-draft', expect.anything())
+    })
+
+    const [, options] = apiFetch.mock.calls.find(([url]) => url === '/api/ai-documentation/note-draft')
+    const payload = JSON.parse(options.body)
+    expect(payload.note_kind).toBe('treatment_plan')
+    expect(payload.context.template_label).toBe('Treatment Plan Review')
+    expect(payload.context.requested_output_mode).toBe('document')
+  })
+
+  it('saves client-linked notes to the selected client note library instead of dashboard docs', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url === '/api/dashboard/docs') {
+        return Promise.resolve({ ok: true, json: async () => ({ docs: [] }) })
+      }
+      if (url === '/api/ai-documentation/templates') {
+        return Promise.resolve({ ok: true, json: async () => ({ templates: [] }) })
+      }
+      if (url === '/api/ai-documentation/brand-resources') {
+        return Promise.resolve({ ok: true, json: async () => ({ resources: [] }) })
+      }
+      if (url === '/api/case-management/notes/list/client-1') {
+        return Promise.resolve({ ok: true, json: async () => ({ notes: [] }) })
+      }
+      if (url === '/api/clients/client-1/documents') {
+        return Promise.resolve({ ok: true, json: async () => ({ documents: [] }) })
+      }
+      if (url === '/api/case-management/notes/add/client-1') {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, note_id: 'note-1' }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) })
+    })
+
+    renderPage()
+
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly CM Note/i }))
+    fireEvent.change(screen.getByPlaceholderText('Enter a strong document title'), {
+      target: { value: 'Weekly CM Note for QA Client' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
+      target: { value: 'Weekly case management note body' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Save Note/i }))
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/case-management/notes/add/client-1',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    })
+
+    const dashboardPostCall = apiFetch.mock.calls.find(([url, options]) =>
+      url === '/api/dashboard/docs' && options?.method === 'POST'
+    )
+    expect(dashboardPostCall).toBeUndefined()
+  })
+
   it('shows the treatment plan handoff and opens the structured plan for the selected client', async () => {
     apiFetch.mockImplementation((url) => {
       if (url === '/api/dashboard/docs') {

@@ -56,6 +56,32 @@ class DocumentationAIServiceTests(unittest.TestCase):
         self.assertIn("CLIENT CONTEXT:", result)
         self.assertIn("NEXT STEP:", result)
 
+    def test_template_guardrails_keep_weekly_note_out_of_treatment_plan_format(self):
+        guardrails = self.service._build_template_guardrails(
+            "progress_note",
+            {
+                "template_label": "Weekly CM Note",
+                "requested_output_mode": "note",
+            },
+        )
+
+        self.assertIn("Keep the output in case-management note structure only.", guardrails)
+        self.assertTrue(any("Problem 1" in item for item in guardrails))
+
+    def test_template_guardrails_allow_treatment_plan_review_structure(self):
+        guardrails = self.service._build_template_guardrails(
+            "treatment_plan",
+            {
+                "template_label": "Treatment Plan Review",
+                "requested_output_mode": "document",
+            },
+        )
+
+        self.assertIn(
+            "Produce a treatment plan review structure with problem, goal, objective, plan, and review details.",
+            guardrails,
+        )
+
     def test_fallback_handles_null_client_database_fields(self):
         self.service._get_comprehensive_client_data = lambda _client_id: {
             "case_management": {
