@@ -432,6 +432,178 @@ describe('DocumentationCenter client-linked saves', () => {
   })
 })
 
+describe('DocumentationCenter propagation to Client Documents vault', () => {
+  const makeDocRoute = (extraRoutes = {}) => (url, options) => {
+    if (url === '/api/dashboard/docs') return Promise.resolve({ ok: true, json: async () => ({ docs: [] }) })
+    if (url === '/api/ai-documentation/templates') return Promise.resolve({ ok: true, json: async () => ({ templates: fileTemplates }) })
+    if (url === '/api/ai-documentation/brand-resources') return Promise.resolve({ ok: true, json: async () => ({ resources: [] }) })
+    if (url === '/api/case-management/notes/list/client-1') return Promise.resolve({ ok: true, json: async () => ({ notes: [] }) })
+    if (url === '/api/clients/client-1/documents') return Promise.resolve({ ok: true, json: async () => ({ documents: [] }) })
+    if (url in extraRoutes) return Promise.resolve(extraRoutes[url])
+    return Promise.resolve({ ok: true, json: async () => ({}) })
+  }
+
+  it('saves a completion letter to client_documents with doc_type completion_letter', async () => {
+    apiFetch.mockImplementation(makeDocRoute({
+      '/api/clients/client-1/documents': { ok: true, json: async () => ({ documents: [] }) },
+    }))
+
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Completion Letter Template/i }))
+    fireEvent.change(screen.getByPlaceholderText('Enter a strong document title'), {
+      target: { value: 'Completion Letter - QA TestClient-Eval' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
+      target: { value: 'This client has successfully completed the program.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Save Document/i }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/clients/client-1/documents',
+        expect.objectContaining({ method: 'POST', body: expect.any(FormData) }),
+      ),
+    )
+
+    const [, opts] = apiFetch.mock.calls.find(
+      ([u, o]) => u === '/api/clients/client-1/documents' && o?.method === 'POST',
+    )
+    expect(opts.body.get('doc_type')).toBe('completion_letter')
+    expect(opts.body.get('title')).toBe('Completion Letter - QA TestClient-Eval')
+    expect(opts.body.get('file')).toBeInstanceOf(File)
+  })
+
+  it('shows "Saved to Client Documents." after a successful document-mode save', async () => {
+    apiFetch.mockImplementation(makeDocRoute())
+
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Treatment Plan Review/i }))
+    fireEvent.change(screen.getByPlaceholderText('Enter a strong document title'), {
+      target: { value: 'TP Review - Client' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
+      target: { value: 'Treatment plan review narrative.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Save Document/i }))
+
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Saved to Client Documents.'),
+    )
+  })
+
+  it('routes Group Note to client notes, not client_documents', async () => {
+    apiFetch.mockImplementation(makeDocRoute({
+      '/api/case-management/notes/add/client-1': { ok: true, json: async () => ({ success: true, note_id: 'n-1' }) },
+    }))
+
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Group Note/i }))
+    fireEvent.change(screen.getByPlaceholderText('Enter a strong document title'), {
+      target: { value: 'Group Note Session 1' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
+      target: { value: 'Client attended group and participated actively.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Save Note/i }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/case-management/notes/add/client-1',
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    )
+    const clientDocPost = apiFetch.mock.calls.find(
+      ([u, o]) => u === '/api/clients/client-1/documents' && o?.method === 'POST',
+    )
+    expect(clientDocPost).toBeUndefined()
+  })
+
+  it('routes Initial CM Note to client notes, not client_documents', async () => {
+    apiFetch.mockImplementation(makeDocRoute({
+      '/api/case-management/notes/add/client-1': { ok: true, json: async () => ({ success: true, note_id: 'n-2' }) },
+    }))
+
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Initial CM Note/i }))
+    fireEvent.change(screen.getByPlaceholderText('Enter a strong document title'), {
+      target: { value: 'Initial CM Note - Week 1' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
+      target: { value: 'Initial assessment completed.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Save Note/i }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/case-management/notes/add/client-1',
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    )
+    const clientDocPost = apiFetch.mock.calls.find(
+      ([u, o]) => u === '/api/clients/client-1/documents' && o?.method === 'POST',
+    )
+    expect(clientDocPost).toBeUndefined()
+  })
+
+  it('routes LOC Transition Note to client notes, not client_documents', async () => {
+    apiFetch.mockImplementation(makeDocRoute({
+      '/api/case-management/notes/add/client-1': { ok: true, json: async () => ({ success: true, note_id: 'n-3' }) },
+    }))
+
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /LOC Transition Note/i }))
+    fireEvent.change(screen.getByPlaceholderText('Enter a strong document title'), {
+      target: { value: 'LOC Transition - Step Down' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
+      target: { value: 'Client transitioning from RTC to IOP.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Save Note/i }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/case-management/notes/add/client-1',
+        expect.objectContaining({ method: 'POST' }),
+      ),
+    )
+    const clientDocPost = apiFetch.mock.calls.find(
+      ([u, o]) => u === '/api/clients/client-1/documents' && o?.method === 'POST',
+    )
+    expect(clientDocPost).toBeUndefined()
+  })
+
+  it('saves discharge summary to client_documents with doc_type discharge_summary', async () => {
+    apiFetch.mockImplementation(makeDocRoute())
+
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Discharge Summary/i }))
+    fireEvent.change(screen.getByPlaceholderText('Enter a strong document title'), {
+      target: { value: 'Discharge Summary - QA Client' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
+      target: { value: 'Client successfully completed 30 days of residential treatment.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Save Document/i }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/clients/client-1/documents',
+        expect.objectContaining({ method: 'POST', body: expect.any(FormData) }),
+      ),
+    )
+    const [, opts] = apiFetch.mock.calls.find(
+      ([u, o]) => u === '/api/clients/client-1/documents' && o?.method === 'POST',
+    )
+    expect(opts.body.get('doc_type')).toBe('discharge_summary')
+  })
+})
+
 describe('DocumentationCenter authenticated client document view', () => {
   const CLIENT_DOC = {
     doc_id: 'doc-1',
