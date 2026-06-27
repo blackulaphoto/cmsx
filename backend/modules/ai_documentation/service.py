@@ -128,18 +128,16 @@ TEMPLATE_QUALITY_ANCHORS = {
         r"residing at this address|residence address",
     ],
     "Initial CM Note": [
-        r"^goal:",
-        r"^intervention:",
-        r"^response:",
-        r"^medical:",
-        r"^plan:",
+        r"initial cm note",
+        r"^summary:",
+        r"^client statement:",
+        r"^next step:",
     ],
     "Weekly CM Note": [
-        r"^goal:",
-        r"^intervention:",
-        r"^response:",
-        r"discharge from treatment",
-        r"^plan:",
+        r"weekly cm note",
+        r"^summary:",
+        r"^client statement:",
+        r"^next step:",
     ],
     "Treatment Plan Review": [
         r"treatment plan review",
@@ -186,14 +184,23 @@ TEMPLATE_QUALITY_ANCHORS = {
 }
 
 NOTE_KIND_QUALITY_ANCHORS = {
-    "progress_note": TEMPLATE_QUALITY_ANCHORS["Weekly CM Note"],
-    "initial_note": TEMPLATE_QUALITY_ANCHORS["Initial CM Note"],
+    "progress_note": [r"summary:", r"next step:"],
+    "initial_note": [r"summary:", r"next step:"],
     "group_note": TEMPLATE_QUALITY_ANCHORS["Group Note"],
     "treatment_plan": TEMPLATE_QUALITY_ANCHORS["Treatment Plan Review"],
     "referral_summary": TEMPLATE_QUALITY_ANCHORS["Referral Summary"],
     "discharge_summary": TEMPLATE_QUALITY_ANCHORS["Discharge Summary"],
     "fmla_correspondence": TEMPLATE_QUALITY_ANCHORS["FMLA Correspondence"],
 }
+
+PLACEHOLDER_STAFF_SIGNATURE_TERMS = (
+    "Case Manager Name",
+    "CADC, LCSW",
+    "License #12345",
+    "License number on file",
+    "cm@facility.org",
+    "(555) 123-4567",
+)
 
 DATA_PLACEHOLDER_WARNINGS = {
     "CLIENT DOB": "Client date of birth is missing.",
@@ -676,6 +683,103 @@ class DocumentationAIService:
         return self.template_library_text[:2500]
 
     @staticmethod
+    def _is_treatment_plan_template(note_kind: str, context: Dict[str, Any]) -> bool:
+        template_label = str((context or {}).get("template_label") or "").strip().lower()
+        return note_kind == "treatment_plan" or template_label == "treatment plan review"
+
+    @classmethod
+    def _is_evidence_bound_template(cls, note_kind: str, context: Dict[str, Any]) -> bool:
+        return not cls._is_treatment_plan_template(note_kind, context)
+
+    @staticmethod
+    def _extract_brief_sentences(text: str) -> List[str]:
+        normalized = re.sub(r"\s+", " ", (text or "")).strip()
+        if not normalized:
+            return []
+        return [segment.strip() for segment in re.split(r"(?<=[.!?])\s+", normalized) if segment.strip()]
+
+    @staticmethod
+    def _extract_direct_quote(text: str) -> str:
+        match = re.search(r'"([^"]+)"', text or "")
+        return match.group(1).strip() if match else ""
+
+    @classmethod
+    def _strip_placeholder_staff_signature(cls, text: str) -> str:
+        lines = []
+        for raw_line in (text or "").splitlines():
+            line = raw_line.strip()
+            if line and any(term.lower() in line.lower() for term in PLACEHOLDER_STAFF_SIGNATURE_TERMS):
+                continue
+            lines.append(raw_line)
+        return "\n".join(lines).strip()
+
+    @classmethod
+    def _build_evidence_bound_template_fallback(
+        cls,
+        payload: Dict[str, Any],
+        current_text: str,
+    ) -> str:
+        context = payload.get("context") or {}
+        note_kind = payload.get("note_kind", "progress_note")
+        template_label = context.get("template_label") or note_kind.replace("_", " ").title()
+        brief_text = (context.get("case_manager_brief") or payload.get("user_prompt") or "").strip()
+        sentences = cls._extract_brief_sentences(brief_text)
+        quote = cls._extract_direct_quote(brief_text)
+        next_steps = [
+            sentence
+            for sentence in sentences
+            if re.search(r"\b(cm will|case manager will|follow up|follow-up|next step|will contact|will call|will request)\b", sentence, flags=re.IGNORECASE)
+        ]
+        summary_sentences = [sentence for sentence in sentences if sentence not in next_steps]
+        no_info = "No additional information was provided."
+        no_quote = "No direct client quote was documented."
+
+        if note_kind == "group_note":
+            output = [
+                template_label.upper(),
+                "",
+                "GROUP TOPIC:",
+                summary_sentences[0] if summary_sentences else no_info,
+                "",
+                "CLIENT RESPONSE:",
+                quote if quote else (summary_sentences[1] if len(summary_sentences) > 1 else no_info),
+                "",
+                "NEXT STEP:",
+                " ".join(next_steps) if next_steps else no_info,
+            ]
+            return "\n".join(output).strip()
+
+        if note_kind == "referral_summary":
+            output = [
+                template_label.upper(),
+                "",
+                "SUMMARY:",
+                " ".join(summary_sentences) if summary_sentences else no_info,
+                "",
+                "CLIENT STATEMENT:",
+                quote if quote else no_quote,
+                "",
+                "NEXT STEP:",
+                " ".join(next_steps) if next_steps else no_info,
+            ]
+            return "\n".join(output).strip()
+
+        title = template_label.upper()
+        output = [
+            title,
+            "",
+            "SUMMARY:",
+            " ".join(summary_sentences) if summary_sentences else (brief_text or no_info),
+            "",
+            "CLIENT STATEMENT:",
+            quote if quote else no_quote,
+            "",
+            "NEXT STEP:",
+            " ".join(next_steps) if next_steps else no_info,
+        ]
+        return "\n".join(output).strip()
+
+    @staticmethod
     def _build_template_guardrails(note_kind: str, context: Dict[str, Any]) -> List[str]:
         template_label = str((context or {}).get("template_label") or note_kind.replace("_", " ").title()).strip()
         requested_output_mode = str((context or {}).get("requested_output_mode") or "").strip() or "note"
@@ -696,8 +800,11 @@ class DocumentationAIService:
         if note_kind in {"progress_note", "initial_note"}:
             guardrails.extend(
                 [
-                    "Keep the output in case-management note structure only.",
-                    "Do not introduce treatment-plan headings such as 'Problem 1', 'Objective', 'Frequency/Duration', 'Status: open', or 'Outcome: in progress' unless they already exist in the selected template body.",
+                    "Keep the output in concise case-management note structure only.",
+                    "Use only facts from the case manager brief as the substantive source of truth.",
+                    "Do not introduce treatment-plan headings such as 'Problem 1', 'Objective', 'Frequency/Duration', 'Status: open', or 'Outcome: in progress'.",
+                    "Do not add 12-step, sponsor, medication compliance, aftercare, discharge planning, treatment plan goals, or other generic filler unless the brief explicitly states them.",
+                    "Do not add signature lines, credentials, license placeholders, or staff contact placeholders unless verified values were explicitly provided.",
                 ]
             )
             return guardrails
@@ -705,6 +812,8 @@ class DocumentationAIService:
         guardrails.append(
             "Do not switch formats. Stay inside the structure and heading style of the selected template."
         )
+        guardrails.append("Use only facts from the case manager brief as the substantive source of truth.")
+        guardrails.append("Do not invent services, referrals, medication issues, aftercare plans, treatment goals, attendance, risk, or symptoms that were not documented.")
         return guardrails
 
     def _infer_note_kind_from_query(self, query: str) -> str:
@@ -932,6 +1041,10 @@ class DocumentationAIService:
             return ""
 
         context = payload.get("context") or {}
+        note_kind = payload.get("note_kind", "progress_note")
+        if self._is_evidence_bound_template(note_kind, context):
+            return self._build_evidence_bound_template_fallback(payload, current_text)
+
         template_label = context.get("template_label") or payload.get("note_kind", "Documentation").replace("_", " ").title()
         current_date = datetime.now().strftime("%B %d, %Y")
         draft = current_text.strip()
@@ -958,7 +1071,7 @@ class DocumentationAIService:
             draft = f"{draft}\n\n{context_block}"
 
         header = f"Template: {template_label}\nDate generated: {current_date}\n\n"
-        return f"{header}{draft}".strip()
+        return self._strip_placeholder_staff_signature(f"{header}{draft}".strip())
 
     def _build_fallback_draft(self, payload: Dict[str, Any], recent_notes: List[Dict[str, Any]]) -> str:
         """Build a complete template-style draft using bracket placeholders and real client data."""
@@ -971,6 +1084,9 @@ class DocumentationAIService:
             return selected_template_draft
 
         context = payload.get("context") or {}
+        if self._is_evidence_bound_template(note_kind, context):
+            return self._strip_placeholder_staff_signature(selected_template_draft or self._build_evidence_bound_template_fallback(payload, current_text))
+
         direct_quotes = context.get("direct_quotes") or []
         observations = context.get("observations") or ""
         client_name = payload.get("client_name") or "[CT NAME]"
@@ -1162,7 +1278,9 @@ class DocumentationAIService:
 
         draft = "\n".join(output).strip()
         # Auto-fill all placeholders with real data
-        return self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
+        return self._strip_placeholder_staff_signature(
+            self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
+        )
 
     def _build_suggested_tasks(self, payload: Dict[str, Any], draft: str, review: Dict[str, Any]) -> List[Dict[str, Any]]:
         due_date = (datetime.now() + timedelta(days=3)).date().isoformat()
@@ -1250,16 +1368,22 @@ class DocumentationAIService:
             for placeholder in unresolved_placeholders
             if any(term in placeholder.upper() for term in QUOTE_PLACEHOLDER_TERMS)
         ]
+        placeholder_staff_signature = [
+            term
+            for term in PLACEHOLDER_STAFF_SIGNATURE_TERMS
+            if term.lower() in (text or "").lower()
+        ]
 
         score = 100
         score -= len(missing_anchors) * 12
         score -= len(unresolved_placeholders) * 10
         score -= len(data_warnings) * 4
+        score -= len(placeholder_staff_signature) * 8
         score = max(0, min(100, score))
 
         if missing_anchors or len(unresolved_placeholders) >= 3 or score < 70:
             status = "needs_revision"
-        elif data_warnings or unresolved_placeholders or score < 90:
+        elif data_warnings or unresolved_placeholders or placeholder_staff_signature or score < 90:
             status = "needs_review"
         else:
             status = "pass"
@@ -1271,6 +1395,8 @@ class DocumentationAIService:
             warnings.append("Draft still contains unresolved placeholders that need review.")
         if quote_placeholders:
             warnings.append("Draft still needs case-manager quote verification.")
+        if placeholder_staff_signature:
+            warnings.append("Draft still contains placeholder staff signature or credential text.")
         warnings.extend(data_warnings)
 
         return {
@@ -1280,6 +1406,7 @@ class DocumentationAIService:
             "missing_template_anchors": missing_anchors,
             "unresolved_placeholders": unresolved_placeholders,
             "quote_placeholders": quote_placeholders,
+            "placeholder_staff_signature": placeholder_staff_signature,
             "data_warnings": data_warnings,
             "warnings": warnings,
         }
@@ -1616,9 +1743,11 @@ class DocumentationAIService:
         user_prompt = (payload.get("user_prompt") or "").strip()
         client_name = payload.get("client_name") or "[Client Name]"
         note_kind = payload.get("note_kind", "progress_note")
-        template_label = (payload.get("context") or {}).get("template_label", note_kind.replace("_", " ").title())
-        template_category = (payload.get("context") or {}).get("template_category", "")
-        template_guardrails = self._build_template_guardrails(note_kind, payload.get("context") or {})
+        template_context = payload.get("context") or {}
+        template_label = template_context.get("template_label", note_kind.replace("_", " ").title())
+        template_category = template_context.get("template_category", "")
+        evidence_bound = self._is_evidence_bound_template(note_kind, template_context)
+        template_guardrails = self._build_template_guardrails(note_kind, template_context)
         current_date = datetime.now().strftime("%B %d, %Y")
         reference_guidance_context = self._get_reference_library_context(
             query=user_prompt or payload.get("current_text") or note_kind,
@@ -1683,8 +1812,17 @@ class DocumentationAIService:
         else:
             client_context_parts.append(f"CLIENT: {client_name} (limited data available)")
 
+        if evidence_bound and (core_data or case_mgmt_data):
+            full_name = intake_context["full_name"] or client_name
+            client_context_parts = [
+                "CLIENT PROFILE (from database):",
+                f"- Name: {full_name}",
+                f"- Record number: {intake_context['client_record_number']}",
+                "- Use client profile for identity only. Do not introduce extra services, symptoms, diagnoses, goals, plans, or history unless they are explicitly supported by the case manager brief or form data.",
+            ]
+
         # Add recent notes context
-        if recent_case_notes:
+        if recent_case_notes and not evidence_bound:
             client_context_parts.append("")
             client_context_parts.append("RECENT CASE NOTES (for continuity):")
             for note in recent_case_notes[:3]:
@@ -1747,6 +1885,7 @@ class DocumentationAIService:
             "8. Write full narrative paragraphs using ONLY documented facts",
             "9. Follow the EXACT structure and formatting from the selected template",
             "10. Follow organization-specific guidance materials when they are provided below",
+            "11. For evidence-bound case-management notes, use the case manager brief as the primary evidence source and keep unsupported details out of the draft",
             "",
             f"SELECTED TEMPLATE: {template_label}",
             f"TEMPLATE CATEGORY: {template_category}",
@@ -1773,14 +1912,15 @@ class DocumentationAIService:
             "- Copy the SELECTED TEMPLATE format EXACTLY as shown above",
             "- Do NOT switch to a treatment plan or CM note format unless the selected template is actually that format",
             "- Fill fields using INTAKE FORM DATA first, then CLIENT PROFILE data as supplement",
+            "- Use the client profile for identity only unless the case manager brief or form data explicitly supports additional facts",
             "- For RESPONSE section: ONLY use demographics and history that are explicitly in the provided data — never assume race, age, gender, or background",
             "- If strengths/weaknesses/reason for treatment/discharge plans are provided, include them as direct CT quotes using 'CT stated'",
             "- If a data point is not documented, write 'not documented' rather than inventing a plausible value",
             "- If case manager provided session notes, incorporate them into the narrative",
-            "- If no session notes provided, use recent case notes or intake form data to write the note",
-            "- If a client quote is available, use the exact quote. If not, write a complete sentence stating that no direct quote was documented",
+            "- If no session notes were provided, write only what the template and provided data support. Use 'No additional information was provided.' where needed instead of inventing filler",
+            "- If a client quote is available, use the exact quote. If not, write a complete sentence stating that no direct client quote was documented",
             "- Use professional case management language matching the template style",
-            "- Make it comprehensive so the case manager only needs to verify facts, dates, and any quote wording",
+            "- Make it documentation-ready without generic clinical filler, canned treatment-plan language, or placeholder signature blocks",
             "",
             "TEMPLATE GUARDRAILS:",
             *[f"- {instruction}" for instruction in template_guardrails],
@@ -1800,6 +1940,8 @@ class DocumentationAIService:
             draft = (response.choices[0].message.content or "").strip() or fallback_draft
             # Auto-fill all remaining placeholders with real client data
             draft = self._auto_fill_placeholders(draft, payload.get("client_id"), payload.get("client_name"))
+            if evidence_bound:
+                draft = self._strip_placeholder_staff_signature(draft)
             review = self.compliance_review(
                 {
                     "draft": draft,

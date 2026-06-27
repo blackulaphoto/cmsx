@@ -211,7 +211,33 @@ describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
     fireEvent.click(docsTab)
 
     expect(await screen.findByText('1 active')).toBeInTheDocument()
-    expect(screen.getByText('1 need signature')).toBeInTheDocument()
+    expect(screen.getByText('2 awaiting signature')).toBeInTheDocument()
     expect(screen.getByText('3 total')).toBeInTheDocument()
+  })
+
+  it('counts draft roi records in the compact awaiting-signature total after the documents tab refreshes', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+      }
+      if (url.includes('/roi-records')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            roi_records: [{ roi_id: 'roi-draft-1', status: 'draft' }],
+          }),
+        })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, documents: [] }) })
+    })
+
+    renderPage()
+    const docsTab = await screen.findByRole('button', { name: 'Documents' })
+    fireEvent.click(docsTab)
+
+    expect(await screen.findByText('0 active')).toBeInTheDocument()
+    expect(screen.getByText('1 awaiting signature')).toBeInTheDocument()
+    expect(screen.getByText('1 total')).toBeInTheDocument()
   })
 })

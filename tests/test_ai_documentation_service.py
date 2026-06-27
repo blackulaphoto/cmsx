@@ -29,10 +29,10 @@ class DocumentationAIServiceTests(unittest.TestCase):
             },
             [],
         )
-        self.assertIn("GOAL:", result)
-        self.assertIn("INTERVENTION:", result)
-        self.assertIn("RESPONSE:", result)
-        self.assertIn("PLAN:", result)
+        self.assertIn("PROGRESS NOTE", result)
+        self.assertIn("SUMMARY:", result)
+        self.assertIn("CLIENT STATEMENT:", result)
+        self.assertIn("NEXT STEP:", result)
 
     def test_selected_template_fallback_uses_template_body_and_not_raw_prompt(self):
         prompt = "Client reported stable mood, housing needs, probation documentation needs, and outpatient follow-up."
@@ -51,9 +51,8 @@ class DocumentationAIServiceTests(unittest.TestCase):
         )
 
         self.assertNotEqual(result, prompt)
-        self.assertIn("Completion Letter Template", result)
-        self.assertIn("Taylor Jones", result)
-        self.assertIn("CLIENT CONTEXT:", result)
+        self.assertIn("COMPLETION LETTER TEMPLATE", result)
+        self.assertIn("housing needs", result)
         self.assertIn("NEXT STEP:", result)
 
     def test_template_guardrails_keep_weekly_note_out_of_treatment_plan_format(self):
@@ -65,7 +64,7 @@ class DocumentationAIServiceTests(unittest.TestCase):
             },
         )
 
-        self.assertIn("Keep the output in case-management note structure only.", guardrails)
+        self.assertIn("Keep the output in concise case-management note structure only.", guardrails)
         self.assertTrue(any("Problem 1" in item for item in guardrails))
 
     def test_template_guardrails_allow_treatment_plan_review_structure(self):
@@ -139,11 +138,10 @@ class DocumentationAIServiceTests(unittest.TestCase):
             {
                 "note_kind": "progress_note",
                 "content": (
-                    "Template: Weekly CM Note\n\n"
-                    "GOAL:\nTo discuss and plan a comprehensive discharge from treatment.\n\n"
-                    "INTERVENTION:\nCM reviewed housing and probation follow-up.\n\n"
-                    "RESPONSE:\nClient stated, \"I want to stay on track.\"\n\n"
-                    "PLAN:\nCM will verify outpatient appointment and housing documentation."
+                    "WEEKLY CM NOTE\n\n"
+                    "SUMMARY:\nCM reviewed housing and probation follow-up needs documented in the brief.\n\n"
+                    "CLIENT STATEMENT:\nClient stated, \"I want to stay on track.\"\n\n"
+                    "NEXT STEP:\nCM will verify outpatient appointment and housing documentation."
                 ),
                 "context": {"template_label": "Weekly CM Note"},
             }
@@ -173,6 +171,58 @@ class DocumentationAIServiceTests(unittest.TestCase):
         self.assertEqual("needs_review", quality["status"])
         self.assertIn("Residence address is missing.", quality["data_warnings"])
         self.assertIn("RESIDENCE ADDRESS", quality["unresolved_placeholders"])
+
+    def test_weekly_note_evidence_bound_fallback_uses_only_brief_and_blocks_generic_filler(self):
+        draft = self.service._build_fallback_draft(
+            {
+                "note_kind": "progress_note",
+                "client_name": "Taylor Jones",
+                "user_prompt": (
+                    'Client asked for probation paperwork support and dental scheduling help. '
+                    'CM will call the probation officer tomorrow. '
+                    'Client stated "I need help getting this paperwork done."'
+                ),
+                "context": {
+                    "template_label": "Weekly CM Note",
+                    "requested_output_mode": "note",
+                    "case_manager_brief": (
+                        'Client asked for probation paperwork support and dental scheduling help. '
+                        'CM will call the probation officer tomorrow. '
+                        'Client stated "I need help getting this paperwork done."'
+                    ),
+                },
+            },
+            [],
+        )
+
+        self.assertIn("WEEKLY CM NOTE", draft)
+        self.assertIn("probation paperwork support", draft)
+        self.assertIn("dental scheduling help", draft)
+        self.assertIn("I need help getting this paperwork done.", draft)
+        self.assertIn("CM will call the probation officer tomorrow.", draft)
+        self.assertNotIn("12-step", draft.lower())
+        self.assertNotIn("sponsor", draft.lower())
+        self.assertNotIn("aftercare", draft.lower())
+        self.assertNotIn("discharge", draft.lower())
+        self.assertNotIn("problem 1:", draft.lower())
+
+    def test_weekly_note_evidence_bound_fallback_uses_no_additional_information_when_brief_is_sparse(self):
+        draft = self.service._build_fallback_draft(
+            {
+                "note_kind": "progress_note",
+                "client_name": "Taylor Jones",
+                "user_prompt": "",
+                "context": {
+                    "template_label": "Weekly CM Note",
+                    "requested_output_mode": "note",
+                },
+            },
+            [],
+        )
+
+        self.assertIn("WEEKLY CM NOTE", draft)
+        self.assertIn("No additional information was provided.", draft)
+        self.assertIn("No direct client quote was documented.", draft)
 
     def test_template_quality_review_fails_quote_placeholders(self):
         review = self.service.compliance_review(
@@ -217,6 +267,28 @@ class DocumentationAIServiceTests(unittest.TestCase):
         quality = review["quality_review"]
         self.assertNotIn("☑", quality["unresolved_placeholders"])
         self.assertNotIn(" ", quality["unresolved_placeholders"])
+
+    def test_template_quality_review_flags_placeholder_staff_signature_text(self):
+        review = self.service.compliance_review(
+            {
+                "note_kind": "progress_note",
+                "content": (
+                    "WEEKLY CM NOTE\n\n"
+                    "SUMMARY:\nClient requested housing follow-up.\n\n"
+                    "CLIENT STATEMENT:\nNo direct client quote was documented.\n\n"
+                    "NEXT STEP:\nCase Manager Name, CADC, LCSW, License #12345"
+                ),
+                "context": {"template_label": "Weekly CM Note"},
+            }
+        )
+
+        quality = review["quality_review"]
+        self.assertEqual("needs_review", quality["status"])
+        self.assertIn("Case Manager Name", quality["placeholder_staff_signature"])
+        self.assertIn(
+            "Draft still contains placeholder staff signature or credential text.",
+            quality["warnings"],
+        )
 
     def test_auto_fill_replaces_step8_document_placeholders(self):
         self.service._get_comprehensive_client_data = lambda _client_id: {

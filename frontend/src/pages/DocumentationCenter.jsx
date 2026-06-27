@@ -40,34 +40,16 @@ const FALLBACK_DOCUMENTATION_TEMPLATES = [
     noteType: 'Progress',
     noteKind: 'initial_note',
     bestFor: 'Week 1 intake - introduce treatment team, establish client goals and treatment plan.',
-    body: `GOAL:
-Introduce client to the current treatment team and establish client's treatment plan. Answer any questions the client has about the program and establish any needs the client has. Establish client goals to stabilize condition medically, behaviorally, emotionally, and cognitively, and return to functioning within normal parameters.
+    body: `INITIAL CM NOTE
 
-INTERVENTION:
-CM and client began the discussion of aftercare.
-CM addressed immediate needs.
-CM assessed for financial stability.
-CM inquired about legal issues and FMLA.
-CM inquired about discharge planning.
-CM asked about 12-step / sponsor involvement.
-CM encouraged client to get the most out of treatment by engaging in groups and 1:1 sessions with TH and CM.
-CM used open-ended questions, positive affirmations, motivational interviewing, reflection, and enduring questions.
+SUMMARY:
+Document only the facts provided in the case manager brief.
 
-RESPONSE:
-Client is a [AGE]-year-old [RACE], [GENDER] with a history of [SUBSTANCES / PRESENTING CONCERNS]. Client [DID / DID NOT] report current medical issues and reported [LEGAL STATUS]. Client [HAS / DOES NOT HAVE] children; if applicable, [CUSTODY / CAREGIVER ARRANGEMENT].
+CLIENT STATEMENT:
+Include only direct client statements documented in the brief. If none were provided, state that no direct client quote was documented.
 
-Client reported [EMPLOYMENT / ID / VOCATIONAL STATUS]. Client's long-term goals after completing the program include [GOALS]. Client identified strengths as [STRENGTHS] and identified [WEAKNESS / BARRIER]. Client presents [MOTIVATION / AFFECT / ENGAGEMENT].
-
-Client stated, "[VERBATIM DISCHARGE / MOTIVATION QUOTE]"
-
-MEDICAL:
-Client will stabilize on all medications as prescribed and comply with physician's orders. No intervention needed at this time.
-
-PLAN:
-CM will continue to meet with the client on a weekly basis to solidify a discharge treatment plan. Client's tentative step-down / discharge date: [DATE].
-
-[CM NAME], Case Manager [CM CREDENTIALS] [CM LICENSE #]
-Date: [TODAY]`,
+NEXT STEP:
+Document only the follow-up or plan specifically described in the brief. If none was provided, state that no additional information was provided.`,
   },
   {
     id: 'progress-note',
@@ -77,32 +59,16 @@ Date: [TODAY]`,
     noteType: 'Progress',
     noteKind: 'progress_note',
     bestFor: 'Ongoing weekly notes after week 1 - discharge planning and progress tracking.',
-    body: `GOAL:
-To discuss and plan a comprehensive discharge from treatment. Identify any needs for transition including sober living, aftercare, and financial stability.
+    body: `WEEKLY CM NOTE
 
-INTERVENTION:
-CM validated client's feelings and addressed concerns.
-CM addressed immediate needs.
-CM assessed for financial stability.
-CM inquired about legal issues and FMLA.
-CM inquired about discharge planning.
-CM asked about 12-step / sponsor involvement.
-CM continued to encourage client to engage in groups and 1:1 sessions with TH and CM.
-CM used open-ended questions, positive affirmations, motivational interviewing, reflection, and enduring questions.
+SUMMARY:
+Document only the observed facts and case-management actions described in the brief.
 
-RESPONSE:
-CM and client discussed aftercare plans, which is an ongoing conversation.
-Client stated, "[VERBATIM CLIENT QUOTE THIS WEEK]"
-CM and client will continue making progress toward discharge plans and treatment plan goals.
+CLIENT STATEMENT:
+Include only direct client statements documented in the brief. If none were provided, state that no direct client quote was documented.
 
-MEDICAL:
-Client will stabilize on all medications as prescribed and comply with physician's orders. No intervention needed at this time.
-
-PLAN:
-CM will continue to meet with the client on a weekly basis to solidify a discharge treatment plan. Client's tentative step-down / discharge date: [DATE].
-
-[CM NAME], Case Manager [CM CREDENTIALS] [CM LICENSE #]
-Date: [TODAY]`,
+NEXT STEP:
+Document only the follow-up or plan specifically described in the brief. If none was provided, state that no additional information was provided.`,
   },
   {
     id: 'treatment-plan-review',
