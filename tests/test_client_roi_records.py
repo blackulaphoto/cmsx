@@ -5,6 +5,7 @@ preservation, the printable-form generation route, and the access guard.
 """
 
 from datetime import datetime, timedelta
+from io import BytesIO
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -240,6 +241,7 @@ def test_generate_document_creates_printable_and_links(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     original = _use_temp_workspace_store(tmp_path)
     # Keep generated files out of the repo's uploads/ dir.
+    monkeypatch.setattr(clients_api, "CLIENT_UPLOADS_ROOT", tmp_path / "uploads")
     monkeypatch.setattr(clients_api, "CLIENT_UPLOADS_DIR", tmp_path / "uploads" / "clients")
     client_id = _seed_core_client()
     api = TestClient(_test_app(tmp_path))
@@ -277,6 +279,68 @@ def test_generate_document_creates_printable_and_links(tmp_path, monkeypatch):
         assert "County Probation" in html
         assert "DRAFT" in html
         assert "does not guarantee HIPAA" in html
+    finally:
+        workspace_store.db_path = original
+        workspace_store._initialize()
+
+
+def test_uploaded_text_document_views_from_runtime_uploads_root(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original = _use_temp_workspace_store(tmp_path)
+    monkeypatch.setattr(clients_api, "CLIENT_UPLOADS_ROOT", tmp_path / "runtime-volume" / "uploads")
+    monkeypatch.setattr(clients_api, "CLIENT_UPLOADS_DIR", tmp_path / "runtime-volume" / "uploads" / "clients")
+    clients_api.CLIENT_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    client_id = _seed_core_client(client_id="client-doc-1")
+    api = TestClient(_test_app(tmp_path))
+    try:
+        upload = api.post(
+            f"/api/clients/{client_id}/documents",
+            headers=_headers(),
+            data={"title": "Letter of Presence", "doc_type": "presence_letter"},
+            files={"file": ("letter-of-presence.txt", BytesIO(b"Client attended treatment."), "text/plain")},
+        )
+        assert upload.status_code == 200, upload.text
+        doc = upload.json()["document"]
+        assert doc["file_path"].startswith("uploads/clients/")
+
+        view = api.get(
+            f"/api/clients/{client_id}/documents/{doc['doc_id']}/view",
+            headers=_headers(),
+        )
+        assert view.status_code == 200, view.text
+        assert "text/plain" in view.headers["content-type"]
+        assert view.text == "Client attended treatment."
+    finally:
+        workspace_store.db_path = original
+        workspace_store._initialize()
+
+
+def test_view_client_document_returns_404_when_record_points_to_missing_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original = _use_temp_workspace_store(tmp_path)
+    monkeypatch.setattr(clients_api, "CLIENT_UPLOADS_ROOT", tmp_path / "runtime-volume" / "uploads")
+    monkeypatch.setattr(clients_api, "CLIENT_UPLOADS_DIR", tmp_path / "runtime-volume" / "uploads" / "clients")
+    clients_api.CLIENT_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    client_id = _seed_core_client(client_id="client-doc-2")
+    api = TestClient(_test_app(tmp_path))
+    try:
+        doc = workspace_store.create_client_document(
+            client_id,
+            {
+                "title": "Missing Generated Letter",
+                "doc_type": "presence_letter",
+                "file_name": "missing.txt",
+                "file_mime": "text/plain",
+                "file_path": "uploads/clients/client-doc-2/missing.txt",
+            },
+        )
+
+        view = api.get(
+            f"/api/clients/{client_id}/documents/{doc['doc_id']}/view",
+            headers=_headers(),
+        )
+        assert view.status_code == 404
+        assert view.json() == {"detail": "File not found on disk"}
     finally:
         workspace_store.db_path = original
         workspace_store._initialize()
