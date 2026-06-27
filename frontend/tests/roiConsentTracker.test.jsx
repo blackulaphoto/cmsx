@@ -483,6 +483,93 @@ describe('RoiConsentTracker — structured ROI records', () => {
     expect(screen.queryByText('ADMISSIONS_ROUTE')).toBeNull()
   })
 
+  it('surfaces an error and does not pretend success when the POST fails', async () => {
+    const getCalls = []
+    apiFetch.mockImplementation((url, options) => {
+      const str = String(url)
+      if (/\/api\/clients\/[^/]+\/roi-records$/.test(str) && options?.method === 'POST') {
+        // Backend rejects / fails to persist.
+        return makeResponse({ detail: 'save failed' }, { ok: false, status: 500 })
+      }
+      if (/\/api\/clients\/[^/]+\/roi-records$/.test(str)) {
+        getCalls.push(str)
+        return makeResponse({ success: true, roi_records: [] })
+      }
+      if (/\/api\/clients\/[^/]+\/documents$/.test(str)) {
+        return makeResponse({ success: true, documents: [] })
+      }
+      if (str.includes('/api/admissions/packets/')) {
+        return makeResponse({ packet: PACKET })
+      }
+      return makeResponse({ detail: 'not found' }, { ok: false, status: 404 })
+    })
+
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+
+    fireEvent.click(screen.getByRole('button', { name: /Create New ROI/i }))
+    fireEvent.change(screen.getByLabelText('Authorized party'), {
+      target: { value: 'Ghost Party' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Create ROI record/i }))
+
+    // Error is surfaced to the user…
+    expect(await screen.findByText(/Could not save ROI record/i)).toBeTruthy()
+    // …no record is faked into the list (still empty state)…
+    expect(screen.getByText(/No structured ROI records yet/i)).toBeTruthy()
+    expect(screen.queryByText('Ghost Party')).toBeNull()
+    // …and we never navigated away to Admissions.
+    expect(screen.queryByText('ADMISSIONS_ROUTE')).toBeNull()
+  })
+
+  it('refetches the records list after a successful create', async () => {
+    let roiRecordsState = []
+    let getCount = 0
+    const createdRecord = {
+      roi_id: 'roi-refetch-1',
+      client_id: 'client-1',
+      authorized_party: 'Refetch Party',
+      relationship_type: 'Provider',
+      info_to_release: [],
+      revocable: true,
+      revoked: false,
+      status: 'draft',
+    }
+    apiFetch.mockImplementation((url, options) => {
+      const str = String(url)
+      if (/\/api\/clients\/[^/]+\/roi-records$/.test(str) && options?.method === 'POST') {
+        roiRecordsState = [createdRecord]
+        return makeResponse({ success: true, roi_record: createdRecord })
+      }
+      if (/\/api\/clients\/[^/]+\/roi-records$/.test(str)) {
+        getCount += 1
+        return makeResponse({ success: true, roi_records: roiRecordsState })
+      }
+      if (/\/api\/clients\/[^/]+\/documents$/.test(str)) {
+        return makeResponse({ success: true, documents: [] })
+      }
+      if (str.includes('/api/admissions/packets/')) {
+        return makeResponse({ packet: PACKET })
+      }
+      return makeResponse({ detail: 'not found' }, { ok: false, status: 404 })
+    })
+
+    renderTracker()
+    await screen.findByText('Client ROI Records')
+    const initialGetCount = getCount
+
+    fireEvent.click(screen.getByRole('button', { name: /Create New ROI/i }))
+    fireEvent.change(screen.getByLabelText('Authorized party'), {
+      target: { value: 'Refetch Party' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Create ROI record/i }))
+
+    // The persisted record shows up, proving the list was refetched (not just
+    // optimistic): the GET endpoint was called again after the POST.
+    expect(await screen.findByText('Refetch Party')).toBeTruthy()
+    await waitFor(() => expect(getCount).toBeGreaterThan(initialGetCount))
+  })
+
   it('does not auto-seed a new client ROI from packet forms', async () => {
     let roiRecordsState = []
     const createdRecord = {

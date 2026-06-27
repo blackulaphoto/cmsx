@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from backend.api import clients as clients_api
 from backend.auth.service import FirebaseAuthService
+from backend.shared.database import workspace_store as ws_mod
 from backend.shared.database.workspace_store import workspace_store
 
 
@@ -276,6 +277,85 @@ def test_generate_document_creates_printable_and_links(tmp_path, monkeypatch):
         assert "County Probation" in html
         assert "DRAFT" in html
         assert "does not guarantee HIPAA" in html
+    finally:
+        workspace_store.db_path = original
+        workspace_store._initialize()
+
+
+def test_workspace_store_resolves_db_path_from_db_dir(tmp_path, monkeypatch):
+    """Regression: the store must live under the central DB_DIR (the Railway
+    persistent volume in production / CMSX_DB_DIR in the harness), NOT a
+    repo-relative path that is ephemeral and git-tracked."""
+    monkeypatch.setattr(ws_mod, "DB_DIR", tmp_path)
+    store = ws_mod.WorkspaceStore()
+    assert store.db_path == tmp_path / "workspace_content.db"
+    # The resolved file is under DB_DIR, not the repository's databases/ dir.
+    assert store.db_path.parent == tmp_path
+
+
+def test_roi_record_persists_across_a_new_store_instance(tmp_path, monkeypatch):
+    """Core persistence proof: a record created by one store instance is readable
+    by a brand-new instance pointed at the same DB_DIR — i.e. it survives the
+    process/container restart that happens on every deploy (the live failure)."""
+    monkeypatch.setattr(ws_mod, "DB_DIR", tmp_path)
+    store_a = ws_mod.WorkspaceStore()
+    created = store_a.create_client_roi_record(
+        "client-persist-1",
+        {"authorized_party": "County Probation", "relationship_type": "Probation/parole"},
+        created_by="cm_test",
+    )
+    roi_id = created["roi_id"]
+
+    # Simulate a fresh process (new deploy / new worker): a new store object,
+    # same on-disk DB_DIR. The previously written record must still be there.
+    store_b = ws_mod.WorkspaceStore()
+    records = store_b.list_client_roi_records("client-persist-1")
+    assert any(r["roi_id"] == roi_id for r in records)
+    # And it is a real file on disk under DB_DIR, not an in-memory artifact.
+    assert (tmp_path / "workspace_content.db").exists()
+
+
+def test_draft_record_is_included_in_list_and_total(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original = _use_temp_workspace_store(tmp_path)
+    client_id = _seed_core_client()
+    api = TestClient(_test_app(tmp_path))
+    try:
+        created = api.post(
+            f"/api/clients/{client_id}/roi-records",
+            headers=_headers(),
+            json={"authorized_party": "New Provider"},
+        ).json()["roi_record"]
+        # A bare record with no signed/linked document derives to 'draft'.
+        assert created["status"] == "draft"
+
+        listing = api.get(f"/api/clients/{client_id}/roi-records", headers=_headers())
+        body = listing.json()
+        # Draft records are NOT filtered out of the list or the total.
+        ids = [r["roi_id"] for r in body["roi_records"]]
+        assert created["roi_id"] in ids
+        assert len(body["roi_records"]) == 1
+    finally:
+        workspace_store.db_path = original
+        workspace_store._initialize()
+
+
+def test_missing_authorized_party_returns_clear_error(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original = _use_temp_workspace_store(tmp_path)
+    client_id = _seed_core_client()
+    api = TestClient(_test_app(tmp_path))
+    try:
+        r = api.post(
+            f"/api/clients/{client_id}/roi-records",
+            headers=_headers(),
+            json={"authorized_party": "   "},  # blank after trim
+        )
+        assert r.status_code == 400
+        assert "authorized_party" in r.json()["detail"]
+        # Nothing was persisted.
+        listing = api.get(f"/api/clients/{client_id}/roi-records", headers=_headers())
+        assert len(listing.json()["roi_records"]) == 0
     finally:
         workspace_store.db_path = original
         workspace_store._initialize()
