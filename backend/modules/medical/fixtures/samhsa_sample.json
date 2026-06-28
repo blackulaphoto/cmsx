@@ -1,0 +1,267 @@
+{
+  "page": 1,
+  "recordCount": 5,
+  "totalPages": 1,
+  "rows": [
+    {
+      "frid": "aaa111bbb222ccc333ddd444eee555fff666aaa111bbb222ccc333ddd444eee55",
+      "name1": "Sunrise Recovery Center",
+      "name2": "Residential Detox Unit",
+      "street1": "1234 Maple Avenue",
+      "street2": "",
+      "city": "Los Angeles",
+      "state": "CA",
+      "zip": "90012",
+      "phone": "213-555-0100",
+      "intake1": "213-555-0101",
+      "hotline1": null,
+      "website": "https://www.sunriserecovery-example.org",
+      "latitude": "34.0522",
+      "longitude": "-118.2437",
+      "miles": "0.5",
+      "address_type": "street",
+      "otp_id_number": "",
+      "typeFacility": "SA",
+      "services": [
+        {
+          "f1": "Type of Care",
+          "f2": "TC",
+          "f3": "Substance use treatment; Detoxification; Buprenorphine treatment"
+        },
+        {
+          "f1": "Service Setting",
+          "f2": "SET",
+          "f3": "Residential; Short-term residential (30 days or less)"
+        },
+        {
+          "f1": "Payment/Insurance/Funding Accepted",
+          "f2": "PAY",
+          "f3": "Medicaid; State mental health agency; State substance abuse agency"
+        },
+        {
+          "f1": "Accreditation",
+          "f2": "LCA",
+          "f3": "The Joint Commission"
+        },
+        {
+          "f1": "Gender Accepted",
+          "f2": "SN",
+          "f3": "Female; Male"
+        },
+        {
+          "f1": "Special Programs/Groups Offered",
+          "f2": "SG",
+          "f3": "Persons with co-occurring mental and substance use disorders; Criminal justice clients"
+        }
+      ],
+      "services_spanish": []
+    },
+    {
+      "frid": "bbb222ccc333ddd444eee555fff666aaa111bbb222ccc333ddd444eee555fff66",
+      "name1": "Valley Wellness Institute",
+      "name2": "Intensive Outpatient Program",
+      "street1": "5678 Oak Boulevard",
+      "street2": "Suite 200",
+      "city": "Van Nuys",
+      "state": "CA",
+      "zip": "91401",
+      "phone": "818-555-0200",
+      "intake1": "818-555-0201",
+      "hotline1": null,
+      "website": "https://www.valleywellness-example.org",
+      "latitude": "34.1894",
+      "longitude": "-118.4499",
+      "miles": "12.3",
+      "address_type": "street",
+      "otp_id_number": "",
+      "typeFacility": "SA",
+      "services": [
+        {
+          "f1": "Type of Care",
+          "f2": "TC",
+          "f3": "Substance use treatment; Alcohol use disorder treatment"
+        },
+        {
+          "f1": "Service Setting",
+          "f2": "SET",
+          "f3": "Intensive outpatient treatment; Partial hospitalization/day treatment"
+        },
+        {
+          "f1": "Payment/Insurance/Funding Accepted",
+          "f2": "PAY",
+          "f3": "Medicare; Private health insurance; Military insurance (e.g., TRICARE)"
+        },
+        {
+          "f1": "Alcohol Use Disorder Treatment",
+          "f2": "AUT",
+          "f3": "Alcohol use disorder treatment"
+        },
+        {
+          "f1": "Treatment Approaches",
+          "f2": "TAP",
+          "f3": "Cognitive behavioral therapy; Motivational interviewing; Trauma-related counseling"
+        },
+        {
+          "f1": "Gender Accepted",
+          "f2": "SN",
+          "f3": "Female and Male"
+        }
+      ],
+      "services_spanish": []
+    },
+    {
+      "frid": "ccc333ddd444eee555fff666aaa111bbb222ccc333ddd444eee555fff666bbb22",
+      "name1": "Harbor Detox Medical Center",
+      "name2": "",
+      "street1": "910 Harbor Drive",
+      "street2": "",
+      "city": "Long Beach",
+      "state": "CA",
+      "zip": "90802",
+      "phone": "562-555-0300",
+      "intake1": "",
+      "hotline1": null,
+      "website": "https://www.harbordetox-example.org",
+      "latitude": "33.7701",
+      "longitude": "-118.1937",
+      "miles": "22.0",
+      "address_type": "street",
+      "otp_id_number": "",
+      "typeFacility": "SA",
+      "services": [
+        {
+          "f1": "Type of Care",
+          "f2": "TC",
+          "f3": "Substance use treatment; Detoxification"
+        },
+        {
+          "f1": "Service Setting",
+          "f2": "SET",
+          "f3": "Outpatient detoxification; Residential detoxification"
+        },
+        {
+          "f1": "Payment/Insurance/Funding Accepted",
+          "f2": "PAY",
+          "f3": "Medicaid; Medicare; Private health insurance; Federal military insurance"
+        },
+        {
+          "f1": "Accreditation",
+          "f2": "LCA",
+          "f3": "Commission on Accreditation of Rehabilitation Facilities"
+        },
+        {
+          "f1": "Gender Accepted",
+          "f2": "SN",
+          "f3": "Female; Male"
+        },
+        {
+          "f1": "Detoxification",
+          "f2": "DETOX",
+          "f3": "Alcohol detoxification; Opioid detoxification; Benzodiazepines detoxification"
+        }
+      ],
+      "services_spanish": []
+    },
+    {
+      "frid": "ddd444eee555fff666aaa111bbb222ccc333ddd444eee555fff666aaa111ccc33",
+      "name1": "Community Counseling Clinic",
+      "name2": "Outpatient Services",
+      "street1": "321 Elm Street",
+      "street2": "",
+      "city": "Pasadena",
+      "state": "CA",
+      "zip": "91101",
+      "phone": "626-555-0400",
+      "intake1": "",
+      "hotline1": null,
+      "website": "https://www.commcounseling-example.org",
+      "latitude": "34.1478",
+      "longitude": "-118.1445",
+      "miles": "15.2",
+      "address_type": "street",
+      "otp_id_number": "",
+      "typeFacility": "SA",
+      "services": [
+        {
+          "f1": "Type of Care",
+          "f2": "TC",
+          "f3": "Substance use treatment"
+        },
+        {
+          "f1": "Service Setting",
+          "f2": "SET",
+          "f3": "Regular outpatient treatment; Brief intervention"
+        },
+        {
+          "f1": "Payment/Insurance/Funding Accepted",
+          "f2": "PAY",
+          "f3": "Medicaid; Sliding fee scale"
+        },
+        {
+          "f1": "Gender Accepted",
+          "f2": "SN",
+          "f3": "Female; Male"
+        }
+      ],
+      "services_spanish": []
+    },
+    {
+      "frid": "eee555fff666aaa111bbb222ccc333ddd444eee555fff666aaa111bbb222ddd44",
+      "name1": "Westside Women's Recovery House",
+      "name2": "",
+      "street1": "4567 Pacific Coast Highway",
+      "street2": "",
+      "city": "Santa Monica",
+      "state": "CA",
+      "zip": "90401",
+      "phone": "310-555-0500",
+      "intake1": "310-555-0501",
+      "hotline1": null,
+      "website": "https://www.westsidewomens-example.org",
+      "latitude": "34.0195",
+      "longitude": "-118.4912",
+      "miles": "10.8",
+      "address_type": "street",
+      "otp_id_number": "",
+      "typeFacility": "SA",
+      "services": [
+        {
+          "f1": "Type of Care",
+          "f2": "TC",
+          "f3": "Substance use treatment; Opioid use disorder treatment"
+        },
+        {
+          "f1": "Service Setting",
+          "f2": "SET",
+          "f3": "Long-term residential (more than 30 days)"
+        },
+        {
+          "f1": "Payment/Insurance/Funding Accepted",
+          "f2": "PAY",
+          "f3": "Medicaid; State substance abuse agency"
+        },
+        {
+          "f1": "Opioid Medications Used in Treatment",
+          "f2": "OM",
+          "f3": "Naltrexone (oral); Naloxone with buprenorphine"
+        },
+        {
+          "f1": "Gender Accepted",
+          "f2": "SN",
+          "f3": "Female only"
+        },
+        {
+          "f1": "Special Programs/Groups Offered",
+          "f2": "SG",
+          "f3": "Women; Pregnant/postpartum women; Persons with trauma histories"
+        },
+        {
+          "f1": "Recovery Support Services",
+          "f2": "RSS",
+          "f3": "Case management; Housing services; Transportation"
+        }
+      ],
+      "services_spanish": []
+    }
+  ]
+}
