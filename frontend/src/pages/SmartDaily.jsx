@@ -754,6 +754,33 @@ function EmptyState({ onCreateClick }) {
   )
 }
 
+function buildLocalSummary(fb) {
+  const overdue = (fb.overdue || []).length
+  const today = (fb.today || []).length
+  const next3 = (fb.next_3_days || []).length
+  const tp = (fb.treatment_plan || []).length
+  const hp = (fb.high_priority_no_date || []).length
+  const later = fb.later || []
+  if (overdue || today || next3) {
+    const parts = []
+    if (overdue) {
+      const first = (fb.overdue || [])[0]?.title || ''
+      parts.push(`${overdue} overdue task${overdue > 1 ? 's' : ''}${first ? ` — start with "${first}"` : ''}`)
+    }
+    if (today) parts.push(`${today} due today`)
+    if (next3) parts.push(`${next3} coming up in the next 3 days`)
+    if (tp) parts.push(`${tp} treatment-plan item${tp > 1 ? 's' : ''} need scheduling`)
+    return 'You have ' + parts.join(', ') + '.'
+  }
+  if (tp) return `You have ${tp} treatment-plan item${tp > 1 ? 's' : ''} without due dates. Start by scheduling the highest-risk need.`
+  if (hp) return `You have ${hp} high-priority item${hp > 1 ? 's' : ''} without due dates. Consider scheduling them.`
+  if (later.length) {
+    const first = later[0]?.title || ''
+    return first ? `Nothing urgent right now. Next up: "${first}"` : 'Nothing urgent right now.'
+  }
+  return null
+}
+
 function SmartDaily() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -928,6 +955,15 @@ function SmartDaily() {
   const hasAnyTask = Object.values(activeBuckets).some(arr => arr.length > 0)
   const visibleTasks = Object.values(activeBuckets).flat()
 
+  // When a client is selected, scope the summary to that client's buckets only.
+  // This prevents tasks from other clients from appearing in the summary banner.
+  const clientScopedBuckets = activeClientId
+    ? Object.fromEntries(
+        Object.entries(buckets).map(([k, tasks]) => [k, tasks.filter(t => t.client_id === activeClientId)])
+      )
+    : null
+  const displaySummary = activeClientId ? buildLocalSummary(clientScopedBuckets) : aiSummary
+
   // Stats always reflect the full client scope, not the current filter/search selection
   const rawClientTasks = activeClientId
     ? Object.values(buckets).flat().filter(t => t.client_id === activeClientId)
@@ -1003,14 +1039,14 @@ function SmartDaily() {
           </div>
 
           {/* AI Summary Banner */}
-          {!loading && aiSummary && (
+          {!loading && displaySummary && (
             <div className="bg-gradient-to-r from-blue-600/20 to-cyan-600/15 backdrop-blur-xl border border-blue-500/30 rounded-2xl p-5 flex items-start gap-4">
               <div className="p-2 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex-shrink-0 mt-0.5">
                 <Sparkles className="text-white" size={18} />
               </div>
               <div>
                 <p className="text-sm text-blue-200 font-medium mb-0.5">Smart Summary</p>
-                <p className="text-white font-semibold text-base leading-snug" data-testid="ai-suggestion">{aiSummary}</p>
+                <p className="text-white font-semibold text-base leading-snug" data-testid="ai-suggestion">{displaySummary}</p>
               </div>
             </div>
           )}
