@@ -150,3 +150,46 @@ describe('TreatmentPlan draft edit mode', () => {
     expect(screen.queryByText('Edit Draft')).not.toBeInTheDocument()
   })
 })
+describe('TreatmentPlan PR4: landing-page client selector', () => {
+  it('shows the client selector on the landing page', () => {
+    renderPage()
+    expect(screen.getByText('SELECT_CLIENT')).toBeInTheDocument()
+  })
+
+  it('shows empty-state guidance when no client is selected', () => {
+    renderPage()
+    expect(screen.getByTestId('treatment-plan-empty-state')).toBeInTheDocument()
+  })
+
+  it('shows instruction copy directing user to use the selector', () => {
+    renderPage()
+    expect(
+      screen.getByText('Select a client to view or create their treatment plan.')
+    ).toBeInTheDocument()
+  })
+
+  it('shows helper copy about opening from a client profile', () => {
+    renderPage()
+    expect(
+      screen.getByText(/You can also open a treatment plan from a client/i)
+    ).toBeInTheDocument()
+  })
+
+  it('hides the empty state and shows plan UI after a client is selected', async () => {
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, current_plan: null, plans: [], count: 0 }),
+    })
+
+    renderPage()
+    expect(screen.getByTestId('treatment-plan-empty-state')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('treatment-plan-empty-state')).not.toBeInTheDocument()
+    })
+    // Plan UI appears (plans list + generate draft button)
+    expect(await screen.findByText('Generate AI Draft')).toBeInTheDocument()
+  })
+})

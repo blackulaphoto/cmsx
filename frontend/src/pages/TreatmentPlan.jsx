@@ -615,6 +615,22 @@ export default function TreatmentPlan() {
           />
         </div>
 
+        {/* Empty-state guidance — shown only when no client is selected */}
+        {!selectedClient && (
+          <div
+            data-testid="treatment-plan-empty-state"
+            className="bg-white/5 border border-white/15 rounded-2xl p-6 text-center"
+          >
+            <ClipboardList size={36} className="text-gray-600 mx-auto mb-3" />
+            <p className="text-sm text-gray-400 max-w-sm mx-auto">
+              Select a client to view or create their treatment plan.
+            </p>
+            <p className="text-xs text-gray-500 mt-3">
+              You can also open a treatment plan from a client&apos;s profile.
+            </p>
+          </div>
+        )}
+
         {selectedClient && (
           <div className="grid grid-cols-1 xl:grid-cols-[280px_1fr] gap-6">
 
