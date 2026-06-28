@@ -459,6 +459,14 @@ class FMLAStore:
             conn.execute(f"UPDATE fmla_cases SET {assignments} WHERE case_id = ?", params)
         return self.get_case(case_id)
 
+    def delete_case(self, case_id: str) -> bool:
+        existing = self.get_case(case_id)
+        if not existing:
+            return False
+        with self._db() as conn:
+            conn.execute("DELETE FROM fmla_cases WHERE case_id = ?", (case_id,))
+        return True
+
     def create_document(self, case_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         now = datetime.utcnow().isoformat()
         record = {

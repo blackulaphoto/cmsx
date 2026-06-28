@@ -180,6 +180,18 @@ async def update_ur_case(case_id: str, payload: URCasePayload, request: Request)
     return {"success": True, "case": record}
 
 
+@router.delete("/ur/{case_id}")
+async def delete_ur_case(case_id: str, request: Request):
+    existing = store.get_case(case_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="UR case not found")
+    _authorize_case_access(request, existing)
+    deleted = store.delete_case(case_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="UR case not found")
+    return {"success": True, "case_id": case_id}
+
+
 @router.post("/ur/{case_id}/events")
 async def create_ur_event(case_id: str, payload: UREventPayload, request: Request):
     current_user = require_authenticated_user(request)

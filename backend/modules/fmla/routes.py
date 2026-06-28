@@ -283,6 +283,19 @@ async def update_fmla_case(case_id: str, payload: FMLACasePayload, request: Requ
     return {"success": True, "case": record}
 
 
+@router.delete("/fmla/{case_id}")
+async def delete_fmla_case(case_id: str, request: Request):
+    existing = store.get_case(case_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="FMLA case not found")
+    current_user = _authorize_case_access(request, existing)
+    deleted = store.delete_case(case_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="FMLA case not found")
+    _audit(case_id, "case_deleted", current_user, {"case_subject_type": existing.get("case_subject_type"), "client_name": existing.get("client_name")})
+    return {"success": True, "case_id": case_id}
+
+
 @router.post("/fmla/{case_id}/documents")
 async def add_fmla_document(case_id: str, payload: FMLADocumentPayload, request: Request):
     case_record = store.get_case(case_id)

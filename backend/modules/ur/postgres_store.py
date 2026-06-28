@@ -317,6 +317,14 @@ class PostgresURStore:
         self._execute(f"UPDATE railway_ur_cases SET {assignments} WHERE case_id = :case_id", params)
         return self.get_case(case_id)
 
+    def delete_case(self, case_id: str) -> bool:
+        existing = self.get_case(case_id)
+        if not existing:
+            return False
+        self._execute("DELETE FROM railway_ur_review_events WHERE case_id = :case_id", {"case_id": case_id})
+        self._execute("DELETE FROM railway_ur_cases WHERE case_id = :case_id", {"case_id": case_id})
+        return True
+
     def create_event(self, case_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         now = datetime.utcnow().isoformat()
         event = self._normalize_event_payload(payload)
