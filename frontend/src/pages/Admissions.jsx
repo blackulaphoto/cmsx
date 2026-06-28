@@ -8,7 +8,6 @@ import {
   PenLine,
   ArrowRight,
   Info,
-  ChevronRight,
 } from 'lucide-react'
 import manifest from '../data/admissionsManifest.json'
 
@@ -229,53 +228,6 @@ export default function Admissions() {
             ))}
           </div>
 
-          <div className="px-5 py-3 border-t border-white/10 flex items-center gap-2 text-xs text-gray-500">
-            <Info className="h-3 w-3" />
-            <span>
-              Templates loaded from <code className="text-gray-400">data/form_templates/admissions/manifest.json</code>.
-              Forms rendered and persistence added in Phase 2–3.
-            </span>
-          </div>
-        </div>
-
-        {/* Phase roadmap */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <ChevronRight className="h-4 w-4 text-cyan-400" />
-            Admissions Module Roadmap
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {[
-              { phase: 'Phase 1', label: 'Foundation', status: 'active', desc: 'Templates, landing page, manifest' },
-              { phase: 'Phase 2', label: 'Packet Dashboard', status: 'upcoming', desc: 'Per-client checklist + progress bar' },
-              { phase: 'Phase 3', label: 'Form Renderer', status: 'upcoming', desc: 'Fill, save, validate, sign' },
-              { phase: 'Phase 4', label: 'Smart Daily', status: 'upcoming', desc: 'Tasks from missing/overdue forms' },
-              { phase: 'Phase 5', label: 'Attachments', status: 'upcoming', desc: 'Uploads, staff review, history' },
-              { phase: 'Phase 6', label: 'Financial / COB', status: 'upcoming', desc: 'Billing, insurance, payment plan' },
-            ].map(({ phase, label, status, desc }) => (
-              <div
-                key={phase}
-                className={`rounded-xl px-4 py-3 border ${
-                  status === 'active'
-                    ? 'bg-cyan-500/10 border-cyan-500/30'
-                    : 'bg-white/3 border-white/8'
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className={`text-xs font-semibold ${status === 'active' ? 'text-cyan-300' : 'text-gray-500'}`}>
-                    {phase}
-                  </span>
-                  {status === 'active' && (
-                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                      Current
-                    </span>
-                  )}
-                </div>
-                <p className={`text-sm font-medium ${status === 'active' ? 'text-white' : 'text-gray-400'}`}>{label}</p>
-                <p className="text-xs text-gray-500 mt-0.5">{desc}</p>
-              </div>
-            ))}
-          </div>
         </div>
 
       </div>
