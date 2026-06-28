@@ -709,7 +709,7 @@ function DocumentationCenter() {
           throw new Error('Failed to save note')
         }
         await loadNotes(selectedClient.client_id)
-        toast.success(editingItem?.source === 'note' ? 'Note updated' : 'Note saved')
+        toast.success(editingItem?.source === 'note' ? 'Note updated' : 'Saved to Client Notes.')
       } else if (selectedClient?.client_id) {
         const file = new File(
           [composer.body],
@@ -963,7 +963,7 @@ function DocumentationCenter() {
               <StatCard icon={ClipboardList} label="Templates" value={String(availableTemplates.length)} accent="from-cyan-500 to-blue-500" />
               <StatCard icon={FileText} label="Client Notes" value={String(notes.length)} accent="from-blue-500 to-indigo-500" />
               <StatCard icon={FolderOpen} label="Documents" value={String(docs.length)} accent="from-fuchsia-500 to-purple-500" />
-              <StatCard icon={User} label="Client Linked" value={selectedClient ? 'Yes' : 'No'} accent="from-emerald-500 to-teal-500" />
+              <StatCard icon={User} label={selectedClient ? 'Client Linked' : 'No Client Linked'} value={selectedClient ? 'Yes' : '—'} accent="from-emerald-500 to-teal-500" />
             </div>
           </div>
         </section>
@@ -1252,6 +1252,35 @@ function DocumentationCenter() {
               />
             </div>
 
+            <div
+              data-testid="destination-banner"
+              className={`rounded-2xl border px-5 py-4 ${
+                mode === 'note'
+                  ? 'border-blue-400/25 bg-blue-500/10'
+                  : selectedClient?.client_id
+                    ? 'border-fuchsia-400/25 bg-fuchsia-500/10'
+                    : 'border-white/10 bg-white/5'
+              }`}
+            >
+              <p className={`text-sm font-semibold ${
+                mode === 'note' ? 'text-blue-200' : selectedClient?.client_id ? 'text-fuchsia-200' : 'text-slate-300'
+              }`}>
+                {'Destination: '}
+                {mode === 'note'
+                  ? 'Client Notes'
+                  : selectedClient?.client_id
+                    ? 'Client Documents'
+                    : 'Document Library'}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                {mode === 'note'
+                  ? "This will save to the client's Notes, not the Documents vault."
+                  : selectedClient?.client_id
+                    ? "This will save to the client's Documents vault."
+                    : 'This will save to the shared Document Library.'}
+              </p>
+            </div>
+
             <div className="flex flex-wrap items-center gap-3">
               <button
                 onClick={saveCurrentItem}
@@ -1259,7 +1288,13 @@ function DocumentationCenter() {
                 className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:from-cyan-400 hover:to-blue-400 disabled:opacity-60"
               >
                 {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                {editingItem ? 'Update' : 'Save'} {mode === 'note' ? 'Note' : 'Document'}
+                {editingItem
+                  ? `Update ${mode === 'note' ? 'Note' : 'Document'}`
+                  : mode === 'note'
+                    ? 'Save Note'
+                    : selectedClient?.client_id
+                      ? 'Save to Client Documents'
+                      : 'Save Document'}
               </button>
               {editingItem && (
                 <button
@@ -1285,7 +1320,7 @@ function DocumentationCenter() {
             {shouldShowDraftSummary && (
               <p className="text-xs text-slate-400">
                 {selectedTemplate ? `Template: ${selectedTemplate.label}` : ''}
-                {selectedTemplate ? ` ? Saving to: ${mode === 'note' ? 'Client note record' : selectedClient ? 'Client documents' : 'Document library'}` : ''}
+                {selectedTemplate ? ` ? Saving to: ${mode === 'note' ? 'Client Notes' : selectedClient ? 'Client Documents' : 'Document Library'}` : ''}
                 {selectedClient ? ` ? Client: ${selectedClient.first_name} ${selectedClient.last_name}` : ''}
               </p>
             )}

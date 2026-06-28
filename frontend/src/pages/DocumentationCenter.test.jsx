@@ -361,7 +361,7 @@ describe('DocumentationCenter client-linked saves', () => {
     fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
       target: { value: 'Structured treatment plan review narrative' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /Save Document/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Save to Client Documents/i }))
 
     await waitFor(() => {
       expect(apiFetch).toHaveBeenCalledWith(
@@ -457,7 +457,7 @@ describe('DocumentationCenter propagation to Client Documents vault', () => {
     fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
       target: { value: 'This client has successfully completed the program.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /Save Document/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Save to Client Documents/i }))
 
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
@@ -486,7 +486,7 @@ describe('DocumentationCenter propagation to Client Documents vault', () => {
     fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
       target: { value: 'Treatment plan review narrative.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /Save Document/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Save to Client Documents/i }))
 
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith('Saved to Client Documents.'),
@@ -589,7 +589,7 @@ describe('DocumentationCenter propagation to Client Documents vault', () => {
     fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
       target: { value: 'Client successfully completed 30 days of residential treatment.' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /Save Document/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Save to Client Documents/i }))
 
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
@@ -718,5 +718,99 @@ describe('DocumentationCenter authenticated client document view', () => {
 
     expect(openSpy).toHaveBeenCalledWith('https://example.com/file.pdf', '_blank', 'noopener,noreferrer')
     expect(apiFetch).not.toHaveBeenCalledWith('/api/clients/client-1/documents/doc-2/view')
+  })
+})
+
+describe('DocumentationCenter PR3: save destination clarity', () => {
+  const baseRoutes = (url) => {
+    if (url === '/api/dashboard/docs') return Promise.resolve({ ok: true, json: async () => ({ docs: [] }) })
+    if (url === '/api/ai-documentation/templates') return Promise.resolve({ ok: true, json: async () => ({ templates: [] }) })
+    if (url === '/api/ai-documentation/brand-resources') return Promise.resolve({ ok: true, json: async () => ({ resources: [] }) })
+    if (url === '/api/case-management/notes/list/client-1') return Promise.resolve({ ok: true, json: async () => ({ notes: [] }) })
+    if (url === '/api/clients/client-1/documents') return Promise.resolve({ ok: true, json: async () => ({ documents: [] }) })
+    if (url === '/api/case-management/notes/add/client-1') return Promise.resolve({ ok: true, json: async () => ({ success: true, note_id: 'n-pr3' }) })
+    return Promise.resolve({ ok: true, json: async () => ({}) })
+  }
+
+  it('shows "Destination: Client Notes" when Weekly CM Note template is selected', async () => {
+    apiFetch.mockImplementation(baseRoutes)
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly CM Note/i }))
+
+    const banner = await screen.findByTestId('destination-banner')
+    expect(banner).toHaveTextContent('Destination: Client Notes')
+  })
+
+  it('shows "Destination: Client Documents" when Letter of Presence template is selected with client', async () => {
+    apiFetch.mockImplementation(baseRoutes)
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Discharge Summary/i }))
+
+    const banner = await screen.findByTestId('destination-banner')
+    expect(banner).toHaveTextContent('Destination: Client Documents')
+  })
+
+  it('shows "Save to Client Documents" button label when document template and client are selected', async () => {
+    apiFetch.mockImplementation(baseRoutes)
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Discharge Summary/i }))
+
+    expect(await screen.findByRole('button', { name: /Save to Client Documents/i })).toBeInTheDocument()
+  })
+
+  it('shows "Save Note" button label when note template is selected', async () => {
+    apiFetch.mockImplementation(baseRoutes)
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly CM Note/i }))
+
+    expect(await screen.findByRole('button', { name: /Save Note/i })).toBeInTheDocument()
+  })
+
+  it('shows "Saved to Client Notes." toast after saving a Weekly CM Note', async () => {
+    apiFetch.mockImplementation(baseRoutes)
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly CM Note/i }))
+    fireEvent.change(screen.getByPlaceholderText('Enter a strong document title'), {
+      target: { value: 'Weekly Note - QA Client' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Your generated or hand-written final draft appears here.'), {
+      target: { value: 'Client attended weekly check-in and is progressing.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Save Note/i }))
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Saved to Client Notes.'))
+  })
+
+  it('"Client Linked No" never appears — stat shows "No Client Linked" when no client is selected', async () => {
+    apiFetch.mockImplementation(baseRoutes)
+    renderPage()
+
+    // Do not click SELECT_CLIENT — verify the no-client label
+    expect(screen.queryByText('Client Linked No')).toBeNull()
+    // The label "No Client Linked" replaces the old ambiguous "Client Linked" + "No"
+    const allText = document.body.textContent
+    expect(allText).not.toMatch(/Client Linked\s*No/)
+  })
+
+  it('switching from a note template to a document template updates the destination banner', async () => {
+    apiFetch.mockImplementation(baseRoutes)
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+
+    // Select Weekly CM Note -> expect "Client Notes"
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly CM Note/i }))
+    let banner = await screen.findByTestId('destination-banner')
+    expect(banner).toHaveTextContent('Destination: Client Notes')
+
+    // Switch to Letter of Presence -> expect "Client Documents"
+    fireEvent.click(screen.getByRole('button', { name: /Change template/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /Discharge Summary/i }))
+    banner = await screen.findByTestId('destination-banner')
+    expect(banner).toHaveTextContent('Destination: Client Documents')
   })
 })
