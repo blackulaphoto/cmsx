@@ -666,6 +666,7 @@ def _query_dental_urgent(city: str, search: str, limit: int) -> List[Dict[str, A
 
 
 def _query_treatment_centers(city: str, search: str, limit: int, private_only: bool = False, mat_only: bool = False) -> List[Dict[str, Any]]:
+    opt_cols: List[str] = []
     try:
         with _connect(VIRGIL_DB_PATH) as conn:
             clauses = ["isPublished = 1", "LOWER(COALESCE(type, '')) != 'sober_living'"]
@@ -699,10 +700,22 @@ def _query_treatment_centers(city: str, search: str, limit: int, private_only: b
                 params.extend([pattern, pattern, pattern, pattern])
 
             try:
+                # Detect optional columns added by the SAMHSA importer so the
+                # route remains backward-compatible on DBs that haven't run it.
+                tc_cols = {
+                    r[1]
+                    for r in conn.execute("PRAGMA table_info(treatment_centers)").fetchall()
+                }
+                opt_cols = [
+                    c for c in ("source_name", "source_url", "image_url") if c in tc_cols
+                ]
+                opt_select = (", " + ", ".join(opt_cols)) if opt_cols else ""
+
                 rows = conn.execute(
                     f"""
                     SELECT id, name, type, address, city, zipCode, phone, website, description,
                            servesPopulation, acceptsMediCal, acceptsPrivateInsurance, servicesOffered, priceRange
+                           {opt_select}
                     FROM treatment_centers
                     WHERE {' AND '.join(clauses)}
                     ORDER BY city ASC, name ASC
@@ -728,6 +741,17 @@ def _query_treatment_centers(city: str, search: str, limit: int, private_only: b
         if row["priceRange"]:
             description_parts.append(f"Price range: {row['priceRange']}")
 
+        extra: Dict[str, Any] = {
+            "services": services,
+            "serves_population": row["servesPopulation"] or "",
+        }
+        if "source_name" in opt_cols:
+            extra["source_name"] = row["source_name"]
+        if "source_url" in opt_cols:
+            extra["source_url"] = row["source_url"]
+        if "image_url" in opt_cols:
+            extra["image_url"] = row["image_url"]
+
         results.append(
             _format_provider_result(
                 provider_id=f"treatment_{row['id']}",
@@ -739,10 +763,7 @@ def _query_treatment_centers(city: str, search: str, limit: int, private_only: b
                 phone=row["phone"] or "",
                 website=row["website"] or "",
                 description=". ".join([part for part in description_parts if part]) or "Treatment center",
-                extra={
-                    "services": services,
-                    "serves_population": row["servesPopulation"] or "",
-                },
+                extra=extra,
             )
         )
     return results
