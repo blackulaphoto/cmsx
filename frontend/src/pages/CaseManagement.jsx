@@ -1694,47 +1694,45 @@ function CaseManagement() {
                           {client.last_contact ? new Date(client.last_contact).toLocaleDateString() : 'No contact yet'}
                         </td>
                         <td className="px-6 py-4">
-                          <div className="flex gap-2">
-                            <button 
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
                               onClick={(e) => {
                                 e.stopPropagation()
                                 navigate(`/client/${client.client_id}`)
                               }}
-                              className="text-blue-400 hover:text-blue-300 p-2 rounded-xl hover:bg-blue-500/20 transition-all duration-300"
-                              title="View Dashboard"
-                              data-testid={client.first_name === 'Maria' ? 'client-result-maria' : 'client-dashboard-btn'}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-400 hover:text-blue-300 rounded-lg hover:bg-blue-500/20 transition-all duration-300"
+                              title="Open Client File"
+                              aria-label="Open Client File"
+                              data-testid="open-client-file-btn"
                             >
-                              <ExternalLink size={16} />
+                              <ExternalLink size={13} />
+                              Open Client File
                             </button>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                viewClientProfile(client)
-                              }}
-                              className="text-green-400 hover:text-green-300 p-2 rounded-xl hover:bg-green-500/20 transition-all duration-300"
-                              title="View Profile"
-                            >
-                              <Users size={16} />
-                            </button>
-                            <button 
+                            <button
                               onClick={(e) => {
                                 e.stopPropagation()
                                 startEdit(client)
                               }}
-                              className="text-purple-400 hover:text-purple-300 p-2 rounded-xl hover:bg-purple-500/20 transition-all duration-300"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-purple-400 hover:text-purple-300 rounded-lg hover:bg-purple-500/20 transition-all duration-300"
                               title="Edit Client"
+                              aria-label="Edit Client"
+                              data-testid="edit-client-btn"
                             >
-                              <Edit size={16} />
+                              <Edit size={13} />
+                              Edit
                             </button>
-                            <button 
+                            <button
                               onClick={(e) => {
                                 e.stopPropagation()
                                 handleDeleteClient(client.client_id)
                               }}
-                              className="text-red-400 hover:text-red-300 p-2 rounded-xl hover:bg-red-500/20 transition-all duration-300"
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-400 hover:text-red-300 rounded-lg hover:bg-red-500/20 transition-all duration-300"
                               title="Delete Client"
+                              aria-label="Delete Client"
+                              data-testid="delete-client-btn"
                             >
-                              <Trash2 size={16} />
+                              <Trash2 size={13} />
+                              Delete
                             </button>
                           </div>
                         </td>
