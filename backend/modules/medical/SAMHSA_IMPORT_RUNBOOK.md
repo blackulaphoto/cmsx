@@ -107,7 +107,7 @@ accidental large imports.
 
 **Do not run a large import in this PR.** Await explicit approval from Brandon.
 
-## Inspect counts before / after
+## Inspect counts before / after (local dev)
 
 ```bash
 # Before
@@ -127,6 +127,65 @@ print('total:', conn.execute('SELECT COUNT(*) FROM treatment_centers').fetchone(
 print('samhsa:', conn.execute(\"SELECT COUNT(*) FROM treatment_centers WHERE source_name='SAMHSA FindTreatment.gov'\").fetchone()[0])
 "
 ```
+
+## Railway production import (first time)
+
+Run these commands in a Railway shell after the durable-path fix (PR #83) is
+deployed and Railway shows green.
+
+```bash
+# 1. Ensure the databases folder exists on the volume
+mkdir -p /mnt/data/databases
+
+# 2. Initialize volume DB only if it does not already exist.
+#    Never overwrite an existing volume DB — it may already have imported rows.
+if [ -f /mnt/data/databases/virgil_st_dev.db ]; then
+  echo "Durable virgil_st_dev.db already exists. Not overwriting."
+else
+  cp databases/virgil_st_dev.db /mnt/data/databases/virgil_st_dev.db
+  echo "Copied seed virgil_st_dev.db to Railway volume."
+fi
+
+# 3. Dry-run first.
+#    CRITICAL: the first line must show the durable path:
+#      [dry-run] DB path : /mnt/data/databases/virgil_st_dev.db
+#    If it shows the repo path instead, stop — Railway volume env is not being
+#    picked up. Check RAILWAY_VOLUME_MOUNT_PATH is set and the deploy succeeded.
+python -m backend.modules.medical.importer_samhsa --dry-run --sample-size 10
+
+# 4. If dry-run looks clean, run capped import (25 rows — safe starting point)
+python -m backend.modules.medical.importer_samhsa --import-mode --max-rows 25
+
+# 5. Verify counts after import
+python -c "
+import sqlite3
+conn = sqlite3.connect('/mnt/data/databases/virgil_st_dev.db')
+total = conn.execute('SELECT COUNT(*) FROM treatment_centers').fetchone()[0]
+samhsa = conn.execute(\"SELECT COUNT(*) FROM treatment_centers WHERE source_name='SAMHSA FindTreatment.gov'\").fetchone()[0]
+conn.close()
+print('total:', total, '  samhsa:', samhsa)
+"
+
+# 6. Confirm Medical API is still healthy
+#    Expected: 200 OK, response includes rows with source_name/source_url
+```
+
+**Pass gates before step 4 (capped import):**
+
+| Check | Expected |
+|---|---|
+| Dry-run DB path line | `/mnt/data/databases/virgil_st_dev.db` |
+| Included count | > 0 |
+| No blank-DB guard error | `[import] ERROR` must NOT appear |
+| Medical API health | 200 before import |
+
+**Pass gates after step 4:**
+
+| Check | Expected |
+|---|---|
+| Total rows | ~391 (366 seed + 25 SAMHSA) |
+| SAMHSA rows | 25 |
+| Medical API | 200, rows include `source_name`/`source_url` |
 
 ## Exclusion reasons
 
@@ -195,5 +254,12 @@ full import is a future-phase decision, not part of this PR.
 ## Running tests
 
 ```bash
+# SAMHSA normalization / filtering / dry-report tests (68 tests)
 python -m pytest backend/modules/medical/test_importer_samhsa.py -v
+
+# DB path resolution tests — durable vs seed fallback, import guard (19 tests)
+python -m pytest backend/modules/medical/test_virgil_db_path.py -v
+
+# Both together
+python -m pytest backend/modules/medical/test_importer_samhsa.py backend/modules/medical/test_virgil_db_path.py -v
 ```
