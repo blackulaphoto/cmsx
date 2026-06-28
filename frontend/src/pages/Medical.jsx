@@ -110,6 +110,50 @@ const GENERIC_PROVIDER_PATTERNS = [
   /^[A-Z]?\d{4,}(?:\s+GROUP)?$/,
 ]
 
+// Categories whose datasets are small enough to load without backend city filtering.
+// City matching for these is handled entirely on the frontend with LA-area alias expansion.
+const FRONTEND_CITY_FILTER_CATEGORIES = new Set([
+  'treatment-centers',
+  'private-insurance',
+  'suboxone-mat',
+  'dental-urgent',
+])
+
+// LA neighborhoods and adjacent cities that should match a "Los Angeles" city query.
+const LA_AREA_NEIGHBORHOODS = new Set([
+  'los angeles', 'la',
+  'hollywood', 'north hollywood', 'west hollywood', 'east hollywood',
+  'van nuys', 'sherman oaks', 'encino', 'studio city', 'tarzana',
+  'woodland hills', 'canoga park', 'winnetka', 'reseda', 'northridge',
+  'chatsworth', 'granada hills', 'mission hills', 'sylmar',
+  'westwood', 'brentwood', 'pacific palisades', 'bel air',
+  'beverly hills', 'culver city', 'santa monica', 'venice', 'mar vista',
+  'west los angeles', 'downtown los angeles',
+  'silver lake', 'silverlake', 'echo park', 'los feliz', 'atwater village',
+  'koreatown', 'leimert park', 'crenshaw', 'mid-city',
+  'boyle heights', 'lincoln heights', 'highland park', 'eagle rock',
+  'el sereno', 'glassell park', 'cypress park', 'mount washington',
+  'pasadena', 'glendale', 'burbank', 'alhambra', 'monterey park',
+  'el monte', 'azusa', 'monrovia', 'arcadia',
+  'long beach', 'compton', 'inglewood', 'hawthorne', 'gardena', 'torrance',
+  'carson', 'watts', 'south gate', 'lynwood', 'huntington park',
+  'east los angeles', 'montebello', 'commerce', 'bell', 'maywood',
+  'manhattan beach', 'redondo beach', 'hermosa beach', 'el segundo',
+])
+
+// Search terms the user can type that are treated as "Los Angeles area" queries.
+const LA_QUERY_TERMS = new Set([
+  'los angeles', 'la', 'l.a.', 'los angeles ca', 'la ca', 'los angeles california',
+])
+
+function normalizeLocationQuery(value) {
+  return String(value || '').toLowerCase().replace(/[,.]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+function isLaAreaQuery(filterValue) {
+  return LA_QUERY_TERMS.has(normalizeLocationQuery(filterValue))
+}
+
 function normalizeText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim()
 }
@@ -229,7 +273,20 @@ function matchesSpecialtyFilter(provider, filterValue) {
 function matchesCityFilter(provider, filterValue) {
   const normalizedFilter = normalizedUpper(filterValue)
   if (!normalizedFilter) return true
-  return normalizedUpper([provider.city, provider.address].filter(Boolean).join(' ')).includes(normalizedFilter)
+
+  const haystack = normalizedUpper([provider.city, provider.address].filter(Boolean).join(' '))
+  if (haystack.includes(normalizedFilter)) return true
+
+  // When the query is a Los Angeles-area term, also match known LA neighborhoods and
+  // adjacent cities so records stored under "Hollywood", "Van Nuys", etc. are included.
+  if (isLaAreaQuery(filterValue)) {
+    const providerCity = normalizeLocationQuery(provider.city)
+    if (LA_AREA_NEIGHBORHOODS.has(providerCity)) return true
+    const providerAddr = normalizeLocationQuery(provider.address)
+    return [...LA_AREA_NEIGHBORHOODS].some((alias) => providerAddr.includes(alias))
+  }
+
+  return false
 }
 
 function sortProviders(providers, sortBy) {
@@ -345,9 +402,13 @@ function Medical() {
     setProvidersError('')
 
     try {
+      // For small-dataset categories the full record set is fetched without a city
+      // constraint so the frontend LA-area alias matcher can evaluate every record.
+      // Medi-Cal has a large dataset and still needs backend city pre-filtering.
+      const backendCity = FRONTEND_CITY_FILTER_CATEGORIES.has(pathKey) ? '' : (city || '')
       const params = new URLSearchParams({
         category: pathKey,
-        city: city || '',
+        city: backendCity,
         search: search || '',
         specialty: specialty || '',
         limit: '100',
@@ -710,7 +771,10 @@ function Medical() {
                   <label className="mb-2 block text-sm font-medium text-gray-300">City</label>
                   <LocationSelector
                     value={city}
-                    onChange={setCity}
+                    onChange={(value) => {
+                      setCity(value)
+                      setCurrentPage(1)
+                    }}
                     placeholder="Search city or state"
                     className="w-full"
                     inputClassName="w-full rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-white placeholder-gray-400 transition hover:bg-white/15 focus:border-cyan-400"
