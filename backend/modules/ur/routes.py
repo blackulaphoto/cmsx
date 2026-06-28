@@ -185,7 +185,9 @@ async def delete_ur_case(case_id: str, request: Request):
     existing = store.get_case(case_id)
     if not existing:
         raise HTTPException(status_code=404, detail="UR case not found")
-    _authorize_case_access(request, existing)
+    current_user = require_authenticated_user(request)
+    if not current_user.is_admin and existing.get("assigned_case_manager") != current_user.case_manager_id:
+        raise HTTPException(status_code=403, detail="Access denied to this UR case")
     deleted = store.delete_case(case_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="UR case not found")
