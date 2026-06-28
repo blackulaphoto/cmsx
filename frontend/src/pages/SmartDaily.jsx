@@ -986,7 +986,7 @@ function SmartDaily() {
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(320px,430px)] lg:items-center">
               <div>
                 <p className="text-xs uppercase tracking-[0.25em] text-cyan-200">Case-management client</p>
-                <h2 className="mt-2 text-xl font-bold text-white">Universal Smart Daily client binding</h2>
+                <h2 className="mt-2 text-xl font-bold text-white">Today's Focus</h2>
                 <p className="mt-1 text-sm text-cyan-50/80">
                   Select a Case Management client to focus today&apos;s task board on that client&apos;s treatment-plan and intake-driven needs.
                 </p>
@@ -1024,7 +1024,7 @@ function SmartDaily() {
           <div className="bg-gradient-to-br from-white/8 to-white/3 backdrop-blur-xl p-5 rounded-2xl border border-white/15 shadow-xl shadow-purple-500/5">
             <div className="flex flex-col gap-4 mb-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 className="text-lg font-bold text-white">Task Intake</h2>
+                <h2 className="text-lg font-bold text-white">Add Task</h2>
                 <p className="text-sm text-slate-400 mt-0.5">
                   New tasks are created in Dashboard and appear here once saved.
                 </p>

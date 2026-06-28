@@ -63,6 +63,14 @@ describe('AppSidebar grouped navigation', () => {
     const messages = screen.getByRole('link', { name: /Messages/i })
     expect(within(messages).getByText('4')).toBeInTheDocument()
   })
+
+  it('renders "Auth / UR" as the sidebar label for the /ur route, not bare "UR"', () => {
+    renderSidebar({ isAdmin: false, isSuperAdmin: false })
+    const urLink = screen.getByRole('link', { name: /Auth \/ UR/i })
+    expect(urLink).toBeInTheDocument()
+    expect(urLink).toHaveAttribute('href', '/ur')
+    expect(screen.queryByRole('link', { name: /^UR$/i })).toBeNull()
+  })
 })
 
 describe('getVisibleNavGroups role filtering', () => {
