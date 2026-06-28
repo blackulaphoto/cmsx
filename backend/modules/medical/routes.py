@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["medical"])
 
-from backend.shared.db_path import DB_DIR as _DB_DIR
-VIRGIL_DB_PATH = Path(__file__).resolve().parents[3] / "databases" / "virgil_st_dev.db"
+from backend.shared.db_path import DB_DIR as _DB_DIR, resolve_virgil_db_path as _resolve_virgil_db
+VIRGIL_DB_PATH = _resolve_virgil_db()
 MEDICAL_DB_PATH = _DB_DIR / "medical.db"
 CASE_MGMT_DB_PATH = _DB_DIR / "case_management.db"
 CORE_CLIENTS_DB_PATH = _DB_DIR / "core_clients.db"

@@ -40,8 +40,12 @@ SAMHSA_API_URL = "https://findtreatment.gov/locator/listing"
 SAMHSA_DETAILS_URL_TEMPLATE = "https://findtreatment.gov/locator/details?frid={frid}"
 SOURCE_NAME = "SAMHSA FindTreatment.gov"
 
-# Mirrors routes.py — repo-relative, not DB_DIR
-VIRGIL_DB_PATH = Path(__file__).resolve().parents[3] / "databases" / "virgil_st_dev.db"
+from backend.shared.db_path import (
+    resolve_virgil_db_path as _resolve_virgil_db,
+    is_durable_db_configured as _is_durable_configured,
+    _durable_virgil_db_path,
+)
+VIRGIL_DB_PATH: Path = _resolve_virgil_db()
 
 OPTIONAL_COLUMNS: dict[str, str] = {
     "source_name": "TEXT",
@@ -637,6 +641,7 @@ def run_dry(
         f"[dry-run] sType={stype}  sAddr={saddr}  distance={distance}mi  "
         f"pageSize={page_size}  max_pages={max_pages}"
     )
+    print(f"[dry-run] DB path : {VIRGIL_DB_PATH}")
     if include_court_programs:
         print("[dry-run] Court/DUI program filter: DISABLED (--include-court-programs)")
 
@@ -763,6 +768,17 @@ def run_import(
             f"Pass --confirm-large-import to proceed."
         )
         sys.exit(1)
+
+    if _is_durable_configured():
+        durable = _durable_virgil_db_path()
+        if not durable.exists():
+            print(f"[import] ERROR: A durable DB directory is configured but")
+            print(f"[import]   {durable}")
+            print(f"[import]   does not exist. Writing here would create an empty DB")
+            print(f"[import]   that hides all seeded content.")
+            print(f"[import]   Initialize the durable DB first, then retry:")
+            print(f"[import]   cp databases/virgil_st_dev.db {durable}")
+            sys.exit(1)
 
     print(f"[import] DB path  : {VIRGIL_DB_PATH}")
     print(
