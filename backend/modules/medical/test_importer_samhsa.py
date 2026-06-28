@@ -17,11 +17,15 @@ from backend.modules.medical.importer_samhsa import (
     SOURCE_NAME,
     SAMHSA_DETAILS_URL_TEMPLATE,
     _build_services_list,
+    _clean_text,
     _derive_population,
     _derive_type,
+    _is_court_dui_program,
     _is_qualifying_record,
     _normalize_name,
     _services_by_code,
+    build_dry_report,
+    classify_record,
     dedupe_filter,
     ensure_optional_columns,
     load_fixture,
@@ -600,3 +604,308 @@ def test_route_query_with_optional_columns():
     row = rows[0]
     assert row["source_name"] == "SAMHSA FindTreatment.gov"
     assert "frid=abc123" in row["source_url"]
+
+
+# ---------------------------------------------------------------------------
+# 13. Text cleanup helper (_clean_text)
+# ---------------------------------------------------------------------------
+
+def test_clean_text_removes_replacement_char():
+    """U+FFFD (replacement character) should be replaced with a space."""
+    dirty = "VA Los Angeles � Substance Use Disorder Clinic"
+    result = _clean_text(dirty)
+    assert "�" not in result
+    assert "VA Los Angeles" in result
+    assert "Substance Use Disorder Clinic" in result
+
+
+def test_clean_text_collapses_extra_spaces():
+    """After removing U+FFFD, multiple spaces should be collapsed to one."""
+    dirty = "Center  �  West"
+    result = _clean_text(dirty)
+    # Should collapse to "Center West" or "Center  West" (single space between words)
+    assert "�" not in result
+    assert "Center" in result and "West" in result
+    assert "  " not in result
+
+
+def test_clean_text_handles_empty_string():
+    assert _clean_text("") == ""
+
+
+def test_clean_text_handles_none_like_empty():
+    """Callers pass empty string for None fields; ensure no crash."""
+    assert _clean_text("") == ""
+
+
+def test_clean_text_replaces_nonbreaking_space():
+    """Non-breaking space (U+00A0) should be converted to regular space."""
+    dirty = "Clinic\xa0Services"
+    result = _clean_text(dirty)
+    assert "\xa0" not in result
+    assert "Clinic" in result and "Services" in result
+
+
+def test_clean_text_decodes_html_entities():
+    dirty = "Recovery &amp; Wellness Center"
+    result = _clean_text(dirty)
+    assert "Recovery & Wellness Center" == result
+
+
+def test_clean_text_clean_string_unchanged():
+    """Already-clean strings must not be altered."""
+    clean = "Sunrise Recovery Center"
+    assert _clean_text(clean) == clean
+
+
+def test_name_with_replacement_char_in_name2_not_appended_as_junk():
+    """
+    If name2 is only whitespace after cleanup (the replacement char was the
+    only content), it must not be appended to the assembled name.
+    """
+    # name2 that is ONLY a replacement character → becomes a single space after cleanup
+    raw = _make_raw(
+        name1="Test Facility",
+        name2="�",   # single replacement character
+        set_f3="Residential",
+    )
+    result = normalize_record(raw)
+    assert result is not None
+    # name2 after cleanup is " " (space), which is falsy after strip —
+    # so only name1 should appear and the separator should not be added
+    assert result["name"] == "Test Facility"
+
+
+# ---------------------------------------------------------------------------
+# 14. Court/DUI program filter (_is_court_dui_program)
+# ---------------------------------------------------------------------------
+
+def test_court_dui_filter_detects_dui_in_name1():
+    """A record whose name1 contains 'DUI' should be flagged as court program."""
+    result = _is_court_dui_program(
+        name1="DUI Evaluation Services",
+        name2="",
+        set_f3="Intensive outpatient treatment",
+    )
+    assert result is True
+
+
+def test_court_dui_filter_detects_evaluaciones_in_name1():
+    """'evaluaciones' (Spanish for evaluations) signals a court-mandated program."""
+    result = _is_court_dui_program(
+        name1="Escuela Latina",
+        name2="Evaluaciones Alcohol Drugs",
+        set_f3="Intensive outpatient treatment",
+    )
+    assert result is True
+
+
+def test_court_dui_filter_detects_driver_education():
+    result = _is_court_dui_program(
+        name1="ABC Driver Education Center",
+        name2="",
+        set_f3="Intensive outpatient treatment",
+    )
+    assert result is True
+
+
+def test_court_dui_filter_detects_dwi():
+    result = _is_court_dui_program(
+        name1="DWI Assessment Program",
+        name2="",
+        set_f3="Intensive outpatient treatment",
+    )
+    assert result is True
+
+
+def test_court_dui_filter_not_triggered_by_residential():
+    """
+    A record with DUI in the name but residential settings should NOT be
+    filtered — residential strongly signals real clinical treatment.
+    """
+    result = _is_court_dui_program(
+        name1="DUI Treatment House",
+        name2="",
+        set_f3="Residential; Long-term residential (more than 30 days)",
+    )
+    assert result is False
+
+
+def test_court_dui_filter_not_triggered_by_detox():
+    """Records with detox settings must not be filtered even if name has DUI."""
+    result = _is_court_dui_program(
+        name1="DUI Detox Center",
+        name2="",
+        set_f3="Outpatient detoxification",
+    )
+    assert result is False
+
+
+def test_court_dui_filter_not_triggered_by_criminal_justice_sg():
+    """
+    Records that merely serve 'criminal justice clients' (SG field) must NOT
+    be filtered — this is a legitimate treatment population, not a court-program signal.
+    """
+    # _is_court_dui_program only looks at name and SET, not SG.
+    result = _is_court_dui_program(
+        name1="Social Model Recovery Systems",
+        name2="",
+        set_f3="Intensive outpatient treatment",
+    )
+    assert result is False
+
+
+def test_court_dui_filter_normal_treatment_name_not_triggered():
+    """Common treatment center names with no court signals must not be filtered."""
+    result = _is_court_dui_program(
+        name1="Valley Recovery Center",
+        name2="Outpatient Services",
+        set_f3="Intensive outpatient treatment",
+    )
+    assert result is False
+
+
+# ---------------------------------------------------------------------------
+# 15. classify_record returns exclusion reason
+# ---------------------------------------------------------------------------
+
+def test_classify_record_returns_dict_and_none_for_qualifying():
+    raw = _make_raw(set_f3="Residential")
+    row, reason = classify_record(raw)
+    assert row is not None
+    assert reason is None
+
+
+def test_classify_record_returns_none_and_reason_for_non_qualifying_setting():
+    raw = _make_raw(set_f3="Regular outpatient treatment")
+    row, reason = classify_record(raw)
+    assert row is None
+    assert reason == "non_qualifying_setting"
+
+
+def test_classify_record_returns_court_reason_for_dui_name():
+    raw = _make_raw(
+        name1="DUI Assessment Center",
+        set_f3="Intensive outpatient treatment",
+    )
+    row, reason = classify_record(raw)
+    assert row is None
+    assert reason == "court_or_dui_program"
+
+
+def test_classify_record_includes_court_when_override():
+    """With include_court_programs=True, DUI records should be included."""
+    raw = _make_raw(
+        name1="DUI Assessment Center",
+        set_f3="Intensive outpatient treatment",
+    )
+    row, reason = classify_record(raw, include_court_programs=True)
+    assert row is not None
+    assert reason is None
+
+
+def test_classify_record_includes_justice_involved_treatment():
+    """
+    A legitimate residential program that serves criminal justice clients
+    must not be excluded — 'criminal justice clients' in SG is not a
+    court-program indicator.
+    """
+    raw = _make_raw(
+        name1="Social Model Recovery Systems",
+        set_f3="Long-term residential (more than 30 days)",
+        sg_f3="Criminal justice clients; Persons with co-occurring disorders",
+    )
+    row, reason = classify_record(raw)
+    assert row is not None
+    assert reason is None
+
+
+# ---------------------------------------------------------------------------
+# 16. normalize_record backward compat — court programs excluded by default
+# ---------------------------------------------------------------------------
+
+def test_normalize_record_excludes_court_program_by_default():
+    raw = _make_raw(
+        name1="DUI Evaluation Center",
+        set_f3="Intensive outpatient treatment",
+    )
+    result = normalize_record(raw)
+    assert result is None
+
+
+def test_normalize_record_includes_court_program_with_override():
+    raw = _make_raw(
+        name1="DUI Evaluation Center",
+        set_f3="Intensive outpatient treatment",
+    )
+    result = normalize_record(raw, include_court_programs=True)
+    assert result is not None
+
+
+def test_normalize_record_does_not_exclude_residential_with_dui_name():
+    """Residential override must protect even names containing DUI."""
+    raw = _make_raw(
+        name1="DUI Recovery Residential House",
+        set_f3="Residential",
+    )
+    result = normalize_record(raw)
+    assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# 17. build_dry_report structure
+# ---------------------------------------------------------------------------
+
+def test_build_dry_report_counts_included_and_excluded():
+    raw_rows = [
+        _make_raw(name1="Qualifying Center", set_f3="Residential"),
+        _make_raw(name1="Regular Clinic", set_f3="Regular outpatient treatment"),
+        _make_raw(name1="DUI Program", set_f3="Intensive outpatient treatment"),
+    ]
+    report = build_dry_report(raw_rows)
+    assert report["total_raw"] == 3
+    assert len(report["included"]) == 1
+    assert len(report["excluded"]) == 2
+
+
+def test_build_dry_report_exclusion_reasons():
+    raw_rows = [
+        _make_raw(name1="Regular Clinic", set_f3="Regular outpatient treatment"),
+        _make_raw(name1="DUI Eval Center", set_f3="Intensive outpatient treatment"),
+    ]
+    report = build_dry_report(raw_rows)
+    reasons = {ex["reason"] for ex in report["excluded"]}
+    assert "non_qualifying_setting" in reasons
+    assert "court_or_dui_program" in reasons
+
+
+def test_build_dry_report_excluded_entries_have_name_city_reason():
+    raw_rows = [
+        _make_raw(name1="Regular Clinic", city="Burbank",
+                  set_f3="Regular outpatient treatment"),
+    ]
+    report = build_dry_report(raw_rows)
+    ex = report["excluded"][0]
+    assert "name" in ex and "city" in ex and "reason" in ex
+    assert ex["city"] == "Burbank"
+
+
+def test_build_dry_report_include_court_programs_flag():
+    """With include_court_programs=True, DUI records appear in included."""
+    raw_rows = [
+        _make_raw(name1="DUI Eval Center", set_f3="Intensive outpatient treatment"),
+    ]
+    report_default = build_dry_report(raw_rows, include_court_programs=False)
+    report_override = build_dry_report(raw_rows, include_court_programs=True)
+    assert len(report_default["included"]) == 0
+    assert len(report_override["included"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# 18. run_fixture_mode include_court_programs kwarg backward compat
+# ---------------------------------------------------------------------------
+
+def test_fixture_mode_default_arg_still_works():
+    """run_fixture_mode(path) with no other args must still return 4 rows."""
+    results = run_fixture_mode(FIXTURE_PATH)
+    assert len(results) == 4
