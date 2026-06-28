@@ -169,4 +169,16 @@ describe('CaseManagement — client row actions (PR 2 clarity fix)', () => {
     })
   })
 
+  // 10. Add Client form uses "Client's own words", not "CT's own words"
+  it('Add Client form labels say "Client\'s own words" not "CT\'s own words"', async () => {
+    renderCaseManagement()
+    await waitFor(() => screen.getByRole('button', { name: /add client/i }))
+    fireEvent.click(screen.getByRole('button', { name: /add client/i }))
+    await waitFor(() => {
+      const allText = document.body.textContent
+      expect(allText).toMatch(/Client's own words/)
+      expect(allText).not.toMatch(/CT's own words/)
+    })
+  })
+
 })

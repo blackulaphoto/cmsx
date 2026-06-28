@@ -1140,7 +1140,7 @@ function CaseManagement() {
 
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-2">
-                          Client Strengths <span className="text-gray-500 font-normal">(CT's own words)</span>
+                          Client Strengths <span className="text-gray-500 font-normal">(Client's own words)</span>
                         </label>
                         <textarea
                           value={clientForm.strengths}
@@ -1153,7 +1153,7 @@ function CaseManagement() {
 
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-2">
-                          Client Weaknesses <span className="text-gray-500 font-normal">(CT's own words)</span>
+                          Client Weaknesses <span className="text-gray-500 font-normal">(Client's own words)</span>
                         </label>
                         <textarea
                           value={clientForm.weaknesses}
@@ -1166,7 +1166,7 @@ function CaseManagement() {
 
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-2">
-                          I am here because... <span className="text-gray-500 font-normal">(CT's own words)</span>
+                          I am here because... <span className="text-gray-500 font-normal">(Client's own words)</span>
                         </label>
                         <textarea
                           value={clientForm.reason_for_treatment}
@@ -1179,7 +1179,7 @@ function CaseManagement() {
 
                       <div>
                         <label className="block text-sm font-medium text-gray-300 mb-2">
-                          Discharge Plans <span className="text-gray-500 font-normal">(CT's own words)</span>
+                          Discharge Plans <span className="text-gray-500 font-normal">(Client's own words)</span>
                         </label>
                         <textarea
                           value={clientForm.discharge_plan}
