@@ -84,6 +84,18 @@ const getAftercareEntries = (aftercarePlan) => {
   })
 }
 
+const getReferralDisplayType = (referral) =>
+  referral?.service_type ||
+  referral?.service_name ||
+  referral?.provider_type ||
+  referral?.provider_category ||
+  'Referral'
+
+const getReferralDisplayStatus = (referral) =>
+  referral?.status ||
+  referral?.referral_status ||
+  'Pending'
+
 const getRoiSummaryStats = (records) => {
   const roiRecords = Array.isArray(records) ? records : []
   return {
@@ -1938,12 +1950,15 @@ const ClientDashboard = () => {
                           <div key={index} className="p-4 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm rounded-xl border border-white/20">
                             <div className="flex justify-between items-start">
                               <div>
-                                <p className="font-medium text-white">{referral.service_type}</p>
+                                <p className="font-medium text-white">{getReferralDisplayType(referral)}</p>
                                 <p className="text-sm text-teal-300">{referral.provider_name}</p>
                                 <p className="text-sm text-gray-300">Referred: {formatDate(referral.referral_date)}</p>
+                                {referral.notes ? (
+                                  <p className="mt-2 text-sm text-gray-300">{referral.notes}</p>
+                                ) : null}
                               </div>
-                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(referral.status)}`}>
-                                {referral.status}
+                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(getReferralDisplayStatus(referral))}`}>
+                                {getReferralDisplayStatus(referral)}
                               </span>
                             </div>
                           </div>

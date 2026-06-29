@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect, useRef } from 'react'
 import { MessageSquare, Send, Bot, User, Loader2, Sparkles, Zap, Brain, Stars, Save, BookOpen, StickyNote, Bookmark } from 'lucide-react'
-import { useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
 import ClientSelector from '../components/ClientSelector'
@@ -16,6 +16,7 @@ const getSessionId = () => {
 }
 
 function AIChat() {
+  const location = useLocation()
   const [searchParams] = useSearchParams()
   const clientIdFromUrl = searchParams.get('client')
   const [messages, setMessages] = useState([])
@@ -88,6 +89,8 @@ function AIChat() {
           case_manager_id: getSessionId(),
           user_id: getSessionId(),
           client_id: context.client_id,
+          client_name: context.client_name,
+          current_route: location.pathname,
           context
         })
       })
