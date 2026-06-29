@@ -87,6 +87,43 @@ def _make_admissions_db(path, face_sheet_rows):
         conn.executemany("INSERT INTO face_sheets VALUES (?,?,?,?)", face_sheet_rows)
 
 
+def _make_reminders_db(path, task_rows):
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            """CREATE TABLE intelligent_tasks (
+                id TEXT PRIMARY KEY,
+                client_id TEXT,
+                case_manager_id TEXT,
+                task_type TEXT,
+                title TEXT,
+                description TEXT,
+                priority TEXT,
+                status TEXT,
+                estimated_minutes INTEGER,
+                due_date TEXT,
+                completed_at TEXT,
+                created_at TEXT,
+                is_demo INTEGER DEFAULT 0,
+                org_id TEXT
+            )"""
+        )
+        conn.execute(
+            """CREATE TABLE active_reminders (
+                reminder_id TEXT PRIMARY KEY,
+                client_id TEXT,
+                case_manager_id TEXT,
+                reminder_type TEXT,
+                message TEXT,
+                priority TEXT,
+                due_date TEXT,
+                status TEXT,
+                created_at TEXT,
+                org_id TEXT
+            )"""
+        )
+        conn.executemany("INSERT INTO intelligent_tasks VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", task_rows)
+
+
 def _make_route_app(user, tmp_path, monkeypatch):
     from backend.modules.ai_unified import unified_routes as ur_mod
     from backend.shared import db_path as db_path_mod
@@ -160,6 +197,7 @@ def ctx(tmp_path, monkeypatch):
     core_db = tmp_path / "core_clients.db"
     admissions_db = tmp_path / "admissions.db"
     legal_db = tmp_path / "legal_cases.db"
+    reminders_db = tmp_path / "reminders.db"
 
     _make_auth_db(auth_db, [
         ("cm_a1", "uid-cm_a1", "org_a"),
@@ -173,6 +211,10 @@ def ctx(tmp_path, monkeypatch):
     _make_admissions_db(admissions_db, [
         ("client-a1", "Medi-Cal", "Medi-Cal Managed Care", "MCA-001"),
         ("client-a2", None, None, None),  # Jessica has no insurance
+    ])
+    yesterday = (datetime.now() - timedelta(days=1)).isoformat()
+    _make_reminders_db(reminders_db, [
+        ("task-a1", "client-a1", "cm_a1", "housing_follow_up", "Pay rent", "Bring payment to housing office", "high", "pending", 30, yesterday, None, yesterday, 0, "org_a"),
     ])
 
     next_week = (datetime.now() + timedelta(days=5)).date().isoformat()
@@ -200,6 +242,7 @@ def ctx(tmp_path, monkeypatch):
         "core_db": core_db,
         "admissions_db": admissions_db,
         "legal_db": legal_db,
+        "reminders_db": reminders_db,
         "tmp_path": tmp_path,
     }
 
@@ -212,6 +255,62 @@ def test_unauthed_assistant_returns_401(ctx, monkeypatch):
     client = _make_route_app(None, ctx["tmp_path"], monkeypatch)
     resp = client.post("/api/ai/assistant", json={"message": "list my clients"})
     assert resp.status_code == 401
+
+
+def test_chat_injects_selected_client_task_context(ctx, monkeypatch):
+    user = _user(org_id="org_a", case_manager_id="cm_a1")
+    captured = {}
+
+    async def fake_process_message(*, message, case_manager_id, mode, injected_context, org_id):
+        captured["message"] = message
+        captured["case_manager_id"] = case_manager_id
+        captured["mode"] = mode
+        captured["injected_context"] = injected_context
+        captured["org_id"] = org_id
+        return {"success": True, "response": "ok", "function_called": ""}
+
+    client = _make_route_app(user, ctx["tmp_path"], monkeypatch)
+    from backend.modules.ai_unified import unified_routes as ur_mod
+    monkeypatch.setattr(ur_mod.unified_ai, "process_message", fake_process_message)
+    monkeypatch.setattr(
+        ur_mod,
+        "get_prioritized_tasks",
+        lambda case_manager_id, org_id=None: {
+            "buckets": {
+                "overdue": [
+                    {
+                        "client_id": "client-a1",
+                        "client_name": "Alice Alpha",
+                        "title": "Pay rent",
+                        "due_date": "2026-06-01",
+                        "priority": "high",
+                    }
+                ],
+                "today": [],
+                "next_3_days": [],
+                "this_week": [],
+                "high_priority_no_date": [],
+                "later": [],
+            }
+        },
+    )
+    resp = client.post(
+        "/api/ai/chat",
+        json={
+            "message": "Does this client have overdue tasks?",
+            "client_id": "client-a1",
+            "client_name": "Alice Alpha",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert captured["case_manager_id"] == "cm_a1"
+    assert captured["mode"] == "central"
+    assert captured["org_id"] is None
+    assert "Selected client operational context:" in captured["injected_context"]
+    assert "- Client: Alice Alpha" in captured["injected_context"]
+    assert "- Overdue: 1" in captured["injected_context"]
+    assert "Pay rent" in captured["injected_context"]
 
 
 # ---------------------------------------------------------------------------

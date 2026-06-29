@@ -801,6 +801,45 @@ def get_client_services_summary(client_id: str) -> Dict[str, Any]:
         logger.error("Error getting services summary for %s: %s", client_id, e)
         return summary
 
+
+def get_client_medical_referrals_summary(client_id: str) -> List[Dict[str, Any]]:
+    """Return persisted Medical Access referrals normalized for dashboard display."""
+    try:
+        from backend.modules.medical.routes import MEDICAL_DB_PATH
+
+        with sqlite3.connect(str(MEDICAL_DB_PATH)) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT referral_id, provider_name, provider_category, provider_type,
+                       referral_status, notes, created_at, updated_at
+                FROM medical_referrals
+                WHERE client_id = ?
+                ORDER BY COALESCE(updated_at, created_at) DESC
+                """,
+                (client_id,),
+            ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    except Exception as exc:
+        logger.warning("Medical referral summary unavailable for %s: %s", client_id, exc)
+        return []
+
+    normalized: List[Dict[str, Any]] = []
+    for row in rows:
+        normalized.append({
+            "referral_id": row["referral_id"],
+            "provider_name": row["provider_name"] or "",
+            "service_name": "Medical Access Referral",
+            "service_type": row["provider_type"] or row["provider_category"] or "Medical Referral",
+            "service_category": "medical",
+            "status": row["referral_status"] or "Identified",
+            "referral_date": row["updated_at"] or row["created_at"],
+            "notes": row["notes"] or "",
+            "source_module": "medical_access",
+        })
+    return normalized
+
 class ClientCreateRequest(BaseModel):
     """Client creation schema - must match dependency map requirements"""
     first_name: str
@@ -1320,6 +1359,15 @@ async def get_client_unified_view(client_id: str, request: Request):
             services_summary["active_referrals"] = sum(
                 1 for r in services_summary["referrals"]
                 if str(r.get("status", "")).strip().lower() in {"pending", "active", "in progress", "open"}
+            )
+
+        medical_referrals = get_client_medical_referrals_summary(client_id)
+        if medical_referrals:
+            services_summary["referrals"] = medical_referrals + services_summary.get("referrals", [])
+            services_summary["total_referrals"] = len(services_summary["referrals"])
+            services_summary["active_referrals"] = sum(
+                1 for r in services_summary["referrals"]
+                if str(r.get("status", "")).strip().lower() in {"pending", "active", "in progress", "open", "identified"}
             )
 
         # Workspace-stored appointments

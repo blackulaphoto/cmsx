@@ -157,6 +157,50 @@ describe('ClientDashboard treatment plan snapshot', () => {
   })
 })
 
+describe('ClientDashboard service referral propagation', () => {
+  it('renders Medical Access referrals from the unified dashboard payload', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              services: {
+                referrals: [
+                  {
+                    referral_id: 'medical-ref-1',
+                    service_type: 'Primary Care',
+                    provider_name: 'Sunrise Health Clinic',
+                    referral_date: '2026-06-28T09:30:00',
+                    status: 'Identified',
+                    notes: 'Accepts Medi-Cal and walk-ins.',
+                    source_module: 'medical_access',
+                  },
+                ],
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Services' }))
+
+    expect(await screen.findByText('Sunrise Health Clinic')).toBeInTheDocument()
+    expect(screen.getByText('Primary Care')).toBeInTheDocument()
+    expect(screen.getByText('Identified')).toBeInTheDocument()
+    expect(screen.getByText('Accepts Medi-Cal and walk-ins.')).toBeInTheDocument()
+  })
+})
+
 describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
   beforeEach(() => {
     apiFetch.mockImplementation((url) => {

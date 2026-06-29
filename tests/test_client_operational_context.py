@@ -179,6 +179,98 @@ def test_operational_context_enforces_case_manager_access(tmp_path, monkeypatch)
     assert response.status_code == 403
 
 
+def test_unified_view_merges_medical_referrals_into_existing_services_path(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-unified-view")
+    client = TestClient(_test_app(tmp_path))
+
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_benefits_summary",
+        lambda _client_id: {"applications": [], "total_applications": 0, "active_applications": 0},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_legal_summary",
+        lambda _client_id: {"cases": [], "active_cases": 0, "next_court_date": None},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_services_summary",
+        lambda _client_id: {
+            "referrals": [
+                {
+                    "referral_id": "service-ref-1",
+                    "provider_name": "County Services Hub",
+                    "service_name": "Benefits Intake",
+                    "service_type": "Benefits",
+                    "status": "Pending",
+                    "referral_date": "2026-06-09T09:00:00",
+                }
+            ],
+            "tasks": [],
+            "total_referrals": 1,
+            "active_referrals": 1,
+            "open_tasks": 0,
+        },
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_medical_referrals_summary",
+        lambda _client_id: [
+            {
+                "referral_id": "medical-ref-1",
+                "provider_name": "Sunrise Health Clinic",
+                "service_name": "Medical Access Referral",
+                "service_type": "Primary Care",
+                "service_category": "medical",
+                "status": "Identified",
+                "referral_date": "2026-06-10T11:30:00",
+                "notes": "Accepts Medi-Cal.",
+                "source_module": "medical_access",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        workspace_store,
+        "list_client_service_referrals",
+        lambda _client_id: [
+            {
+                "ref_id": "ws-ref-1",
+                "provider_name": "Community Dental Partners",
+                "service_name": "Dental",
+                "service_type": "Dental",
+                "status": "pending",
+                "referral_date": "2026-06-08",
+                "notes": "Bring insurance card.",
+            }
+        ],
+    )
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+
+    response = client.get(
+        f"/api/clients/{client_id}/unified-view",
+        headers={
+            "X-Test-Auth-Email": "case.manager@example.test",
+            "X-Test-Auth-Case-Manager-Id": "cm_test",
+            "X-Test-Auth-Role": "case_manager",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+
+    referrals = payload["client_data"]["services"]["referrals"]
+    assert [ref["referral_id"] for ref in referrals if ref.get("referral_id")] == ["medical-ref-1", "service-ref-1"]
+    assert referrals[0]["source_module"] == "medical_access"
+    assert referrals[0]["provider_name"] == "Sunrise Health Clinic"
+    assert any(ref.get("provider_name") == "Community Dental Partners" for ref in referrals)
+    assert payload["client_data"]["services"]["total_referrals"] == 3
+
+
 def test_treatment_plan_draft_approve_and_context_readback(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     original_workspace_db = _use_temp_workspace_store(tmp_path)
