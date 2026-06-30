@@ -719,6 +719,54 @@ describe('DocumentationCenter authenticated client document view', () => {
     expect(openSpy).toHaveBeenCalledWith('https://example.com/file.pdf', '_blank', 'noopener,noreferrer')
     expect(apiFetch).not.toHaveBeenCalledWith('/api/clients/client-1/documents/doc-2/view')
   })
+
+  it('downloads a saved generated client document through the authenticated helper', async () => {
+    const generatedDoc = {
+      doc_id: 'doc-generated-1',
+      title: 'Letter of Presence',
+      doc_type: 'presence_letter',
+      file_name: 'letter-of-presence.txt',
+      file_path: 'uploads/clients/client-1/letter-of-presence.txt',
+    }
+    apiFetch.mockImplementation(routeDocs([generatedDoc], successView))
+    let downloadedName = null
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function clickSpy() {
+      downloadedName = this.download
+    })
+
+    await showClientDocuments()
+    expect(await screen.findByText('Letter of Presence')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-generated-1/view'),
+    )
+    await waitFor(() => expect(downloadedName).toBe('court_letter.pdf'))
+    expect(toast.success).toHaveBeenCalledWith('Document download started')
+  })
+
+  it('uses the authenticated helper for generated docs even when the saved record is missing file_path', async () => {
+    const legacyGeneratedDoc = {
+      doc_id: 'doc-generated-legacy',
+      title: 'Legacy Letter of Presence',
+      doc_type: 'presence_letter',
+      file_name: 'legacy-letter.txt',
+      url: null,
+    }
+    apiFetch.mockImplementation(routeDocs([legacyGeneratedDoc], successView))
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+
+    await showClientDocuments()
+    expect(await screen.findByText('Legacy Letter of Presence')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View' }))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-generated-legacy/view'),
+    )
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith('blob:mock-url', '_blank', 'noopener,noreferrer'),
+    )
+  })
 })
 
 describe('DocumentationCenter PR3: save destination clarity', () => {

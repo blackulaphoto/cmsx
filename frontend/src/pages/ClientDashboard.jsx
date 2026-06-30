@@ -48,6 +48,7 @@ import RoiConsentTracker from '../components/RoiConsentTracker'
 import { apiFetch } from '../api/config'
 import {
   fetchClientDocumentObjectUrl,
+  isProtectedClientDocument,
   openClientDocument,
   downloadClientDocument,
 } from '../utils/clientDocuments'
@@ -695,9 +696,16 @@ const ClientDashboard = () => {
   }
 
   const docViewEndpoint = (doc) => `/api/clients/${clientId}/documents/${doc.doc_id}/view`
+  const isProtectedDoc = (doc) => isProtectedClientDocument(doc)
+  const isHtmlPreviewable = (doc, blob) => {
+    const mime = doc?.file_mime || blob?.type || ''
+    if (/^text\/html\b/i.test(mime)) return true
+    return /\.(html?)$/i.test(String(doc?.file_name || ''))
+  }
 
   const isTextPreviewable = (doc, blob) => {
     const mime = doc?.file_mime || blob?.type || ''
+    if (isHtmlPreviewable(doc, blob)) return false
     if (mime.startsWith('text/')) return true
     return /\.(txt|md|markdown)$/i.test(String(doc?.file_name || ''))
   }
@@ -715,7 +723,7 @@ const ClientDashboard = () => {
     setShowDocViewer(true)
     setDocBlobError(false)
     // External-URL documents need no authenticated fetch; preview uses doc.url.
-    if (!doc.file_path) {
+    if (!isProtectedDoc(doc)) {
       setDocBlobUrl(null)
       setDocBlobLoading(false)
       return
@@ -748,7 +756,7 @@ const ClientDashboard = () => {
   }
 
   const handleOpenDocument = async (doc) => {
-    if (!doc.file_path) {
+    if (!isProtectedDoc(doc)) {
       if (doc.url && typeof window !== 'undefined') window.open(doc.url, '_blank', 'noopener,noreferrer')
       return
     }
@@ -761,14 +769,14 @@ const ClientDashboard = () => {
   }
 
   const handleDownloadDocument = async (doc) => {
-    if (!doc.file_path) {
+    if (!isProtectedDoc(doc)) {
       if (doc.url && typeof window !== 'undefined') window.open(doc.url, '_blank', 'noopener,noreferrer')
       return
     }
     try {
       await downloadClientDocument(docViewEndpoint(doc), doc.file_name || doc.title || 'document')
     } catch {
-      toast.error('Could not open document. Please try again.')
+      toast.error('Could not download document. Please try again.')
     }
   }
 
@@ -815,7 +823,7 @@ const ClientDashboard = () => {
   }
 
   const getDocViewUrl = (doc) => {
-    if (doc.file_path) return `/api/clients/${clientId}/documents/${doc.doc_id}/view`
+    if (isProtectedDoc(doc)) return `/api/clients/${clientId}/documents/${doc.doc_id}/view`
     if (doc.url) return doc.url
     return null
   }
@@ -2472,7 +2480,7 @@ const ClientDashboard = () => {
                               <div className="flex gap-2 ml-3 shrink-0">
                                 {viewUrl && (
                                   <button
-                                    onClick={() => doc.file_path ? openDocViewer(doc) : window.open(viewUrl, '_blank', 'noopener,noreferrer')}
+                                    onClick={() => isProtectedDoc(doc) ? openDocViewer(doc) : window.open(viewUrl, '_blank', 'noopener,noreferrer')}
                                     className="p-2 hover:bg-violet-500/20 rounded-lg text-gray-400 hover:text-violet-300 transition-colors"
                                     title="View"
                                   >
@@ -2488,7 +2496,7 @@ const ClientDashboard = () => {
                                     <ExternalLink className="h-4 w-4" />
                                   </button>
                                 )}
-                                {doc.file_path && (
+                                {isProtectedDoc(doc) && (
                                   <button
                                     onClick={() => handleDownloadDocument(doc)}
                                     className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors"
@@ -2636,7 +2644,7 @@ const ClientDashboard = () => {
         {showDocViewer && viewingDoc && (() => {
           // For protected uploaded files the preview source is the authenticated
           // blob object URL; for external-URL documents it is the URL itself.
-          const previewSrc = viewingDoc.file_path ? docBlobUrl : (viewingDoc.url || null)
+          const previewSrc = isProtectedDoc(viewingDoc) ? docBlobUrl : (viewingDoc.url || null)
           return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={closeDocViewer} />
@@ -2652,7 +2660,7 @@ const ClientDashboard = () => {
                     className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors" title="Open in new tab">
                     <ExternalLink className="h-4 w-4" />
                   </button>
-                  {viewingDoc.file_path && (
+                  {isProtectedDoc(viewingDoc) && (
                     <button onClick={() => handleDownloadDocument(viewingDoc)}
                       className="p-2 hover:bg-white/10 rounded-lg text-gray-400 hover:text-white transition-colors" title="Download">
                       <Download className="h-4 w-4" />
@@ -2682,6 +2690,8 @@ const ClientDashboard = () => {
                   <img src={previewSrc} alt={viewingDoc.title} className="max-w-full mx-auto rounded-lg" />
                 ) : viewingDoc.file_mime === 'application/pdf' && previewSrc ? (
                   <iframe src={previewSrc} className="w-full h-[70vh] rounded-lg border-0" title={viewingDoc.title} />
+                ) : previewSrc && isHtmlPreviewable(viewingDoc) ? (
+                  <iframe src={previewSrc} className="w-full h-[70vh] rounded-lg border-0 bg-white" title={viewingDoc.title} />
                 ) : docBlobText !== null ? (
                   <pre className="whitespace-pre-wrap text-sm text-gray-200 p-6 leading-relaxed font-mono overflow-auto h-full min-h-0">
                     {docBlobText}
