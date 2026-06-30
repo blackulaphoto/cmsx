@@ -173,62 +173,26 @@ describe('ClientDashboard treatment plan snapshot', () => {
 })
 
 describe('ClientDashboard task pipeline truthfulness', () => {
-  it('merges workspace tasks, Smart Daily tasks, and reminders into the client task view', async () => {
-    useTasksMock.mockReturnValue({
-      tasks: [
-        {
-          task_id: 'workspace-task-1',
-          title: 'Upload ID documents',
-          description: 'Client task from dashboard',
-          priority: 'medium',
-          status: 'pending',
-          task_type: 'documentation',
-          due_date: '2026-07-01T00:00:00.000Z',
-          assigned_to: 'Case Manager',
-        },
-      ],
-      loading: false,
-      syncing: false,
-      addTask: vi.fn(),
-      updateTask: vi.fn(),
-      deleteTask: vi.fn(),
-      completeTask: vi.fn(),
-      syncAllTasks: vi.fn(),
-      getFilteredTasks: vi.fn(() => []),
-      getTasksStats: vi.fn(() => ({})),
-      getTaskById: vi.fn(),
-    })
+  it('reads workspace tasks, Smart Daily tasks, and reminders from the canonical work-items endpoint', async () => {
     apiFetch.mockImplementation((url) => {
-      if (url.includes('/unified-view')) {
+      if (url.includes('/work-items')) {
         return Promise.resolve({
           ok: true,
           json: async () => ({
             success: true,
-            client_data: {
-              ...baseClientData,
-              reminders: [
-                {
-                  reminder_id: 'reminder-1',
-                  reminder_type: 'follow_up',
-                  message: 'Call landlord about application',
-                  priority: 'High',
-                  due_date: '2026-06-30T00:00:00.000Z',
-                  status: 'Active',
-                  case_manager_id: 'cm_casey',
-                  client_id: 'client-1',
-                  created_at: '2026-06-28T10:00:00.000Z',
-                },
-              ],
-            },
-          }),
-        })
-      }
-      if (url.includes('/intelligent-tasks')) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            success: true,
-            tasks: [
+            items: [
+              {
+                task_id: 'workspace-task-1',
+                title: 'Upload ID documents',
+                description: 'Client task from dashboard',
+                priority: 'medium',
+                status: 'pending',
+                task_type: 'documentation',
+                due_date: '2026-07-01T00:00:00.000Z',
+                client_id: 'client-1',
+                source_kind: 'workspace_task',
+                source_label: 'Client Task',
+              },
               {
                 task_id: 'smart-daily-1',
                 title: 'Submit SSI appeal packet',
@@ -237,8 +201,32 @@ describe('ClientDashboard task pipeline truthfulness', () => {
                 status: 'pending',
                 task_type: 'benefits',
                 due_date: '2026-06-29T00:00:00.000Z',
+                client_id: 'client-1',
+                source_kind: 'intelligent_task',
+                source_label: 'Smart Daily Task',
+              },
+              {
+                task_id: 'reminder-1',
+                title: 'Call landlord about application',
+                description: 'Call landlord about application',
+                priority: 'High',
+                status: 'Active',
+                task_type: 'follow_up',
+                due_date: '2026-06-30T00:00:00.000Z',
+                client_id: 'client-1',
+                source_kind: 'reminder',
+                source_label: 'Reminder',
               },
             ],
+          }),
+        })
+      }
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: baseClientData,
           }),
         })
       }

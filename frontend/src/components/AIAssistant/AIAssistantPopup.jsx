@@ -26,6 +26,28 @@ const markdownComponents = {
   ),
 }
 
+function deriveClientContextFromRoute() {
+  const searchParams = new URLSearchParams(window.location.search)
+  const queryClientId = searchParams.get('client')
+  if (queryClientId) {
+    return { client_id: queryClientId, client_name: null }
+  }
+
+  const routeMatchers = [
+    /^\/client\/([^/?#]+)/,
+    /^\/case-management\/([^/?#]+)/,
+  ]
+
+  for (const matcher of routeMatchers) {
+    const match = window.location.pathname.match(matcher)
+    if (match?.[1]) {
+      return { client_id: decodeURIComponent(match[1]), client_name: null }
+    }
+  }
+
+  return { client_id: null, client_name: null }
+}
+
 export default function AIAssistantPopup() {
   const [isOpen, setIsOpen] = useState(false)
   const [isMinimized, setIsMinimized] = useState(false)
@@ -59,6 +81,7 @@ export default function AIAssistantPopup() {
     setLoading(true)
 
     try {
+      const clientContext = deriveClientContextFromRoute()
       const response = await apiFetch('/api/ai/assistant', {
         timeoutMs: 30000,
         method: 'POST',
@@ -66,6 +89,7 @@ export default function AIAssistantPopup() {
         body: JSON.stringify({
           message: messageText,
           current_route: window.location.pathname,
+          ...clientContext,
         }),
       })
 

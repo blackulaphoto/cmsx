@@ -12,9 +12,10 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from backend.auth.service import auth_service, require_authenticated_user
+from backend.modules.services.case_management_api import get_clients_from_db
 from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 from backend.modules.ai_documentation.service import documentation_ai_service
-from backend.modules.reminders.repository import get_prioritized_tasks
+from backend.modules.reminders.repository import get_client_work_items
 from .platform_guide import build_platform_guide_context
 from .unified_service import UnifiedAIService
 
@@ -103,44 +104,93 @@ def _build_assistant_context(message: str, *, current_route: Optional[str], curr
     return "\n\n".join(part for part in parts if part)
 
 
+def _resolve_client_from_request(
+    message: str,
+    *,
+    current_user,
+    client_id: Optional[str],
+    client_name: Optional[str],
+) -> Dict[str, Any]:
+    if client_id:
+        return {
+            "status": "resolved",
+            "client_id": client_id,
+            "client_name": client_name,
+        }
+
+    org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
+    scope = get_clients_from_db(case_manager_id=current_user.case_manager_id, org_id=org_id)
+    clients = scope.get("clients", []) or []
+    if not clients:
+        return {"status": "missing"}
+
+    def _client_display_name(client: Dict[str, Any]) -> str:
+        return f"{client.get('first_name', '')} {client.get('last_name', '')}".strip()
+
+    if client_name:
+        query = client_name.strip().lower()
+        matches = [
+            client for client in clients
+            if query and query in _client_display_name(client).lower()
+        ]
+    else:
+        message_lc = message.lower()
+        matches = [
+            client for client in clients
+            if _client_display_name(client) and _client_display_name(client).lower() in message_lc
+        ]
+
+    if len(matches) == 1:
+        match = matches[0]
+        return {
+            "status": "resolved",
+            "client_id": match.get("client_id"),
+            "client_name": _client_display_name(match),
+        }
+    if len(matches) > 1:
+        return {
+            "status": "ambiguous",
+            "matches": [
+                {
+                    "client_id": match.get("client_id"),
+                    "client_name": _client_display_name(match),
+                }
+                for match in matches
+            ],
+        }
+    return {"status": "missing"}
+
+
 def _build_selected_client_task_context(current_user, client_id: Optional[str], client_name: Optional[str]) -> Optional[str]:
     if not client_id:
         return None
 
     org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
-    task_payload = get_prioritized_tasks(current_user.case_manager_id, org_id=org_id)
-    buckets = task_payload.get("buckets") or {}
+    work_items_payload = get_client_work_items(
+        current_user.case_manager_id,
+        client_id,
+        org_id=org_id,
+    )
+    work_items = work_items_payload.get("items") or []
 
-    client_buckets: Dict[str, List[Dict[str, Any]]] = {}
-    for bucket_key, tasks in buckets.items():
-        client_buckets[bucket_key] = [
-            task for task in (tasks or [])
-            if task.get("client_id") == client_id
-        ]
-
-    total_client_tasks = sum(len(tasks) for tasks in client_buckets.values())
-    resolved_name = client_name
-    if not resolved_name:
-        for bucket_tasks in client_buckets.values():
-            if bucket_tasks:
-                resolved_name = bucket_tasks[0].get("client_name")
-                break
-    if not resolved_name:
-        resolved_name = "Selected client"
+    resolved_name = client_name or next(
+        (item.get("client_name") for item in work_items if item.get("client_name")),
+        "Selected client",
+    )
 
     counts = {
-        "overdue": len(client_buckets.get("overdue", [])),
-        "today": len(client_buckets.get("today", [])),
-        "next_3_days": len(client_buckets.get("next_3_days", [])),
-        "this_week": len(client_buckets.get("this_week", [])),
-        "high_priority_no_date": len(client_buckets.get("high_priority_no_date", [])),
-        "later": len(client_buckets.get("later", [])),
+        "overdue": len([item for item in work_items if item.get("bucket") == "overdue"]),
+        "today": len([item for item in work_items if item.get("bucket") == "today"]),
+        "next_3_days": len([item for item in work_items if item.get("bucket") == "next_3_days"]),
+        "this_week": len([item for item in work_items if item.get("bucket") == "this_week"]),
+        "high_priority_no_date": len([item for item in work_items if item.get("bucket") == "high_priority_no_date"]),
+        "later": len([item for item in work_items if item.get("bucket") == "later"]),
     }
 
     lines = [
         "Selected client operational context:",
         f"- Client: {resolved_name}",
-        f"- Smart Daily aligned task count for this client: {total_client_tasks}",
+        f"- Smart Daily aligned task count for this client: {len(work_items)}",
         f"- Overdue: {counts['overdue']}",
         f"- Due today: {counts['today']}",
         f"- Next 3 days: {counts['next_3_days']}",
@@ -154,7 +204,7 @@ def _build_selected_client_task_context(current_user, client_id: Optional[str], 
         ("Next 3 days", "next_3_days"),
     ]
     for label, bucket_key in priority_buckets:
-        bucket_tasks = client_buckets.get(bucket_key, [])
+        bucket_tasks = [item for item in work_items if item.get("bucket") == bucket_key]
         if not bucket_tasks:
             continue
         lines.append(f"{label}:")
@@ -162,7 +212,8 @@ def _build_selected_client_task_context(current_user, client_id: Optional[str], 
             due_date = task.get("due_date") or "no due date"
             priority = task.get("priority") or "medium"
             title = task.get("title") or task.get("message") or task.get("task_type") or "Untitled task"
-            lines.append(f"- {title} | due: {due_date} | priority: {priority}")
+            source_label = task.get("source_label") or task.get("source") or "Task"
+            lines.append(f"- {title} | due: {due_date} | priority: {priority} | source: {source_label}")
 
     if counts["overdue"] == 0:
         lines.append("If asked whether this client has overdue tasks, answer that Smart Daily currently shows none for this selected client.")
@@ -183,7 +234,26 @@ def _build_chat_context(
     documentation_context = _build_documentation_context(message)
     if documentation_context:
         parts.append(documentation_context)
-    selected_client_context = _build_selected_client_task_context(current_user, client_id, client_name)
+
+    resolution = _resolve_client_from_request(
+        message,
+        current_user=current_user,
+        client_id=client_id,
+        client_name=client_name,
+    )
+    if resolution.get("status") == "ambiguous":
+        matches = resolution.get("matches") or []
+        matched_names = ", ".join(match.get("client_name", "Unknown Client") for match in matches[:5])
+        parts.append(
+            "Client resolution context:\n"
+            f"- Multiple accessible clients match this request: {matched_names}\n"
+            "- Ask the user to clarify which client they mean before naming tasks or reminders."
+        )
+    selected_client_context = _build_selected_client_task_context(
+        current_user,
+        resolution.get("client_id"),
+        resolution.get("client_name") or client_name,
+    )
     if selected_client_context:
         parts.append(selected_client_context)
     return "\n\n".join(part for part in parts if part)
@@ -210,7 +280,12 @@ async def assistant_chat(request: Request, body: ChatRequest) -> Dict[str, Any]:
                         current_route=body.current_route,
                         current_user=current_user,
                     ),
-                    _build_selected_client_task_context(current_user, body.client_id, body.client_name),
+                    _build_chat_context(
+                        message,
+                        current_user=current_user,
+                        client_id=body.client_id,
+                        client_name=body.client_name,
+                    ),
                 ]
                 if part
             ),

@@ -896,6 +896,85 @@ def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = Non
     }
 
 
+def get_client_work_items(
+    case_manager_id: str,
+    client_id: str,
+    client_date: Optional[str] = None,
+    org_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return Smart Daily-aligned work items normalized for one client."""
+    prioritized = get_prioritized_tasks(case_manager_id, client_date=client_date, org_id=org_id)
+    buckets = prioritized.get("buckets") or {}
+    normalized_items: List[Dict[str, Any]] = []
+    seen_keys = set()
+
+    for bucket_key, bucket_items in buckets.items():
+        for item in bucket_items or []:
+            if item.get("client_id") != client_id:
+                continue
+
+            source = str(item.get("source") or "").lower()
+            source_kind = "intelligent_task"
+            source_label = "Smart Daily Task"
+            normalized_source = "smart_daily"
+
+            if source == "active_reminder":
+                source_kind = "reminder"
+                source_label = "Reminder"
+                normalized_source = "reminder"
+            elif source == "workspace_task":
+                source_kind = "workspace_task"
+                task_source = str(item.get("task_source") or item.get("source") or "").lower()
+                normalized_source = "client_task"
+                if task_source == "treatment_plan":
+                    source_label = "Treatment Plan Task"
+                    normalized_source = "treatment_plan_task"
+                else:
+                    source_label = "Client Task"
+
+            item_id = item.get("task_id") or item.get("reminder_id") or item.get("id") or ""
+            dedupe_key = (source_kind, str(item_id))
+            if not item_id or dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+
+            normalized_items.append({
+                **dict(item),
+                "item_id": item_id,
+                "task_id": item_id,
+                "client_id": client_id,
+                "client_name": item.get("client_name", "Unknown Client"),
+                "title": item.get("title") or item.get("message") or item.get("task") or "Untitled task",
+                "description": item.get("description") or item.get("message") or "",
+                "due_date": item.get("due_date"),
+                "status": item.get("status") or "pending",
+                "priority": item.get("priority") or "medium",
+                "source": normalized_source,
+                "source_kind": source_kind,
+                "source_label": source_label,
+                "bucket": bucket_key,
+                "is_overdue": bucket_key == "overdue",
+                "can_edit": source_kind in {"reminder", "workspace_task"},
+                "can_delete": source_kind in {"reminder", "workspace_task"},
+                "can_complete": True,
+            })
+
+    return {
+        "client_id": client_id,
+        "items": normalized_items,
+        "counts": {
+            "total": len(normalized_items),
+            "overdue": len([item for item in normalized_items if item.get("bucket") == "overdue"]),
+            "today": len([item for item in normalized_items if item.get("bucket") == "today"]),
+            "next_3_days": len([item for item in normalized_items if item.get("bucket") == "next_3_days"]),
+            "this_week": len([item for item in normalized_items if item.get("bucket") == "this_week"]),
+            "high_priority_no_date": len([item for item in normalized_items if item.get("bucket") == "high_priority_no_date"]),
+            "later": len([item for item in normalized_items if item.get("bucket") == "later"]),
+        },
+        "ai_summary": prioritized.get("ai_summary"),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Active reminders reads
 # ---------------------------------------------------------------------------
@@ -1524,6 +1603,7 @@ class _Repo:
     list_tasks_for_case_manager = staticmethod(list_tasks_for_case_manager)
     get_today_tasks = staticmethod(get_today_tasks)
     get_prioritized_tasks = staticmethod(get_prioritized_tasks)
+    get_client_work_items = staticmethod(get_client_work_items)
     get_active_reminders_for_case_manager = staticmethod(get_active_reminders_for_case_manager)
     get_active_reminder = staticmethod(get_active_reminder)
     get_intelligent_task = staticmethod(get_intelligent_task)

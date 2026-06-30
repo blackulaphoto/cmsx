@@ -178,7 +178,8 @@ const ClientDashboard = () => {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [activeTab, setActiveTab] = useState('overview')
-  const [intelligentTasks, setIntelligentTasks] = useState(null)
+  const [clientWorkItems, setClientWorkItems] = useState([])
+  const [workItemsLoading, setWorkItemsLoading] = useState(false)
   const [searchRecommendations, setSearchRecommendations] = useState(null)
   
   // Notes functionality
@@ -200,17 +201,12 @@ const ClientDashboard = () => {
   
   // Tasks functionality
   const { 
-    tasks, 
     loading: tasksLoading, 
     syncing: tasksSyncing, 
     addTask, 
     updateTask, 
     deleteTask, 
-    completeTask, 
-    syncAllTasks, 
-    getFilteredTasks, 
-    getTasksStats,
-    getTaskById
+    completeTask
   } = useTasks(clientId)
   
   const [showTaskForm, setShowTaskForm] = useState(false)
@@ -259,7 +255,7 @@ const ClientDashboard = () => {
     if (clientId) {
       fetchClientData()
       fetchTreatmentPlan()
-      fetchIntelligentTasks()
+      fetchClientWorkItems()
       fetchSearchRecommendations()
       fetchAppointments()
       fetchDocuments()
@@ -300,20 +296,21 @@ const ClientDashboard = () => {
     }
   }
 
-  const fetchIntelligentTasks = async () => {
+  const fetchClientWorkItems = async () => {
     try {
-      const response = await apiFetch(`/api/clients/${clientId}/intelligent-tasks`)
-      
+      setWorkItemsLoading(true)
+      const response = await apiFetch(`/api/clients/${clientId}/work-items`)
       if (response.ok) {
         const data = await response.json()
         if (data.success) {
-          setIntelligentTasks(data)
+          setClientWorkItems(Array.isArray(data.items) ? data.items : [])
         }
-      } else {
-        console.log('Intelligent tasks not available, using basic tasks')
       }
     } catch (error) {
-      console.log('Intelligent tasks system not available:', error)
+      console.log('Client work items not available:', error)
+      setClientWorkItems([])
+    } finally {
+      setWorkItemsLoading(false)
     }
   }
 
@@ -524,13 +521,15 @@ const ClientDashboard = () => {
         if (!response.ok) {
           throw new Error('Failed to update reminder')
         }
-        await fetchClientData()
+        await Promise.all([fetchClientData(), fetchClientWorkItems()])
         toast.success('Reminder updated successfully!')
       } else if (editingTask) {
         await updateTask(editingTask.task_id, taskData)
+        await fetchClientWorkItems()
         toast.success('Task updated successfully!')
       } else {
         await addTask(taskData)
+        await fetchClientWorkItems()
         toast.success('Task created successfully!')
       }
       setShowTaskForm(false)
@@ -549,7 +548,7 @@ const ClientDashboard = () => {
         if (!response.ok) {
           throw new Error('Failed to complete reminder')
         }
-        await fetchClientData()
+        await Promise.all([fetchClientData(), fetchClientWorkItems()])
         toast.success('Reminder marked as complete!')
         return
       }
@@ -559,12 +558,13 @@ const ClientDashboard = () => {
         if (!response.ok) {
           throw new Error('Failed to complete task')
         }
-        await fetchIntelligentTasks()
+        await fetchClientWorkItems()
         toast.success('Task marked as complete!')
         return
       }
 
       await completeTask(taskId)
+      await fetchClientWorkItems()
       toast.success('Task marked as complete!')
     } catch (error) {
       console.error('Error completing task:', error)
@@ -580,11 +580,12 @@ const ClientDashboard = () => {
         if (!response.ok) {
           throw new Error('Failed to delete reminder')
         }
-        await fetchClientData()
+        await Promise.all([fetchClientData(), fetchClientWorkItems()])
         toast.success('Reminder deleted successfully!')
         return
       }
       await deleteTask(taskId)
+      await fetchClientWorkItems()
       toast.success('Task deleted successfully!')
     } catch (error) {
       console.error('Error deleting task:', error)
@@ -975,53 +976,14 @@ const ClientDashboard = () => {
   const hasTreatmentPlan = Boolean(treatmentPlan)
   const clientFullName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client record unavailable'
 
-  const mergedTasks = [
-    ...tasks.map((task) => ({
+  const mergedTasks = clientWorkItems
+    .map((task) => ({
       ...task,
       priority: normalizeTaskPriority(task.priority),
       status: normalizeTaskStatus(task.status),
-      source_kind: 'workspace_task',
-      source_label: task.source === 'treatment_plan' ? 'Treatment Plan Task' : 'Client Task',
       client_id: task.client_id || clientId,
       client_name: task.client_name || clientFullName,
-      can_edit: true,
-      can_delete: true,
-      can_complete: true,
-    })),
-    ...((intelligentTasks?.tasks || []).map((task) => ({
-      ...task,
-      task_id: task.task_id || task.id,
-      priority: normalizeTaskPriority(task.priority),
-      status: normalizeTaskStatus(task.status),
-      assigned_to: task.assigned_to || client.case_manager_id || 'Case Manager',
-      client_id: task.client_id || clientId,
-      client_name: task.client_name || clientFullName,
-      source_kind: 'intelligent_task',
-      source_label: 'Smart Daily Task',
-      can_edit: false,
-      can_delete: false,
-      can_complete: true,
-    }))),
-    ...((clientData.reminders || []).map((reminder) => ({
-      task_id: reminder.reminder_id,
-      title: reminder.message || reminder.reminder_type || 'Reminder',
-      description: reminder.message || '',
-      priority: normalizeTaskPriority(reminder.priority),
-      status: normalizeTaskStatus(reminder.status),
-      task_type: reminder.reminder_type || 'general',
-      due_date: reminder.due_date,
-      assigned_to: reminder.case_manager_id || client.case_manager_id || 'Case Manager',
-      created_at: reminder.created_at,
-      updated_at: reminder.created_at,
-      client_id: reminder.client_id || clientId,
-      client_name: clientFullName,
-      source_kind: 'reminder',
-      source_label: 'Reminder',
-      can_edit: true,
-      can_delete: true,
-      can_complete: true,
-    }))),
-  ]
+    }))
     .filter((task, index, all) => task.task_id && all.findIndex((candidate) => `${candidate.source_kind}:${candidate.task_id}` === `${task.source_kind}:${task.task_id}`) === index)
     .sort(sortTasksByDueDate)
 
@@ -2190,7 +2152,7 @@ const ClientDashboard = () => {
                 {/* Tasks List */}
                 <TasksList
                   tasks={filteredTasks}
-                  loading={tasksLoading}
+                  loading={tasksLoading || workItemsLoading}
                   onEdit={handleEditTask}
                   onView={handleViewTask}
                   onComplete={handleCompleteTask}

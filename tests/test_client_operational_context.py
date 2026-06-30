@@ -271,6 +271,63 @@ def test_unified_view_merges_medical_referrals_into_existing_services_path(tmp_p
     assert payload["client_data"]["services"]["total_referrals"] == 3
 
 
+def test_client_work_items_route_returns_canonical_items(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-work-items")
+    client = TestClient(_test_app(tmp_path))
+
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_work_items",
+        lambda case_manager_id, resolved_client_id, client_date=None, org_id=None: {
+            "client_id": resolved_client_id,
+            "items": [
+                {
+                    "task_id": "workspace-task-1",
+                    "client_id": resolved_client_id,
+                    "client_name": "Operational Client",
+                    "title": "Upload ID documents",
+                    "priority": "medium",
+                    "status": "pending",
+                    "source_kind": "workspace_task",
+                    "source_label": "Client Task",
+                    "bucket": "next_3_days",
+                },
+                {
+                    "task_id": "reminder-1",
+                    "client_id": resolved_client_id,
+                    "client_name": "Operational Client",
+                    "title": "Call landlord",
+                    "priority": "high",
+                    "status": "Active",
+                    "source_kind": "reminder",
+                    "source_label": "Reminder",
+                    "bucket": "overdue",
+                },
+            ],
+            "counts": {"total": 2, "overdue": 1, "today": 0, "next_3_days": 1, "this_week": 0, "high_priority_no_date": 0, "later": 0},
+            "ai_summary": "You have 1 overdue task.",
+        },
+    )
+
+    response = client.get(
+        f"/api/clients/{client_id}/work-items",
+        headers={
+            "X-Test-Auth-Email": "case.manager@example.test",
+            "X-Test-Auth-Case-Manager-Id": "cm_test",
+            "X-Test-Auth-Role": "case_manager",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["client_id"] == client_id
+    assert payload["counts"]["total"] == 2
+    assert payload["counts"]["overdue"] == 1
+    assert [item["source_label"] for item in payload["items"]] == ["Client Task", "Reminder"]
+
+
 def test_treatment_plan_draft_approve_and_context_readback(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     original_workspace_db = _use_temp_workspace_store(tmp_path)

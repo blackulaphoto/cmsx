@@ -98,6 +98,30 @@ describe('AIAssistantPopup', () => {
     expect(assistantMessage).toHaveTextContent('Error')
   })
 
+  it('passes route-derived client context to the assistant endpoint when a client dashboard is open', async () => {
+    window.history.replaceState({}, '', '/client/client-42')
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: 'Grounded response.' }),
+    })
+
+    render(<AIAssistantPopup />)
+
+    fireEvent.click(screen.getByRole('button', { name: /open ai assistant/i }))
+    fireEvent.change(screen.getByPlaceholderText(/ask me anything/i), {
+      target: { value: 'What overdue reminders/tasks do I have?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send message/i }))
+
+    await screen.findByTestId('assistant-message')
+
+    const [, options] = apiFetch.mock.calls[0]
+    const body = JSON.parse(options.body)
+    expect(body.current_route).toBe('/client/client-42')
+    expect(body.client_id).toBe('client-42')
+    expect(body.client_name).toBeNull()
+  })
+
   it('shows the New Chat button when the popup is open', () => {
     render(<AIAssistantPopup />)
     fireEvent.click(screen.getByRole('button', { name: /open ai assistant/i }))

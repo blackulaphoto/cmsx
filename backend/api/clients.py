@@ -23,6 +23,7 @@ from backend.api.client_data_integration import get_client_data_integrator
 from backend.auth.authorization import assert_client_access, effective_case_manager_id
 from backend.auth.service import require_authenticated_user
 from backend.shared.tenancy import DEFAULT_ORG_ID, multi_tenant_enabled, resolve_org_id
+from backend.modules.reminders.repository import get_client_work_items
 
 try:
     from backend.modules.reminders.intelligent_processor import IntelligentTaskProcessor
@@ -1465,6 +1466,26 @@ async def get_client_operational_context(client_id: str, request: Request):
         raise
     except Exception as e:
         logger.error(f"Error getting operational context for {client_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/api/clients/{client_id}/work-items")
+async def get_client_work_items_view(client_id: str, request: Request, date: Optional[str] = Query(None)):
+    """Return Smart Daily-aligned work items normalized for one client."""
+    try:
+        current_user = require_authenticated_user(request)
+        assert_client_access(current_user, client_id)
+        work_items = get_client_work_items(
+            current_user.case_manager_id,
+            client_id,
+            client_date=date,
+            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+        )
+        return {"success": True, **work_items}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting work items for {client_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

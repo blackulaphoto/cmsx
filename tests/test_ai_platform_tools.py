@@ -274,24 +274,19 @@ def test_chat_injects_selected_client_task_context(ctx, monkeypatch):
     monkeypatch.setattr(ur_mod.unified_ai, "process_message", fake_process_message)
     monkeypatch.setattr(
         ur_mod,
-        "get_prioritized_tasks",
-        lambda case_manager_id, org_id=None: {
-            "buckets": {
-                "overdue": [
-                    {
-                        "client_id": "client-a1",
-                        "client_name": "Alice Alpha",
-                        "title": "Pay rent",
-                        "due_date": "2026-06-01",
-                        "priority": "high",
-                    }
-                ],
-                "today": [],
-                "next_3_days": [],
-                "this_week": [],
-                "high_priority_no_date": [],
-                "later": [],
-            }
+        "get_client_work_items",
+        lambda case_manager_id, client_id, org_id=None: {
+            "items": [
+                {
+                    "client_id": client_id,
+                    "client_name": "Alice Alpha",
+                    "title": "Pay rent",
+                    "due_date": "2026-06-01",
+                    "priority": "high",
+                    "bucket": "overdue",
+                    "source_label": "Reminder",
+                }
+            ]
         },
     )
     resp = client.post(
@@ -310,6 +305,47 @@ def test_chat_injects_selected_client_task_context(ctx, monkeypatch):
     assert "Selected client operational context:" in captured["injected_context"]
     assert "- Client: Alice Alpha" in captured["injected_context"]
     assert "- Overdue: 1" in captured["injected_context"]
+    assert "Pay rent" in captured["injected_context"]
+    assert "source: Reminder" in captured["injected_context"]
+
+
+def test_chat_resolves_uniquely_named_client_from_message(ctx, monkeypatch):
+    user = _user(org_id="org_a", case_manager_id="cm_a1")
+    captured = {}
+
+    async def fake_process_message(*, message, case_manager_id, mode, injected_context, org_id):
+        captured["injected_context"] = injected_context
+        return {"success": True, "response": "ok", "function_called": ""}
+
+    client = _make_route_app(user, ctx["tmp_path"], monkeypatch)
+    from backend.modules.ai_unified import unified_routes as ur_mod
+    monkeypatch.setattr(ur_mod.unified_ai, "process_message", fake_process_message)
+    monkeypatch.setattr(
+        ur_mod,
+        "get_client_work_items",
+        lambda case_manager_id, client_id, org_id=None: {
+            "items": [
+                {
+                    "client_id": client_id,
+                    "client_name": "Alice Alpha",
+                    "title": "Pay rent",
+                    "due_date": "2026-06-01",
+                    "priority": "high",
+                    "bucket": "overdue",
+                    "source_label": "Reminder",
+                }
+            ]
+        },
+    )
+
+    resp = client.post(
+        "/api/ai/chat",
+        json={"message": "What overdue reminders/tasks do I have for Alice Alpha?"},
+    )
+
+    assert resp.status_code == 200
+    assert "Selected client operational context:" in captured["injected_context"]
+    assert "- Client: Alice Alpha" in captured["injected_context"]
     assert "Pay rent" in captured["injected_context"]
 
 
