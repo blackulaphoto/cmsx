@@ -152,6 +152,24 @@ const buildPlanTasks = (plan) => {
   })
 }
 
+const normalizeTaskPriority = (value) => {
+  const normalized = String(value || 'medium').trim().toLowerCase()
+  return normalized || 'medium'
+}
+
+const normalizeTaskStatus = (value) => {
+  const normalized = String(value || 'pending').trim().toLowerCase().replace(/-/g, '_')
+  if (normalized === 'active') return 'pending'
+  return normalized || 'pending'
+}
+
+const sortTasksByDueDate = (left, right) => {
+  const leftTime = left?.due_date ? new Date(left.due_date).getTime() : Number.POSITIVE_INFINITY
+  const rightTime = right?.due_date ? new Date(right.due_date).getTime() : Number.POSITIVE_INFINITY
+  if (leftTime !== rightTime) return leftTime - rightTime
+  return String(left?.title || '').localeCompare(String(right?.title || ''))
+}
+
 const ClientDashboard = () => {
   const { clientId } = useParams()
   const navigate = useNavigate()
@@ -478,6 +496,7 @@ const ClientDashboard = () => {
   }
 
   const handleEditTask = (task) => {
+    if (task?.can_edit === false) return
     setEditingTask(task)
     setShowTaskForm(true)
   }
@@ -489,7 +508,25 @@ const ClientDashboard = () => {
 
   const handleTaskSubmit = async (taskData) => {
     try {
-      if (editingTask) {
+      if (editingTask?.source_kind === 'reminder') {
+        const response = await apiFetch(`/api/reminders/${editingTask.task_id}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            reminder_text: taskData.title,
+            due_date: taskData.due_date,
+            priority: taskData.priority,
+            reminder_type: taskData.task_type,
+          }),
+        })
+        if (!response.ok) {
+          throw new Error('Failed to update reminder')
+        }
+        await fetchClientData()
+        toast.success('Reminder updated successfully!')
+      } else if (editingTask) {
         await updateTask(editingTask.task_id, taskData)
         toast.success('Task updated successfully!')
       } else {
@@ -506,6 +543,27 @@ const ClientDashboard = () => {
 
   const handleCompleteTask = async (taskId) => {
     try {
+      const task = mergedTasks.find((item) => item.task_id === taskId)
+      if (task?.source_kind === 'reminder') {
+        const response = await apiFetch(`/api/reminders/${taskId}/complete`, { method: 'POST' })
+        if (!response.ok) {
+          throw new Error('Failed to complete reminder')
+        }
+        await fetchClientData()
+        toast.success('Reminder marked as complete!')
+        return
+      }
+
+      if (task?.source_kind === 'intelligent_task') {
+        const response = await apiFetch(`/api/reminders/tasks/${taskId}/complete`, { method: 'POST' })
+        if (!response.ok) {
+          throw new Error('Failed to complete task')
+        }
+        await fetchIntelligentTasks()
+        toast.success('Task marked as complete!')
+        return
+      }
+
       await completeTask(taskId)
       toast.success('Task marked as complete!')
     } catch (error) {
@@ -516,6 +574,16 @@ const ClientDashboard = () => {
 
   const handleDeleteTask = async (taskId) => {
     try {
+      const task = mergedTasks.find((item) => item.task_id === taskId)
+      if (task?.source_kind === 'reminder') {
+        const response = await apiFetch(`/api/reminders/${taskId}`, { method: 'DELETE' })
+        if (!response.ok) {
+          throw new Error('Failed to delete reminder')
+        }
+        await fetchClientData()
+        toast.success('Reminder deleted successfully!')
+        return
+      }
       await deleteTask(taskId)
       toast.success('Task deleted successfully!')
     } catch (error) {
@@ -905,6 +973,71 @@ const ClientDashboard = () => {
   const planAftercareEntries = getAftercareEntries(treatmentPlan?.aftercare_plan)
   const planTasks = buildPlanTasks(treatmentPlan)
   const hasTreatmentPlan = Boolean(treatmentPlan)
+  const clientFullName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client record unavailable'
+
+  const mergedTasks = [
+    ...tasks.map((task) => ({
+      ...task,
+      priority: normalizeTaskPriority(task.priority),
+      status: normalizeTaskStatus(task.status),
+      source_kind: 'workspace_task',
+      source_label: task.source === 'treatment_plan' ? 'Treatment Plan Task' : 'Client Task',
+      client_id: task.client_id || clientId,
+      client_name: task.client_name || clientFullName,
+      can_edit: true,
+      can_delete: true,
+      can_complete: true,
+    })),
+    ...((intelligentTasks?.tasks || []).map((task) => ({
+      ...task,
+      task_id: task.task_id || task.id,
+      priority: normalizeTaskPriority(task.priority),
+      status: normalizeTaskStatus(task.status),
+      assigned_to: task.assigned_to || client.case_manager_id || 'Case Manager',
+      client_id: task.client_id || clientId,
+      client_name: task.client_name || clientFullName,
+      source_kind: 'intelligent_task',
+      source_label: 'Smart Daily Task',
+      can_edit: false,
+      can_delete: false,
+      can_complete: true,
+    }))),
+    ...((clientData.reminders || []).map((reminder) => ({
+      task_id: reminder.reminder_id,
+      title: reminder.message || reminder.reminder_type || 'Reminder',
+      description: reminder.message || '',
+      priority: normalizeTaskPriority(reminder.priority),
+      status: normalizeTaskStatus(reminder.status),
+      task_type: reminder.reminder_type || 'general',
+      due_date: reminder.due_date,
+      assigned_to: reminder.case_manager_id || client.case_manager_id || 'Case Manager',
+      created_at: reminder.created_at,
+      updated_at: reminder.created_at,
+      client_id: reminder.client_id || clientId,
+      client_name: clientFullName,
+      source_kind: 'reminder',
+      source_label: 'Reminder',
+      can_edit: true,
+      can_delete: true,
+      can_complete: true,
+    }))),
+  ]
+    .filter((task, index, all) => task.task_id && all.findIndex((candidate) => `${candidate.source_kind}:${candidate.task_id}` === `${task.source_kind}:${task.task_id}`) === index)
+    .sort(sortTasksByDueDate)
+
+  const filteredTasks = mergedTasks.filter((task) => {
+    if (selectedTaskFilter === 'All') return true
+    if (selectedTaskFilter === 'high') return task.priority === 'high'
+    if (selectedTaskFilter === 'urgent') return task.priority === 'urgent'
+    return task.status === selectedTaskFilter
+  })
+
+  const taskStats = {
+    total: mergedTasks.length,
+    pending: mergedTasks.filter((task) => task.status === 'pending').length,
+    inProgress: mergedTasks.filter((task) => task.status === 'in_progress').length,
+    completed: mergedTasks.filter((task) => task.status === 'completed').length,
+  }
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: User, gradient: 'from-blue-500 to-indigo-500' },
@@ -2003,7 +2136,12 @@ const ClientDashboard = () => {
                     <div className="p-2 bg-gradient-to-r from-emerald-500 to-green-500 rounded-lg">
                       <CheckCircle className="h-6 w-6 text-white" />
                     </div>
-                    <h3 className="text-2xl font-bold text-white">Task Management</h3>
+                    <div>
+                      <h3 className="text-2xl font-bold text-white">Task Management</h3>
+                      <p className="text-sm text-emerald-100/80">
+                        This view combines client tasks, Smart Daily tasks, and reminders for the selected client.
+                      </p>
+                    </div>
                     {tasksSyncing && (
                       <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/20 rounded-full">
                         <RefreshCw className="h-4 w-4 text-blue-400 animate-spin" />
@@ -2036,25 +2174,22 @@ const ClientDashboard = () => {
 
                 {/* Task Stats */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-                  {(() => {
-                    const stats = getTasksStats();
-                    return [
-                      { key: 'total', label: 'Total', value: stats.total },
-                      { key: 'pending', label: 'Pending', value: stats.pending },
-                      { key: 'inProgress', label: 'In Progress', value: stats.inProgress },
-                      { key: 'completed', label: 'Completed', value: stats.completed }
-                    ].map(({ key, label, value }) => (
-                      <div key={key} className="p-4 bg-gradient-to-br from-emerald-500/20 to-green-500/20 backdrop-blur-sm rounded-xl border border-emerald-500/30">
-                        <p className="text-sm text-emerald-300">{label}</p>
-                        <p className="text-2xl font-bold text-white">{value}</p>
-                      </div>
-                    ));
-                  })()}
+                  {[
+                    { key: 'total', label: 'Total', value: taskStats.total },
+                    { key: 'pending', label: 'Pending', value: taskStats.pending },
+                    { key: 'inProgress', label: 'In Progress', value: taskStats.inProgress },
+                    { key: 'completed', label: 'Completed', value: taskStats.completed }
+                  ].map(({ key, label, value }) => (
+                    <div key={key} className="p-4 bg-gradient-to-br from-emerald-500/20 to-green-500/20 backdrop-blur-sm rounded-xl border border-emerald-500/30">
+                      <p className="text-sm text-emerald-300">{label}</p>
+                      <p className="text-2xl font-bold text-white">{value}</p>
+                    </div>
+                  ))}
                 </div>
 
                 {/* Tasks List */}
                 <TasksList
-                  tasks={getFilteredTasks(selectedTaskFilter)}
+                  tasks={filteredTasks}
                   loading={tasksLoading}
                   onEdit={handleEditTask}
                   onView={handleViewTask}
