@@ -27,7 +27,11 @@ import ClientSelector from '../components/ClientSelector'
 import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
 import VoiceNoteRecorder from '../components/VoiceNoteRecorder'
 import { apiFetch } from '../api/config'
-import { openClientDocument } from '../utils/clientDocuments'
+import {
+  downloadClientDocument,
+  isProtectedClientDocument,
+  openClientDocument,
+} from '../utils/clientDocuments'
 
 const TEMPLATE_CATEGORIES = ['all', 'clinical', 'planning', 'letters', 'fmla']
 const BRAND_RESOURCE_CATEGORIES = ['general', 'templates', 'style guide', 'policy', 'sample note', 'letterhead', 'workflow']
@@ -847,7 +851,7 @@ function DocumentationCenter() {
 
   const getClientDocumentViewUrl = (item) => {
     if (!selectedClient?.client_id) return item.url || ''
-    if (item.file_path || item.file_name) {
+    if (isProtectedClientDocument(item)) {
       return `/api/clients/${selectedClient.client_id}/documents/${item.doc_id}/view`
     }
     return item.url || ''
@@ -858,7 +862,7 @@ function DocumentationCenter() {
   // Firebase bearer token). Fetch those through the authenticated helper and
   // open a blob URL; external URLs open directly.
   const openClientDoc = async (item) => {
-    if (item.file_path || item.file_name) {
+    if (isProtectedClientDocument(item)) {
       if (!selectedClient?.client_id) return
       try {
         const opened = await openClientDocument(
@@ -874,6 +878,19 @@ function DocumentationCenter() {
     }
     if (item.url && typeof window !== 'undefined') {
       window.open(item.url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
+  const downloadClientDoc = async (item) => {
+    if (!selectedClient?.client_id || !isProtectedClientDocument(item)) return
+    try {
+      await downloadClientDocument(
+        `/api/clients/${selectedClient.client_id}/documents/${item.doc_id}/view`,
+        item.file_name || item.title || 'document',
+      )
+      toast.success('Document download started')
+    } catch {
+      toast.error('Could not download document. Please try again.')
     }
   }
 
@@ -1403,6 +1420,7 @@ function DocumentationCenter() {
                 const previewText =
                   item.content || item.file_name || item.url || 'No preview available'
                 const viewUrl = itemSource === 'client-doc' ? getClientDocumentViewUrl(item) : null
+                const isProtectedClientDoc = itemSource === 'client-doc' && isProtectedClientDocument(item)
 
                 return (
                 <div key={item.note_id || item.doc_id || item.id} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
@@ -1444,6 +1462,16 @@ function DocumentationCenter() {
                           className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-slate-200 transition hover:bg-white/10"
                         >
                           Edit
+                        </button>
+                      )}
+                      {isProtectedClientDoc && (
+                        <button
+                          type="button"
+                          onClick={() => downloadClientDoc(item)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-emerald-100 transition hover:bg-emerald-500/20"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Download
                         </button>
                       )}
                       <button

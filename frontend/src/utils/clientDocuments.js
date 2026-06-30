@@ -12,6 +12,7 @@
 import { apiFetch } from '../api/config'
 
 const FILENAME_RE = /filename\*?=(?:UTF-8'')?["']?([^"';]+)/i
+const EXTERNAL_URL_RE = /^https?:\/\//i
 
 const filenameFromResponse = (response) => {
   const disposition = (response?.headers?.get?.('content-disposition')) || ''
@@ -41,6 +42,11 @@ export const fetchClientDocumentObjectUrl = async (endpoint) => {
   const objectUrl = URL.createObjectURL(blob)
   return { objectUrl, blob, filename: filenameFromResponse(response) }
 }
+
+export const isExternalClientDocumentUrl = (url) => EXTERNAL_URL_RE.test(String(url || '').trim())
+
+export const isProtectedClientDocument = (doc) =>
+  Boolean(doc?.doc_id) && !isExternalClientDocumentUrl(doc?.url)
 
 /**
  * Open a protected document in a new tab using an authenticated blob URL.

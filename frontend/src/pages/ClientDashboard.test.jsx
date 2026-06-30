@@ -418,6 +418,30 @@ describe('ClientDashboard - authenticated document view/download', () => {
     )
   })
 
+  it('still treats a generated doc as protected when the record is missing file_path metadata', async () => {
+    const GENERATED_DOC = {
+      doc_id: 'doc-generated-1',
+      title: 'Letter of Presence',
+      doc_type: 'presence_letter',
+      file_name: 'letter-of-presence.txt',
+      url: null,
+      created_at: '2026-06-26',
+    }
+    apiFetch.mockImplementation(routeDocs([GENERATED_DOC], successView))
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+    await openDocumentsTab()
+
+    expect(await screen.findByText('Letter of Presence')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Open in new tab'))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-generated-1/view'),
+    )
+    await waitFor(() =>
+      expect(openSpy).toHaveBeenCalledWith('blob:mock-url', '_blank', 'noopener,noreferrer'),
+    )
+  })
+
   it('shows a friendly error instead of the raw auth JSON when the file fetch fails', async () => {
     const failView = () => ({
       ok: false,
@@ -481,6 +505,16 @@ describe('ClientDashboard - text document preview', () => {
     headers: { get: () => null },
   })
 
+  const HTML_DOC = {
+    doc_id: 'doc-html-1',
+    title: 'ROI Draft',
+    doc_type: 'roi_generated',
+    file_name: 'roi_draft.html',
+    file_mime: 'text/html',
+    file_path: 'uploads/clients/client-1/roi_draft.html',
+    created_at: '2026-06-27',
+  }
+
   const binView = () => ({
     ok: true,
     blob: async () => new Blob([new Uint8Array([0x00, 0x01])], { type: 'application/octet-stream' }),
@@ -543,6 +577,20 @@ describe('ClientDashboard - text document preview', () => {
 
     expect(await screen.findByText(content)).toBeInTheDocument()
     expect(screen.queryByText('Preview not available for this file type.')).toBeNull()
+  })
+
+  it('renders generated HTML documents inside the preview iframe instead of raw source text', async () => {
+    apiFetch.mockImplementation(routeTextDocs([HTML_DOC], textView('<h1>ROI Draft</h1>', 'text/html')))
+    await openDocumentsTab()
+
+    fireEvent.click(await screen.findByTitle('View'))
+
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-html-1/view'),
+    )
+    const iframe = await screen.findByTitle('ROI Draft')
+    expect(iframe.tagName).toBe('IFRAME')
+    expect(screen.queryByText('<h1>ROI Draft</h1>')).toBeNull()
   })
 
   it('preserves line breaks in the text preview', async () => {
