@@ -4,6 +4,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 
+const useTasksMock = vi.hoisted(() => vi.fn())
+
 vi.mock('../api/config', () => ({ apiFetch: vi.fn() }))
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('../hooks/useNotes', () => ({
@@ -20,24 +22,24 @@ vi.mock('../hooks/useNotes', () => ({
   }),
 }))
 vi.mock('../hooks/useTasks', () => ({
-  default: () => ({
-    tasks: [],
-    loading: false,
-    syncing: false,
-    addTask: vi.fn(),
-    updateTask: vi.fn(),
-    deleteTask: vi.fn(),
-    completeTask: vi.fn(),
-    syncAllTasks: vi.fn(),
-    getFilteredTasks: vi.fn(() => []),
-    getTasksStats: vi.fn(() => ({})),
-    getTaskById: vi.fn(),
-  }),
+  default: (...args) => useTasksMock(...args),
 }))
 vi.mock('../components/NoteForm', () => ({ default: () => <div>NOTE_FORM</div> }))
 vi.mock('../components/NotesList', () => ({ default: () => <div>NOTES_LIST</div> }))
 vi.mock('../components/TaskForm', () => ({ default: () => <div>TASK_FORM</div> }))
-vi.mock('../components/TasksList', () => ({ default: () => <div>TASKS_LIST</div> }))
+vi.mock('../components/TasksList', () => ({
+  default: ({ tasks = [] }) => (
+    <div>
+      <div>TASKS_LIST</div>
+      {tasks.map((task) => (
+        <div key={`${task.source_label || 'task'}-${task.task_id}`}>
+          <span>{task.title}</span>
+          <span>{task.source_label}</span>
+        </div>
+      ))}
+    </div>
+  ),
+}))
 vi.mock('../components/TaskViewModal', () => ({ default: () => <div>TASK_VIEW</div> }))
 
 import { apiFetch } from '../api/config'
@@ -106,6 +108,19 @@ const renderPage = () =>
 
 beforeEach(() => {
   vi.clearAllMocks()
+  useTasksMock.mockReturnValue({
+    tasks: [],
+    loading: false,
+    syncing: false,
+    addTask: vi.fn(),
+    updateTask: vi.fn(),
+    deleteTask: vi.fn(),
+    completeTask: vi.fn(),
+    syncAllTasks: vi.fn(),
+    getFilteredTasks: vi.fn(() => []),
+    getTasksStats: vi.fn(() => ({})),
+    getTaskById: vi.fn(),
+  })
 })
 
 describe('ClientDashboard treatment plan snapshot', () => {
@@ -157,6 +172,95 @@ describe('ClientDashboard treatment plan snapshot', () => {
   })
 })
 
+describe('ClientDashboard task pipeline truthfulness', () => {
+  it('merges workspace tasks, Smart Daily tasks, and reminders into the client task view', async () => {
+    useTasksMock.mockReturnValue({
+      tasks: [
+        {
+          task_id: 'workspace-task-1',
+          title: 'Upload ID documents',
+          description: 'Client task from dashboard',
+          priority: 'medium',
+          status: 'pending',
+          task_type: 'documentation',
+          due_date: '2026-07-01T00:00:00.000Z',
+          assigned_to: 'Case Manager',
+        },
+      ],
+      loading: false,
+      syncing: false,
+      addTask: vi.fn(),
+      updateTask: vi.fn(),
+      deleteTask: vi.fn(),
+      completeTask: vi.fn(),
+      syncAllTasks: vi.fn(),
+      getFilteredTasks: vi.fn(() => []),
+      getTasksStats: vi.fn(() => ({})),
+      getTaskById: vi.fn(),
+    })
+
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              reminders: [
+                {
+                  reminder_id: 'reminder-1',
+                  reminder_type: 'follow_up',
+                  message: 'Call landlord about application',
+                  priority: 'High',
+                  due_date: '2026-06-30T00:00:00.000Z',
+                  status: 'Active',
+                  case_manager_id: 'cm_casey',
+                  client_id: 'client-1',
+                  created_at: '2026-06-28T10:00:00.000Z',
+                },
+              ],
+            },
+          }),
+        })
+      }
+      if (url.includes('/intelligent-tasks')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            tasks: [
+              {
+                task_id: 'smart-daily-1',
+                title: 'Submit SSI appeal packet',
+                description: 'Smart Daily generated task',
+                priority: 'high',
+                status: 'pending',
+                task_type: 'benefits',
+                due_date: '2026-06-29T00:00:00.000Z',
+              },
+            ],
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Tasks' }))
+
+    expect(await screen.findByText('Upload ID documents')).toBeInTheDocument()
+    expect(screen.getByText('Submit SSI appeal packet')).toBeInTheDocument()
+    expect(screen.getByText('Call landlord about application')).toBeInTheDocument()
+    expect(screen.getByText('Client Task')).toBeInTheDocument()
+    expect(screen.getByText('Smart Daily Task')).toBeInTheDocument()
+    expect(screen.getByText('Reminder')).toBeInTheDocument()
+  })
+})
 describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
   beforeEach(() => {
     apiFetch.mockImplementation((url) => {

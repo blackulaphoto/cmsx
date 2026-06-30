@@ -169,7 +169,7 @@ const TasksList = ({ tasks, onEdit, onDelete, onComplete, onView, loading }) => 
         <CheckCircle className="h-16 w-16 text-gray-400 mx-auto mb-4" />
         <h3 className="text-lg font-medium text-gray-900 mb-2">No tasks found</h3>
         <p className="text-gray-500 mb-4">
-          No tasks match your current filter criteria.
+          No tasks or reminders match your current filter criteria.
         </p>
       </div>
     )
@@ -235,6 +235,12 @@ const TasksList = ({ tasks, onEdit, onDelete, onComplete, onView, loading }) => 
 
                 {/* Status and Priority Tags */}
                 <div className="flex flex-wrap items-center gap-2 mt-3">
+                  {task.source_label && (
+                    <span className="px-2 py-1 bg-cyan-50 text-cyan-700 rounded-full text-xs font-medium border border-cyan-200">
+                      {task.source_label}
+                    </span>
+                  )}
+
                   {/* Priority */}
                   <span className={`inline-flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium border ${getPriorityColor(task.priority)}`}>
                     {getPriorityIcon(task.priority)}
@@ -266,7 +272,7 @@ const TasksList = ({ tasks, onEdit, onDelete, onComplete, onView, loading }) => 
                   <Eye className="h-4 w-4" />
                 </button>
 
-                {task.status !== 'completed' && (
+                {task.status !== 'completed' && task.can_complete !== false && (
                   <button
                     onClick={() => onComplete(task.task_id)}
                     className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
@@ -276,26 +282,30 @@ const TasksList = ({ tasks, onEdit, onDelete, onComplete, onView, loading }) => 
                   </button>
                 )}
 
-                <button
-                  onClick={() => onEdit(task)}
-                  className="p-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
-                  title="Edit task"
-                >
-                  <Edit className="h-4 w-4" />
-                </button>
+                {task.can_edit !== false && (
+                  <button
+                    onClick={() => onEdit(task)}
+                    className="p-2 text-gray-600 hover:bg-gray-50 rounded-lg transition-colors"
+                    title="Edit task"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                )}
 
-                <button
-                  onClick={() => handleDelete(task.task_id)}
-                  disabled={deletingTaskId === task.task_id}
-                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                  title="Delete task"
-                >
-                  {deletingTaskId === task.task_id ? (
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                </button>
+                {task.can_delete !== false && (
+                  <button
+                    onClick={() => handleDelete(task.task_id)}
+                    disabled={deletingTaskId === task.task_id}
+                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                    title="Delete task"
+                  >
+                    {deletingTaskId === task.task_id ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
+                  </button>
+                )}
               </div>
             </div>
           </div>

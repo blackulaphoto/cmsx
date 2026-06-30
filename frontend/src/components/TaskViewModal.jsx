@@ -228,7 +228,7 @@ const TaskViewModal = ({ isOpen, onClose, task, onEdit, onComplete }) => {
             Close
           </button>
           
-          {task.status !== 'completed' && (
+          {task.status !== 'completed' && task.can_complete !== false && (
             <button
               onClick={() => {
                 onComplete(task.task_id)
@@ -241,15 +241,17 @@ const TaskViewModal = ({ isOpen, onClose, task, onEdit, onComplete }) => {
             </button>
           )}
           
-          <button
-            onClick={() => {
-              onEdit(task)
-              onClose()
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            Edit Task
-          </button>
+          {task.can_edit !== false && (
+            <button
+              onClick={() => {
+                onEdit(task)
+                onClose()
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Edit Task
+            </button>
+          )}
         </div>
       </div>
     </div>
