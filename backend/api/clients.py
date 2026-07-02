@@ -1377,6 +1377,32 @@ async def get_client_unified_view(client_id: str, request: Request):
         # Workspace-stored client documents
         ws_documents = workspace_store.list_client_documents(client_id)
 
+        # Saved resumes from employment.db so the Employment tab (which already
+        # renders employment.resumes) shows the client's resume artifacts.
+        employment_resumes = []
+        try:
+            with get_database_connection("employment", "READ_ONLY") as emp_conn:
+                emp_conn.row_factory = sqlite3.Row
+                emp_cursor = emp_conn.cursor()
+                emp_cursor.execute(
+                    "SELECT * FROM resumes WHERE client_id = ? ORDER BY created_at DESC",
+                    (client_id,),
+                )
+                for resume_row in emp_cursor.fetchall():
+                    resume_record = dict(resume_row)
+                    if not resume_record.get("resume_id"):
+                        continue
+                    if "is_active" in resume_record and resume_record["is_active"] in (0, False):
+                        continue
+                    employment_resumes.append({
+                        "resume_id": resume_record["resume_id"],
+                        "resume_name": resume_record.get("resume_title") or "Professional Resume",
+                        "created_at": resume_record.get("created_at"),
+                        "download_url": f"/api/resume/download/{resume_record['resume_id']}",
+                    })
+        except Exception as emp_exc:
+            logger.warning("Employment resumes unavailable for %s: %s", client_id, emp_exc)
+
         return {
             "success": True,
             "client_data": {
@@ -1386,6 +1412,9 @@ async def get_client_unified_view(client_id: str, request: Request):
                 },
                 "employment": {
                     "status": core_client.get("employment_status", "unknown"),
+                    # Only include the key when resumes exist so the dashboard's
+                    # conditional "Resumes" section keeps its prior empty-state.
+                    **({"resumes": employment_resumes} if employment_resumes else {}),
                 },
                 "benefits": benefits_summary or {"status": core_client.get("benefits_status", "unknown")},
                 "legal": legal_summary or {"status": core_client.get("legal_status", "No active cases")},

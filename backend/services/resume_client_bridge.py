@@ -144,28 +144,14 @@ class ResumeProfiles:
                         'preferred_industries': _parse_json_field(profile_data.get('preferred_industries'), []),
                     })()
                 else:
-                    # Return default profile structure
-                    return type('Profile', (), {
-                        'profile_id': f'profile-{client_id}',
-                        'client_id': client_id,
-                        'career_objective': 'Professional seeking opportunities in my field',
-                        'work_history': [],
-                        'skills': [{'category': 'Core Skills', 'skill_list': ['Communication', 'Problem Solving']}],
-                        'education': [],
-                        'certifications': []
-                    })()
+                    # No stored profile: return None so writers take the CREATE
+                    # branch (an UPDATE against a phantom profile_id matches zero
+                    # rows and silently drops the data) and so reads never serve
+                    # fabricated placeholder resume content.
+                    return None
         except Exception as e:
             logger.error(f"Error getting profile for {client_id}: {e}")
-            # Return default profile
-            return type('Profile', (), {
-                'profile_id': f'profile-{client_id}',
-                'client_id': client_id,
-                'career_objective': 'Professional seeking opportunities',
-                'work_history': [],
-                'skills': [],
-                'education': [],
-                'certifications': []
-            })()
+            return None
     
     def create_profile(self, profile):
         """Create employment profile"""
