@@ -610,25 +610,73 @@ function ModalWrapper({ children, onClose, title, wide = false }) {
 // ── Topics Tab ────────────────────────────────────────────────────────────────
 
 function TopicsTab({ topics, loading, error, onRefresh }) {
+  const ALL_CATEGORIES = 'All Categories'
   const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState(ALL_CATEGORIES)
+  const [expandedCategories, setExpandedCategories] = useState([])
   const [expanded, setExpanded] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
   const [showAI, setShowAI] = useState(false)
   const [editTopic, setEditTopic] = useState(null)
 
+  const normalizedSearch = search.trim().toLowerCase()
   const filtered = topics.filter((t) => {
-    const matchCat = !categoryFilter || t.category === categoryFilter
-    const matchSearch = !search || t.title.toLowerCase().includes(search.toLowerCase()) || (t.description || '').toLowerCase().includes(search.toLowerCase())
+    const matchCat = categoryFilter === ALL_CATEGORIES || t.category === categoryFilter
+    const matchSearch = !normalizedSearch || t.title.toLowerCase().includes(normalizedSearch) || (t.description || '').toLowerCase().includes(normalizedSearch)
     return matchCat && matchSearch
   })
+  const visibleCategories = TOPIC_CATEGORIES.filter((category) =>
+    filtered.some((topic) => topic.category === category)
+  )
+  const uncategorizedTopics = filtered.filter((topic) => !TOPIC_CATEGORIES.includes(topic.category))
+  const groupedTopics = [
+    ...visibleCategories.map((category) => ({
+      category,
+      topics: filtered.filter((topic) => topic.category === category),
+    })),
+    ...(uncategorizedTopics.length > 0
+      ? [{ category: 'Other Topics', topics: uncategorizedTopics }]
+      : []),
+  ]
+  const groupedTopicKeys = groupedTopics.map((group) => group.category)
+  const groupedTopicKeySignature = groupedTopicKeys.join('|')
+  const totalStarterTopics = topics.filter((topic) => topic.source === 'seeded').length
+  const totalCustomTopics = topics.length - totalStarterTopics
+
+  useEffect(() => {
+    setExpandedCategories((current) => {
+      let nextExpanded = []
+
+      if (groupedTopicKeys.length === 0) {
+        nextExpanded = []
+      } else if (normalizedSearch) {
+        nextExpanded = groupedTopicKeys
+      } else if (categoryFilter !== ALL_CATEGORIES) {
+        nextExpanded = [categoryFilter]
+      } else {
+        nextExpanded = current.filter((category) => groupedTopicKeys.includes(category))
+        if (nextExpanded.length === 0) nextExpanded = [groupedTopicKeys[0]]
+      }
+
+      return nextExpanded.length === current.length && nextExpanded.every((category, index) => category === current[index])
+        ? current
+        : nextExpanded
+    })
+  }, [categoryFilter, groupedTopicKeySignature, normalizedSearch])
 
   const toggle = (id) => setExpanded((e) => (e === id ? null : id))
+  const toggleCategory = (category) => {
+    setExpandedCategories((current) =>
+      current.includes(category)
+        ? current.filter((item) => item !== category)
+        : [...current, category]
+    )
+  }
 
   return (
     <div>
       {/* Controls */}
-      <div className="flex flex-wrap gap-3 mb-5">
+      <div className="mb-5 space-y-4">
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
@@ -638,18 +686,64 @@ function TopicsTab({ topics, loading, error, onRefresh }) {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <select className="input-field" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
-          <option value="">All Categories</option>
-          {TOPIC_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-        </select>
-        <button onClick={() => setShowAI(true)} className="btn-secondary flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-purple-400" />
-          AI Generate
-        </button>
-        <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2">
-          <Plus className="h-4 w-4" />
-          Custom Topic
-        </button>
+        <div className="rounded-2xl border border-white/10 bg-slate-900/40 p-4">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-300/80">Topic Templates</p>
+                <p className="mt-1 text-sm text-gray-400">
+                  Browse the starter library by category and expand only the sections you need.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs text-gray-300">
+                <span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1">
+                  {topics.length} total topics
+                </span>
+                <span className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1">
+                  {totalStarterTopics} starter
+                </span>
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1">
+                  {totalCustomTopics} custom or AI
+                </span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => setShowAI(true)} className="btn-secondary flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-purple-400" />
+                AI Generate
+              </button>
+              <button onClick={() => setShowCreate(true)} className="btn-primary flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Custom Topic
+              </button>
+            </div>
+          </div>
+          <div className="mt-4 overflow-x-auto pb-1">
+            <div className="flex min-w-max gap-2">
+              {[ALL_CATEGORIES, ...TOPIC_CATEGORIES].map((category) => {
+                const count = category === ALL_CATEGORIES
+                  ? topics.length
+                  : topics.filter((topic) => topic.category === category).length
+                const isActive = categoryFilter === category
+                return (
+                  <button
+                    key={category}
+                    type="button"
+                    aria-label={`Filter ${category}`}
+                    onClick={() => setCategoryFilter(category)}
+                    className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${
+                      isActive
+                        ? 'border-purple-400/60 bg-purple-500/20 text-white'
+                        : 'border-white/10 bg-slate-800/60 text-gray-300 hover:border-white/20 hover:text-white'
+                    }`}
+                  >
+                    {category} <span className="text-xs text-gray-400">({count})</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
       </div>
 
       {loading && <LoadingSpinner />}
@@ -658,74 +752,121 @@ function TopicsTab({ topics, loading, error, onRefresh }) {
         <p className="text-center text-gray-500 py-12">No topics found.</p>
       )}
 
-      <div className="space-y-2">
-        {filtered.map((topic) => (
-          <Card key={topic.topic_id}>
-            <div
-              className="flex items-start justify-between gap-3 cursor-pointer"
-              onClick={() => toggle(topic.topic_id)}
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex flex-wrap items-center gap-2 mb-1">
-                  <span className="font-medium text-white text-sm">{topic.title}</span>
-                  <Badge className={categoryColor(topic.category)}>{topic.category}</Badge>
-                  <Badge className={sourceBadgeColor(topic.source)}>{sourceLabel(topic.source)}</Badge>
+      <div className="space-y-3">
+        {groupedTopics.map((group) => {
+          const isExpanded = expandedCategories.includes(group.category)
+          const starterCount = group.topics.filter((topic) => topic.source === 'seeded').length
+          return (
+            <Card key={group.category} className="p-0 overflow-hidden">
+              <button
+                type="button"
+                aria-expanded={isExpanded}
+                aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${group.category} topics`}
+                onClick={() => toggleCategory(group.category)}
+                className="flex w-full items-start justify-between gap-3 px-4 py-4 text-left hover:bg-white/5"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-white">{group.category}</span>
+                    <Badge className={categoryColor(group.category)}>{group.topics.length} topics</Badge>
+                    <span className="text-xs text-gray-500">
+                      {starterCount} starter, {group.topics.length - starterCount} custom or AI
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-gray-400">
+                    {isExpanded ? 'Collapse this section to keep the page lighter.' : 'Expand to browse templates in this category.'}
+                  </p>
                 </div>
-                {topic.description && (
-                  <p className="text-xs text-gray-400 line-clamp-2">{topic.description}</p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={(e) => { e.stopPropagation(); setEditTopic(topic) }}
-                  className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-white/10 transition-colors"
-                >
-                  Edit
-                </button>
-                {expanded === topic.topic_id ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
-              </div>
-            </div>
+                <div className="flex-shrink-0 pt-0.5">
+                  {isExpanded ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                </div>
+              </button>
 
-            {expanded === topic.topic_id && (
-              <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
-                {topic.key_points_json?.length > 0 && (
-                  <div>
-                    <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Key Points</p>
-                    <ul className="list-disc list-inside space-y-0.5">
-                      {topic.key_points_json.map((p, i) => <li key={i} className="text-xs text-gray-300">{p}</li>)}
-                    </ul>
+              {isExpanded && (
+                <div className="border-t border-white/10 px-4 py-4">
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {group.topics.map((topic) => (
+                      <Card key={topic.topic_id} className="h-full">
+                        <div className="flex items-start gap-3">
+                          <button
+                            type="button"
+                            aria-expanded={expanded === topic.topic_id}
+                            aria-controls={`topic-panel-${topic.topic_id}`}
+                            onClick={() => toggle(topic.topic_id)}
+                            className="flex-1 min-w-0 text-left"
+                          >
+                            <div className="flex flex-wrap items-center gap-2 mb-1">
+                              <span className="font-medium text-white text-sm">{topic.title}</span>
+                              <Badge className={sourceBadgeColor(topic.source)}>{sourceLabel(topic.source)}</Badge>
+                            </div>
+                            {topic.description && (
+                              <p className="text-xs text-gray-400 line-clamp-2">{topic.description}</p>
+                            )}
+                          </button>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <button
+                              onClick={() => setEditTopic(topic)}
+                              className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-white/10 transition-colors"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`${expanded === topic.topic_id ? 'Collapse' : 'Expand'} ${topic.title}`}
+                              onClick={() => toggle(topic.topic_id)}
+                              className="rounded p-1 text-gray-400 hover:bg-white/10 hover:text-white"
+                            >
+                              {expanded === topic.topic_id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {expanded === topic.topic_id && (
+                          <div id={`topic-panel-${topic.topic_id}`} className="mt-4 pt-4 border-t border-white/10 space-y-3">
+                            {topic.key_points_json?.length > 0 && (
+                              <div>
+                                <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Key Points</p>
+                                <ul className="list-disc list-inside space-y-0.5">
+                                  {topic.key_points_json.map((p, i) => <li key={i} className="text-xs text-gray-300">{p}</li>)}
+                                </ul>
+                              </div>
+                            )}
+                            {topic.discussion_questions_json?.length > 0 && (
+                              <div>
+                                <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Discussion Questions</p>
+                                <ul className="list-disc list-inside space-y-0.5">
+                                  {topic.discussion_questions_json.map((q, i) => <li key={i} className="text-xs text-gray-300">{q}</li>)}
+                                </ul>
+                              </div>
+                            )}
+                            {topic.activity && (
+                              <div>
+                                <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Activity</p>
+                                <p className="text-xs text-gray-300">{topic.activity}</p>
+                              </div>
+                            )}
+                            {topic.writing_prompt && (
+                              <div>
+                                <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Writing Prompt</p>
+                                <p className="text-xs text-gray-300 italic">"{topic.writing_prompt}"</p>
+                              </div>
+                            )}
+                            {topic.facilitator_tips && (
+                              <div>
+                                <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Facilitator Tips</p>
+                                <p className="text-xs text-gray-300">{topic.facilitator_tips}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </Card>
+                    ))}
                   </div>
-                )}
-                {topic.discussion_questions_json?.length > 0 && (
-                  <div>
-                    <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Discussion Questions</p>
-                    <ul className="list-disc list-inside space-y-0.5">
-                      {topic.discussion_questions_json.map((q, i) => <li key={i} className="text-xs text-gray-300">{q}</li>)}
-                    </ul>
-                  </div>
-                )}
-                {topic.activity && (
-                  <div>
-                    <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Activity</p>
-                    <p className="text-xs text-gray-300">{topic.activity}</p>
-                  </div>
-                )}
-                {topic.writing_prompt && (
-                  <div>
-                    <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Writing Prompt</p>
-                    <p className="text-xs text-gray-300 italic">"{topic.writing_prompt}"</p>
-                  </div>
-                )}
-                {topic.facilitator_tips && (
-                  <div>
-                    <p className="text-xs text-purple-300 font-medium uppercase tracking-wide mb-1">Facilitator Tips</p>
-                    <p className="text-xs text-gray-300">{topic.facilitator_tips}</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-        ))}
+                </div>
+              )}
+            </Card>
+          )
+        })}
       </div>
 
       {showCreate && (
