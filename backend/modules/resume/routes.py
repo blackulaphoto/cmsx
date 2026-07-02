@@ -20,7 +20,7 @@ import logging
 import io
 from datetime import datetime, date
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request, Depends, Query, Body, UploadFile, File
@@ -483,12 +483,17 @@ def _normalize_imported_resume_profile(parsed_data: Dict[str, Any]) -> Dict[str,
     }
 
 
-def _ai_rewrite_resume_profile(profile: Dict[str, Any], raw_text: str) -> Dict[str, Any]:
-    """Use OpenAI to clean up imported resume data into the app's profile shape."""
+def _ai_rewrite_resume_profile(profile: Dict[str, Any], raw_text: str) -> Tuple[Dict[str, Any], bool]:
+    """Use OpenAI to clean up imported resume data into the app's profile shape.
+
+    Returns (profile, applied): `applied` is True only when the AI rewrite
+    actually ran and produced usable output, so callers never report a
+    rewrite that did not happen.
+    """
     try:
         openai_client = OpenAIClient()
         if not openai_client.api_key:
-            return profile
+            return profile, False
 
         prompt = f"""
 You are rewriting an imported resume into clean structured JSON for a resume builder.
@@ -554,7 +559,7 @@ Requirements:
         )
 
         if not rewritten:
-            return profile
+            return profile, False
 
         cleaned = rewritten.strip()
         if cleaned.startswith("```"):
@@ -572,14 +577,14 @@ Requirements:
                 "career_objective": parsed.get("career_objective", profile.get("career_objective", "")),
                 "preferred_industries": parsed.get("preferred_industries", profile.get("preferred_industries", [])),
                 "professional_references": parsed.get("professional_references", profile.get("professional_references", [])),
-            }
+            }, True
     except Exception as e:
         logger.error(f"AI rewrite for imported resume failed: {e}")
 
-    return profile
+    return profile, False
 
 
-def _ai_rewrite_resume_profile_with_instructions(profile: Dict[str, Any], instructions: str) -> Dict[str, Any]:
+def _ai_rewrite_resume_profile_with_instructions(profile: Dict[str, Any], instructions: str) -> Tuple[Dict[str, Any], bool]:
     """Rewrite an existing structured resume profile based on case-manager instructions."""
     try:
         openai_client = OpenAIClient()
@@ -617,7 +622,7 @@ Requirements:
         )
 
         if not rewritten:
-            return profile
+            return profile, False
 
         cleaned = rewritten.strip()
         if cleaned.startswith("```"):
@@ -635,11 +640,11 @@ Requirements:
                 "career_objective": parsed.get("career_objective", profile.get("career_objective", "")),
                 "preferred_industries": parsed.get("preferred_industries", profile.get("preferred_industries", [])),
                 "professional_references": parsed.get("professional_references", profile.get("professional_references", [])),
-            }
+            }, True
     except Exception as e:
         logger.error(f"AI rewrite with instructions failed: {e}")
 
-    return profile
+    return profile, False
 
 # Health Check Endpoint - CRITICAL FOR DEBUGGING
 @router.get("/health")
@@ -1085,7 +1090,18 @@ async def rewrite_resume_profile(rewrite_request: ResumeRewriteProfileRequest, r
             assert_client_access(require_user(request), rewrite_request.client_id)
 
         current_profile = rewrite_request.profile or {}
-        rewritten_profile = _ai_rewrite_resume_profile_with_instructions(current_profile, instructions)
+        rewritten_profile, ai_applied = _ai_rewrite_resume_profile_with_instructions(current_profile, instructions)
+
+        if not ai_applied:
+            # Honest failure: never claim success (or persist) when the AI
+            # rewrite did not actually run or returned unusable output.
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "AI rewrite is unavailable right now, so the resume was left unchanged. "
+                    "Check the AI configuration (OPENAI_API_KEY) or try again in a moment."
+                ),
+            )
 
         if rewrite_request.client_id and rewrite_request.client_id != "guest":
             db = get_employment_db()
@@ -1111,6 +1127,7 @@ async def rewrite_resume_profile(rewrite_request: ResumeRewriteProfileRequest, r
         return {
             "success": True,
             "profile": rewritten_profile,
+            "ai_rewrite_applied": True,
             "message": "Resume profile rewritten successfully"
         }
     except HTTPException:
@@ -1154,8 +1171,9 @@ async def import_resume_file(
 
         parsed_data = parser.parse_resume_text(text)
         imported_profile = _normalize_imported_resume_profile(parsed_data)
+        ai_rewrite_applied = False
         if ai_rewrite:
-            imported_profile = _ai_rewrite_resume_profile(imported_profile, text)
+            imported_profile, ai_rewrite_applied = _ai_rewrite_resume_profile(imported_profile, text)
 
         if client_id:
             try:
@@ -1171,9 +1189,12 @@ async def import_resume_file(
                     preferred_industries=imported_profile.get("preferred_industries", []),
                 )
                 existing_profile = db.profiles.get_profile_by_client(client_id)
-                if existing_profile:
+                if existing_profile and getattr(existing_profile, "profile_id", None):
                     profile.profile_id = getattr(existing_profile, "profile_id", None)
-                    db.profiles.update_profile(profile)
+                    if not db.profiles.update_profile(profile):
+                        # UPDATE matched no rows (stale/phantom profile_id):
+                        # fall back to CREATE so the import is never dropped.
+                        db.profiles.create_profile(profile)
                 else:
                     db.profiles.create_profile(profile)
             except Exception as e:
@@ -1184,7 +1205,7 @@ async def import_resume_file(
             "profile": imported_profile,
             "raw_text": text,
             "extraction_summary": parsed_data.get("extraction_summary", {}),
-            "ai_rewrite_applied": bool(ai_rewrite),
+            "ai_rewrite_applied": ai_rewrite_applied,
             "filename": resume_file.filename,
             "client_id": client_id,
             "message": "Resume imported successfully",
