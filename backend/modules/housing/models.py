@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 import json
 import os
+import uuid
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -292,8 +293,25 @@ class HousingDatabase:
         );
         """
         
+        # Saved housing leads / applications linked to a client. This table was
+        # previously referenced by create_housing_application() but never
+        # created, so every save failed silently.
+        create_applications_sql = """
+        CREATE TABLE IF NOT EXISTS housing_applications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            application_id TEXT UNIQUE NOT NULL,
+            client_id TEXT NOT NULL,
+            housing_resource_id TEXT,
+            application_date TEXT,
+            priority_level TEXT DEFAULT 'Medium',
+            notes TEXT DEFAULT '',
+            status TEXT DEFAULT 'Submitted'
+        );
+        """
+
         try:
             self.connection.execute(create_table_sql)
+            self.connection.execute(create_applications_sql)
             self.connection.commit()
             logger.info("Housing resources table created successfully")
         except Exception as e:
@@ -711,7 +729,7 @@ class HousingDatabase:
         if not self.connection:
             self.connect()
         
-        application_id = f"housing_app_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        application_id = f"housing_app_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
         
         try:
             cursor = self.connection.cursor()
@@ -730,8 +748,10 @@ class HousingDatabase:
             self.connection.commit()
             return application_id
         except Exception as e:
+            # Do not swallow: a silent "" here previously let the API report
+            # success while nothing was persisted.
             logger.error(f"Error creating housing application: {e}")
-            return ""
+            raise
     
     def get_client_housing_applications(self, client_id: str) -> List[Dict[str, Any]]:
         """Get housing applications for a client"""

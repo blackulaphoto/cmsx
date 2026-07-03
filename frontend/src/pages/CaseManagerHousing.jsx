@@ -184,7 +184,7 @@ function CaseManagerHousing() {
           ]
           toast.success(`Contacts found: ${contacts.join(', ')}`)
         } else {
-          toast.info('No direct contacts found - visit listing for details')
+          toast('No direct contacts found - visit listing for details', { icon: 'ℹ️' })
         }
         break
         

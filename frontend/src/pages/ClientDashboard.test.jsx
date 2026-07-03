@@ -669,8 +669,9 @@ describe('ClientDashboard - text document preview', () => {
     expect(screen.queryByText('Preview not available for this file type.')).toBeNull()
   })
 
-  it('renders generated HTML documents inside the preview iframe instead of raw source text', async () => {
-    apiFetch.mockImplementation(routeTextDocs([HTML_DOC], textView('<h1>ROI Draft</h1>', 'text/html')))
+  it('renders generated HTML documents as plain text instead of live HTML', async () => {
+    const htmlContent = '<h1>ROI Draft</h1><script>alert("xss")</script>'
+    apiFetch.mockImplementation(routeTextDocs([HTML_DOC], textView(htmlContent, 'text/html')))
     await openDocumentsTab()
 
     fireEvent.click(await screen.findByTitle('View'))
@@ -678,9 +679,12 @@ describe('ClientDashboard - text document preview', () => {
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-html-1/view'),
     )
-    const iframe = await screen.findByTitle('ROI Draft')
-    expect(iframe.tagName).toBe('IFRAME')
-    expect(screen.queryByText('<h1>ROI Draft</h1>')).toBeNull()
+    expect(await screen.findByText('HTML preview is shown as plain text for safety. Download the file to inspect the original markup.')).toBeInTheDocument()
+    const pre = await screen.findByText(/<h1>ROI Draft<\/h1>/)
+    expect(pre.tagName).toBe('PRE')
+    expect(pre.textContent).toContain('<script>alert("xss")</script>')
+    expect(screen.queryByTitle('ROI Draft')).toBeNull()
+    expect(document.querySelector('script')).toBeNull()
   })
 
   it('preserves line breaks in the text preview', async () => {
@@ -986,5 +990,57 @@ describe('ClientDashboard - Document Vault', () => {
     fireEvent.click(screen.getByTitle('Delete'))
 
     await waitFor(() => expect(screen.queryByText('Medical Record')).toBeNull())
+  })
+})
+
+describe('ClientDashboard - Housing tab saved leads', () => {
+  const savedLead = {
+    application_id: 'housing_app_20260701_101010_ab12cd34',
+    housing_resource_id: '1',
+    facility_name: 'Sunset Rooms NoHo',
+    application_date: '2026-07-01T10:10:10',
+    status: 'Submitted',
+    priority_level: 'Medium',
+    notes: 'https://example.com/listing/1 | Price: $1,400 | Source: google_housing_cse',
+  }
+
+  const routeHousing = (applications) => (url) => {
+    if (url.includes('/unified-view')) {
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+    }
+    if (url.includes('/api/housing/applications/')) {
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, applications, total_count: applications.length }) })
+    }
+    return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+  }
+
+  it('fetches client-scoped housing leads and renders them on the Housing tab', async () => {
+    apiFetch.mockImplementation(routeHousing([savedLead]))
+
+    renderPage()
+    await screen.findByText('Casey Jones')
+
+    fireEvent.click(screen.getByRole('button', { name: /housing/i }))
+
+    expect(await screen.findByText('Sunset Rooms NoHo')).toBeInTheDocument()
+    expect(screen.getByText('Submitted')).toBeInTheDocument()
+    const link = screen.getByRole('link', { name: /view listing/i })
+    expect(link).toHaveAttribute('href', 'https://example.com/listing/1')
+
+    await waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith('/api/housing/applications/client-1')
+    })
+  })
+
+  it('shows a truthful empty state when the client has no saved leads', async () => {
+    apiFetch.mockImplementation(routeHousing([]))
+
+    renderPage()
+    await screen.findByText('Casey Jones')
+
+    fireEvent.click(screen.getByRole('button', { name: /housing/i }))
+
+    expect(await screen.findByText(/No saved housing leads yet/i)).toBeInTheDocument()
+    expect(screen.queryByText('Sunset Rooms NoHo')).toBeNull()
   })
 })
