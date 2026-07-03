@@ -72,6 +72,16 @@ class HousingApplication(BaseModel):
     priority_level: str = "Medium"
     notes: str = ""
 
+class HousingLead(BaseModel):
+    """A housing listing a case manager wants to save for a client."""
+    client_id: str
+    title: str
+    url: Optional[str] = ""
+    description: Optional[str] = ""
+    source: Optional[str] = ""
+    location: Optional[str] = ""
+    price: Optional[str] = ""
+
 # =============================================================================
 # API ROUTES
 # =============================================================================
@@ -418,6 +428,67 @@ async def create_housing_application(application_data: HousingApplication, reque
     except Exception as e:
         logger.error(f"Create housing application error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/leads")
+async def save_housing_lead(lead: HousingLead, request: Request):
+    """Save a housing search result as a client-linked lead.
+
+    Creates (or reuses) a housing_resources row for the listing, then records a
+    housing_applications row linking it to the client. Returns 500 truthfully
+    if persistence fails — never fake success.
+    """
+    current_user = require_user(request)
+    assert_client_access(current_user, lead.client_id)
+
+    title = (lead.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=422, detail="Lead title is required")
+
+    try:
+        housing_db = get_housing_db()
+
+        # Reuse an existing resource with the same name to avoid duplicates.
+        existing = housing_db.get_resource_by_name(title)
+        if existing and existing.id:
+            resource_id = existing.id
+        else:
+            resource = HousingResource(
+                facility_name=title,
+                website_url=lead.url or "",
+                physical_address=lead.location or "",
+                program_type="Housing Lead",
+                additional_support_services=lead.description or "",
+            )
+            resource_id = housing_db.save_housing_resource(resource)
+
+        note_parts = [p for p in [
+            lead.url or "",
+            f"Price: {lead.price}" if lead.price else "",
+            f"Source: {lead.source}" if lead.source else "",
+            lead.description or "",
+        ] if p]
+
+        application_id = housing_db.create_housing_application({
+            "client_id": lead.client_id,
+            "housing_resource_id": str(resource_id),
+            "notes": " | ".join(note_parts),
+            "priority_level": "Medium",
+        })
+
+        if not application_id:
+            raise HTTPException(status_code=500, detail="Failed to persist housing lead")
+
+        return {
+            "success": True,
+            "message": "Housing lead saved",
+            "application_id": application_id,
+            "housing_resource_id": resource_id,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Save housing lead error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save housing lead: {e}")
 
 @router.get("/applications/{client_id}")
 async def get_client_housing_applications(client_id: str, request: Request):

@@ -39,6 +39,8 @@ function HousingSearch() {
   const [urlSearchParams] = useSearchParams()
   const [selectedClient, setSelectedClient] = useState(null)
   const [searchResults, setSearchResults] = useState([])
+  const [searchMeta, setSearchMeta] = useState(null) // { query, source, warning }
+  const [savingLeadId, setSavingLeadId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [viewMode, setViewMode] = useState('search') // 'search' or 'sites'
   const [resourceMode, setResourceMode] = useState('sober_living')
@@ -102,23 +104,14 @@ function HousingSearch() {
     }
 
     const base = resolveCraigslistBase(normalizedLocation)
-    const queryParts = []
+    const city = normalizedLocation.replace(/,\s*[A-Z]{2}$/i, '')
 
-    if (searchParams.bedrooms) {
-      queryParts.push(`${searchParams.bedrooms} bedroom`)
-    }
-
-    queryParts.push('apartment')
-    queryParts.push(normalizedLocation.replace(/,\s*[A-Z]{2}$/i, ''))
-    queryParts.push('owner')
-    queryParts.push('private landlord')
-
-    if (searchParams.backgroundFriendly) {
-      queryParts.push('second chance')
-    }
-
+    // Craigslist ANDs every search term, so a stacked query like
+    // "2 bedroom apartment North Hollywood owner private landlord second chance"
+    // returns nothing. Keep the query broad (just the neighborhood) and let
+    // structured filters (max_price, bedrooms) do the narrowing.
     const craigslistParams = new URLSearchParams({
-      query: queryParts.join(' '),
+      query: city,
       availabilityMode: '0',
       sale_date: 'all dates'
     })
@@ -131,6 +124,13 @@ function HousingSearch() {
       craigslistParams.set('min_bedrooms', searchParams.bedrooms)
       craigslistParams.set('max_bedrooms', searchParams.bedrooms)
     }
+
+    const plainLanguage = [
+      searchParams.bedrooms ? `${searchParams.bedrooms}BR` : 'all',
+      `apartments near ${city}`,
+      searchParams.maxPrice ? `under $${searchParams.maxPrice}` : '',
+    ].filter(Boolean).join(' ')
+    toast(`Searching Craigslist: ${plainLanguage}`, { icon: '🔎' })
 
     window.open(`${base}/search/apa?${craigslistParams.toString()}`, '_blank', 'noopener,noreferrer')
   }
@@ -150,17 +150,15 @@ function HousingSearch() {
 
     setLoading(true)
     try {
+      // Keep the query simple: location + broad housing type. Budget and
+      // background-friendly are passed as structured params below — stacking
+      // them into the query string over-constrained the search and returned
+      // zero listings.
       let query = `apartments for rent in ${normalizedLocation}`
       if (searchParams.bedrooms) {
         query = `${searchParams.bedrooms} bedroom ${query}`
       }
-      if (searchParams.maxPrice) {
-        query += ` under $${searchParams.maxPrice}`
-      }
-      if (searchParams.backgroundFriendly) {
-        query += ' background friendly second chance'
-      }
-      
+
       const paramsObj = {
         query: query,
         location: normalizedLocation,
@@ -192,17 +190,24 @@ function HousingSearch() {
       const data = await response.json()
       console.log('Housing search response:', data)
       
+      // Record what was actually searched so the UI can report it truthfully.
+      setSearchMeta({
+        query: data.filters_applied?.query || query,
+        source: data.search_sources?.[0] || data.source || '',
+        warning: data.warning || '',
+      })
+
       if (data.success && data.housing_listings && data.housing_listings.length > 0) {
         // Transform the housing listings to match our UI format
         const transformedResults = data.housing_listings.map((listing, index) => {
           // Extract price from title or description
           const priceMatch = (listing.title + ' ' + listing.description).match(/\$[\d,]+/);
           const extractedPrice = priceMatch ? priceMatch[0] : 'Contact for pricing';
-          
+
           // Extract location from description
           const locationMatch = listing.description?.match(/([A-Za-z\s]+,\s*[A-Z]{2})/);
           const extractedLocation = locationMatch ? locationMatch[1] : 'Location in listing';
-          
+
           return {
             id: `housing_${index + 1}`,
             title: listing.title || 'Housing Option',
@@ -211,19 +216,21 @@ function HousingSearch() {
             bedrooms: searchParams.bedrooms || 'See listing',
             bathrooms: 'See listing',
             backgroundFriendly: listing.background_friendly || searchParams.backgroundFriendly,
-            rating: 4.0 + (Math.random() * 1), // Vary ratings slightly
             description: listing.description?.substring(0, 200) + '...' || 'Contact property for details',
             url: listing.url || listing.link,
             source: listing.source || 'Housing Search'
           }
         })
-        
+
         setSearchResults(transformedResults)
-        toast.success(`Found ${transformedResults.length} real housing listings`)
+        toast.success(`Found ${transformedResults.length} housing listings`)
+        if (data.warning) {
+          toast(data.warning, { icon: '⚠️' })
+        }
       } else if (data.success && (!data.housing_listings || data.housing_listings.length === 0)) {
-        // No results found but API succeeded
+        // No results found but API succeeded — truthful empty state.
         setSearchResults([])
-        toast.info('No housing options found for your criteria. Try adjusting your search.')
+        toast('No housing options found for your criteria. Try adjusting your search.', { icon: 'ℹ️' })
       } else {
         throw new Error(data.error || 'Housing search failed')
       }
@@ -233,6 +240,39 @@ function HousingSearch() {
       setSearchResults([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const saveLeadForClient = async (lead) => {
+    if (!selectedClient) {
+      toast.error('Please select a client first')
+      return
+    }
+    setSavingLeadId(lead.id)
+    try {
+      const response = await apiFetch('/api/housing/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          client_id: selectedClient.client_id,
+          title: lead.title,
+          url: lead.url || '',
+          description: lead.description || '',
+          source: lead.source || '',
+          location: lead.address || '',
+          price: lead.price || '',
+        }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok || !data.success) {
+        throw new Error(data.detail || data.error || `HTTP ${response.status}`)
+      }
+      toast.success(`Saved housing lead for ${selectedClient.first_name} — it will appear on their Housing tab`)
+    } catch (error) {
+      console.error('Save housing lead error:', error)
+      toast.error(`Could not save lead: ${error.message}`)
+    } finally {
+      setSavingLeadId(null)
     }
   }
 
@@ -370,7 +410,9 @@ function HousingSearch() {
                 <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 backdrop-blur-sm rounded-xl px-6 py-3 flex items-center gap-3 border border-green-500/30">
                   <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse shadow-lg shadow-green-400/50"></div>
                   <span className="text-green-200 text-sm font-medium">
-                    Live search results from Google Housing CSE
+                    {searchMeta?.warning
+                      ? searchMeta.warning
+                      : `Live results${searchMeta?.source ? ` from ${searchMeta.source}` : ''}`}
                   </span>
                 </div>
               )}
@@ -612,16 +654,19 @@ function HousingSearch() {
                                 </button>
                               )}
                               <button
-                                onClick={() => {
-                                  if (selectedClient) {
-                                    toast.success(`Saved housing resource for ${selectedClient.first_name}`)
-                                  } else {
-                                    toast.error('Please select a client first')
-                                  }
-                                }}
-                                className="group/btn px-8 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white hover:border-white/30 transition-all duration-300 transform hover:scale-105"
+                                onClick={() => saveLeadForClient({
+                                  id: resource.id || resource.name,
+                                  title: resource.name,
+                                  url: resource.website || '',
+                                  description: resource.description || '',
+                                  source: resourceMode === 'sober_living' ? 'Sober living directory' : 'Housing program directory',
+                                  address: resource.address || '',
+                                  price: resource.payment_options?.price_range || '',
+                                })}
+                                disabled={savingLeadId === (resource.id || resource.name)}
+                                className="group/btn px-8 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white hover:border-white/30 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                Save for Client
+                                {savingLeadId === (resource.id || resource.name) ? 'Saving...' : 'Save for Client'}
                               </button>
                             </div>
                           </div>
@@ -763,7 +808,9 @@ function HousingSearch() {
                           </div>
                         </div>
                         <div className="text-sm text-gray-300 flex items-center gap-3">
-                          <span>Powered by Google Housing CSE</span>
+                          <span>
+                            {searchMeta?.source ? `Source: ${searchMeta.source}` : 'Web search results'}
+                          </span>
                           <div className="w-3 h-3 bg-blue-500 rounded-full shadow-lg shadow-blue-500/50"></div>
                         </div>
                       </div>
@@ -828,12 +875,14 @@ function HousingSearch() {
                                 </div>
                                 <span className="text-sm font-medium">{property.bathrooms} BA</span>
                               </div>
-                              <div className="flex items-center gap-2 text-gray-300">
-                                <div className="p-1 bg-yellow-500/20 rounded">
-                                  <Star size={16} className="text-yellow-400" />
+                              {property.rating && (
+                                <div className="flex items-center gap-2 text-gray-300">
+                                  <div className="p-1 bg-yellow-500/20 rounded">
+                                    <Star size={16} className="text-yellow-400" />
+                                  </div>
+                                  <span className="text-sm font-medium">{property.rating}</span>
                                 </div>
-                                <span className="text-sm font-medium">{property.rating}</span>
-                              </div>
+                              )}
                             </div>
                             
                             <p className="text-gray-300 mb-6 leading-relaxed">{property.description}</p>
@@ -845,17 +894,12 @@ function HousingSearch() {
                               >
                                 View Details
                               </button>
-                              <button 
-                                onClick={() => {
-                                  if (selectedClient) {
-                                    toast.success(`Saved housing option for ${selectedClient.first_name}`)
-                                  } else {
-                                    toast.error('Please select a client first')
-                                  }
-                                }}
-                                className="group/btn px-8 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white hover:border-white/30 transition-all duration-300 transform hover:scale-105"
+                              <button
+                                onClick={() => saveLeadForClient(property)}
+                                disabled={savingLeadId === property.id}
+                                className="group/btn px-8 py-3 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-xl font-medium hover:bg-white/20 hover:text-white hover:border-white/30 transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                Save for Client
+                                {savingLeadId === property.id ? 'Saving...' : 'Save for Client'}
                               </button>
                             </div>
                           </div>
@@ -870,6 +914,12 @@ function HousingSearch() {
                     </div>
                     <h3 className="text-xl font-medium mb-3 text-white">No housing options found</h3>
                     <p className="text-gray-400">Try adjusting your search criteria</p>
+                    {searchMeta?.query && (
+                      <p className="text-gray-500 text-sm mt-3">Searched: “{searchMeta.query}”</p>
+                    )}
+                    {searchMeta?.warning && (
+                      <p className="text-amber-300/80 text-sm mt-2">{searchMeta.warning}</p>
+                    )}
                   </div>
                 )}
               </div>

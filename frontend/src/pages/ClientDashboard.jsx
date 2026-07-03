@@ -251,6 +251,10 @@ const ClientDashboard = () => {
   const [editForm, setEditForm] = useState({})
   const [editSaving, setEditSaving] = useState(false)
 
+  // Saved housing leads / applications (persisted in the housing module)
+  const [housingLeads, setHousingLeads] = useState([])
+  const [housingLeadsLoading, setHousingLeadsLoading] = useState(false)
+
   useEffect(() => {
     if (clientId) {
       fetchClientData()
@@ -263,6 +267,30 @@ const ClientDashboard = () => {
       fetchPacketRoiStatus()
     }
   }, [clientId])
+
+  useEffect(() => {
+    if (clientId && activeTab === 'housing') {
+      fetchHousingLeads()
+    }
+  }, [activeTab, clientId])
+
+  const fetchHousingLeads = async () => {
+    try {
+      setHousingLeadsLoading(true)
+      const res = await apiFetch(`/api/housing/applications/${clientId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setHousingLeads(data.success ? (data.applications || []) : [])
+      } else {
+        setHousingLeads([])
+      }
+    } catch (error) {
+      console.error('Error fetching housing leads:', error)
+      setHousingLeads([])
+    } finally {
+      setHousingLeadsLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (clientId && (activeTab === 'docs' || activeTab === 'roi')) {
@@ -766,7 +794,7 @@ const ClientDashboard = () => {
 
   const docViewEndpoint = (doc) => `/api/clients/${clientId}/documents/${doc.doc_id}/view`
   const isProtectedDoc = (doc) => isProtectedClientDocument(doc)
-  const isHtmlPreviewable = (doc, blob) => {
+  const isHtmlDocument = (doc, blob) => {
     const mime = doc?.file_mime || blob?.type || ''
     if (/^text\/html\b/i.test(mime)) return true
     return /\.(html?)$/i.test(String(doc?.file_name || ''))
@@ -774,9 +802,8 @@ const ClientDashboard = () => {
 
   const isTextPreviewable = (doc, blob) => {
     const mime = doc?.file_mime || blob?.type || ''
-    if (isHtmlPreviewable(doc, blob)) return false
     if (mime.startsWith('text/')) return true
-    return /\.(txt|md|markdown)$/i.test(String(doc?.file_name || ''))
+    return /\.(txt|md|markdown|html?)$/i.test(String(doc?.file_name || ''))
   }
 
   const readBlobAsText = (blob) =>
@@ -1751,26 +1778,50 @@ const ClientDashboard = () => {
                     <h4 className="font-medium text-white mb-3">Current Status</h4>
                     <p className="text-xl font-medium text-orange-200">{clientData.housing?.status || 'Unknown'}</p>
                   </div>
-                  {clientData.housing?.applications && (
-                    <div>
-                      <h4 className="font-medium text-white mb-4">Applications</h4>
+                  <div>
+                    <h4 className="font-medium text-white mb-4">Saved Housing Leads & Applications</h4>
+                    {housingLeadsLoading ? (
+                      <p className="text-sm text-gray-400">Loading saved housing leads...</p>
+                    ) : housingLeads.length > 0 ? (
                       <div className="space-y-3">
-                        {clientData.housing.applications.map((app, index) => (
-                          <div key={index} className="p-4 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm rounded-xl border border-white/20">
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <p className="font-medium text-white">{app.property_name}</p>
-                                <p className="text-sm text-gray-300">Applied: {formatDate(app.applied_date)}</p>
+                        {housingLeads.map((app) => {
+                          const noteParts = String(app.notes || '').split(' | ').filter(Boolean)
+                          const leadUrl = noteParts.find((p) => /^https?:\/\//i.test(p))
+                          const otherNotes = noteParts.filter((p) => p !== leadUrl)
+                          return (
+                            <div key={app.application_id} className="p-4 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm rounded-xl border border-white/20">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <p className="font-medium text-white">{app.facility_name || 'Housing Lead'}</p>
+                                  <p className="text-sm text-gray-300">Saved: {formatDate(app.application_date)}</p>
+                                  {otherNotes.length > 0 && (
+                                    <p className="text-sm text-gray-400 mt-1">{otherNotes.join(' · ')}</p>
+                                  )}
+                                  {leadUrl && (
+                                    <a
+                                      href={leadUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sm text-orange-300 hover:text-orange-200 underline mt-1 inline-block"
+                                    >
+                                      View listing
+                                    </a>
+                                  )}
+                                </div>
+                                <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(app.status)}`}>
+                                  {app.status}
+                                </span>
                               </div>
-                              <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(app.status)}`}>
-                                {app.status}
-                              </span>
                             </div>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
-                    </div>
-                  )}
+                    ) : (
+                      <p className="text-sm text-gray-400">
+                        No saved housing leads yet. Use "Search Housing" and save a listing for this client.
+                      </p>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -2787,12 +2838,17 @@ const ClientDashboard = () => {
                   <img src={previewSrc} alt={viewingDoc.title} className="max-w-full mx-auto rounded-lg" />
                 ) : viewingDoc.file_mime === 'application/pdf' && previewSrc ? (
                   <iframe src={previewSrc} className="w-full h-[70vh] rounded-lg border-0" title={viewingDoc.title} />
-                ) : previewSrc && isHtmlPreviewable(viewingDoc) ? (
-                  <iframe src={previewSrc} className="w-full h-[70vh] rounded-lg border-0 bg-white" title={viewingDoc.title} />
                 ) : docBlobText !== null ? (
-                  <pre className="whitespace-pre-wrap text-sm text-gray-200 p-6 leading-relaxed font-mono overflow-auto h-full min-h-0">
-                    {docBlobText}
-                  </pre>
+                  <div className="h-full min-h-0 overflow-auto p-6">
+                    {isHtmlDocument(viewingDoc) && (
+                      <div className="mb-4 rounded-xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                        HTML preview is shown as plain text for safety. Download the file to inspect the original markup.
+                      </div>
+                    )}
+                    <pre className="whitespace-pre-wrap text-sm text-gray-200 leading-relaxed font-mono">
+                      {docBlobText}
+                    </pre>
+                  </div>
                 ) : viewingDoc.url ? (
                   <div className="text-center py-16">
                     <FileText className="h-12 w-12 text-violet-400 mx-auto mb-4" />
