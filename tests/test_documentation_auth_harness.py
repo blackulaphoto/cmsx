@@ -50,11 +50,14 @@ def test_documentation_draft_endpoint_works_with_test_auth_and_no_bearer_token(t
             "module": "documentation_center_e2e",
             "note_kind": "progress_note",
             "client_name": "E2E Test Client",
-            "user_prompt": "Client discussed housing barriers and probation follow-up.",
+            "user_prompt": (
+                'Client discussed housing barriers and probation follow-up. '
+                'Client stated "I need housing this week." '
+                'CM will follow up with probation next week.'
+            ),
             "current_text": "GOAL:\nINTERVENTION:\nRESPONSE:\nPLAN:",
             "context": {
                 "template_label": "Weekly CM Note",
-                "direct_quotes": ["I need housing this week."],
             },
         },
     )
@@ -64,8 +67,12 @@ def test_documentation_draft_endpoint_works_with_test_auth_and_no_bearer_token(t
     assert payload["success"] is True
     assert payload["draft"]
     assert payload["source"] == "template_fallback"
-    assert "GOAL:" in payload["draft"]
-    assert "INTERVENTION:" in payload["draft"]
-    assert "RESPONSE:" in payload["draft"]
-    assert "PLAN:" in payload["draft"]
+    # Weekly CM Note is an evidence-bound template (not a treatment-plan
+    # template), so the fallback uses the SUMMARY / CLIENT STATEMENT / NEXT
+    # STEP structure regardless of the caller's current_text — see
+    # `_is_evidence_bound_template` and test_ai_documentation_service.py.
+    assert "SUMMARY:" in payload["draft"]
+    assert "CLIENT STATEMENT:" in payload["draft"]
+    assert "NEXT STEP:" in payload["draft"]
+    assert "I need housing this week." in payload["draft"]
     assert payload["draft"] != "Client discussed housing barriers and probation follow-up."
