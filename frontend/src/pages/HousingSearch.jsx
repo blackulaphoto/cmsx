@@ -1,15 +1,9 @@
 ﻿/*
- * ✅ HOUSING SEARCH SYSTEM - FULLY FUNCTIONAL - DO NOT MODIFY
- * 
- * This component is working perfectly with:
- * - Real Google Housing CSE integration (13M+ listings)
- * - Professional UI with live search indicators
- * - Client selection and workflow tools
- * - Proper JSX structure (all divs balanced)
- * 
- * ⚠️ WARNING: JSX structure is delicate - any changes may break rendering
- * ⚠️ All div tags are carefully balanced - do not modify structure
- * ⚠️ API endpoints are correctly configured - do not change URLs
+ * Housing & Placement page. Default view is "Placement & Referrals" (sober
+ * living / treatment center referrals + saved leads), which is the primary
+ * CMSX workflow. Generic apartment search and Craigslist are kept as a
+ * secondary, de-emphasized "Apartment Search" tab — not deleted, since
+ * saved-lead propagation to the client Housing tab still runs through it.
  */
 
 import { useState, useEffect } from 'react'
@@ -42,11 +36,12 @@ function HousingSearch() {
   const [searchMeta, setSearchMeta] = useState(null) // { query, source, warning }
   const [savingLeadId, setSavingLeadId] = useState(null)
   const [loading, setLoading] = useState(false)
-  const [viewMode, setViewMode] = useState('search') // 'search' or 'sites'
+  const [viewMode, setViewMode] = useState('resources') // 'resources' (default), 'sites', or 'search' (self-service apartment search)
   const [resourceMode, setResourceMode] = useState('sober_living')
   const [resourceResults, setResourceResults] = useState([])
   const [resourceLoading, setResourceLoading] = useState(false)
   const [resourceTotal, setResourceTotal] = useState(0)
+  const [hasSearchedResources, setHasSearchedResources] = useState(false)
   const [searchParams, setSearchParams] = useState({
     location: '',
     maxPrice: '',
@@ -280,6 +275,7 @@ function HousingSearch() {
     const normalizedLocation = normalizeHousingLocation(searchParams.location || 'Los Angeles, CA')
 
     setResourceLoading(true)
+    setHasSearchedResources(true)
     try {
       const city = normalizedLocation.replace(/,\s*[A-Z]{2}$/i, '')
       let endpoint = ''
@@ -344,47 +340,26 @@ function HousingSearch() {
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-4">
                 <div className="p-3 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-lg">
-                  {viewMode === 'sites' ? <Globe className="h-8 w-8 text-white" /> : viewMode === 'resources' ? <Sparkles className="h-8 w-8 text-white" /> : <Home className="h-8 w-8 text-white" />}
+                  {viewMode === 'sites' ? <Globe className="h-8 w-8 text-white" /> : viewMode === 'resources' ? <Sparkles className="h-8 w-8 text-white" /> : <ExternalLink className="h-8 w-8 text-white" />}
                 </div>
                 <div>
+                  <p className="text-xs uppercase tracking-wider text-cyan-300/80 font-semibold mb-1">Housing & Placement</p>
                   <h1 className="text-4xl font-bold bg-gradient-to-r from-white via-cyan-200 to-blue-200 bg-clip-text text-transparent">
-                    {viewMode === 'sites' ? 'Housing Sites Dashboard' : viewMode === 'resources' ? 'Sober Living & Programs' : 'Housing Search'}
+                    {viewMode === 'sites' ? 'Housing Sites Dashboard' : viewMode === 'resources' ? 'Sober Living & Placement Referrals' : 'Apartment Search (self-service)'}
                   </h1>
                   <p className="text-gray-300 text-lg">
-                    {viewMode === 'sites' 
-                      ? 'Direct access to rental websites with case manager tools' 
+                    {viewMode === 'sites'
+                      ? 'Direct access to rental websites with case manager tools'
                       : viewMode === 'resources'
-                      ? 'Find sober living homes and housing assistance programs'
-                      : 'Find background-friendly housing options'
+                      ? 'Find sober living homes, transitional housing, and treatment center referrals to track placements'
+                      : 'General apartment listings clients can search themselves — not the primary CMSX workflow'
                     }
                   </p>
                 </div>
               </div>
-              
+
               {/* View Mode Toggle */}
               <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-2 flex border border-white/20">
-                <button
-                  onClick={() => setViewMode('search')}
-                  className={`px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 ${
-                    viewMode === 'search'
-                      ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white shadow-lg' 
-                      : 'text-white/70 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <Search size={16} />
-                  Search
-                </button>
-                <button
-                  onClick={() => setViewMode('sites')}
-                  className={`px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 ${
-                    viewMode === 'sites'
-                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg' 
-                      : 'text-white/70 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  <Globe size={16} />
-                  Sites
-                </button>
                 <button
                   onClick={() => setViewMode('resources')}
                   className={`px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 ${
@@ -394,7 +369,18 @@ function HousingSearch() {
                   }`}
                 >
                   <Sparkles size={16} />
-                  Resources
+                  Placement & Referrals
+                </button>
+                <button
+                  onClick={() => setViewMode('sites')}
+                  className={`px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 ${
+                    viewMode === 'sites'
+                      ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-lg'
+                      : 'text-white/70 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <Globe size={16} />
+                  Sites
                 </button>
                 <Link
                   to="/housing/case-manager"
@@ -403,6 +389,18 @@ function HousingSearch() {
                   <Target size={16} />
                   Case Manager Pro
                 </Link>
+                <button
+                  onClick={() => setViewMode('search')}
+                  title="General apartment search — secondary, self-service option"
+                  className={`px-6 py-3 rounded-xl text-sm font-medium transition-all duration-300 flex items-center gap-2 ${
+                    viewMode === 'search'
+                      ? 'bg-white/20 text-white'
+                      : 'text-white/40 hover:text-white/70 hover:bg-white/5'
+                  }`}
+                >
+                  <Search size={16} />
+                  Apartment Search
+                </button>
               </div>
               
               {/* Search Status Indicator */}
@@ -461,7 +459,7 @@ function HousingSearch() {
                   <div className="p-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg">
                     <Sparkles className="h-6 w-6 text-white" />
                   </div>
-                  <h2 className="text-2xl font-bold text-white">Sober Living & Housing Programs</h2>
+                  <h2 className="text-2xl font-bold text-white">Sober Living & Placement Referrals</h2>
                 </div>
 
                 <div className="flex flex-wrap gap-4 mb-8">
@@ -674,7 +672,7 @@ function HousingSearch() {
                       </div>
                     ))}
                   </>
-                ) : (
+                ) : hasSearchedResources ? (
                   <div className="text-center py-16 bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm rounded-2xl border border-white/10">
                     <div className="p-4 bg-gradient-to-r from-gray-500/20 to-gray-600/20 rounded-2xl w-fit mx-auto mb-6">
                       <Home size={48} className="text-gray-400" />
@@ -682,19 +680,38 @@ function HousingSearch() {
                     <h3 className="text-xl font-medium mb-3 text-white">No housing resources found</h3>
                     <p className="text-gray-400">Try adjusting the city or filter criteria.</p>
                   </div>
+                ) : (
+                  <div className="text-center py-16 bg-gradient-to-br from-white/5 to-white/10 backdrop-blur-sm rounded-2xl border border-white/10">
+                    <div className="p-4 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 rounded-2xl w-fit mx-auto mb-6">
+                      <Sparkles size={48} className="text-emerald-300" />
+                    </div>
+                    <h3 className="text-xl font-medium mb-3 text-white">Track sober living & treatment placements</h3>
+                    <p className="text-gray-400 max-w-lg mx-auto">
+                      Search sober living homes, transitional housing, and treatment center referrals, then save one
+                      to a client's Housing & Placement tab to track it through application and move-in.
+                    </p>
+                  </div>
                 )}
               </div>
             </div>
           ) : (
-            /* Original Housing Search */
+            /* Secondary: generic apartment search — self-service, not the primary CMSX workflow */
             <div className="space-y-6">
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 text-sm text-amber-200">
+                This is a general apartment search that clients can run themselves on sites like Craigslist. CMSX's
+                value is tracking sober living, transitional housing, and treatment center placements — use the{' '}
+                <button type="button" onClick={() => setViewMode('resources')} className="underline font-medium text-amber-100 hover:text-white">
+                  Placement & Referrals
+                </button>{' '}
+                tab for that.
+              </div>
               {/* Search Form */}
-              <div className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/20 shadow-2xl shadow-purple-500/10 mb-8">
+              <div className="bg-white/5 backdrop-blur-xl p-8 rounded-2xl border border-white/10 mb-8">
                 <div className="flex items-center gap-3 mb-8">
-                  <div className="p-2 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-lg">
-                    <Search className="h-6 w-6 text-white" />
+                  <div className="p-2 bg-white/10 rounded-lg">
+                    <Search className="h-6 w-6 text-gray-300" />
                   </div>
-                  <h2 className="text-2xl font-bold text-white">Search Criteria</h2>
+                  <h2 className="text-2xl font-bold text-white">Apartment Search Criteria</h2>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                   <div>
@@ -759,9 +776,9 @@ function HousingSearch() {
                 <button
                   onClick={searchHousing}
                   disabled={loading}
-                  className="group w-full md:w-auto px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-2xl hover:shadow-cyan-500/25 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100 flex items-center justify-center gap-3"
+                  className="group w-full md:w-auto px-8 py-4 bg-white/10 hover:bg-white/15 border border-white/20 text-white rounded-xl font-medium transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
                 >
-                  <div className="p-1 bg-white/20 rounded-lg group-hover:bg-white/30 transition-all duration-300">
+                  <div className="p-1 bg-white/10 rounded-lg group-hover:bg-white/20 transition-all duration-300">
                     <Search className="h-5 w-5" />
                   </div>
                   {loading ? 'Searching...' : 'Search Housing'}
@@ -770,13 +787,13 @@ function HousingSearch() {
                   <button
                     type="button"
                     onClick={openCraigslistHousingSearch}
-                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-gradient-to-r from-emerald-500/15 to-teal-500/15 px-6 py-3 text-sm font-medium text-emerald-200 transition-all duration-300 hover:border-emerald-400/50 hover:bg-emerald-500/20 hover:text-white"
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-medium text-gray-300 transition-all duration-300 hover:border-white/20 hover:bg-white/10 hover:text-white"
                   >
                     <ExternalLink size={16} />
                     Search Craigslist Housing
                   </button>
                   <p className="text-sm text-gray-400">
-                    Opens a Craigslist rental search using this city, budget, and bedroom count for more direct owner-style listings.
+                    External link — opens a Craigslist rental search using this city, budget, and bedroom count.
                   </p>
                 </div>
               </div>

@@ -1034,7 +1034,7 @@ const ClientDashboard = () => {
     { id: 'appointments', label: 'Appointments', icon: Calendar, gradient: 'from-blue-500 to-cyan-500' },
     { id: 'docs', label: 'Documents', icon: FolderOpen, gradient: 'from-violet-500 to-purple-500' },
     { id: 'roi', label: 'ROI / Releases', icon: ShieldCheck, gradient: 'from-emerald-500 to-teal-500' },
-    { id: 'housing', label: 'Housing', icon: Home, gradient: 'from-orange-500 to-red-500' },
+    { id: 'housing', label: 'Housing & Placement', icon: Home, gradient: 'from-orange-500 to-red-500' },
     { id: 'employment', label: 'Employment', icon: Briefcase, gradient: 'from-green-500 to-emerald-500' },
     { id: 'benefits', label: 'Benefits', icon: DollarSign, gradient: 'from-purple-500 to-violet-500' },
     { id: 'legal', label: 'Legal', icon: Scale, gradient: 'from-amber-500 to-orange-500' },
@@ -1619,7 +1619,7 @@ const ClientDashboard = () => {
                         <div className="p-1 bg-orange-500/20 rounded mr-3">
                           <Home className="h-4 w-4 text-orange-400" />
                         </div>
-                        <span className="text-white group-hover:text-orange-200 transition-colors">Housing Search</span>
+                        <span className="text-white group-hover:text-orange-200 transition-colors">Housing & Placement</span>
                       </span>
                       <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" />
                     </Link>
@@ -1763,23 +1763,26 @@ const ClientDashboard = () => {
                     <div className="p-2 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg">
                       <Home className="h-6 w-6 text-white" />
                     </div>
-                    <h3 className="text-2xl font-bold text-white">Housing Information</h3>
+                    <h3 className="text-2xl font-bold text-white">Housing & Placement</h3>
                   </div>
                   <Link
                     to={`/housing?client=${clientId}`}
                     className="group px-6 py-3 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white rounded-xl font-medium transition-all duration-300 transform hover:scale-105 hover:shadow-xl hover:shadow-orange-500/25 flex items-center space-x-2"
                   >
                     <Plus className="h-4 w-4 group-hover:scale-110 transition-transform duration-300" />
-                    <span>Search Housing</span>
+                    <span>Find Placement</span>
                   </Link>
                 </div>
+                <p className="text-sm text-gray-400 mb-6">
+                  Track sober living, transitional housing, and treatment center placements for this client.
+                </p>
                 <div className="space-y-6">
                   <div className="p-6 bg-gradient-to-br from-orange-500/20 to-red-500/20 backdrop-blur-sm rounded-xl border border-orange-500/30">
                     <h4 className="font-medium text-white mb-3">Current Status</h4>
                     <p className="text-xl font-medium text-orange-200">{clientData.housing?.status || 'Unknown'}</p>
                   </div>
                   <div>
-                    <h4 className="font-medium text-white mb-4">Saved Housing Leads & Applications</h4>
+                    <h4 className="font-medium text-white mb-4">Saved Placements & Leads</h4>
                     {housingLeadsLoading ? (
                       <p className="text-sm text-gray-400">Loading saved housing leads...</p>
                     ) : housingLeads.length > 0 ? (
@@ -1818,7 +1821,8 @@ const ClientDashboard = () => {
                       </div>
                     ) : (
                       <p className="text-sm text-gray-400">
-                        No saved housing leads yet. Use "Search Housing" and save a listing for this client.
+                        No saved housing leads yet. Use "Find Placement" to search sober living homes, transitional
+                        housing, or treatment center referrals and save one for this client.
                       </p>
                     )}
                   </div>
