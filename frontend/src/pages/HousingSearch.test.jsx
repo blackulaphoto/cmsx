@@ -74,6 +74,13 @@ const setLocation = (value) => {
   fireEvent.change(inputs[0], { target: { value } })
 }
 
+// The apartment search form is now a de-emphasized secondary tab — the page
+// defaults to the "Placement & Referrals" view, so tests that exercise the
+// generic search/Craigslist flow must switch tabs first.
+const openApartmentSearchTab = () => {
+  fireEvent.click(screen.getByRole('button', { name: /^apartment search$/i }))
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -83,6 +90,7 @@ describe('HousingSearch query construction', () => {
     apiFetch.mockResolvedValue(searchResponse([listing]))
 
     renderPage()
+    openApartmentSearchTab()
     setLocation('North Hollywood, CA')
     fireEvent.change(screen.getByPlaceholderText('Monthly rent'), { target: { value: '1400' } })
     fireEvent.click(screen.getByLabelText(/background-friendly only/i))
@@ -105,6 +113,7 @@ describe('HousingSearch query construction', () => {
 
   it('requires a city before searching', () => {
     renderPage()
+    openApartmentSearchTab()
     fireEvent.click(screen.getByRole('button', { name: /^search housing$/i }))
     expect(toastMock.error).toHaveBeenCalledWith('Please select a city')
     expect(apiFetch).not.toHaveBeenCalled()
@@ -116,6 +125,7 @@ describe('HousingSearch truthful states', () => {
     apiFetch.mockResolvedValue(searchResponse([]))
 
     renderPage()
+    openApartmentSearchTab()
     setLocation('North Hollywood, CA')
     fireEvent.click(screen.getByRole('button', { name: /^search housing$/i }))
 
@@ -138,6 +148,7 @@ describe('HousingSearch truthful states', () => {
     })
 
     renderPage()
+    openApartmentSearchTab()
     setLocation('North Hollywood, CA')
     fireEvent.click(screen.getByRole('button', { name: /^search housing$/i }))
 
@@ -167,6 +178,7 @@ describe('HousingSearch save lead', () => {
 
     renderPage()
     fireEvent.click(screen.getByTestId('pick-client'))
+    openApartmentSearchTab()
     setLocation('North Hollywood, CA')
     fireEvent.click(screen.getByRole('button', { name: /^search housing$/i }))
     await screen.findByText('Sunset Rooms NoHo - $1,400/mo')
@@ -190,6 +202,7 @@ describe('HousingSearch save lead', () => {
     apiFetch.mockResolvedValue(searchResponse([listing]))
 
     renderPage()
+    openApartmentSearchTab()
     setLocation('North Hollywood, CA')
     fireEvent.click(screen.getByRole('button', { name: /^search housing$/i }))
     await screen.findByText('Sunset Rooms NoHo - $1,400/mo')
@@ -218,6 +231,7 @@ describe('HousingSearch save lead', () => {
 
     renderPage()
     fireEvent.click(screen.getByTestId('pick-client'))
+    openApartmentSearchTab()
     setLocation('North Hollywood, CA')
     fireEvent.click(screen.getByRole('button', { name: /^search housing$/i }))
     await screen.findByText('Sunset Rooms NoHo - $1,400/mo')
@@ -239,6 +253,7 @@ describe('HousingSearch Craigslist handoff', () => {
 
   it('opens a broad Craigslist query with structured filters, not stacked terms', () => {
     renderPage()
+    openApartmentSearchTab()
     setLocation('North Hollywood, CA')
     fireEvent.change(screen.getByPlaceholderText('Monthly rent'), { target: { value: '1400' } })
     fireEvent.click(screen.getByRole('button', { name: /search craigslist housing/i }))

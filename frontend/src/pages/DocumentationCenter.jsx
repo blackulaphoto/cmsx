@@ -1140,6 +1140,30 @@ function DocumentationCenter() {
               />
             </div>
 
+            <div
+              data-testid="selected-client-banner"
+              className={`rounded-2xl border px-5 py-4 ${
+                selectedClient
+                  ? 'border-emerald-400/25 bg-emerald-500/10'
+                  : 'border-white/10 bg-white/5'
+              }`}
+            >
+              <p className={`text-sm font-semibold ${
+                selectedClient ? 'text-emerald-100' : 'text-slate-300'
+              }`}>
+                {selectedClient
+                  ? `Selected client: ${selectedClient.first_name} ${selectedClient.last_name}`
+                  : 'No client selected'}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                {selectedClient
+                  ? `Saves from this draft will target ${mode === 'note' ? 'Client Notes' : 'this client record first when you choose Client Documents'}.`
+                  : mode === 'note'
+                    ? 'Select a client before saving a note.'
+                    : 'Without a selected client, document-mode saves go to the shared Document Library.'}
+              </p>
+            </div>
+
             {inputMode === 'type' ? (
               <div className="rounded-[24px] border border-cyan-400/20 bg-slate-950/35 p-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1291,9 +1315,11 @@ function DocumentationCenter() {
               </p>
               <p className="mt-1 text-xs text-slate-400">
                 {mode === 'note'
-                  ? "This will save to the client's Notes, not the Documents vault."
+                  ? selectedClient?.client_id
+                    ? `Saved as a Client Note for ${selectedClient.first_name} ${selectedClient.last_name}, not the Documents vault.`
+                    : "This will save to the client's Notes, not the Documents vault."
                   : selectedClient?.client_id
-                    ? "This will save to the client's Documents vault."
+                    ? `This will save to ${selectedClient.first_name} ${selectedClient.last_name}'s Client Documents vault.`
                     : 'This will save to the shared Document Library.'}
               </p>
             </div>

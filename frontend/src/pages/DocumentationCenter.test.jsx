@@ -788,6 +788,7 @@ describe('DocumentationCenter PR3: save destination clarity', () => {
 
     const banner = await screen.findByTestId('destination-banner')
     expect(banner).toHaveTextContent('Destination: Client Notes')
+    expect(banner).toHaveTextContent('Saved as a Client Note for QA TestClient-Eval')
   })
 
   it('shows "Destination: Client Documents" when Letter of Presence template is selected with client', async () => {
@@ -798,6 +799,18 @@ describe('DocumentationCenter PR3: save destination clarity', () => {
 
     const banner = await screen.findByTestId('destination-banner')
     expect(banner).toHaveTextContent('Destination: Client Documents')
+    expect(banner).toHaveTextContent("This will save to QA TestClient-Eval's Client Documents vault.")
+  })
+
+  it('shows the selected client banner before save when a client is linked', async () => {
+    apiFetch.mockImplementation(baseRoutes)
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly CM Note/i }))
+
+    const clientBanner = await screen.findByTestId('selected-client-banner')
+    expect(clientBanner).toHaveTextContent('Selected client: QA TestClient-Eval')
+    expect(clientBanner).toHaveTextContent('Saves from this draft will target Client Notes.')
   })
 
   it('shows "Save to Client Documents" button label when document template and client are selected', async () => {
@@ -843,6 +856,16 @@ describe('DocumentationCenter PR3: save destination clarity', () => {
     // The label "No Client Linked" replaces the old ambiguous "Client Linked" + "No"
     const allText = document.body.textContent
     expect(allText).not.toMatch(/Client Linked\s*No/)
+  })
+
+  it('shows a safe no-client message before saving when no client is selected', async () => {
+    apiFetch.mockImplementation(baseRoutes)
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Discharge Summary/i }))
+
+    const clientBanner = await screen.findByTestId('selected-client-banner')
+    expect(clientBanner).toHaveTextContent('No client selected')
+    expect(clientBanner).toHaveTextContent('Without a selected client, document-mode saves go to the shared Document Library.')
   })
 
   it('switching from a note template to a document template updates the destination banner', async () => {
