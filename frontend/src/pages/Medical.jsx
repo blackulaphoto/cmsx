@@ -684,7 +684,7 @@ function Medical() {
               </div>
               <div>
                 <h2 className="text-2xl font-bold text-white">Healthcare Paths</h2>
-                <p className="text-sm text-gray-300">Keep the existing category tabs, but treat the results below like a real directory.</p>
+                <p className="text-sm text-gray-300">Browse verified providers by category, then save a referral to the selected client.</p>
               </div>
             </div>
 

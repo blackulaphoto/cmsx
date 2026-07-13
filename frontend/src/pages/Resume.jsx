@@ -25,7 +25,6 @@ import DebugPanel from '../components/DebugPanel'
 import { apiFetch } from '../api/config'
 import {
   getIntakeContext,
-  getTreatmentPlanContext,
   mergeUnique,
 } from '../utils/clientOperationalContext'
 
@@ -695,7 +694,6 @@ function Resume() {
   const handleClientSelection = (client) => {
     setSelectedClient(client)
     const intake = getIntakeContext(client)
-    const treatmentPlan = getTreatmentPlanContext(client)
     const resumeContact = client?.operational_context?.module_context?.resume?.contact || {}
 
     // Capture contact fields from operational context for read-only display
@@ -708,10 +706,10 @@ function Resume() {
       zip_code: client.zip_code || resumeContact.zip_code || '',
     })
 
-    const treatmentGoals = Array.isArray(treatmentPlan.goals)
-      ? treatmentPlan.goals.map((goal) => typeof goal === 'string' ? goal : goal?.description).filter(Boolean)
-      : []
-    const objective = mergeUnique(treatmentGoals, [intake.goals]).join(' ')
+    // Resume objectives must stay employment/intake-appropriate — clinical
+    // treatment-plan goals (aftercare, therapy, PCP, sober living needs, etc.)
+    // do not belong on a document handed to an employer.
+    const objective = mergeUnique([intake.goals]).join(' ')
     setEmploymentProfile((prev) => ({
       ...prev,
       career_objective: prev.career_objective || objective,

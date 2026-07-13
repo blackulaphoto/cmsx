@@ -1044,3 +1044,71 @@ describe('ClientDashboard - Housing tab saved leads', () => {
     expect(screen.queryByText('Sunset Rooms NoHo')).toBeNull()
   })
 })
+
+describe('ClientDashboard - Employment tab resume surfacing', () => {
+  const RESUME_DOC = {
+    doc_id: 'doc-resume-1',
+    title: 'Letter of Presence Template - Casey Jones',
+    doc_type: 'presence_letter',
+    file_name: 'resume-casey-jones.docx',
+    created_at: '2026-07-10T02:00:00',
+  }
+  const NON_RESUME_DOC = {
+    doc_id: 'doc-other-1',
+    title: 'Proof of Residence',
+    doc_type: 'proof_of_residence',
+    file_name: 'proof.pdf',
+    created_at: '2026-07-09T02:00:00',
+  }
+
+  const goToEmploymentTab = async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Employment' }))
+  }
+
+  it('shows a saved resume document under Employment without moving it out of Documents', async () => {
+    apiFetch.mockImplementation(makeDocRoute([RESUME_DOC]))
+    await goToEmploymentTab()
+
+    expect(await screen.findByText('Saved Resumes')).toBeInTheDocument()
+    expect(screen.getByText('Letter of Presence Template - Casey Jones')).toBeInTheDocument()
+    expect(screen.queryByText('No saved resume files yet.')).toBeNull()
+
+    // Still reachable from the Documents vault — nothing was moved or duplicated.
+    fireEvent.click(screen.getByRole('button', { name: 'Documents' }))
+    expect(await screen.findByText('Letter of Presence Template - Casey Jones')).toBeInTheDocument()
+  })
+
+  it('does not match a non-resume document', async () => {
+    apiFetch.mockImplementation(makeDocRoute([NON_RESUME_DOC]))
+    await goToEmploymentTab()
+
+    expect(await screen.findByText('Saved Resumes')).toBeInTheDocument()
+    expect(screen.getByText('No saved resume files yet.')).toBeInTheDocument()
+    expect(screen.queryByText('Proof of Residence')).toBeNull()
+  })
+
+  it('shows a truthful empty state when the client has no documents at all', async () => {
+    apiFetch.mockImplementation(makeDocRoute([]))
+    await goToEmploymentTab()
+
+    expect(await screen.findByText('No saved resume files yet.')).toBeInTheDocument()
+  })
+
+  it('does not leak a resume document across clients', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+      }
+      if (url.endsWith('/documents')) {
+        // Wrong client id in the URL — this client's own document fetch must
+        // never return another client's resume.
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, documents: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true }) })
+    })
+    await goToEmploymentTab()
+
+    expect(await screen.findByText('No saved resume files yet.')).toBeInTheDocument()
+  })
+})

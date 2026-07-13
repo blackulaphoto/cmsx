@@ -715,10 +715,6 @@ const EnhancedDashboard = () => {
                       dashboardStats.total_clients
                     )}
                   </p>
-                  <div className="flex items-center mt-1">
-                    <TrendingUp className="h-4 w-4 text-green-400 mr-1" />
-                    <span className="text-xs text-green-400">+12% this month</span>
-                  </div>
                 </div>
               </div>
             </div>

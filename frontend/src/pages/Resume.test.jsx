@@ -60,13 +60,25 @@ vi.mock('../components/TemplateSelector', () => ({ default: () => <div data-test
 vi.mock('../components/ResumeModal', () => ({ default: () => <div data-testid="resume-modal" /> }))
 vi.mock('../components/DebugPanel', () => ({ default: () => <div data-testid="debug-panel" /> }))
 vi.mock('../utils/clientOperationalContext', () => ({
-  getIntakeContext: () => ({}),
-  getTreatmentPlanContext: () => ({}),
-  mergeUnique: (a = [], b = []) => [...(a || []), ...(b || [])].filter(Boolean),
+  getIntakeContext: vi.fn(() => ({})),
+  getTreatmentPlanContext: vi.fn(() => ({})),
+  mergeUnique: (...lists) => {
+    const seen = new Set()
+    const merged = []
+    lists.flat().forEach((item) => {
+      const text = String(item || '').trim()
+      const key = text.toLowerCase()
+      if (!text || seen.has(key)) return
+      seen.add(key)
+      merged.push(text)
+    })
+    return merged
+  },
 }))
 
 import toast from 'react-hot-toast'
 import { apiFetch } from '../api/config'
+import { getIntakeContext, getTreatmentPlanContext } from '../utils/clientOperationalContext'
 import Resume from './Resume'
 
 const IMPORTED_PROFILE = {
@@ -285,6 +297,20 @@ describe('Resume Builder import workflow', () => {
       expect(body.career_objective).toBe('My objective')
     })
     expect(toast.success).toHaveBeenCalledWith('Employment profile saved successfully!')
+  })
+
+  it('seeds the career objective from intake goals, never from treatment-plan goals', async () => {
+    setupApi()
+    getIntakeContext.mockReturnValueOnce({ goals: 'Find stable warehouse or food-service employment' })
+    getTreatmentPlanContext.mockReturnValueOnce({
+      goals: ['Identify any 3 needs for aftercare, therapy, and primary care physician.'],
+    })
+
+    await renderWithClientSelected()
+
+    const objectiveField = screen.getByPlaceholderText(/Brief statement about career goals/i)
+    expect(objectiveField).toHaveValue('Find stable warehouse or food-service employment')
+    expect(objectiveField.value).not.toMatch(/aftercare|therapy|primary care physician|sober living/i)
   })
 
   it('blocks import when no client is selected', async () => {

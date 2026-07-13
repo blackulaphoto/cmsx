@@ -197,6 +197,14 @@ describe('Medical page', () => {
     expect(screen.getByText('Page 2 of 2')).toBeInTheDocument()
   })
 
+  it('does not expose internal spec copy in the Healthcare Paths section', async () => {
+    renderMedical()
+
+    await screen.findByText('Provider 1')
+    expect(screen.getByText('Healthcare Paths')).toBeInTheDocument()
+    expect(screen.queryByText(/treat the results below like a real directory/i)).toBeNull()
+  })
+
   it('shows the result count summary', async () => {
     renderMedical()
 

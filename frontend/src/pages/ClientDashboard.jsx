@@ -34,7 +34,8 @@ import {
   Eye,
   Download,
   X,
-  ClipboardList
+  ClipboardList,
+  Copy
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useNotes from '../hooks/useNotes'
@@ -255,6 +256,10 @@ const ClientDashboard = () => {
   const [housingLeads, setHousingLeads] = useState([])
   const [housingLeadsLoading, setHousingLeadsLoading] = useState(false)
 
+  // Employment profile (career objective etc.) from the Resume Builder module
+  const [employmentProfile, setEmploymentProfile] = useState(null)
+  const [employmentProfileLoading, setEmploymentProfileLoading] = useState(false)
+
   useEffect(() => {
     if (clientId) {
       fetchClientData()
@@ -297,6 +302,30 @@ const ClientDashboard = () => {
       fetchRoiRecords()
     }
   }, [activeTab, clientId])
+
+  useEffect(() => {
+    if (clientId && activeTab === 'employment') {
+      fetchEmploymentProfile()
+    }
+  }, [activeTab, clientId])
+
+  const fetchEmploymentProfile = async () => {
+    try {
+      setEmploymentProfileLoading(true)
+      const res = await apiFetch(`/api/resume/profile/${clientId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setEmploymentProfile(data.success ? (data.profile || null) : null)
+      } else {
+        setEmploymentProfile(null)
+      }
+    } catch (error) {
+      console.error('Error fetching employment profile:', error)
+      setEmploymentProfile(null)
+    } finally {
+      setEmploymentProfileLoading(false)
+    }
+  }
 
   const fetchClientData = async () => {
     try {
@@ -405,6 +434,17 @@ const ClientDashboard = () => {
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A'
     return new Date(dateString).toLocaleDateString()
+  }
+
+  const shortClientRef = (id) => String(id || '').slice(0, 8)
+
+  const copyClientId = async (id) => {
+    try {
+      await navigator.clipboard.writeText(id)
+      toast.success('Client ID copied')
+    } catch (error) {
+      toast.error('Could not copy client ID')
+    }
   }
 
   const formatDateTime = (dateString) => {
@@ -1002,6 +1042,10 @@ const ClientDashboard = () => {
   const planTasks = buildPlanTasks(treatmentPlan)
   const hasTreatmentPlan = Boolean(treatmentPlan)
   const clientFullName = `${client.first_name || ''} ${client.last_name || ''}`.trim() || 'Client record unavailable'
+  const resumeDocuments = documents.filter((doc) => {
+    const haystack = `${doc.doc_type || ''} ${doc.title || ''} ${doc.file_name || ''}`.toLowerCase()
+    return haystack.includes('resume')
+  })
 
   const mergedTasks = clientWorkItems
     .map((task) => ({
@@ -1068,7 +1112,17 @@ const ClientDashboard = () => {
                   <h1 className="text-3xl font-bold bg-gradient-to-r from-white via-blue-200 to-purple-200 bg-clip-text text-transparent">
                     {client.first_name} {client.last_name}
                   </h1>
-                  <p className="text-gray-400">Client reference: {client.client_id}</p>
+                  <div className="flex items-center gap-1.5 text-gray-400">
+                    <span title={client.client_id}>Ref: {shortClientRef(client.client_id)}</span>
+                    <button
+                      type="button"
+                      onClick={() => copyClientId(client.client_id)}
+                      className="p-1 text-gray-500 hover:text-gray-300 transition-colors rounded"
+                      title="Copy full client ID"
+                    >
+                      <Copy className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center space-x-4">
@@ -1905,7 +1959,41 @@ const ClientDashboard = () => {
                     <h4 className="font-medium text-white mb-3">Current Status</h4>
                     <p className="text-xl font-medium text-green-200">{clientData.employment?.status || 'Unknown'}</p>
                   </div>
-                  
+
+                  {/* Saved Resume Files (sourced from Client Documents; Documents remains the vault) */}
+                  <div>
+                    <h4 className="font-medium text-white mb-4">Saved Resumes</h4>
+                    {resumeDocuments.length > 0 ? (
+                      <div className="space-y-3">
+                        {resumeDocuments.map((doc) => (
+                          <div key={doc.doc_id} className="p-4 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 backdrop-blur-sm rounded-xl border border-blue-500/30">
+                            <div className="flex justify-between items-center">
+                              <div>
+                                <p className="font-medium text-white">{doc.title || doc.file_name}</p>
+                                <p className="text-sm text-blue-300">Saved: {formatDate(doc.created_at)}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setActiveTab('docs')}
+                                className="px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/20 hover:text-white transition-all duration-300"
+                              >
+                                View in Documents
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-400">No saved resume files yet.</p>
+                    )}
+                    {!employmentProfileLoading && employmentProfile?.career_objective && (
+                      <div className="mt-4 p-4 bg-white/5 rounded-xl border border-white/10">
+                        <p className="text-sm font-medium text-white mb-1">Career Objective</p>
+                        <p className="text-sm text-gray-300">{employmentProfile.career_objective}</p>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Job Applications */}
                   {clientData.employment?.applications && (
                     <div>
