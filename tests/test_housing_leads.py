@@ -116,7 +116,9 @@ def test_save_lead_persists_and_reads_back(app_client):
     assert len(apps) == 1
     assert apps[0]["facility_name"] == "Sunset Rooms NoHo"
     assert "https://example.com/listing/1" in (apps[0]["notes"] or "")
-    assert apps[0]["status"] == "Submitted"
+    # A newly saved lead is a case-manager-identified option, not yet an
+    # actual application submission — the label should not overstate it.
+    assert apps[0]["status"] == "Identified"
 
 
 def test_save_lead_dedupes_resource_by_title(app_client):

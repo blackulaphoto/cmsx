@@ -161,8 +161,19 @@ const useNotes = (clientId) => {
   }
 
   const getNotesStats = () => {
+    const now = new Date()
+    const startOfWeek = new Date(now)
+    startOfWeek.setDate(now.getDate() - now.getDay())
+    startOfWeek.setHours(0, 0, 0, 0)
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+
+    const createdOnOrAfter = (note, threshold) =>
+      note.created_at && new Date(note.created_at) >= threshold
+
     return {
       total: notes.length,
+      thisWeek: notes.filter(note => createdOnOrAfter(note, startOfWeek)).length,
+      thisMonth: notes.filter(note => createdOnOrAfter(note, startOfMonth)).length,
       unsynced: notes.filter(note => !note.synced).length,
       byType: notes.reduce((acc, note) => {
         acc[note.note_type] = (acc[note.note_type] || 0) + 1

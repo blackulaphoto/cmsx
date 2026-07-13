@@ -885,3 +885,53 @@ describe('DocumentationCenter PR3: save destination clarity', () => {
     expect(banner).toHaveTextContent('Destination: Client Documents')
   })
 })
+
+describe('DocumentationCenter Documents counter', () => {
+  const routesWithDocs = (clientDocuments) => (url) => {
+    if (url === '/api/dashboard/docs') {
+      return Promise.resolve({ ok: true, json: async () => ({ docs: [{ id: 'g1' }, { id: 'g2' }, { id: 'g3' }] }) })
+    }
+    if (url === '/api/ai-documentation/templates') return Promise.resolve({ ok: true, json: async () => ({ templates: [] }) })
+    if (url === '/api/ai-documentation/brand-resources') return Promise.resolve({ ok: true, json: async () => ({ resources: [] }) })
+    if (url === '/api/case-management/notes/list/client-1') return Promise.resolve({ ok: true, json: async () => ({ notes: [] }) })
+    if (url === '/api/clients/client-1/documents') {
+      return Promise.resolve({ ok: true, json: async () => ({ documents: clientDocuments }) })
+    }
+    return Promise.resolve({ ok: true, json: async () => ({}) })
+  }
+
+  // "Documents" also labels the note/document mode-switch button, so scope
+  // the query to the stat-tile <p>, not any element with that text.
+  const findDocumentsStatValue = () =>
+    screen.getAllByText('Documents').find((el) => el.tagName === 'P').nextElementSibling
+
+  it('shows the global docs count when no client is selected', async () => {
+    apiFetch.mockImplementation(routesWithDocs([]))
+    renderPage()
+
+    await waitFor(() => {
+      expect(findDocumentsStatValue()).toHaveTextContent('3')
+    })
+  })
+
+  it('shows the selected client document count once a client is linked, not the global count', async () => {
+    apiFetch.mockImplementation(routesWithDocs([{ doc_id: 'd1', title: 'Letter of Presence' }]))
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+
+    await waitFor(() => {
+      expect(findDocumentsStatValue()).toHaveTextContent('1')
+    })
+  })
+
+  it('never renders the literal "?" mojibake separator in the draft summary or guidance link', async () => {
+    apiFetch.mockImplementation(routesWithDocs([]))
+    renderPage()
+    fireEvent.click(screen.getByText('SELECT_CLIENT'))
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly CM Note/i }))
+
+    const bodyText = document.body.textContent
+    expect(bodyText).not.toMatch(/\s\?\s(Saving to|Client|Manage AI)/)
+    expect(screen.getByText('Manage AI style guides and company guidance')).toBeInTheDocument()
+  })
+})

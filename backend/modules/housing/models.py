@@ -305,7 +305,7 @@ class HousingDatabase:
             application_date TEXT,
             priority_level TEXT DEFAULT 'Medium',
             notes TEXT DEFAULT '',
-            status TEXT DEFAULT 'Submitted'
+            status TEXT DEFAULT 'Identified'
         );
         """
 
@@ -736,7 +736,7 @@ class HousingDatabase:
             cursor.execute("""
                 INSERT INTO housing_applications 
                 (application_id, client_id, housing_resource_id, application_date, priority_level, notes, status)
-                VALUES (?, ?, ?, ?, ?, ?, 'Submitted')
+                VALUES (?, ?, ?, ?, ?, ?, 'Identified')
             """, (
                 application_id,
                 application_data.get('client_id'),

@@ -979,7 +979,7 @@ function DocumentationCenter() {
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
               <StatCard icon={ClipboardList} label="Templates" value={String(availableTemplates.length)} accent="from-cyan-500 to-blue-500" />
               <StatCard icon={FileText} label="Client Notes" value={String(notes.length)} accent="from-blue-500 to-indigo-500" />
-              <StatCard icon={FolderOpen} label="Documents" value={String(docs.length)} accent="from-fuchsia-500 to-purple-500" />
+              <StatCard icon={FolderOpen} label="Documents" value={String(selectedClient ? clientDocs.length : docs.length)} accent="from-fuchsia-500 to-purple-500" />
               <StatCard icon={User} label={selectedClient ? 'Client Linked' : 'No Client Linked'} value={selectedClient ? 'Yes' : '—'} accent="from-emerald-500 to-teal-500" />
             </div>
           </div>
@@ -1363,8 +1363,8 @@ function DocumentationCenter() {
             {shouldShowDraftSummary && (
               <p className="text-xs text-slate-400">
                 {selectedTemplate ? `Template: ${selectedTemplate.label}` : ''}
-                {selectedTemplate ? ` ? Saving to: ${mode === 'note' ? 'Client Notes' : selectedClient ? 'Client Documents' : 'Document Library'}` : ''}
-                {selectedClient ? ` ? Client: ${selectedClient.first_name} ${selectedClient.last_name}` : ''}
+                {selectedTemplate ? ` · Saving to: ${mode === 'note' ? 'Client Notes' : selectedClient ? 'Client Documents' : 'Document Library'}` : ''}
+                {selectedClient ? ` · Client: ${selectedClient.first_name} ${selectedClient.last_name}` : ''}
               </p>
             )}
 
@@ -1389,7 +1389,7 @@ function DocumentationCenter() {
 
         <div className="px-2">
           <a href="/settings/guidance" className="text-sm text-slate-400 transition hover:text-slate-200">
-            ? Manage AI style guides and company guidance ?
+            Manage AI style guides and company guidance
           </a>
         </div>
 

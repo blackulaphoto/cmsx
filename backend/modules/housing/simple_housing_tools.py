@@ -12,6 +12,23 @@ from typing import Dict, List, Any, Optional
 logger = logging.getLogger(__name__)
 
 
+def _format_facility_address(street: Optional[str], city: Optional[str], zip_code: Optional[str]) -> str:
+    """Join street/city/zip into a display address without duplicating the
+    city (some rows store the city name in the street field) or printing the
+    literal string "None" for a missing zip."""
+    street = (street or "").strip()
+    city = (city or "").strip()
+    zip_code = (zip_code or "").strip()
+
+    parts = []
+    if street and street.lower() != city.lower():
+        parts.append(street)
+    if city:
+        parts.append(city)
+    parts.append(f"CA {zip_code}".strip() if zip_code else "CA")
+    return ", ".join(parts)
+
+
 class HousingResourceTools:
     """Query Virgil St database for ACTUAL housing resources case managers use"""
 
@@ -104,7 +121,7 @@ class HousingResourceTools:
                 results.append({
                     'id': row['id'],
                     'name': row['name'],
-                    'address': f"{row['address']}, {row['city']}, CA {row['zipCode']}" if row['address'] else f"{row['city']}, CA",
+                    'address': _format_facility_address(row['address'], row['city'], row['zipCode']),
                     'phone': row['phone'] or 'Contact for details',
                     'website': row['website'] or '',
                     'serves': row['servesPopulation'].title(),
