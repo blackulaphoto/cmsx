@@ -327,6 +327,91 @@ def test_unified_view_surfaces_client_group_participation(tmp_path, monkeypatch)
     assert groups["latest_session"]["title"] == "Relapse Prevention"
 
 
+def test_unified_view_surfaces_client_fmla_deadline(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-fmla-summary")
+    client = TestClient(_test_app(tmp_path))
+
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(clients_api, "get_client_benefits_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_legal_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_services_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_medical_referrals_summary", lambda _client_id: [])
+    monkeypatch.setattr(clients_api, "get_client_groups_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_fmla_summary",
+        lambda resolved_client_id, org_id=None: {
+            "cases": [],
+            "total_cases": 1,
+            "active_cases": 1,
+            "next_deadline": {
+                "case_id": "fmla-1",
+                "field": "paperwork_deadline",
+                "label": "Paperwork due",
+                "date": "2026-08-04",
+            },
+        },
+    )
+    monkeypatch.setattr(workspace_store, "list_client_service_referrals", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+
+    response = client.get(
+        f"/api/clients/{client_id}/unified-view",
+        headers={
+            "X-Test-Auth-Email": "case.manager@example.test",
+            "X-Test-Auth-Case-Manager-Id": "cm_test",
+            "X-Test-Auth-Role": "case_manager",
+        },
+    )
+
+    assert response.status_code == 200
+    fmla = response.json()["client_data"]["fmla"]
+    assert fmla["total_cases"] == 1
+    assert fmla["active_cases"] == 1
+    assert fmla["next_deadline"]["label"] == "Paperwork due"
+    assert fmla["next_deadline"]["date"] == "2026-08-04"
+
+
+def test_client_fmla_summary_uses_client_org_filter_and_nearest_deadline(monkeypatch):
+    from backend.modules.fmla import store_factory
+
+    class _StubFMLAStore:
+        def list_cases(self, filters):
+            assert filters == {
+                "client_id": "client-fmla",
+                "case_subject_type": "client",
+                "org_id": "org-test",
+            }
+            return [
+                {
+                    "case_id": "fmla-active",
+                    "status": "submitted",
+                    "paperwork_deadline": "2099-08-04",
+                    "return_to_work_date": "2099-09-01",
+                },
+                {
+                    "case_id": "fmla-closed",
+                    "status": "closed",
+                    "paperwork_deadline": "2099-08-15",
+                },
+            ]
+
+    monkeypatch.setattr(store_factory, "get_fmla_store", lambda: _StubFMLAStore())
+
+    summary = clients_api.get_client_fmla_summary("client-fmla", org_id="org-test")
+
+    assert summary["total_cases"] == 2
+    assert summary["active_cases"] == 1
+    assert summary["next_deadline"] == {
+        "case_id": "fmla-active",
+        "field": "paperwork_deadline",
+        "label": "Paperwork due",
+        "date": "2099-08-04",
+    }
+
+
 def test_client_work_items_route_returns_canonical_items(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     client_id = _seed_core_client("client-work-items")

@@ -36,7 +36,8 @@ import {
   X,
   ClipboardList,
   Copy,
-  Users
+  Users,
+  HeartHandshake
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useNotes from '../hooks/useNotes'
@@ -1342,6 +1343,32 @@ const ClientDashboard = () => {
                           </div>
                         </div>
                         <ExternalLink className="h-4 w-4 shrink-0 text-cyan-300 group-hover:text-white transition-colors" />
+                      </div>
+                    </Link>
+                    <Link
+                      to={`/fmla?client=${clientId}`}
+                      className="group p-6 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 backdrop-blur-sm rounded-xl border border-violet-500/30 hover:border-violet-400/50 transition-all duration-300 hover:scale-105 md:col-span-2"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-lg">
+                            <HeartHandshake className="h-6 w-6 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-violet-200">FMLA</p>
+                            <p className="text-sm text-white font-semibold">
+                              {clientData.fmla?.total_cases
+                                ? `${clientData.fmla.active_cases} active of ${clientData.fmla.total_cases} recorded`
+                                : 'No client-linked FMLA cases'}
+                            </p>
+                            {clientData.fmla?.next_deadline && (
+                              <p className="mt-1 text-xs text-violet-100/80">
+                                {clientData.fmla.next_deadline.label}: {formatDate(clientData.fmla.next_deadline.date)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <ExternalLink className="h-4 w-4 shrink-0 text-violet-300 group-hover:text-white transition-colors" />
                       </div>
                     </Link>
                   </div>

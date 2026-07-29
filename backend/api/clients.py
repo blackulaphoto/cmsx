@@ -888,6 +888,75 @@ def get_client_groups_summary(
     return summary
 
 
+def get_client_fmla_summary(
+    client_id: str, org_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Return client-linked FMLA cases and the nearest persisted deadline."""
+    summary = {
+        "cases": [],
+        "total_cases": 0,
+        "active_cases": 0,
+        "next_deadline": None,
+    }
+    try:
+        from backend.modules.fmla.store_factory import get_fmla_store
+
+        filters: Dict[str, Any] = {
+            "client_id": client_id,
+            "case_subject_type": "client",
+        }
+        if org_id is not None:
+            filters["org_id"] = org_id
+        cases = get_fmla_store().list_cases(filters)
+        deadline_fields = (
+            ("paperwork_deadline", "Paperwork due"),
+            ("employer_response_deadline", "Employer response"),
+            ("certification_expiration_date", "Certification expires"),
+            ("return_to_work_date", "Return to work"),
+        )
+        deadlines = []
+        normalized_cases = []
+        closed_statuses = {"closed", "cancelled", "canceled", "completed", "denied"}
+        for case in cases:
+            normalized = {
+                "case_id": case.get("case_id"),
+                "status": case.get("status") or "draft",
+                "approval_status": case.get("approval_status") or "pending",
+                "employer_name": case.get("employer_name") or "",
+                "leave_type": case.get("leave_type") or "",
+                "paperwork_deadline": case.get("paperwork_deadline"),
+                "employer_response_deadline": case.get("employer_response_deadline"),
+                "certification_expiration_date": case.get("certification_expiration_date"),
+                "return_to_work_date": case.get("return_to_work_date"),
+            }
+            normalized_cases.append(normalized)
+            for field, label in deadline_fields:
+                value = case.get(field)
+                if value:
+                    deadlines.append({
+                        "case_id": case.get("case_id"),
+                        "field": field,
+                        "label": label,
+                        "date": value,
+                    })
+        deadlines.sort(key=lambda item: item["date"])
+        today = datetime.now().date().isoformat()
+        upcoming = [item for item in deadlines if item["date"] >= today]
+        summary.update({
+            "cases": normalized_cases[:10],
+            "total_cases": len(normalized_cases),
+            "active_cases": sum(
+                1
+                for case in normalized_cases
+                if str(case["status"]).strip().lower() not in closed_statuses
+            ),
+            "next_deadline": upcoming[0] if upcoming else (deadlines[-1] if deadlines else None),
+        })
+    except Exception as exc:
+        logger.warning("FMLA summary unavailable for %s: %s", client_id, exc)
+    return summary
+
+
 class ClientCreateRequest(BaseModel):
     """Client creation schema - must match dependency map requirements"""
     first_name: str
@@ -1401,6 +1470,10 @@ async def get_client_unified_view(client_id: str, request: Request):
             client_id,
             org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
         )
+        fmla_summary = get_client_fmla_summary(
+            client_id,
+            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+        )
 
         # Augment services summary with workspace-stored referrals
         ws_referrals = workspace_store.list_client_service_referrals(client_id)
@@ -1471,6 +1544,7 @@ async def get_client_unified_view(client_id: str, request: Request):
                 "legal": legal_summary or {"status": core_client.get("legal_status", "No active cases")},
                 "services": services_summary,
                 "groups": groups_summary,
+                "fmla": fmla_summary,
                 "tasks": overview_data.get("tasks", []),
                 "notes": overview_data.get("case_notes", []),
                 "appointments": ws_appointments + overview_data.get("appointments", []),
@@ -1490,6 +1564,7 @@ async def get_client_unified_view(client_id: str, request: Request):
                 "legal": "legal_cases.db",
                 "services": "social_services.db",
                 "groups": "groups.db",
+                "fmla": "fmla.db",
             },
         }
     except HTTPException:

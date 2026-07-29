@@ -319,6 +319,11 @@ class FMLAStore:
             query += " AND assigned_case_manager = ?"
             params.append(case_manager)
 
+        client_id = _normalize_text(filters.get("client_id"))
+        if client_id:
+            query += " AND client_id = ?"
+            params.append(client_id)
+
         # Phase 3D4: org filter applied only when supplied (flag on).
         org_id = filters.get("org_id")
         if org_id is not None:
