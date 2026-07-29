@@ -136,6 +136,11 @@ class PostgresFMLAStore(FMLAStore):
             query += " AND assigned_case_manager = :case_manager"
             params["case_manager"] = case_manager
 
+        client_id = _normalize_text(filters.get("client_id"))
+        if client_id:
+            query += " AND client_id = :client_id"
+            params["client_id"] = client_id
+
         org_id = filters.get("org_id")
         if org_id is not None:
             query += " AND org_id = :org_id"

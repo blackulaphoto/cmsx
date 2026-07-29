@@ -171,6 +171,14 @@ class FMLAStoreTests(unittest.TestCase):
         self.assertEqual(row[1], "High")
         self.assertEqual(row[2], "2030-01-12")
 
+    def test_list_cases_filters_exact_client_id(self):
+        first = self._create_case(client_id="client-a", client_name="Client A")
+        self._create_case(client_id="client-b", client_name="Client B")
+
+        cases = self.store.list_cases({"client_id": "client-a"})
+
+        self.assertEqual([case["case_id"] for case in cases], [first["case_id"]])
+
     def test_leave_usage_and_exports_persist(self):
         created = self._create_case(leave_type="intermittent", certification_expiration_date="2030-02-01")
 

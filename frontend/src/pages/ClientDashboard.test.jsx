@@ -74,6 +74,12 @@ const baseClientData = {
     documented_sessions: 0,
     latest_session: null,
   },
+  fmla: {
+    cases: [],
+    total_cases: 0,
+    active_cases: 0,
+    next_deadline: null,
+  },
 }
 
 const currentPlan = {
@@ -339,6 +345,48 @@ describe('ClientDashboard group participation summary', () => {
     expect(screen.getByRole('link', { name: /Group Participation/i })).toHaveAttribute(
       'href',
       '/groups?client=client-1',
+    )
+  })
+})
+
+describe('ClientDashboard FMLA summary', () => {
+  it('renders the selected client FMLA status and next deadline', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              fmla: {
+                cases: [],
+                total_cases: 2,
+                active_cases: 1,
+                next_deadline: {
+                  case_id: 'fmla-1',
+                  field: 'paperwork_deadline',
+                  label: 'Paperwork due',
+                  date: '2026-08-04',
+                },
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('1 active of 2 recorded')).toBeInTheDocument()
+    expect(screen.getByText(/Paperwork due:/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^FMLA/i })).toHaveAttribute(
+      'href',
+      '/fmla?client=client-1',
     )
   })
 })
