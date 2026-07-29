@@ -23,6 +23,7 @@ from backend.auth.authorization import assert_client_access
 # from ai_search_coordinator import get_ai_coordinator  # COMMENTED OUT - Using simple search
 
 logger = logging.getLogger(__name__)
+SAVED_JOBS_DB_PATH = os.path.join(os.path.dirname(__file__), "saved_jobs", "saved_jobs.db")
 
 # Create FastAPI router
 router = APIRouter(tags=["jobs"])
@@ -761,6 +762,40 @@ class SaveJobRequest(BaseModel):
     salary: Optional[str] = ""
     url: Optional[str] = ""
 
+
+def list_saved_jobs_for_client(client_id: str) -> List[Dict[str, Any]]:
+    """Read one client's saved postings without creating or mutating storage."""
+    if not os.path.exists(SAVED_JOBS_DB_PATH):
+        return []
+
+    import sqlite3
+
+    with sqlite3.connect(SAVED_JOBS_DB_PATH) as conn:
+        rows = conn.execute(
+            """
+            SELECT job_id, client_id, title, company, location, salary, url, notes, saved_date
+            FROM saved_jobs
+            WHERE client_id = ?
+            ORDER BY saved_date DESC
+            """,
+            (client_id,),
+        ).fetchall()
+    return [
+        {
+            "job_id": row[0],
+            "client_id": row[1],
+            "title": row[2],
+            "company": row[3],
+            "location": row[4],
+            "salary": row[5],
+            "url": row[6],
+            "notes": row[7],
+            "saved_date": row[8],
+        }
+        for row in rows
+    ]
+
+
 @router.post("/save")
 async def save_job(request: SaveJobRequest, http_request: Request):
     """Save a job for a client"""
@@ -856,42 +891,7 @@ async def get_saved_jobs(client_id: str, request: Request):
     # to the client.
     assert_client_access(require_user(request), client_id)
     try:
-        db_path = os.path.join(os.path.dirname(__file__), "saved_jobs", "saved_jobs.db")
-        
-        if not os.path.exists(db_path):
-            return {
-                "success": True,
-                "saved_jobs": [],
-                "total_count": 0
-            }
-        
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT job_id, client_id, title, company, location, salary, url, notes, saved_date
-            FROM saved_jobs
-            WHERE client_id = ?
-            ORDER BY saved_date DESC
-        ''', (client_id,))
-        
-        rows = cursor.fetchall()
-        conn.close()
-        
-        saved_jobs = []
-        for row in rows:
-            saved_jobs.append({
-                "job_id": row[0],
-                "client_id": row[1],
-                "title": row[2],
-                "company": row[3],
-                "location": row[4],
-                "salary": row[5],
-                "url": row[6],
-                "notes": row[7],
-                "saved_date": row[8]
-            })
+        saved_jobs = list_saved_jobs_for_client(client_id)
         
         return {
             "success": True,

@@ -57,7 +57,7 @@ const baseClientData = {
     intake_date: '2026-06-20',
   },
   housing: { status: 'Stable' },
-  employment: { status: 'Seeking work' },
+  employment: { status: 'Seeking work', saved_jobs: [] },
   benefits: { status: 'Pending' },
   legal: { status: 'Open case' },
   goals: [{ description: 'Legacy dashboard goal', goal_type: 'Legacy' }],
@@ -1258,5 +1258,48 @@ describe('ClientDashboard - Employment tab resume surfacing', () => {
     await goToEmploymentTab()
 
     expect(await screen.findByText('No saved resume files yet.')).toBeInTheDocument()
+  })
+})
+
+describe('ClientDashboard - saved jobs propagation', () => {
+  it('shows saved postings separately from job applications', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              employment: {
+                ...baseClientData.employment,
+                saved_jobs: [
+                  {
+                    job_id: 'job-1',
+                    title: 'Warehouse Associate',
+                    company: 'Example Logistics',
+                    location: 'Los Angeles, CA',
+                    notes: 'Call before applying.',
+                    saved_date: '2026-07-28T09:00:00',
+                  },
+                ],
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true }) })
+    })
+
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Employment' }))
+
+    expect(await screen.findByText('Warehouse Associate')).toBeInTheDocument()
+    expect(screen.getByText('Example Logistics · Los Angeles, CA')).toBeInTheDocument()
+    expect(screen.getByText('Call before applying.')).toBeInTheDocument()
+    expect(screen.queryByText('Recent Job Applications')).not.toBeInTheDocument()
   })
 })

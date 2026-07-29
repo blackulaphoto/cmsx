@@ -2077,6 +2077,35 @@ const ClientDashboard = () => {
                     )}
                   </div>
 
+                  {/* Saved job postings — distinct from applications. */}
+                  <div>
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                      <h4 className="font-medium text-white">Saved Jobs</h4>
+                      <Link
+                        to={`/jobs?client=${clientId}`}
+                        className="text-sm font-medium text-green-300 hover:text-green-200"
+                      >
+                        Open Job Search
+                      </Link>
+                    </div>
+                    {clientData.employment?.saved_jobs?.length > 0 ? (
+                      <div className="space-y-3">
+                        {clientData.employment.saved_jobs.map((job) => (
+                          <div key={job.job_id} className="p-4 bg-gradient-to-br from-green-500/20 to-emerald-500/20 backdrop-blur-sm rounded-xl border border-green-500/30">
+                            <p className="font-medium text-white">{job.title || 'Saved job'}</p>
+                            <p className="text-sm text-green-200">
+                              {[job.company, job.location].filter(Boolean).join(' · ') || 'Employer details not recorded'}
+                            </p>
+                            <p className="mt-1 text-xs text-gray-300">Saved: {formatDate(job.saved_date)}</p>
+                            {job.notes && <p className="mt-2 text-sm text-gray-300">{job.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-400">No saved job postings yet.</p>
+                    )}
+                  </div>
+
                   {/* Job Applications */}
                   {clientData.employment?.applications && (
                     <div>

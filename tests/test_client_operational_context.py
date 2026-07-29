@@ -271,6 +271,56 @@ def test_unified_view_merges_medical_referrals_into_existing_services_path(tmp_p
     assert payload["client_data"]["services"]["total_referrals"] == 3
 
 
+def test_unified_view_surfaces_saved_jobs_in_employment(tmp_path, monkeypatch):
+    from backend.modules.jobs import routes as jobs_routes
+
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-saved-jobs")
+    client = TestClient(_test_app(tmp_path))
+
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(clients_api, "get_client_benefits_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_legal_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_services_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_medical_referrals_summary", lambda _client_id: [])
+    monkeypatch.setattr(clients_api, "get_client_groups_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(clients_api, "get_client_fmla_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(clients_api, "get_client_ur_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(
+        jobs_routes,
+        "list_saved_jobs_for_client",
+        lambda resolved_client_id: [
+            {
+                "job_id": "job-1",
+                "client_id": resolved_client_id,
+                "title": "Warehouse Associate",
+                "company": "Example Logistics",
+                "location": "Los Angeles, CA",
+                "notes": "Call before applying.",
+                "saved_date": "2026-07-28T09:00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(workspace_store, "list_client_service_referrals", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+
+    response = client.get(
+        f"/api/clients/{client_id}/unified-view",
+        headers={
+            "X-Test-Auth-Email": "case.manager@example.test",
+            "X-Test-Auth-Case-Manager-Id": "cm_test",
+            "X-Test-Auth-Role": "case_manager",
+        },
+    )
+
+    assert response.status_code == 200
+    saved_jobs = response.json()["client_data"]["employment"]["saved_jobs"]
+    assert len(saved_jobs) == 1
+    assert saved_jobs[0]["client_id"] == client_id
+    assert saved_jobs[0]["title"] == "Warehouse Associate"
+
+
 def test_unified_view_surfaces_client_group_participation(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     client_id = _seed_core_client("client-groups-summary")
