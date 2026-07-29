@@ -106,6 +106,14 @@ class URModuleTests(unittest.TestCase):
         self.assertEqual(updated["reviewer_company"], "Aetna UM")
         self.assertEqual(updated["denied_days"], 4)
 
+    def test_list_cases_filters_exact_client_id(self):
+        first = self._create_case(client_id="client-a", client_name="Client A")
+        self._create_case(client_id="client-b", client_name="Client B")
+
+        cases = self.store.list_cases({"client_id": "client-a"})
+
+        self.assertEqual([case["case_id"] for case in cases], [first["case_id"]])
+
     def test_route_create_detail_and_events(self):
         response = self.client.post(
             "/api/ur",

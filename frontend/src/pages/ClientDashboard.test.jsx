@@ -80,6 +80,12 @@ const baseClientData = {
     active_cases: 0,
     next_deadline: null,
   },
+  ur: {
+    cases: [],
+    total_cases: 0,
+    active_cases: 0,
+    next_deadline: null,
+  },
 }
 
 const currentPlan = {
@@ -387,6 +393,48 @@ describe('ClientDashboard FMLA summary', () => {
     expect(screen.getByRole('link', { name: /^FMLA/i })).toHaveAttribute(
       'href',
       '/fmla?client=client-1',
+    )
+  })
+})
+
+describe('ClientDashboard UR summary', () => {
+  it('renders the selected client authorization status and next review', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              ur: {
+                cases: [],
+                total_cases: 2,
+                active_cases: 2,
+                next_deadline: {
+                  case_id: 'ur-1',
+                  field: 'next_review_date',
+                  label: 'Next review',
+                  date: '2026-08-02',
+                },
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('2 active of 2 recorded')).toBeInTheDocument()
+    expect(screen.getByText(/Next review:/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Utilization Review/i })).toHaveAttribute(
+      'href',
+      '/ur?client=client-1',
     )
   })
 })
