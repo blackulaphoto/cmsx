@@ -67,6 +67,13 @@ const baseClientData = {
   contact_history: [],
   program_milestones: [],
   services: {},
+  groups: {
+    sessions: [],
+    total_sessions: 0,
+    attended_sessions: 0,
+    documented_sessions: 0,
+    latest_session: null,
+  },
 }
 
 const currentPlan = {
@@ -291,6 +298,51 @@ describe('ClientDashboard service referral propagation', () => {
     expect(screen.getByText('Accepts Medi-Cal and walk-ins.')).toBeInTheDocument()
   })
 })
+
+describe('ClientDashboard group participation summary', () => {
+  it('renders the selected client group summary and links to Groups', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              groups: {
+                sessions: [],
+                total_sessions: 3,
+                attended_sessions: 2,
+                documented_sessions: 1,
+                latest_session: {
+                  session_id: 'sess-1',
+                  title: 'Relapse Prevention',
+                  scheduled_date: '2026-07-27',
+                  attendance_status: 'present',
+                  note_count: 1,
+                },
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('2 attended of 3 recorded')).toBeInTheDocument()
+    expect(screen.getByText(/Latest: Relapse Prevention/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Group Participation/i })).toHaveAttribute(
+      'href',
+      '/groups?client=client-1',
+    )
+  })
+})
+
 describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
   beforeEach(() => {
     apiFetch.mockImplementation((url) => {

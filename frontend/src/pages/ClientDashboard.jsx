@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -35,7 +35,8 @@ import {
   Download,
   X,
   ClipboardList,
-  Copy
+  Copy,
+  Users
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useNotes from '../hooks/useNotes'
@@ -1314,6 +1315,35 @@ const ClientDashboard = () => {
                         </div>
                       </div>
                     </div>
+                    <Link
+                      to={`/groups?client=${clientId}`}
+                      className="group p-6 bg-gradient-to-br from-cyan-500/20 to-teal-500/20 backdrop-blur-sm rounded-xl border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-300 hover:scale-105 md:col-span-2"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2 bg-gradient-to-r from-cyan-500 to-teal-500 rounded-lg">
+                            <Users className="h-6 w-6 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-cyan-200">Group Participation</p>
+                            <p className="text-sm text-white font-semibold">
+                              {clientData.groups?.total_sessions
+                                ? `${clientData.groups.attended_sessions} attended of ${clientData.groups.total_sessions} recorded`
+                                : 'No recorded group sessions'}
+                            </p>
+                            {clientData.groups?.latest_session && (
+                              <p className="mt-1 text-xs text-cyan-100/80">
+                                Latest: {clientData.groups.latest_session.title}
+                                {clientData.groups.latest_session.scheduled_date
+                                  ? ` · ${formatDate(clientData.groups.latest_session.scheduled_date)}`
+                                  : ''}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <ExternalLink className="h-4 w-4 shrink-0 text-cyan-300 group-hover:text-white transition-colors" />
+                      </div>
+                    </Link>
                   </div>
                 </div>
 

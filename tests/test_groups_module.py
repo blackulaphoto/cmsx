@@ -279,6 +279,43 @@ class GroupsAttendanceNotesTests(unittest.TestCase):
         records = self.db.list_attendance(self.session_id)
         self.assertEqual(len(records), 2)
 
+    def test_list_client_participation_filters_client_and_org(self):
+        org_session = self.db.create_session({
+            "title": "Relapse Prevention",
+            "topic_id": None,
+            "case_manager_id": "cm_001",
+            "org_id": "org-a",
+            "scheduled_date": "2026-07-27",
+            "playlist_ids": [],
+            "video_ids": [],
+        })
+        other_org_session = self.db.create_session({
+            "title": "Other Organization Group",
+            "topic_id": None,
+            "case_manager_id": "cm_002",
+            "org_id": "org-b",
+            "scheduled_date": "2026-07-28",
+            "playlist_ids": [],
+            "video_ids": [],
+        })
+        self.db.upsert_attendance({"session_id": org_session["session_id"], "client_id": "c1", "status": "present", "participation_level": "active", "added_by": "cm_001"})
+        self.db.upsert_attendance({"session_id": org_session["session_id"], "client_id": "c2", "status": "present", "participation_level": "active", "added_by": "cm_001"})
+        self.db.upsert_attendance({"session_id": other_org_session["session_id"], "client_id": "c1", "status": "present", "participation_level": "active", "added_by": "cm_002"})
+        self.db.create_note({
+            "session_id": org_session["session_id"],
+            "client_id": "c1",
+            "note_type": "individual",
+            "content": "Client participated in relapse-prevention planning.",
+            "created_by": "cm_001",
+        })
+
+        records = self.db.list_client_participation("c1", org_id="org-a")
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["title"], "Relapse Prevention")
+        self.assertEqual(records[0]["client_id"], "c1")
+        self.assertEqual(records[0]["note_count"], 1)
+
     def test_delete_attendance(self):
         self.db.upsert_attendance({"session_id": self.session_id, "client_id": "c1", "status": "present", "participation_level": "active", "added_by": "cm_001"})
         result = self.db.delete_attendance(self.session_id, "c1")

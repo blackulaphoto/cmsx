@@ -271,6 +271,62 @@ def test_unified_view_merges_medical_referrals_into_existing_services_path(tmp_p
     assert payload["client_data"]["services"]["total_referrals"] == 3
 
 
+def test_unified_view_surfaces_client_group_participation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-groups-summary")
+    client = TestClient(_test_app(tmp_path))
+
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(clients_api, "get_client_benefits_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_legal_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_services_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_medical_referrals_summary", lambda _client_id: [])
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_groups_summary",
+        lambda resolved_client_id, org_id=None: {
+            "sessions": [
+                {
+                    "session_id": "sess-1",
+                    "title": "Relapse Prevention",
+                    "scheduled_date": "2026-07-27",
+                    "attendance_status": "present",
+                    "note_count": 1,
+                }
+            ],
+            "total_sessions": 1,
+            "attended_sessions": 1,
+            "documented_sessions": 1,
+            "latest_session": {
+                "session_id": "sess-1",
+                "title": "Relapse Prevention",
+                "scheduled_date": "2026-07-27",
+                "attendance_status": "present",
+                "note_count": 1,
+            },
+        },
+    )
+    monkeypatch.setattr(workspace_store, "list_client_service_referrals", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+
+    response = client.get(
+        f"/api/clients/{client_id}/unified-view",
+        headers={
+            "X-Test-Auth-Email": "case.manager@example.test",
+            "X-Test-Auth-Case-Manager-Id": "cm_test",
+            "X-Test-Auth-Role": "case_manager",
+        },
+    )
+
+    assert response.status_code == 200
+    groups = response.json()["client_data"]["groups"]
+    assert groups["total_sessions"] == 1
+    assert groups["attended_sessions"] == 1
+    assert groups["documented_sessions"] == 1
+    assert groups["latest_session"]["title"] == "Relapse Prevention"
+
+
 def test_client_work_items_route_returns_canonical_items(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     client_id = _seed_core_client("client-work-items")
