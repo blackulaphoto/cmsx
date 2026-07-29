@@ -771,6 +771,7 @@ def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = Non
     Pass client_date (YYYY-MM-DD) to use the client's local date for bucketing
     instead of the server's UTC date.today().
     """
+    reconcile_operational_deadlines(case_manager_id, org_id=org_id)
     all_tasks = list_tasks_for_case_manager(case_manager_id, org_id=org_id)
 
     if client_date:
@@ -894,6 +895,33 @@ def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = Non
             "later": len(buckets["later"]),
         },
     }
+
+
+def reconcile_operational_deadlines(case_manager_id: str, org_id: Optional[str] = None) -> None:
+    """Project existing assigned module deadlines before Smart Daily reads them."""
+    try:
+        from backend.modules.ur.store_factory import get_ur_store
+        from backend.modules.ur.work_items import sync_ur_deadline_reminders
+
+        filters: Dict[str, Any] = {"case_manager": case_manager_id}
+        if org_id is not None:
+            filters["org_id"] = org_id
+        for case_record in get_ur_store().list_cases(filters):
+            sync_ur_deadline_reminders(case_record)
+    except Exception as exc:
+        logger.warning("UR deadline reconciliation failed: %s", exc)
+
+    try:
+        from backend.modules.fmla.store_factory import get_fmla_store
+        from backend.modules.fmla.work_items import sync_fmla_deadline_reminders
+
+        filters = {"case_manager": case_manager_id}
+        if org_id is not None:
+            filters["org_id"] = org_id
+        for case_record in get_fmla_store().list_cases(filters):
+            sync_fmla_deadline_reminders(case_record)
+    except Exception as exc:
+        logger.warning("FMLA deadline reconciliation failed: %s", exc)
 
 
 def get_client_work_items(
@@ -1691,6 +1719,7 @@ class _Repo:
     list_tasks_for_case_manager = staticmethod(list_tasks_for_case_manager)
     get_today_tasks = staticmethod(get_today_tasks)
     get_prioritized_tasks = staticmethod(get_prioritized_tasks)
+    reconcile_operational_deadlines = staticmethod(reconcile_operational_deadlines)
     get_client_work_items = staticmethod(get_client_work_items)
     get_active_reminders_for_case_manager = staticmethod(get_active_reminders_for_case_manager)
     get_active_reminder = staticmethod(get_active_reminder)

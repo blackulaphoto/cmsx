@@ -162,3 +162,33 @@ def test_ur_deadline_round_trip_through_sqlite_reminder_store(tmp_path, monkeypa
     work_items.sync_ur_deadline_reminders(_case(status="closed"))
 
     assert repository.get_active_reminder("ur:ur-case-1:review") is None
+
+
+def test_reconcile_operational_deadlines_projects_existing_assigned_cases(monkeypatch):
+    ur_cases = [_case()]
+    fmla_cases = [{"case_id": "fmla-case-1"}]
+    ur_synced = []
+    fmla_synced = []
+
+    class StubStore:
+        def __init__(self, cases):
+            self.cases = cases
+            self.filters = None
+
+        def list_cases(self, filters):
+            self.filters = filters
+            return self.cases
+
+    ur_store = StubStore(ur_cases)
+    fmla_store = StubStore(fmla_cases)
+    monkeypatch.setattr("backend.modules.ur.store_factory.get_ur_store", lambda: ur_store)
+    monkeypatch.setattr("backend.modules.fmla.store_factory.get_fmla_store", lambda: fmla_store)
+    monkeypatch.setattr("backend.modules.ur.work_items.sync_ur_deadline_reminders", ur_synced.append)
+    monkeypatch.setattr("backend.modules.fmla.work_items.sync_fmla_deadline_reminders", fmla_synced.append)
+
+    repository.reconcile_operational_deadlines("cm-1", org_id="org-1")
+
+    assert ur_store.filters == {"case_manager": "cm-1", "org_id": "org-1"}
+    assert fmla_store.filters == {"case_manager": "cm-1", "org_id": "org-1"}
+    assert ur_synced == ur_cases
+    assert fmla_synced == fmla_cases
