@@ -116,6 +116,39 @@ def test_operational_context_routes_intake_to_module_needs(tmp_path, monkeypatch
         "get_client_services_summary",
         lambda client_id: {"referrals": [], "tasks": [], "open_tasks": 0},
     )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_groups_summary",
+        lambda client_id, org_id=None: {
+            "total_sessions": 2,
+            "attended_sessions": 2,
+            "latest_session": {"title": "Coping Skills", "scheduled_date": "2026-07-27"},
+        },
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_fmla_summary",
+        lambda client_id, org_id=None: {
+            "total_cases": 1,
+            "active_cases": 1,
+            "next_deadline": {"label": "Paperwork due", "date": "2026-08-04"},
+        },
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_ur_summary",
+        lambda client_id, org_id=None: {
+            "total_cases": 1,
+            "active_cases": 1,
+            "next_deadline": {"label": "Next review", "date": "2026-08-02"},
+        },
+    )
+    from backend.modules.jobs import routes as jobs_routes
+    monkeypatch.setattr(
+        jobs_routes,
+        "list_saved_jobs_for_client",
+        lambda client_id: [{"job_id": "job-1", "title": "Warehouse Associate"}],
+    )
     client_id = _seed_core_client()
     client = TestClient(_test_app(tmp_path))
 
@@ -155,6 +188,10 @@ def test_operational_context_routes_intake_to_module_needs(tmp_path, monkeypatch
     }.issubset(need_keys)
 
     assert context["module_context"]["resume"]["contact"]["email"] == "operational.client@example.test"
+    assert context["module_context"]["groups"]["latest_session"]["title"] == "Coping Skills"
+    assert context["module_context"]["fmla"]["next_deadline"]["label"] == "Paperwork due"
+    assert context["module_context"]["ur"]["next_deadline"]["label"] == "Next review"
+    assert context["module_context"]["employment"]["saved_jobs"][0]["title"] == "Warehouse Associate"
     assert {need["need_key"] for need in context["module_context"]["medical"]["active_needs"]} >= {
         "dental",
         "primary_care",

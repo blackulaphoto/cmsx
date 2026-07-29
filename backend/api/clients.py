@@ -439,6 +439,10 @@ def build_client_operational_context(
     legal_summary: Optional[Dict[str, Any]] = None,
     services_summary: Optional[Dict[str, Any]] = None,
     admissions_context: Optional[Dict[str, Any]] = None,
+    groups_summary: Optional[Dict[str, Any]] = None,
+    fmla_summary: Optional[Dict[str, Any]] = None,
+    ur_summary: Optional[Dict[str, Any]] = None,
+    saved_jobs: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Build the shared read model consumed by module dropdown workflows."""
     overview_data = overview_data or {}
@@ -518,6 +522,7 @@ def build_client_operational_context(
                 "status": client.get("employment_status", "Unknown"),
                 "goals": client.get("goals", ""),
                 "barriers": client.get("barriers", ""),
+                "saved_jobs": saved_jobs or [],
                 "needs": [need for need in operational_needs if need["domain"] == "employment"],
                 "active_needs": [need for need in operational_needs if need["domain"] == "employment"],
             },
@@ -540,6 +545,9 @@ def build_client_operational_context(
                 "suggested_needs": operational_needs,
             },
             "admissions": admissions_context or {},
+            "groups": groups_summary or {},
+            "fmla": fmla_summary or {},
+            "ur": ur_summary or {},
         },
         "operational_needs": operational_needs,
         "open_tasks": open_tasks,
@@ -1687,6 +1695,14 @@ async def get_client_operational_context(client_id: str, request: Request):
             logger.warning("Admissions context unavailable for %s: %s", client_id, _adm_exc)
             admissions_ctx = {}
 
+        try:
+            from backend.modules.jobs.routes import list_saved_jobs_for_client
+
+            saved_jobs = list_saved_jobs_for_client(client_id)
+        except Exception as jobs_exc:
+            logger.warning("Operational context saved jobs unavailable for %s: %s", client_id, jobs_exc)
+            saved_jobs = []
+
         operational_context = build_client_operational_context(
             client,
             overview_data=overview_data,
@@ -1694,6 +1710,19 @@ async def get_client_operational_context(client_id: str, request: Request):
             legal_summary=get_client_legal_summary(client_id),
             services_summary=get_client_services_summary(client_id),
             admissions_context=admissions_ctx,
+            groups_summary=get_client_groups_summary(
+                client_id,
+                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+            ),
+            fmla_summary=get_client_fmla_summary(
+                client_id,
+                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+            ),
+            ur_summary=get_client_ur_summary(
+                client_id,
+                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+            ),
+            saved_jobs=saved_jobs,
         )
 
         return {
