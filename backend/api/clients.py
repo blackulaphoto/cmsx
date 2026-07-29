@@ -841,6 +841,53 @@ def get_client_medical_referrals_summary(client_id: str) -> List[Dict[str, Any]]
         })
     return normalized
 
+
+def get_client_groups_summary(
+    client_id: str, org_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Return a compact, read-only summary of persisted group participation."""
+    summary = {
+        "sessions": [],
+        "total_sessions": 0,
+        "attended_sessions": 0,
+        "documented_sessions": 0,
+        "latest_session": None,
+    }
+    try:
+        from backend.modules.groups.database import groups_db
+
+        participation = groups_db.list_client_participation(client_id, org_id=org_id)
+        sessions = [
+            {
+                "session_id": row.get("session_id"),
+                "title": row.get("title") or "Group session",
+                "scheduled_date": row.get("scheduled_date"),
+                "scheduled_time": row.get("scheduled_time"),
+                "group_type": row.get("group_type"),
+                "session_status": row.get("session_status"),
+                "attendance_status": row.get("attendance_status") or "unknown",
+                "participation_level": row.get("participation_level"),
+                "note_count": int(row.get("note_count") or 0),
+            }
+            for row in participation
+        ]
+        attended_statuses = {"present", "attended", "late"}
+        summary.update({
+            "sessions": sessions[:10],
+            "total_sessions": len(sessions),
+            "attended_sessions": sum(
+                1
+                for session in sessions
+                if str(session["attendance_status"]).strip().lower() in attended_statuses
+            ),
+            "documented_sessions": sum(1 for session in sessions if session["note_count"] > 0),
+            "latest_session": sessions[0] if sessions else None,
+        })
+    except Exception as exc:
+        logger.warning("Group participation summary unavailable for %s: %s", client_id, exc)
+    return summary
+
+
 class ClientCreateRequest(BaseModel):
     """Client creation schema - must match dependency map requirements"""
     first_name: str
@@ -1350,6 +1397,10 @@ async def get_client_unified_view(client_id: str, request: Request):
         benefits_summary = get_client_benefits_summary(client_id)
         legal_summary = get_client_legal_summary(client_id)
         services_summary = get_client_services_summary(client_id)
+        groups_summary = get_client_groups_summary(
+            client_id,
+            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+        )
 
         # Augment services summary with workspace-stored referrals
         ws_referrals = workspace_store.list_client_service_referrals(client_id)
@@ -1419,6 +1470,7 @@ async def get_client_unified_view(client_id: str, request: Request):
                 "benefits": benefits_summary or {"status": core_client.get("benefits_status", "unknown")},
                 "legal": legal_summary or {"status": core_client.get("legal_status", "No active cases")},
                 "services": services_summary,
+                "groups": groups_summary,
                 "tasks": overview_data.get("tasks", []),
                 "notes": overview_data.get("case_notes", []),
                 "appointments": ws_appointments + overview_data.get("appointments", []),
@@ -1437,6 +1489,7 @@ async def get_client_unified_view(client_id: str, request: Request):
                 "benefits": "unified_platform.db",
                 "legal": "legal_cases.db",
                 "services": "social_services.db",
+                "groups": "groups.db",
             },
         }
     except HTTPException:
