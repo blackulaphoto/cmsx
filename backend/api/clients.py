@@ -443,12 +443,20 @@ def build_client_operational_context(
     fmla_summary: Optional[Dict[str, Any]] = None,
     ur_summary: Optional[Dict[str, Any]] = None,
     saved_jobs: Optional[List[Dict[str, Any]]] = None,
+    medical_referrals: Optional[List[Dict[str, Any]]] = None,
+    appointments: Optional[List[Dict[str, Any]]] = None,
+    service_referrals: Optional[List[Dict[str, Any]]] = None,
+    documents: Optional[List[Dict[str, Any]]] = None,
+    roi_records: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Build the shared read model consumed by module dropdown workflows."""
     overview_data = overview_data or {}
-    benefits_summary = benefits_summary or get_client_benefits_summary(client["client_id"])
-    legal_summary = legal_summary or get_client_legal_summary(client["client_id"])
-    services_summary = services_summary or get_client_services_summary(client["client_id"])
+    if benefits_summary is None:
+        benefits_summary = get_client_benefits_summary(client["client_id"])
+    if legal_summary is None:
+        legal_summary = get_client_legal_summary(client["client_id"])
+    if services_summary is None:
+        services_summary = get_client_services_summary(client["client_id"])
     operational_needs = derive_operational_needs(client)
     try:
         stored_needs = workspace_store.list_client_operational_needs(client["client_id"])
@@ -494,6 +502,8 @@ def build_client_operational_context(
                 "special_needs": client.get("special_needs", ""),
                 "needs": [need for need in operational_needs if need["domain"] == "medical"],
                 "active_needs": [need for need in operational_needs if need["domain"] == "medical"],
+                "referrals": medical_referrals or [],
+                "appointments": appointments or [],
             },
             "benefits": {
                 "status": client.get("benefits_status", "Not Applied"),
@@ -539,6 +549,14 @@ def build_client_operational_context(
                 "goals": client.get("goals", ""),
                 "barriers": client.get("barriers", ""),
                 "treatment_plan_available": treatment_plan_context.get("status") in {"draft", "active", "review_due", "completed"},
+                "documents": documents or [],
+                "roi_records": roi_records or [],
+            },
+            "services": {
+                "summary": services_summary,
+                "referrals": service_referrals or [],
+                "needs": [need for need in operational_needs if need["domain"] == "services"],
+                "active_needs": [need for need in operational_needs if need["domain"] == "services"],
             },
             "reminders": {
                 "open_tasks": open_tasks,
@@ -576,14 +594,179 @@ def build_client_operational_context(
     }
 
 
+def load_client_operational_context(client_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
+    """Load the shared client truth model with isolated optional module failures."""
+    with get_database_connection("core_clients", "READ_ONLY") as conn:
+        ensure_core_clients_schema(conn)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,)).fetchone()
+    if not row:
+        raise KeyError("Client not found")
+    client = normalize_client_record(row)
+
+    unavailable_sources: List[str] = []
+
+    def safe_load(source: str, loader, fallback):
+        try:
+            result = loader()
+            if getattr(result, "available", True) is False:
+                unavailable_sources.append(source)
+            return result
+        except Exception as exc:
+            unavailable_sources.append(source)
+            logger.warning("Operational context %s unavailable for %s: %s", source, client_id, exc)
+            return fallback
+
+    overview_data = safe_load(
+        "overview",
+        lambda: get_client_data_integrator().get_client_overview_data(client_id),
+        {},
+    )
+    admissions_context = safe_load(
+        "admissions",
+        lambda: __import__(
+            "backend.modules.admissions.summary",
+            fromlist=["build_admissions_context_for_operational"],
+        ).build_admissions_context_for_operational(client_id),
+        {},
+    )
+    saved_jobs = safe_load(
+        "saved_jobs",
+        lambda: __import__(
+            "backend.modules.jobs.routes",
+            fromlist=["list_saved_jobs_for_client"],
+        ).list_saved_jobs_for_client(client_id),
+        [],
+    )
+    benefits_summary = safe_load("benefits", lambda: get_client_benefits_summary(client_id), {})
+    legal_summary = safe_load("legal", lambda: get_client_legal_summary(client_id), {})
+    services_summary = safe_load("services", lambda: get_client_services_summary(client_id), {})
+    groups_summary = safe_load(
+        "groups",
+        lambda: get_client_groups_summary(client_id, org_id=org_id),
+        {},
+    )
+    fmla_summary = safe_load(
+        "fmla",
+        lambda: get_client_fmla_summary(client_id, org_id=org_id),
+        {},
+    )
+    ur_summary = safe_load(
+        "ur",
+        lambda: get_client_ur_summary(client_id, org_id=org_id),
+        {},
+    )
+    medical_referrals_raw = safe_load(
+        "medical_referrals",
+        lambda: get_client_medical_referrals_summary(client_id),
+        [],
+    )
+    medical_referrals = [
+        {
+            "provider_name": item.get("provider_name"),
+            "service_name": item.get("service_name"),
+            "service_type": item.get("service_type"),
+            "status": item.get("status"),
+            "referral_date": item.get("referral_date"),
+        }
+        for item in medical_referrals_raw[:10]
+    ]
+    appointments_raw = safe_load(
+        "appointments",
+        lambda: workspace_store.list_client_appointments(client_id),
+        [],
+    )
+    appointments = [
+        {
+            "title": item.get("title"),
+            "appointment_date": item.get("appointment_date"),
+            "appointment_time": item.get("appointment_time"),
+            "service_type": item.get("service_type"),
+            "status": item.get("status"),
+        }
+        for item in appointments_raw[:10]
+    ]
+    service_referrals_raw = safe_load(
+        "service_referrals",
+        lambda: workspace_store.list_client_service_referrals(client_id),
+        [],
+    )
+    service_referrals = [
+        {
+            "service_name": item.get("service_name"),
+            "service_type": item.get("service_type"),
+            "provider_name": item.get("provider_name"),
+            "status": item.get("status"),
+            "referral_date": item.get("referral_date"),
+        }
+        for item in service_referrals_raw[:10]
+    ]
+    documents_raw = safe_load(
+        "documents",
+        lambda: workspace_store.list_client_documents(client_id),
+        [],
+    )
+    documents = [
+        {
+            "title": item.get("title"),
+            "doc_type": item.get("doc_type"),
+            "created_at": item.get("created_at"),
+        }
+        for item in documents_raw[:10]
+    ]
+    roi_records_raw = safe_load(
+        "roi_records",
+        lambda: workspace_store.list_client_roi_records(client_id),
+        [],
+    )
+    roi_records = [
+        {
+            "authorized_party": item.get("authorized_party"),
+            "status": item.get("status"),
+            "effective_date": item.get("effective_date"),
+            "expiration_date": item.get("expiration_date"),
+        }
+        for item in roi_records_raw[:10]
+    ]
+
+    context = build_client_operational_context(
+        client,
+        overview_data=overview_data,
+        benefits_summary=benefits_summary,
+        legal_summary=legal_summary,
+        services_summary=services_summary,
+        admissions_context=admissions_context,
+        groups_summary=groups_summary,
+        fmla_summary=fmla_summary,
+        ur_summary=ur_summary,
+        saved_jobs=saved_jobs,
+        medical_referrals=medical_referrals,
+        appointments=appointments,
+        service_referrals=service_referrals,
+        documents=documents,
+        roi_records=roi_records,
+    )
+    context["metadata"]["unavailable_sources"] = unavailable_sources
+    context["metadata"]["complete"] = not unavailable_sources
+    return context
+
+
+class _SummaryResult(dict):
+    """Dict-compatible summary carrying non-serialized source availability."""
+
+    def __init__(self, *args, available: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.available = available
+
+
 def get_client_benefits_summary(client_id: str) -> Dict[str, Any]:
     """Get benefits application summary for unified client view."""
-    summary = {
+    summary = _SummaryResult({
         "applications": [],
         "total_applications": 0,
         "active_applications": 0,
         "latest_application": None,
-    }
+    })
     try:
         with get_database_connection("unified_platform", "READ_ONLY") as conn:
             cursor = conn.cursor()
@@ -624,21 +807,23 @@ def get_client_benefits_summary(client_id: str) -> Dict[str, Any]:
         summary["latest_application"] = applications[0] if applications else None
         return summary
     except sqlite3.OperationalError:
+        summary.available = False
         return summary
     except Exception as e:
         logger.error("Error getting benefits summary for %s: %s", client_id, e)
+        summary.available = False
         return summary
 
 
 def get_client_legal_summary(client_id: str) -> Dict[str, Any]:
     """Get legal case and court-date summary for unified client view."""
-    summary = {
+    summary = _SummaryResult({
         "cases": [],
         "upcoming_court_dates": [],
         "total_cases": 0,
         "active_cases": 0,
         "next_court_date": None,
-    }
+    })
     try:
         with get_database_connection("legal_cases", "READ_ONLY") as conn:
             conn.row_factory = sqlite3.Row
@@ -714,21 +899,23 @@ def get_client_legal_summary(client_id: str) -> Dict[str, Any]:
         summary["next_court_date"] = next_court_date
         return summary
     except sqlite3.OperationalError:
+        summary.available = False
         return summary
     except Exception as e:
         logger.error("Error getting legal summary for %s: %s", client_id, e)
+        summary.available = False
         return summary
 
 
 def get_client_services_summary(client_id: str) -> Dict[str, Any]:
     """Get services referral/task summary for unified client view."""
-    summary = {
+    summary = _SummaryResult({
         "referrals": [],
         "tasks": [],
         "total_referrals": 0,
         "active_referrals": 0,
         "open_tasks": 0,
-    }
+    })
     try:
         with get_database_connection("social_services", "READ_ONLY") as conn:
             conn.row_factory = sqlite3.Row
@@ -805,9 +992,11 @@ def get_client_services_summary(client_id: str) -> Dict[str, Any]:
         )
         return summary
     except sqlite3.OperationalError:
+        summary.available = False
         return summary
     except Exception as e:
         logger.error("Error getting services summary for %s: %s", client_id, e)
+        summary.available = False
         return summary
 
 
@@ -854,13 +1043,13 @@ def get_client_groups_summary(
     client_id: str, org_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Return a compact, read-only summary of persisted group participation."""
-    summary = {
+    summary = _SummaryResult({
         "sessions": [],
         "total_sessions": 0,
         "attended_sessions": 0,
         "documented_sessions": 0,
         "latest_session": None,
-    }
+    })
     try:
         from backend.modules.groups.database import groups_db
 
@@ -893,6 +1082,7 @@ def get_client_groups_summary(
         })
     except Exception as exc:
         logger.warning("Group participation summary unavailable for %s: %s", client_id, exc)
+        summary.available = False
     return summary
 
 
@@ -900,12 +1090,12 @@ def get_client_fmla_summary(
     client_id: str, org_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Return client-linked FMLA cases and the nearest persisted deadline."""
-    summary = {
+    summary = _SummaryResult({
         "cases": [],
         "total_cases": 0,
         "active_cases": 0,
         "next_deadline": None,
-    }
+    })
     try:
         from backend.modules.fmla.store_factory import get_fmla_store
 
@@ -962,6 +1152,7 @@ def get_client_fmla_summary(
         })
     except Exception as exc:
         logger.warning("FMLA summary unavailable for %s: %s", client_id, exc)
+        summary.available = False
     return summary
 
 
@@ -969,12 +1160,12 @@ def get_client_ur_summary(
     client_id: str, org_id: Optional[str] = None
 ) -> Dict[str, Any]:
     """Return client-linked utilization review status and nearest deadline."""
-    summary = {
+    summary = _SummaryResult({
         "cases": [],
         "total_cases": 0,
         "active_cases": 0,
         "next_deadline": None,
-    }
+    })
     try:
         from backend.modules.ur.store_factory import get_ur_store
 
@@ -1029,6 +1220,7 @@ def get_client_ur_summary(
         })
     except Exception as exc:
         logger.warning("UR summary unavailable for %s: %s", client_id, exc)
+        summary.available = False
     return summary
 
 
@@ -1670,60 +1862,13 @@ async def get_client_operational_context(client_id: str, request: Request):
     try:
         current_user = require_authenticated_user(request)
         assert_client_access(current_user, client_id)
-        with get_database_connection("core_clients", "READ_ONLY") as conn:
-            ensure_core_clients_schema(conn)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
-            row = cursor.fetchone()
-
-        if not row:
+        try:
+            operational_context = load_client_operational_context(
+                client_id,
+                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+            )
+        except KeyError:
             raise HTTPException(status_code=404, detail="Client not found")
-
-        client = normalize_client_record(row)
-
-        try:
-            overview_data = get_client_data_integrator().get_client_overview_data(client_id)
-        except Exception as exc:
-            logger.warning("Operational context overview unavailable for %s: %s", client_id, exc)
-            overview_data = {}
-
-        try:
-            from backend.modules.admissions.summary import build_admissions_context_for_operational
-            admissions_ctx = build_admissions_context_for_operational(client_id)
-        except Exception as _adm_exc:
-            logger.warning("Admissions context unavailable for %s: %s", client_id, _adm_exc)
-            admissions_ctx = {}
-
-        try:
-            from backend.modules.jobs.routes import list_saved_jobs_for_client
-
-            saved_jobs = list_saved_jobs_for_client(client_id)
-        except Exception as jobs_exc:
-            logger.warning("Operational context saved jobs unavailable for %s: %s", client_id, jobs_exc)
-            saved_jobs = []
-
-        operational_context = build_client_operational_context(
-            client,
-            overview_data=overview_data,
-            benefits_summary=get_client_benefits_summary(client_id),
-            legal_summary=get_client_legal_summary(client_id),
-            services_summary=get_client_services_summary(client_id),
-            admissions_context=admissions_ctx,
-            groups_summary=get_client_groups_summary(
-                client_id,
-                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
-            ),
-            fmla_summary=get_client_fmla_summary(
-                client_id,
-                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
-            ),
-            ur_summary=get_client_ur_summary(
-                client_id,
-                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
-            ),
-            saved_jobs=saved_jobs,
-        )
 
         return {
             "success": True,

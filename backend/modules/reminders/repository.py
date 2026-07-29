@@ -1329,6 +1329,7 @@ def create_active_reminder(
     priority: str = "Medium",
     due_date: Optional[str] = None,
     org_id: Optional[str] = None,
+    allow_sqlite_fallback: bool = True,
 ) -> str:
     """Persist a new active reminder. Returns the reminder_id."""
     reminder_id = str(uuid.uuid4())
@@ -1363,6 +1364,8 @@ def create_active_reminder(
                 )
             return reminder_id
         except Exception as exc:
+            if not allow_sqlite_fallback:
+                raise RuntimeError("Postgres reminder persistence failed") from exc
             logger.warning("Postgres create_active_reminder failed (%s), using SQLite", exc)
 
     _ensure_sqlite_tenancy_schema()
