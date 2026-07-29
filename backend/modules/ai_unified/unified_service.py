@@ -36,6 +36,7 @@ from backend.modules.services.case_management_api import (
 from backend.modules.services.virgil_db_service import get_virgil_db
 from backend.modules.ai_unified import platform_tools as _pt
 from backend.modules.reminders.engine import IntelligentReminderEngine
+from backend.modules.reminders.repository import create_active_reminder as persist_active_reminder
 from backend.search.coordinator import get_coordinator
 from backend.shared.database.workspace_store import workspace_store
 from backend.modules.resources.retrieval_engine import get_resource_engine
@@ -1140,45 +1141,33 @@ class UnifiedAIService:
         due_date: Optional[str] = None,
         priority: str = "Medium",
         reminder_type: str = "custom",
+        org_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        engine = IntelligentReminderEngine()
-        reminder_db = engine.reminder_db
+        scope = await asyncio.to_thread(_pt.list_current_clients, case_manager_id, org_id)
+        accessible_ids = {
+            client.get("client_id")
+            for client in (scope.get("clients") or [])
+            if client.get("client_id")
+        }
+        if not scope.get("success") or client_id not in accessible_ids:
+            return {
+                "success": False,
+                "error": "client_not_accessible",
+                "message": "Reminder was not created because the client is not in the signed-in user's accessible caseload.",
+            }
 
-        if not reminder_db.connection:
-            reminder_db.connect()
-
-        reminder_id = str(uuid4())
         created_at = datetime.now(timezone.utc).isoformat()
-
-        cursor = reminder_db.connection.cursor()
-        cursor.execute(
-            """
-            INSERT INTO active_reminders (
-                reminder_id,
-                client_id,
-                case_manager_id,
-                reminder_type,
-                message,
-                priority,
-                due_date,
-                status,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                reminder_id,
-                client_id,
-                case_manager_id,
-                reminder_type,
-                message,
-                priority,
-                due_date,
-                "Active",
-                created_at,
-            ),
+        reminder_id = await asyncio.to_thread(
+            persist_active_reminder,
+            client_id=client_id,
+            case_manager_id=case_manager_id,
+            reminder_type=reminder_type,
+            message=message,
+            priority=priority,
+            due_date=due_date,
+            org_id=org_id,
+            allow_sqlite_fallback=False,
         )
-        reminder_db.connection.commit()
 
         return {
             "success": True,
@@ -1198,6 +1187,7 @@ class UnifiedAIService:
         case_manager_id: str,
         mode: str = "central",
         injected_context: Optional[str] = None,
+        injected_context_role: str = "system",
         org_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Process a chat message and persist conversation history."""
@@ -1226,7 +1216,8 @@ class UnifiedAIService:
         ]
         messages.extend({"role": h["role"], "content": h["content"]} for h in history)
         if injected_context:
-            messages.append({"role": "system", "content": injected_context})
+            context_role = "user" if injected_context_role == "user" else "system"
+            messages.append({"role": context_role, "content": injected_context})
         crisis_context = await self._maybe_build_crisis_support_context(message, history)
         resource_context = None
         internal_context = None
@@ -1504,7 +1495,8 @@ class UnifiedAIService:
                             {"role": h["role"], "content": h["content"]} for h in history
                         )
                         if injected_context:
-                            grounded_messages.append({"role": "system", "content": injected_context})
+                            context_role = "user" if injected_context_role == "user" else "system"
+                            grounded_messages.append({"role": context_role, "content": injected_context})
                         grounded_messages.append(
                             {
                                 "role": "user",

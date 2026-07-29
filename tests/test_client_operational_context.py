@@ -216,6 +216,50 @@ def test_operational_context_enforces_case_manager_access(tmp_path, monkeypatch)
     assert response.status_code == 403
 
 
+def test_operational_context_isolates_optional_source_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-partial-context")
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_benefits_summary",
+        lambda _client_id: {"total_applications": 2, "active_applications": 1},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_legal_summary",
+        lambda _client_id: {"total_cases": 1, "active_cases": 1},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_services_summary",
+        lambda _client_id: {"total_referrals": 1, "active_referrals": 1},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_groups_summary",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("groups offline")),
+    )
+    monkeypatch.setattr(clients_api, "get_client_fmla_summary", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(clients_api, "get_client_ur_summary", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(clients_api, "get_client_medical_referrals_summary", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_service_referrals", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_roi_records", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_notes", lambda _client_id: [])
+    from backend.modules.jobs import routes as jobs_routes
+    monkeypatch.setattr(jobs_routes, "list_saved_jobs_for_client", lambda _client_id: [])
+
+    context = clients_api.load_client_operational_context(client_id)
+
+    assert context["module_context"]["benefits"]["summary"]["total_applications"] == 2
+    assert context["module_context"]["legal"]["summary"]["total_cases"] == 1
+    assert context["module_context"]["groups"] == {}
+    assert context["metadata"]["complete"] is False
+    assert context["metadata"]["unavailable_sources"] == ["groups"]
+
+
 def test_unified_view_merges_medical_referrals_into_existing_services_path(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     client_id = _seed_core_client("client-unified-view")

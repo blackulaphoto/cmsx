@@ -122,6 +122,47 @@ describe('AIAssistantPopup', () => {
     expect(body.client_name).toBeNull()
   })
 
+  it('passes the admissions packet client to the assistant endpoint', async () => {
+    window.history.replaceState({}, '', '/admissions/client-77/forms/face-sheet')
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: 'Grounded admissions response.' }),
+    })
+
+    render(<AIAssistantPopup />)
+    fireEvent.click(screen.getByRole('button', { name: /open ai assistant/i }))
+    fireEvent.change(screen.getByPlaceholderText(/ask me anything/i), {
+      target: { value: 'What is incomplete for this admission?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send message/i }))
+    await screen.findByTestId('assistant-message')
+
+    const [, options] = apiFetch.mock.calls[0]
+    const body = JSON.parse(options.body)
+    expect(body.current_route).toBe('/admissions/client-77/forms/face-sheet')
+    expect(body.client_id).toBe('client-77')
+  })
+
+  it('does not mistake the admissions new route for a client id', async () => {
+    window.history.replaceState({}, '', '/admissions/new')
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ response: 'General admissions response.' }),
+    })
+
+    render(<AIAssistantPopup />)
+    fireEvent.click(screen.getByRole('button', { name: /open ai assistant/i }))
+    fireEvent.change(screen.getByPlaceholderText(/ask me anything/i), {
+      target: { value: 'Help with a new admission' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send message/i }))
+    await screen.findByTestId('assistant-message')
+
+    const [, options] = apiFetch.mock.calls[0]
+    const body = JSON.parse(options.body)
+    expect(body.client_id).toBeNull()
+  })
+
   it('shows the New Chat button when the popup is open', () => {
     render(<AIAssistantPopup />)
     fireEvent.click(screen.getByRole('button', { name: /open ai assistant/i }))

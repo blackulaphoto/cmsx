@@ -36,6 +36,7 @@ function deriveClientContextFromRoute() {
   const routeMatchers = [
     /^\/client\/([^/?#]+)/,
     /^\/case-management\/([^/?#]+)/,
+    /^\/admissions\/(?!new(?:\/|$))([^/?#]+)/,
   ]
 
   for (const matcher of routeMatchers) {
