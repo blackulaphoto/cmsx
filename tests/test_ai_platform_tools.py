@@ -289,6 +289,45 @@ def test_chat_injects_selected_client_task_context(ctx, monkeypatch):
             ]
         },
     )
+    from backend.api import clients as clients_api
+    from backend.modules.jobs import routes as jobs_routes
+
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_groups_summary",
+        lambda client_id, org_id=None: {
+            "total_sessions": 3,
+            "attended_sessions": 2,
+            "latest_session": {"title": "Relapse Prevention", "scheduled_date": "2026-07-27"},
+        },
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_fmla_summary",
+        lambda client_id, org_id=None: {
+            "total_cases": 1,
+            "active_cases": 1,
+            "next_deadline": {"label": "Paperwork due", "date": "2026-08-04"},
+        },
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_ur_summary",
+        lambda client_id, org_id=None: {
+            "total_cases": 1,
+            "active_cases": 1,
+            "next_deadline": {"label": "Next review", "date": "2026-08-02"},
+        },
+    )
+    monkeypatch.setattr(
+        jobs_routes,
+        "list_saved_jobs_for_client",
+        lambda client_id: [{
+            "title": "Warehouse Associate",
+            "company": "Example Logistics",
+            "saved_date": "2026-07-28",
+        }],
+    )
     resp = client.post(
         "/api/ai/chat",
         json={
@@ -307,6 +346,24 @@ def test_chat_injects_selected_client_task_context(ctx, monkeypatch):
     assert "- Overdue: 1" in captured["injected_context"]
     assert "Pay rent" in captured["injected_context"]
     assert "source: Reminder" in captured["injected_context"]
+    assert "Selected client dashboard operational facts:" in captured["injected_context"]
+    assert "- Groups: 2 attended of 3 recorded" in captured["injected_context"]
+    assert "- FMLA next deadline: Paperwork due | date: 2026-08-04" in captured["injected_context"]
+    assert "- UR next deadline: Next review | date: 2026-08-02" in captured["injected_context"]
+    assert "Warehouse Associate | company: Example Logistics" in captured["injected_context"]
+    assert "Do not describe saved jobs as submitted applications." in captured["injected_context"]
+
+
+def test_operational_facts_context_rejects_inaccessible_client(ctx, monkeypatch):
+    from backend.modules.ai_unified import unified_routes as ur_mod
+
+    context = ur_mod._build_selected_client_operational_facts_context(
+        _user(org_id="org_a", case_manager_id="cm_a1"),
+        "client-b1",
+        "Bob Baker",
+    )
+
+    assert context is None
 
 
 def test_chat_resolves_uniquely_named_client_from_message(ctx, monkeypatch):

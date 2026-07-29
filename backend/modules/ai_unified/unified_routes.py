@@ -223,6 +223,86 @@ def _build_selected_client_task_context(current_user, client_id: Optional[str], 
     return "\n".join(lines)
 
 
+def _build_selected_client_operational_facts_context(
+    current_user,
+    client_id: Optional[str],
+    client_name: Optional[str],
+) -> Optional[str]:
+    if not client_id:
+        return None
+
+    org_id = resolve_org_id(current_user) if multi_tenant_enabled() else None
+    scope = get_clients_from_db(case_manager_id=current_user.case_manager_id, org_id=org_id)
+    accessible = next(
+        (client for client in (scope.get("clients") or []) if client.get("client_id") == client_id),
+        None,
+    )
+    if not accessible:
+        return None
+
+    from backend.api import clients as clients_api
+    from backend.modules.jobs.routes import list_saved_jobs_for_client
+
+    groups = clients_api.get_client_groups_summary(client_id, org_id=org_id)
+    fmla = clients_api.get_client_fmla_summary(client_id, org_id=org_id)
+    ur = clients_api.get_client_ur_summary(client_id, org_id=org_id)
+    try:
+        saved_jobs = list_saved_jobs_for_client(client_id)
+    except Exception as exc:
+        logger.warning("Selected client saved-job context unavailable for %s: %s", client_id, exc)
+        saved_jobs = []
+    resolved_name = client_name or (
+        f"{accessible.get('first_name', '')} {accessible.get('last_name', '')}".strip()
+    ) or "Selected client"
+
+    lines = [
+        "Selected client dashboard operational facts:",
+        f"- Client: {resolved_name}",
+        (
+            f"- Groups: {groups.get('attended_sessions', 0)} attended of "
+            f"{groups.get('total_sessions', 0)} recorded"
+        ),
+        (
+            f"- FMLA: {fmla.get('active_cases', 0)} active of "
+            f"{fmla.get('total_cases', 0)} recorded"
+        ),
+        (
+            f"- Utilization Review: {ur.get('active_cases', 0)} active of "
+            f"{ur.get('total_cases', 0)} recorded"
+        ),
+        f"- Saved jobs: {len(saved_jobs)}",
+    ]
+    if groups.get("latest_session"):
+        latest_group = groups["latest_session"]
+        lines.append(
+            f"- Latest group: {latest_group.get('title') or 'Group session'}"
+            f" | date: {latest_group.get('scheduled_date') or 'not recorded'}"
+        )
+    if fmla.get("next_deadline"):
+        deadline = fmla["next_deadline"]
+        lines.append(
+            f"- FMLA next deadline: {deadline.get('label')} | date: {deadline.get('date')}"
+        )
+    if ur.get("next_deadline"):
+        deadline = ur["next_deadline"]
+        lines.append(
+            f"- UR next deadline: {deadline.get('label')} | date: {deadline.get('date')}"
+        )
+    if saved_jobs:
+        lines.append("Saved job postings:")
+        for job in saved_jobs[:5]:
+            lines.append(
+                f"- {job.get('title') or 'Saved job'}"
+                f" | company: {job.get('company') or 'not recorded'}"
+                f" | saved: {job.get('saved_date') or 'not recorded'}"
+            )
+    lines.append(
+        "Use these persisted facts when asked about this client's Groups, FMLA, UR, or saved jobs. "
+        "Do not describe saved jobs as submitted applications."
+    )
+    return "\n".join(lines)
+
+
 def _build_chat_context(
     message: str,
     *,
@@ -256,6 +336,13 @@ def _build_chat_context(
     )
     if selected_client_context:
         parts.append(selected_client_context)
+    operational_facts_context = _build_selected_client_operational_facts_context(
+        current_user,
+        resolution.get("client_id"),
+        resolution.get("client_name") or client_name,
+    )
+    if operational_facts_context:
+        parts.append(operational_facts_context)
     return "\n\n".join(part for part in parts if part)
 
 

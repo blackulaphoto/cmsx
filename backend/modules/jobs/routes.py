@@ -771,9 +771,20 @@ def list_saved_jobs_for_client(client_id: str) -> List[Dict[str, Any]]:
     import sqlite3
 
     with sqlite3.connect(SAVED_JOBS_DB_PATH) as conn:
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(saved_jobs)").fetchall()
+        }
+        if not {"job_id", "client_id", "saved_date"}.issubset(columns):
+            return []
+        optional_columns = ("title", "company", "location", "salary", "url", "notes")
+        select_optional = [
+            column if column in columns else f"NULL AS {column}"
+            for column in optional_columns
+        ]
         rows = conn.execute(
-            """
-            SELECT job_id, client_id, title, company, location, salary, url, notes, saved_date
+            f"""
+            SELECT job_id, client_id, {", ".join(select_optional)}, saved_date
             FROM saved_jobs
             WHERE client_id = ?
             ORDER BY saved_date DESC
