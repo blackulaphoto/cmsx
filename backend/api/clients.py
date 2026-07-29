@@ -1598,6 +1598,14 @@ async def get_client_unified_view(client_id: str, request: Request):
         except Exception as emp_exc:
             logger.warning("Employment resumes unavailable for %s: %s", client_id, emp_exc)
 
+        employment_saved_jobs = []
+        try:
+            from backend.modules.jobs.routes import list_saved_jobs_for_client
+
+            employment_saved_jobs = list_saved_jobs_for_client(client_id)
+        except Exception as jobs_exc:
+            logger.warning("Saved jobs unavailable for %s: %s", client_id, jobs_exc)
+
         return {
             "success": True,
             "client_data": {
@@ -1607,6 +1615,7 @@ async def get_client_unified_view(client_id: str, request: Request):
                 },
                 "employment": {
                     "status": core_client.get("employment_status", "unknown"),
+                    "saved_jobs": employment_saved_jobs,
                     # Only include the key when resumes exist so the dashboard's
                     # conditional "Resumes" section keeps its prior empty-state.
                     **({"resumes": employment_resumes} if employment_resumes else {}),
