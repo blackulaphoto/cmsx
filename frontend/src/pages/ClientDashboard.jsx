@@ -1371,6 +1371,32 @@ const ClientDashboard = () => {
                         <ExternalLink className="h-4 w-4 shrink-0 text-violet-300 group-hover:text-white transition-colors" />
                       </div>
                     </Link>
+                    <Link
+                      to={`/ur?client=${clientId}`}
+                      className="group p-6 bg-gradient-to-br from-amber-500/20 to-yellow-500/20 backdrop-blur-sm rounded-xl border border-amber-500/30 hover:border-amber-400/50 transition-all duration-300 hover:scale-105 md:col-span-2"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2 bg-gradient-to-r from-amber-500 to-yellow-500 rounded-lg">
+                            <ShieldCheck className="h-6 w-6 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-amber-200">Utilization Review</p>
+                            <p className="text-sm text-white font-semibold">
+                              {clientData.ur?.total_cases
+                                ? `${clientData.ur.active_cases} active of ${clientData.ur.total_cases} recorded`
+                                : 'No client-linked UR cases'}
+                            </p>
+                            {clientData.ur?.next_deadline && (
+                              <p className="mt-1 text-xs text-amber-100/80">
+                                {clientData.ur.next_deadline.label}: {formatDate(clientData.ur.next_deadline.date)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <ExternalLink className="h-4 w-4 shrink-0 text-amber-300 group-hover:text-white transition-colors" />
+                      </div>
+                    </Link>
                   </div>
                 </div>
 

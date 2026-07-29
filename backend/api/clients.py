@@ -957,6 +957,73 @@ def get_client_fmla_summary(
     return summary
 
 
+def get_client_ur_summary(
+    client_id: str, org_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Return client-linked utilization review status and nearest deadline."""
+    summary = {
+        "cases": [],
+        "total_cases": 0,
+        "active_cases": 0,
+        "next_deadline": None,
+    }
+    try:
+        from backend.modules.ur.store_factory import get_ur_store
+
+        filters: Dict[str, Any] = {"client_id": client_id}
+        if org_id is not None:
+            filters["org_id"] = org_id
+        cases = get_ur_store().list_cases(filters)
+        deadline_fields = (
+            ("next_review_date", "Next review"),
+            ("approved_end_date", "Authorization ends"),
+            ("peer_review_deadline", "Peer review due"),
+            ("appeal_deadline", "Appeal due"),
+        )
+        deadlines = []
+        normalized_cases = []
+        closed_statuses = {"closed", "cancelled", "canceled", "completed"}
+        for case in cases:
+            normalized = {
+                "case_id": case.get("case_id"),
+                "status": case.get("status") or "draft",
+                "payer": case.get("payer") or "",
+                "program": case.get("program") or "",
+                "current_level_of_care": case.get("current_level_of_care") or "",
+                "approved_level_of_care": case.get("approved_level_of_care") or "",
+                "next_review_date": case.get("next_review_date"),
+                "approved_end_date": case.get("approved_end_date"),
+                "peer_review_deadline": case.get("peer_review_deadline"),
+                "appeal_deadline": case.get("appeal_deadline"),
+            }
+            normalized_cases.append(normalized)
+            for field, label in deadline_fields:
+                value = case.get(field)
+                if value:
+                    deadlines.append({
+                        "case_id": case.get("case_id"),
+                        "field": field,
+                        "label": label,
+                        "date": value,
+                    })
+        deadlines.sort(key=lambda item: item["date"])
+        today = datetime.now().date().isoformat()
+        upcoming = [item for item in deadlines if item["date"] >= today]
+        summary.update({
+            "cases": normalized_cases[:10],
+            "total_cases": len(normalized_cases),
+            "active_cases": sum(
+                1
+                for case in normalized_cases
+                if str(case["status"]).strip().lower() not in closed_statuses
+            ),
+            "next_deadline": upcoming[0] if upcoming else (deadlines[-1] if deadlines else None),
+        })
+    except Exception as exc:
+        logger.warning("UR summary unavailable for %s: %s", client_id, exc)
+    return summary
+
+
 class ClientCreateRequest(BaseModel):
     """Client creation schema - must match dependency map requirements"""
     first_name: str
@@ -1474,6 +1541,10 @@ async def get_client_unified_view(client_id: str, request: Request):
             client_id,
             org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
         )
+        ur_summary = get_client_ur_summary(
+            client_id,
+            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+        )
 
         # Augment services summary with workspace-stored referrals
         ws_referrals = workspace_store.list_client_service_referrals(client_id)
@@ -1545,6 +1616,7 @@ async def get_client_unified_view(client_id: str, request: Request):
                 "services": services_summary,
                 "groups": groups_summary,
                 "fmla": fmla_summary,
+                "ur": ur_summary,
                 "tasks": overview_data.get("tasks", []),
                 "notes": overview_data.get("case_notes", []),
                 "appointments": ws_appointments + overview_data.get("appointments", []),
@@ -1565,6 +1637,7 @@ async def get_client_unified_view(client_id: str, request: Request):
                 "services": "social_services.db",
                 "groups": "groups.db",
                 "fmla": "fmla.db",
+                "ur": "ur.db",
             },
         }
     except HTTPException:
