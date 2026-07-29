@@ -1352,6 +1352,94 @@ def create_active_reminder(
     return reminder_id
 
 
+def sync_active_reminder(
+    reminder_id: str,
+    client_id: str,
+    case_manager_id: str,
+    reminder_type: str,
+    message: str,
+    priority: str,
+    due_date: Optional[str],
+    active: bool = True,
+    org_id: Optional[str] = None,
+) -> str:
+    """Idempotently project an operational deadline into active reminders."""
+    existing = get_active_reminder(reminder_id)
+    if existing:
+        if not active or not due_date:
+            delete_active_reminder(reminder_id, org_id=org_id)
+            return reminder_id
+        changed = (
+            existing.get("message") != message
+            or existing.get("due_date") != due_date
+            or existing.get("priority") != priority
+            or existing.get("reminder_type") != reminder_type
+        )
+        if changed:
+            update_active_reminder(
+                reminder_id,
+                message=message,
+                due_date=due_date,
+                priority=priority,
+                reminder_type=reminder_type,
+                org_id=org_id,
+            )
+        if active and changed and existing.get("status") != "Active":
+            reopen_active_reminder(reminder_id, org_id=org_id)
+        return reminder_id
+
+    if not active or not due_date:
+        return reminder_id
+
+    created_at = datetime.now().isoformat()
+    record_org_id = org_id or _resolve_org_for_record(client_id, case_manager_id)
+    if use_postgres():
+        from sqlalchemy import text
+        with _pg_conn() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO railway_active_reminders (
+                        reminder_id, client_id, case_manager_id, reminder_type,
+                        message, priority, due_date, status, created_at, org_id
+                    ) VALUES (
+                        :reminder_id, :client_id, :case_manager_id, :reminder_type,
+                        :message, :priority, :due_date, 'Active', :created_at, :org_id
+                    )
+                    ON CONFLICT (reminder_id) DO NOTHING
+                    """
+                ),
+                {
+                    "reminder_id": reminder_id,
+                    "client_id": client_id,
+                    "case_manager_id": case_manager_id,
+                    "reminder_type": reminder_type,
+                    "message": message,
+                    "priority": priority,
+                    "due_date": due_date,
+                    "created_at": created_at,
+                    "org_id": record_org_id,
+                },
+            )
+        return reminder_id
+
+    _ensure_sqlite_tenancy_schema()
+    with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO active_reminders (
+                reminder_id, client_id, case_manager_id, reminder_type,
+                message, priority, due_date, status, created_at, org_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?)
+            """,
+            (
+                reminder_id, client_id, case_manager_id, reminder_type,
+                message, priority, due_date, created_at, record_org_id,
+            ),
+        )
+    return reminder_id
+
+
 def update_active_reminder(
     reminder_id: str,
     message: Optional[str] = None,
@@ -1610,6 +1698,7 @@ class _Repo:
     create_intelligent_tasks = staticmethod(create_intelligent_tasks)
     update_task_status = staticmethod(update_task_status)
     create_active_reminder = staticmethod(create_active_reminder)
+    sync_active_reminder = staticmethod(sync_active_reminder)
     update_active_reminder = staticmethod(update_active_reminder)
     delete_active_reminder = staticmethod(delete_active_reminder)
     reopen_active_reminder = staticmethod(reopen_active_reminder)

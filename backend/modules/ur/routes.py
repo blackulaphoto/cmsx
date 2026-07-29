@@ -11,6 +11,7 @@ from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 from .postgres_store import ALLOWED_UR_EVENT_TYPES, ALLOWED_UR_STATUSES
 from .store_factory import get_ur_store
+from .work_items import sync_ur_deadline_reminders
 
 
 router = APIRouter(tags=["ur"])
@@ -149,6 +150,7 @@ async def create_ur_case(payload: URCasePayload, request: Request):
     )
     data["org_id"] = _org_for_new_case(current_user, data)
     record = store.create_case(data)
+    sync_ur_deadline_reminders(record)
     return {"success": True, "case": record}
 
 
@@ -177,6 +179,7 @@ async def update_ur_case(case_id: str, payload: URCasePayload, request: Request)
         payload.assigned_case_manager or existing.get("assigned_case_manager") or current_user.case_manager_id
     )
     record = store.update_case(case_id, data)
+    sync_ur_deadline_reminders(record)
     return {"success": True, "case": record}
 
 
