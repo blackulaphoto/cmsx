@@ -900,6 +900,18 @@ def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = Non
 def reconcile_operational_deadlines(case_manager_id: str, org_id: Optional[str] = None) -> None:
     """Project existing assigned module deadlines before Smart Daily reads them."""
     try:
+        from backend.modules.medical.work_items import reconcile_medical_appointment_reminders
+
+        client_ids, _ = get_clients_for_case_manager(case_manager_id)
+        reconcile_medical_appointment_reminders(
+            case_manager_id,
+            client_ids,
+            org_id=org_id,
+        )
+    except Exception as exc:
+        logger.warning("Medical appointment reconciliation failed: %s", exc)
+
+    try:
         from backend.modules.ur.store_factory import get_ur_store
         from backend.modules.ur.work_items import sync_ur_deadline_reminders
 
@@ -1400,22 +1412,31 @@ def sync_active_reminder(
         if not active or not due_date:
             delete_active_reminder(reminder_id, org_id=org_id)
             return reminder_id
-        changed = (
+        content_changed = (
             existing.get("message") != message
             or existing.get("due_date") != due_date
             or existing.get("priority") != priority
             or existing.get("reminder_type") != reminder_type
         )
-        if changed:
+        ownership_changed = (
+            ("client_id" in existing and existing.get("client_id") != client_id)
+            or (
+                "case_manager_id" in existing
+                and existing.get("case_manager_id") != case_manager_id
+            )
+        )
+        if content_changed or ownership_changed:
             update_active_reminder(
                 reminder_id,
                 message=message,
                 due_date=due_date,
                 priority=priority,
                 reminder_type=reminder_type,
+                client_id=client_id,
+                case_manager_id=case_manager_id,
                 org_id=org_id,
             )
-        if active and changed and existing.get("status") != "Active":
+        if active and content_changed and existing.get("status") != "Active":
             reopen_active_reminder(reminder_id, org_id=org_id)
         return reminder_id
 
@@ -1477,6 +1498,8 @@ def update_active_reminder(
     due_date: Optional[str] = None,
     priority: Optional[str] = None,
     reminder_type: Optional[str] = None,
+    client_id: Optional[str] = None,
+    case_manager_id: Optional[str] = None,
     org_id: Optional[str] = None,
 ) -> bool:
     """Update editable fields on an active reminder. Returns True if a row was changed."""
@@ -1489,6 +1512,10 @@ def update_active_reminder(
         updates["priority"] = priority
     if reminder_type is not None:
         updates["reminder_type"] = reminder_type
+    if client_id is not None:
+        updates["client_id"] = client_id
+    if case_manager_id is not None:
+        updates["case_manager_id"] = case_manager_id
     if not updates:
         return True
 

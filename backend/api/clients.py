@@ -2514,35 +2514,15 @@ async def create_client_appointment(client_id: str, payload: AppointmentPayload,
     user = require_authenticated_user(request)
     assert_client_access(user, client_id)
     apt = workspace_store.create_client_appointment(client_id, payload.dict())
-    # Create a reminder for this appointment
-    try:
-        description = f"Appointment: {apt['title']}"
-        if apt.get("doctor_name"):
-            description += f" with {apt['doctor_name']}"
-        if apt.get("location"):
-            description += f" at {apt['location']}"
-        with get_database_connection("reminders", "READ_WRITE") as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            reminder_id = str(uuid.uuid4())
-            cursor.execute(
-                """INSERT OR IGNORE INTO reminders
-                   (reminder_id, client_id, module_source, task_type, description, due_date, priority_score, status, assigned_to, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (
-                    reminder_id, client_id,
-                    "appointments", "appointment",
-                    description, apt["appointment_date"],
-                    50, "pending",
-                    getattr(user, "case_manager_id", "system"),
-                    datetime.now().isoformat(),
-                ),
-            )
-            conn.commit()
-        workspace_store.update_client_appointment(apt["apt_id"], {"reminder_id": reminder_id})
-        apt["reminder_id"] = reminder_id
-    except Exception as e:
-        logger.warning("Could not create reminder for appointment %s: %s", apt["apt_id"], e)
+    from backend.modules.medical.work_items import sync_medical_appointment_reminder
+
+    reminder_id = sync_medical_appointment_reminder(
+        apt,
+        source="workspace",
+        case_manager_id=user.case_manager_id,
+        org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
+    )
+    apt["reminder_id"] = reminder_id
     return {"success": True, "appointment": apt}
 
 
@@ -2553,6 +2533,14 @@ async def update_client_appointment(client_id: str, apt_id: str, payload: Appoin
     updated = workspace_store.update_client_appointment(apt_id, payload.dict(exclude_none=True))
     if not updated:
         raise HTTPException(status_code=404, detail="Appointment not found")
+    from backend.modules.medical.work_items import sync_medical_appointment_reminder
+
+    sync_medical_appointment_reminder(
+        updated,
+        source="workspace",
+        case_manager_id=user.case_manager_id,
+        org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
+    )
     return {"success": True, "appointment": updated}
 
 
@@ -2560,9 +2548,28 @@ async def update_client_appointment(client_id: str, apt_id: str, payload: Appoin
 async def delete_client_appointment(client_id: str, apt_id: str, request: Request):
     user = require_authenticated_user(request)
     assert_client_access(user, client_id)
+    existing = next(
+        (
+            appointment
+            for appointment in workspace_store.list_client_appointments(client_id)
+            if appointment.get("apt_id") == apt_id
+        ),
+        None,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Appointment not found")
     deleted = workspace_store.delete_client_appointment(apt_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Appointment not found")
+    from backend.modules.medical.work_items import remove_medical_appointment_reminder
+
+    remove_medical_appointment_reminder(
+        apt_id,
+        source="workspace",
+        client_id=client_id,
+        case_manager_id=user.case_manager_id,
+        org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
+    )
     return {"success": True}
 
 
