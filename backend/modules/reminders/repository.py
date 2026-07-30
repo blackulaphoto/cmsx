@@ -322,6 +322,11 @@ def _ensure_sqlite_active_reminders_table() -> None:
             )
             """
         )
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(active_reminders)").fetchall()
+        }
+        if "org_id" not in columns:
+            conn.execute("ALTER TABLE active_reminders ADD COLUMN org_id TEXT")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_active_reminders_org ON active_reminders(org_id)"
         )

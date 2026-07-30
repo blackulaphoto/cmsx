@@ -1887,9 +1887,9 @@ async def get_client_work_items_view(client_id: str, request: Request, date: Opt
     """Return Smart Daily-aligned work items normalized for one client."""
     try:
         current_user = require_authenticated_user(request)
-        assert_client_access(current_user, client_id)
+        assigned_case_manager_id = assert_client_access(current_user, client_id)
         work_items = get_client_work_items(
-            current_user.case_manager_id,
+            assigned_case_manager_id,
             client_id,
             client_date=date,
             org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
@@ -2548,7 +2548,7 @@ async def list_client_appointments(client_id: str, request: Request):
 @router.post("/api/clients/{client_id}/appointments")
 async def create_client_appointment(client_id: str, payload: AppointmentPayload, request: Request):
     user = require_authenticated_user(request)
-    assert_client_access(user, client_id)
+    assigned_case_manager_id = assert_client_access(user, client_id)
     apt = workspace_store.create_client_appointment(client_id, payload.dict())
     from backend.modules.medical.work_items import sync_medical_appointment_reminder
 
@@ -2556,7 +2556,7 @@ async def create_client_appointment(client_id: str, payload: AppointmentPayload,
         apt["reminder_id"] = sync_medical_appointment_reminder(
             apt,
             source="workspace",
-            case_manager_id=user.case_manager_id,
+            case_manager_id=assigned_case_manager_id,
             org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
         )
     except Exception as exc:
@@ -2571,7 +2571,7 @@ async def create_client_appointment(client_id: str, payload: AppointmentPayload,
 @router.put("/api/clients/{client_id}/appointments/{apt_id}")
 async def update_client_appointment(client_id: str, apt_id: str, payload: AppointmentPayload, request: Request):
     user = require_authenticated_user(request)
-    assert_client_access(user, client_id)
+    assigned_case_manager_id = assert_client_access(user, client_id)
     updated = workspace_store.update_client_appointment(apt_id, payload.dict(exclude_none=True))
     if not updated:
         raise HTTPException(status_code=404, detail="Appointment not found")
@@ -2581,7 +2581,7 @@ async def update_client_appointment(client_id: str, apt_id: str, payload: Appoin
         sync_medical_appointment_reminder(
             updated,
             source="workspace",
-            case_manager_id=user.case_manager_id,
+            case_manager_id=assigned_case_manager_id,
             org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
         )
     except Exception as exc:
@@ -2596,7 +2596,7 @@ async def update_client_appointment(client_id: str, apt_id: str, payload: Appoin
 @router.delete("/api/clients/{client_id}/appointments/{apt_id}")
 async def delete_client_appointment(client_id: str, apt_id: str, request: Request):
     user = require_authenticated_user(request)
-    assert_client_access(user, client_id)
+    assigned_case_manager_id = assert_client_access(user, client_id)
     existing = next(
         (
             appointment
@@ -2613,7 +2613,7 @@ async def delete_client_appointment(client_id: str, apt_id: str, request: Reques
         apt_id,
         source="workspace",
         client_id=client_id,
-        case_manager_id=user.case_manager_id,
+        case_manager_id=assigned_case_manager_id,
         org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
     )
     deleted = workspace_store.delete_client_appointment(apt_id)
