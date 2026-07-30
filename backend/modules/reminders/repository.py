@@ -21,6 +21,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from threading import Lock
 from typing import Any, Dict, Generator, List, Optional, Tuple
 
 from backend.auth.authorization import get_client_ids_for_org, get_client_org_id, get_org_for_user_id
@@ -63,6 +64,8 @@ def _normalized_postgres_url() -> str:
 # ---------------------------------------------------------------------------
 
 _pg_engine = None
+_pg_storage_ready = False
+_pg_storage_lock = Lock()
 
 
 def _get_pg_engine():
@@ -79,9 +82,28 @@ def _get_pg_engine():
     return _pg_engine
 
 
+def _ensure_postgres_storage_ready(engine) -> None:
+    """Apply idempotent reminder schema readiness before the first PG query."""
+    global _pg_storage_ready
+    if _pg_storage_ready:
+        return
+    with _pg_storage_lock:
+        if _pg_storage_ready:
+            return
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            conn.execute(text(_PG_INTELLIGENT_TASKS_DDL))
+            conn.execute(text(_PG_ACTIVE_REMINDERS_DDL))
+            conn.execute(text(_PG_CORE_CLIENTS_DDL))
+            for statement in _PG_ALTER_STATEMENTS:
+                conn.execute(text(statement))
+        _pg_storage_ready = True
+
+
 @contextmanager
 def _pg_conn() -> Generator:
     engine = _get_pg_engine()
+    _ensure_postgres_storage_ready(engine)
     with engine.begin() as conn:
         yield conn
 
@@ -265,7 +287,8 @@ CREATE TABLE IF NOT EXISTS railway_active_reminders (
     priority        TEXT DEFAULT 'Medium',
     due_date        TIMESTAMPTZ,
     status          TEXT DEFAULT 'Active',
-    created_at      TIMESTAMPTZ DEFAULT NOW()
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    org_id          TEXT
 );
 """
 
