@@ -683,6 +683,52 @@ def test_client_work_items_route_returns_canonical_items(tmp_path, monkeypatch):
     assert [item["source_label"] for item in payload["items"]] == ["Client Task", "Reminder"]
 
 
+def test_client_work_items_directly_include_persisted_tasks_outside_caseload(tmp_path, monkeypatch):
+    original_workspace_db = _use_temp_workspace_store(tmp_path)
+    monkeypatch.setattr(
+        reminders_repository,
+        "get_prioritized_tasks",
+        lambda case_manager_id, client_date=None, org_id=None: {
+            "buckets": {},
+            "ai_summary": None,
+        },
+    )
+
+    try:
+        dated = workspace_store.create_client_task(
+            "client-direct-tasks",
+            {
+                "title": "Follow up on housing application",
+                "due_date": "2026-07-31",
+                "priority": "medium",
+            },
+        )
+        undated = workspace_store.create_client_task(
+            "client-direct-tasks",
+            {
+                "title": "Collect missing identification",
+                "priority": "medium",
+            },
+        )
+
+        result = reminders_repository.get_client_work_items(
+            "authorized-user-without-caseload-match",
+            "client-direct-tasks",
+            client_date="2026-07-29",
+        )
+
+        assert {item["task_id"] for item in result["items"]} == {
+            dated["task_id"],
+            undated["task_id"],
+        }
+        assert {item["source_kind"] for item in result["items"]} == {"workspace_task"}
+        assert result["counts"]["next_3_days"] == 1
+        assert result["counts"]["later"] == 1
+    finally:
+        workspace_store.db_path = original_workspace_db
+        workspace_store._initialize()
+
+
 def test_treatment_plan_draft_approve_and_context_readback(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     original_workspace_db = _use_temp_workspace_store(tmp_path)
