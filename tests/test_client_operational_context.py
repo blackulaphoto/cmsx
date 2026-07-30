@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from backend.api import clients as clients_api
 from backend.auth.service import FirebaseAuthService
 from backend.modules.ai_documentation.service import documentation_ai_service
+from backend.modules.medical import work_items as medical_work_items
 from backend.modules.reminders import repository as reminders_repository
 from backend.modules.reminders import routes as reminders_routes
 from backend.shared.database.workspace_store import workspace_store
@@ -681,6 +682,79 @@ def test_client_work_items_route_returns_canonical_items(tmp_path, monkeypatch):
     assert payload["counts"]["total"] == 2
     assert payload["counts"]["overdue"] == 1
     assert [item["source_label"] for item in payload["items"]] == ["Client Task", "Reminder"]
+
+
+def test_admin_client_work_items_use_assigned_case_manager(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-admin-work-items")
+    captured = {}
+
+    def _capture_work_items(case_manager_id, resolved_client_id, client_date=None, org_id=None):
+        captured.update({
+            "case_manager_id": case_manager_id,
+            "client_id": resolved_client_id,
+        })
+        return {
+            "client_id": resolved_client_id,
+            "items": [],
+            "counts": {},
+            "ai_summary": None,
+        }
+
+    monkeypatch.setattr(clients_api, "get_client_work_items", _capture_work_items)
+
+    response = TestClient(_test_app(tmp_path)).get(
+        f"/api/clients/{client_id}/work-items",
+        headers={
+            "X-Test-Auth-Email": "admin@example.test",
+            "X-Test-Auth-Case-Manager-Id": "admin-profile-id",
+            "X-Test-Auth-Role": "admin",
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured == {
+        "case_manager_id": "cm_test",
+        "client_id": client_id,
+    }
+
+
+def test_admin_appointment_reminder_uses_assigned_case_manager(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original_workspace_db = _use_temp_workspace_store(tmp_path)
+    client_id = _seed_core_client("client-admin-appointment")
+    captured = {}
+
+    monkeypatch.setattr(
+        medical_work_items,
+        "sync_medical_appointment_reminder",
+        lambda record, **kwargs: captured.update({"record": record, **kwargs}) or "reminder-1",
+    )
+
+    try:
+        response = TestClient(_test_app(tmp_path)).post(
+            f"/api/clients/{client_id}/appointments",
+            headers={
+                "X-Test-Auth-Email": "admin@example.test",
+                "X-Test-Auth-Case-Manager-Id": "admin-profile-id",
+                "X-Test-Auth-Role": "admin",
+            },
+            json={
+                "title": "Primary care follow-up",
+                "appointment_date": "2026-08-04",
+                "doctor_name": "Dr. Rivera",
+                "service_type": "Medical",
+            },
+        )
+
+        assert response.status_code == 200
+        assert captured["source"] == "workspace"
+        assert captured["case_manager_id"] == "cm_test"
+        assert captured["record"]["client_id"] == client_id
+        assert response.json()["appointment"]["reminder_id"] == "reminder-1"
+    finally:
+        workspace_store.db_path = original_workspace_db
+        workspace_store._initialize()
 
 
 def test_client_work_items_directly_include_persisted_tasks_outside_caseload(tmp_path, monkeypatch):
