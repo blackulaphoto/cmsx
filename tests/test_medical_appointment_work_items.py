@@ -6,6 +6,39 @@ from backend.modules.medical import work_items
 from backend.modules.reminders import repository
 
 
+def test_postgres_schema_readiness_runs_once_before_repository_queries(monkeypatch):
+    statements = []
+
+    class _Connection:
+        def execute(self, statement):
+            statements.append(str(statement))
+
+    class _Transaction:
+        def __enter__(self):
+            return _Connection()
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    class _Engine:
+        def begin(self):
+            return _Transaction()
+
+    monkeypatch.setattr(repository, "_pg_storage_ready", False)
+    engine = _Engine()
+
+    repository._ensure_postgres_storage_ready(engine)
+    first_run_count = len(statements)
+    repository._ensure_postgres_storage_ready(engine)
+
+    assert any("CREATE TABLE IF NOT EXISTS railway_active_reminders" in sql for sql in statements)
+    assert any(
+        "ALTER TABLE railway_active_reminders ADD COLUMN IF NOT EXISTS org_id TEXT" in sql
+        for sql in statements
+    )
+    assert len(statements) == first_run_count
+
+
 def test_medical_appointment_projection_is_stable_and_uses_reminder_lead_day(monkeypatch):
     calls = []
     monkeypatch.setattr(
