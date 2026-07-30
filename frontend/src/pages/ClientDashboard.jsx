@@ -1741,6 +1741,30 @@ const ClientDashboard = () => {
                       <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" />
                     </Link>
                     <Link
+                      to={`/documentation?client=${clientId}`}
+                      className="group flex items-center justify-between p-4 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm rounded-xl border border-white/20 hover:border-white/30 transition-all duration-300 hover:scale-105"
+                    >
+                      <span className="flex items-center">
+                        <div className="p-1 bg-cyan-500/20 rounded mr-3">
+                          <FileText className="h-4 w-4 text-cyan-400" />
+                        </div>
+                        <span className="text-white group-hover:text-cyan-200 transition-colors">Documentation</span>
+                      </span>
+                      <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" />
+                    </Link>
+                    <Link
+                      to={`/medical?client=${clientId}`}
+                      className="group flex items-center justify-between p-4 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm rounded-xl border border-white/20 hover:border-white/30 transition-all duration-300 hover:scale-105"
+                    >
+                      <span className="flex items-center">
+                        <div className="p-1 bg-rose-500/20 rounded mr-3">
+                          <HeartHandshake className="h-4 w-4 text-rose-400" />
+                        </div>
+                        <span className="text-white group-hover:text-rose-200 transition-colors">Medical</span>
+                      </span>
+                      <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-white transition-colors" />
+                    </Link>
+                    <Link
                       to={`/jobs?client=${clientId}`}
                       className="group flex items-center justify-between p-4 bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm rounded-xl border border-white/20 hover:border-white/30 transition-all duration-300 hover:scale-105"
                     >
@@ -2035,13 +2059,21 @@ const ClientDashboard = () => {
                                 <p className="font-medium text-white">{doc.title || doc.file_name}</p>
                                 <p className="text-sm text-blue-300">Saved: {formatDate(doc.created_at)}</p>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => setActiveTab('docs')}
-                                className="px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/20 hover:text-white transition-all duration-300"
-                              >
-                                View in Documents
-                              </button>
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveTab('docs')}
+                                  className="px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/20 hover:text-white transition-all duration-300"
+                                >
+                                  View in Documents
+                                </button>
+                                <Link
+                                  to={`/resume?client=${clientId}`}
+                                  className="px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/20 hover:text-white transition-all duration-300"
+                                >
+                                  Edit
+                                </Link>
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -2129,7 +2161,7 @@ const ClientDashboard = () => {
                                   Download
                                 </Link>
                                 <Link
-                                  to="/resume"
+                                  to={`/resume?client=${clientId}`}
                                   className="px-4 py-2 bg-white/10 backdrop-blur-sm border border-white/20 text-gray-300 rounded-lg text-sm font-medium hover:bg-white/20 hover:text-white transition-all duration-300"
                                 >
                                   Edit

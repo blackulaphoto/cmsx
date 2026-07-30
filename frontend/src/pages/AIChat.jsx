@@ -6,6 +6,23 @@ import { apiFetch } from '../api/config'
 import ClientSelector from '../components/ClientSelector'
 
 const SESSION_KEY = 'ai_assistant_session_id'
+const AI_RESPONSE_TIMEOUT_MS = 20000
+
+const waitForAIResponse = async (request) => {
+  let timeoutId
+  const timeout = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(
+      () => reject(new Error('AI response timed out. Please try again.')),
+      AI_RESPONSE_TIMEOUT_MS,
+    )
+  })
+
+  try {
+    return await Promise.race([request, timeout])
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
 
 const getSessionId = () => {
   const existing = window.localStorage.getItem(SESSION_KEY)
@@ -78,28 +95,30 @@ function AIChat() {
     setIsLoading(true)
 
     try {
-      const response = await apiFetch('/api/ai/chat', {
-        timeoutMs: 20000,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: messageText,
-          case_manager_id: getSessionId(),
-          user_id: getSessionId(),
-          client_id: context.client_id,
-          client_name: context.client_name,
-          current_route: location.pathname,
-          context
+      const data = await waitForAIResponse((async () => {
+        const response = await apiFetch('/api/ai/chat', {
+          timeoutMs: AI_RESPONSE_TIMEOUT_MS,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: messageText,
+            case_manager_id: getSessionId(),
+            user_id: getSessionId(),
+            client_id: context.client_id,
+            client_name: context.client_name,
+            current_route: location.pathname,
+            context
+          })
         })
-      })
 
-      if (!response.ok) {
-        throw new Error('Failed to send message')
-      }
-
-      const data = await response.json()
+        const payload = await response.json().catch(() => ({}))
+        if (!response.ok) {
+          throw new Error(payload.detail || 'AI is temporarily unavailable. Please try again.')
+        }
+        return payload
+      })())
       
       const aiMessage = {
         id: Date.now() + 1,
@@ -140,12 +159,12 @@ function AIChat() {
       const errorMessage = {
         id: Date.now() + 1,
         type: 'system',
-        content: `⚠️ Error: Could not reach AI service\n\nDetails: ${error?.message || 'Unknown error'}\n\nPlease check:\n• Backend server is running\n• API endpoint is accessible at /api/ai/chat\n• Network connection is stable`,
+        content: `AI could not complete that request. ${error?.message || 'Please try again.'}`,
         timestamp: new Date().toISOString()
       }
 
       setMessages(prev => [...prev, errorMessage])
-      toast.error(`Failed to send message: ${error?.message || 'Unknown error'}`)
+      toast.error(error?.message || 'AI is temporarily unavailable. Please try again.')
     } finally {
       setIsLoading(false)
     }

@@ -749,7 +749,11 @@ function TopicsTab({ topics, loading, error, onRefresh }) {
       {loading && <LoadingSpinner />}
       {error && <ErrorMsg message={error} />}
       {!loading && !error && filtered.length === 0 && (
-        <p className="text-center text-gray-500 py-12">No topics found.</p>
+        <p className="text-center text-gray-500 py-12">
+          {topics.length === 0
+            ? 'No group topics are configured yet. Add a custom topic or generate one with AI.'
+            : 'No topics match the current search or category filter.'}
+        </p>
       )}
 
       <div className="space-y-3">

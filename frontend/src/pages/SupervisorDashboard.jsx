@@ -66,7 +66,7 @@ function SupervisorDashboard() {
       gradient: 'from-cyan-500 to-blue-600',
     },
     {
-      label: 'Total Clients',
+      label: 'Team Clients',
       value: overview.team_summary.total_clients,
       icon: ClipboardList,
       gradient: 'from-blue-500 to-indigo-600',

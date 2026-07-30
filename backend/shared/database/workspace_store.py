@@ -1606,14 +1606,20 @@ class WorkspaceStore:
             conn.commit()
         return item
 
-    def get_client_document(self, doc_id: str) -> Optional[Dict[str, Any]]:
+    def get_client_document(self, client_id: str, doc_id: str) -> Optional[Dict[str, Any]]:
         with self._connect() as conn:
-            row = conn.execute("SELECT * FROM client_documents WHERE doc_id=?", (doc_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM client_documents WHERE client_id=? AND doc_id=?",
+                (client_id, doc_id),
+            ).fetchone()
         return self._row_to_dict(row) if row else None
 
-    def delete_client_document(self, doc_id: str) -> bool:
+    def delete_client_document(self, client_id: str, doc_id: str) -> bool:
         with self._connect() as conn:
-            cursor = conn.execute("DELETE FROM client_documents WHERE doc_id=?", (doc_id,))
+            cursor = conn.execute(
+                "DELETE FROM client_documents WHERE client_id=? AND doc_id=?",
+                (client_id, doc_id),
+            )
             conn.commit()
             return cursor.rowcount > 0
 

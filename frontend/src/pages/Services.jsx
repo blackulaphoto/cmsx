@@ -282,6 +282,7 @@ function Services() {
             </h2>
             <ClientSelector 
               onClientSelect={setSelectedClient}
+              selectedClientId={selectedClient?.client_id || searchParams.get('client') || null}
               placeholder="Select a client to find services for..."
               className="max-w-md relative z-30"
             />

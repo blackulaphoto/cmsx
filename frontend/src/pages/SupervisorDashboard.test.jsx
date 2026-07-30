@@ -74,6 +74,11 @@ describe('SupervisorDashboard — dev-facing infra copy removed', () => {
     expect(screen.getByText(/Team Caseload View/i)).toBeInTheDocument()
   })
 
+  it('labels the aggregate client count as team-scoped', async () => {
+    renderDashboard()
+    expect(await screen.findByText('Team Clients')).toBeInTheDocument()
+  })
+
   it('DOES render the Highest Overdue Workloads section', () => {
     renderDashboard()
     expect(screen.getByText(/Highest Overdue Workloads/i)).toBeInTheDocument()

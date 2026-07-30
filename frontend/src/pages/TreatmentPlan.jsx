@@ -609,7 +609,7 @@ export default function TreatmentPlan() {
         <div className="bg-white/5 border border-white/15 rounded-2xl p-5">
           <ClientSelector
             onClientSelect={setSelectedClient}
-            selectedClient={selectedClient}
+            selectedClientId={selectedClient?.client_id || searchParams.get('client') || null}
             includeOperationalContext
             placeholder="Select a client to view or create a treatment plan…"
           />
