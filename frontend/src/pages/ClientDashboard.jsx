@@ -493,7 +493,7 @@ const ClientDashboard = () => {
 
   const handleNoteSubmit = async (noteData) => {
     try {
-      if (editingNote) {
+      if (editingNote?.note_id) {
         await updateNote(editingNote.note_id, noteData)
       } else {
         await addNote(noteData)
@@ -2929,7 +2929,7 @@ const ClientDashboard = () => {
           }}
           onSubmit={handleNoteSubmit}
           initialData={editingNote}
-          isEditing={!!editingNote}
+          isEditing={!!editingNote?.note_id}
           clientId={clientId}
           clientName={client ? `${client.first_name} ${client.last_name}` : ''}
         />
