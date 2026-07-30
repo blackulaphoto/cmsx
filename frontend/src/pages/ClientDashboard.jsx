@@ -35,7 +35,6 @@ import {
   Download,
   X,
   ClipboardList,
-  Copy,
   Users,
   HeartHandshake
 } from 'lucide-react'
@@ -435,18 +434,10 @@ const ClientDashboard = () => {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A'
-    return new Date(dateString).toLocaleDateString()
-  }
-
-  const shortClientRef = (id) => String(id || '').slice(0, 8)
-
-  const copyClientId = async (id) => {
-    try {
-      await navigator.clipboard.writeText(id)
-      toast.success('Client ID copied')
-    } catch (error) {
-      toast.error('Could not copy client ID')
-    }
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(String(dateString))
+      ? `${dateString}T00:00:00`
+      : dateString
+    return new Date(normalized).toLocaleDateString()
   }
 
   const formatDateTime = (dateString) => {
@@ -1114,17 +1105,6 @@ const ClientDashboard = () => {
                   <h1 className="text-3xl font-bold bg-gradient-to-r from-white via-blue-200 to-purple-200 bg-clip-text text-transparent">
                     {client.first_name} {client.last_name}
                   </h1>
-                  <div className="flex items-center gap-1.5 text-gray-400">
-                    <span title={client.client_id}>Ref: {shortClientRef(client.client_id)}</span>
-                    <button
-                      type="button"
-                      onClick={() => copyClientId(client.client_id)}
-                      className="p-1 text-gray-500 hover:text-gray-300 transition-colors rounded"
-                      title="Copy full client ID"
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
                 </div>
               </div>
               <div className="flex items-center space-x-4">

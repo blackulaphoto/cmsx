@@ -1,6 +1,6 @@
 ﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Users, TrendingUp, Clock, CheckCircle, AlertCircle, Plus, Search, Filter, Edit, Trash2, Save, X, ExternalLink, Sparkles, Zap, Home, DollarSign, Scale, Copy } from 'lucide-react'
+import { Users, TrendingUp, Clock, CheckCircle, AlertCircle, Plus, Search, Filter, Edit, Trash2, Save, X, ExternalLink, Sparkles, Zap, Home, DollarSign, Scale } from 'lucide-react'
 import StatsCard from '../components/StatsCard'
 import DocumentationAssistPanel from '../components/DocumentationAssistPanel'
 import TreatmentPlanAssistCard from '../components/TreatmentPlanAssistCard'
@@ -495,17 +495,6 @@ function CaseManagement() {
       case 'medium': return 'bg-yellow-500/20 border-yellow-500/30 text-yellow-300'
       case 'low': return 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
       default: return 'bg-gray-500/20 border-gray-500/30 text-gray-300'
-    }
-  }
-
-  const shortClientRef = (clientId) => String(clientId || '').slice(0, 8)
-
-  const copyClientId = async (clientId) => {
-    try {
-      await navigator.clipboard.writeText(clientId)
-      toast.success('Client ID copied')
-    } catch (error) {
-      toast.error('Could not copy client ID')
     }
   }
 
@@ -1661,20 +1650,6 @@ function CaseManagement() {
                             <div className="font-medium text-white flex items-center gap-2 group-hover:text-purple-300 transition-colors">
                               {client.first_name} {client.last_name}
                               <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-purple-400 transition-colors" />
-                            </div>
-                            <div className="flex items-center gap-1.5 text-xs text-gray-500">
-                              <span title={client.client_id}>Ref: {shortClientRef(client.client_id)}</span>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  copyClientId(client.client_id)
-                                }}
-                                className="p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
-                                title="Copy full client ID"
-                              >
-                                <Copy className="h-3 w-3" />
-                              </button>
                             </div>
                             {client.needs && client.needs.length > 0 && (
                               <div className="text-sm text-gray-400">

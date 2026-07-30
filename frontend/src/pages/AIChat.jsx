@@ -201,7 +201,7 @@ function AIChat() {
                   <p className="text-xs uppercase tracking-[0.25em] text-cyan-200">Case-management client</p>
                   <h2 className="mt-2 text-xl font-bold text-white">Universal AI client context</h2>
                   <p className="mt-1 text-sm text-cyan-50/80">
-                    Select a Case Management client so AI requests include the same client ID used by tasks, documents, benefits, legal, medical, FMLA, UR, housing, and resume workflows.
+                    Select a Case Management client so AI answers use the same client record as tasks, documents, benefits, legal, medical, FMLA, UR, housing, and resume workflows.
                   </p>
                   {context.client_name ? (
                     <p className="mt-2 text-sm font-semibold text-white">Current client: {context.client_name}</p>

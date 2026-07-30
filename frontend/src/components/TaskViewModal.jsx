@@ -56,7 +56,10 @@ const TaskViewModal = ({ isOpen, onClose, task, onEdit, onComplete }) => {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'Not set'
-    return new Date(dateString).toLocaleDateString()
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(String(dateString))
+      ? `${dateString}T00:00:00`
+      : dateString
+    return new Date(normalized).toLocaleDateString()
   }
 
   const isOverdue = (dueDate, status) => {
