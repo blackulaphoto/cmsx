@@ -1559,34 +1559,40 @@ def sync_active_reminder(
     created_at = datetime.now().isoformat()
     record_org_id = org_id or _resolve_org_for_record(client_id, case_manager_id)
     if use_postgres():
-        from sqlalchemy import text
-        with _pg_conn() as conn:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO railway_active_reminders (
-                        reminder_id, client_id, case_manager_id, reminder_type,
-                        message, priority, due_date, status, created_at, org_id
-                    ) VALUES (
-                        :reminder_id, :client_id, :case_manager_id, :reminder_type,
-                        :message, :priority, :due_date, 'Active', :created_at, :org_id
-                    )
-                    ON CONFLICT (reminder_id) DO NOTHING
-                    """
-                ),
-                {
-                    "reminder_id": reminder_id,
-                    "client_id": client_id,
-                    "case_manager_id": case_manager_id,
-                    "reminder_type": reminder_type,
-                    "message": message,
-                    "priority": priority,
-                    "due_date": due_date,
-                    "created_at": created_at,
-                    "org_id": record_org_id,
-                },
+        try:
+            from sqlalchemy import text
+            with _pg_conn() as conn:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO railway_active_reminders (
+                            reminder_id, client_id, case_manager_id, reminder_type,
+                            message, priority, due_date, status, created_at, org_id
+                        ) VALUES (
+                            :reminder_id, :client_id, :case_manager_id, :reminder_type,
+                            :message, :priority, :due_date, 'Active', :created_at, :org_id
+                        )
+                        ON CONFLICT (reminder_id) DO NOTHING
+                        """
+                    ),
+                    {
+                        "reminder_id": reminder_id,
+                        "client_id": client_id,
+                        "case_manager_id": case_manager_id,
+                        "reminder_type": reminder_type,
+                        "message": message,
+                        "priority": priority,
+                        "due_date": due_date,
+                        "created_at": created_at,
+                        "org_id": record_org_id,
+                    },
+                )
+            return reminder_id
+        except Exception as exc:
+            logger.warning(
+                "Postgres sync_active_reminder failed (%s), using SQLite",
+                exc,
             )
-        return reminder_id
 
     _ensure_sqlite_active_reminders_table()
     _ensure_sqlite_tenancy_schema()
