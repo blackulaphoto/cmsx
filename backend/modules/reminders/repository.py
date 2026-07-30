@@ -989,56 +989,97 @@ def get_client_work_items(
     normalized_items: List[Dict[str, Any]] = []
     seen_keys = set()
 
+    def append_item(item: Dict[str, Any], bucket_key: str) -> None:
+        if item.get("client_id") != client_id:
+            return
+
+        source = str(item.get("source") or "").lower()
+        source_kind = "intelligent_task"
+        source_label = "Smart Daily Task"
+        normalized_source = "smart_daily"
+
+        if source == "active_reminder":
+            source_kind = "reminder"
+            source_label = "Reminder"
+            normalized_source = "reminder"
+        elif source == "workspace_task":
+            source_kind = "workspace_task"
+            task_source = str(item.get("task_source") or "").lower()
+            normalized_source = "client_task"
+            if task_source == "treatment_plan":
+                source_label = "Treatment Plan Task"
+                normalized_source = "treatment_plan_task"
+            else:
+                source_label = "Client Task"
+
+        item_id = item.get("task_id") or item.get("reminder_id") or item.get("id") or ""
+        dedupe_key = (source_kind, str(item_id))
+        if not item_id or dedupe_key in seen_keys:
+            return
+        seen_keys.add(dedupe_key)
+
+        normalized_items.append({
+            **dict(item),
+            "item_id": item_id,
+            "task_id": item_id,
+            "client_id": client_id,
+            "client_name": item.get("client_name", "Unknown Client"),
+            "title": item.get("title") or item.get("message") or item.get("task") or "Untitled task",
+            "description": item.get("description") or item.get("message") or "",
+            "due_date": item.get("due_date"),
+            "status": item.get("status") or "pending",
+            "priority": item.get("priority") or "medium",
+            "source": normalized_source,
+            "source_kind": source_kind,
+            "source_label": source_label,
+            "bucket": bucket_key,
+            "is_overdue": bucket_key == "overdue",
+            "can_edit": source_kind in {"reminder", "workspace_task"},
+            "can_delete": source_kind in {"reminder", "workspace_task"},
+            "can_complete": True,
+        })
+
     for bucket_key, bucket_items in buckets.items():
         for item in bucket_items or []:
-            if item.get("client_id") != client_id:
+            append_item(item, bucket_key)
+
+    # A client detail route is already access-checked by the API layer, so its
+    # saved tasks must not depend on whether the caller's identity happens to
+    # match the client's case-manager assignment key. Read this client's
+    # persisted tasks directly as a truth-preserving fallback. This also keeps
+    # ordinary undated tasks visible; the case-manager priority feed
+    # intentionally omits medium/low undated work.
+    if client_date:
+        try:
+            today = datetime.strptime(client_date, "%Y-%m-%d").date()
+        except ValueError:
+            today = date.today()
+    else:
+        today = date.today()
+
+    try:
+        for task in workspace_store.list_client_tasks(client_id):
+            if _normalise_status(task.get("status")) in {"completed", "done", "cancelled", "canceled"}:
                 continue
-
-            source = str(item.get("source") or "").lower()
-            source_kind = "intelligent_task"
-            source_label = "Smart Daily Task"
-            normalized_source = "smart_daily"
-
-            if source == "active_reminder":
-                source_kind = "reminder"
-                source_label = "Reminder"
-                normalized_source = "reminder"
-            elif source == "workspace_task":
-                source_kind = "workspace_task"
-                task_source = str(item.get("task_source") or item.get("source") or "").lower()
-                normalized_source = "client_task"
-                if task_source == "treatment_plan":
-                    source_label = "Treatment Plan Task"
-                    normalized_source = "treatment_plan_task"
-                else:
-                    source_label = "Client Task"
-
-            item_id = item.get("task_id") or item.get("reminder_id") or item.get("id") or ""
-            dedupe_key = (source_kind, str(item_id))
-            if not item_id or dedupe_key in seen_keys:
-                continue
-            seen_keys.add(dedupe_key)
-
-            normalized_items.append({
-                **dict(item),
-                "item_id": item_id,
-                "task_id": item_id,
-                "client_id": client_id,
-                "client_name": item.get("client_name", "Unknown Client"),
-                "title": item.get("title") or item.get("message") or item.get("task") or "Untitled task",
-                "description": item.get("description") or item.get("message") or "",
-                "due_date": item.get("due_date"),
-                "status": item.get("status") or "pending",
-                "priority": item.get("priority") or "medium",
-                "source": normalized_source,
-                "source_kind": source_kind,
-                "source_label": source_label,
-                "bucket": bucket_key,
-                "is_overdue": bucket_key == "overdue",
-                "can_edit": source_kind in {"reminder", "workspace_task"},
-                "can_delete": source_kind in {"reminder", "workspace_task"},
-                "can_complete": True,
-            })
+            due = _parse_due_date(task.get("due_date"))
+            if due is None:
+                bucket_key = "treatment_plan" if _is_treatment_plan_task(task) else "later"
+            elif due < today:
+                bucket_key = "overdue"
+            elif due == today:
+                bucket_key = "today"
+            elif due <= today + timedelta(days=3):
+                bucket_key = "next_3_days"
+            elif due <= today + timedelta(days=7):
+                bucket_key = "this_week"
+            else:
+                bucket_key = "later"
+            append_item(
+                _workspace_task_to_task_dict(task, {client_id: task.get("client_name", "Unknown Client")}, today),
+                bucket_key,
+            )
+    except Exception as exc:
+        logger.warning("Direct workspace task lookup failed for client %s: %s", client_id, exc)
 
     return {
         "client_id": client_id,
