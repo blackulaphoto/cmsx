@@ -57,7 +57,7 @@ const baseClientData = {
     intake_date: '2026-06-20',
   },
   housing: { status: 'Stable' },
-  employment: { status: 'Seeking work' },
+  employment: { status: 'Seeking work', saved_jobs: [] },
   benefits: { status: 'Pending' },
   legal: { status: 'Open case' },
   goals: [{ description: 'Legacy dashboard goal', goal_type: 'Legacy' }],
@@ -67,6 +67,25 @@ const baseClientData = {
   contact_history: [],
   program_milestones: [],
   services: {},
+  groups: {
+    sessions: [],
+    total_sessions: 0,
+    attended_sessions: 0,
+    documented_sessions: 0,
+    latest_session: null,
+  },
+  fmla: {
+    cases: [],
+    total_cases: 0,
+    active_cases: 0,
+    next_deadline: null,
+  },
+  ur: {
+    cases: [],
+    total_cases: 0,
+    active_cases: 0,
+    next_deadline: null,
+  },
 }
 
 const currentPlan = {
@@ -291,6 +310,135 @@ describe('ClientDashboard service referral propagation', () => {
     expect(screen.getByText('Accepts Medi-Cal and walk-ins.')).toBeInTheDocument()
   })
 })
+
+describe('ClientDashboard group participation summary', () => {
+  it('renders the selected client group summary and links to Groups', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              groups: {
+                sessions: [],
+                total_sessions: 3,
+                attended_sessions: 2,
+                documented_sessions: 1,
+                latest_session: {
+                  session_id: 'sess-1',
+                  title: 'Relapse Prevention',
+                  scheduled_date: '2026-07-27',
+                  attendance_status: 'present',
+                  note_count: 1,
+                },
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('2 attended of 3 recorded')).toBeInTheDocument()
+    expect(screen.getByText(/Latest: Relapse Prevention/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Group Participation/i })).toHaveAttribute(
+      'href',
+      '/groups?client=client-1',
+    )
+  })
+})
+
+describe('ClientDashboard FMLA summary', () => {
+  it('renders the selected client FMLA status and next deadline', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              fmla: {
+                cases: [],
+                total_cases: 2,
+                active_cases: 1,
+                next_deadline: {
+                  case_id: 'fmla-1',
+                  field: 'paperwork_deadline',
+                  label: 'Paperwork due',
+                  date: '2026-08-04',
+                },
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('1 active of 2 recorded')).toBeInTheDocument()
+    expect(screen.getByText(/Paperwork due:/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^FMLA/i })).toHaveAttribute(
+      'href',
+      '/fmla?client=client-1',
+    )
+  })
+})
+
+describe('ClientDashboard UR summary', () => {
+  it('renders the selected client authorization status and next review', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              ur: {
+                cases: [],
+                total_cases: 2,
+                active_cases: 2,
+                next_deadline: {
+                  case_id: 'ur-1',
+                  field: 'next_review_date',
+                  label: 'Next review',
+                  date: '2026-08-02',
+                },
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+
+    expect(await screen.findByText('2 active of 2 recorded')).toBeInTheDocument()
+    expect(screen.getByText(/Next review:/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Utilization Review/i })).toHaveAttribute(
+      'href',
+      '/ur?client=client-1',
+    )
+  })
+})
+
 describe('ClientDashboard - ROI / Releases tab & Documents restoration', () => {
   beforeEach(() => {
     apiFetch.mockImplementation((url) => {
@@ -1110,5 +1258,48 @@ describe('ClientDashboard - Employment tab resume surfacing', () => {
     await goToEmploymentTab()
 
     expect(await screen.findByText('No saved resume files yet.')).toBeInTheDocument()
+  })
+})
+
+describe('ClientDashboard - saved jobs propagation', () => {
+  it('shows saved postings separately from job applications', async () => {
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            client_data: {
+              ...baseClientData,
+              employment: {
+                ...baseClientData.employment,
+                saved_jobs: [
+                  {
+                    job_id: 'job-1',
+                    title: 'Warehouse Associate',
+                    company: 'Example Logistics',
+                    location: 'Los Angeles, CA',
+                    notes: 'Call before applying.',
+                    saved_date: '2026-07-28T09:00:00',
+                  },
+                ],
+              },
+            },
+          }),
+        })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true }) })
+    })
+
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Employment' }))
+
+    expect(await screen.findByText('Warehouse Associate')).toBeInTheDocument()
+    expect(screen.getByText('Example Logistics · Los Angeles, CA')).toBeInTheDocument()
+    expect(screen.getByText('Call before applying.')).toBeInTheDocument()
+    expect(screen.queryByText('Recent Job Applications')).not.toBeInTheDocument()
   })
 })

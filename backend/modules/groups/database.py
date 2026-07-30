@@ -673,6 +673,47 @@ class GroupsDatabase:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def list_client_participation(
+        self, client_id: str, org_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Return persisted group participation for one canonical client."""
+        query = """
+            SELECT
+                a.attendance_id,
+                a.client_id,
+                a.status AS attendance_status,
+                a.participation_level,
+                a.updated_at AS attendance_updated_at,
+                s.session_id,
+                s.title,
+                s.scheduled_date,
+                s.scheduled_time,
+                s.group_type,
+                s.status AS session_status,
+                (
+                    SELECT COUNT(*)
+                    FROM group_notes n
+                    WHERE n.session_id = a.session_id
+                      AND n.client_id = a.client_id
+                ) AS note_count
+            FROM group_attendance a
+            JOIN group_sessions s ON s.session_id = a.session_id
+            WHERE a.client_id = ?
+        """
+        params: List[Any] = [client_id]
+        if org_id:
+            query += " AND s.org_id = ?"
+            params.append(org_id)
+        query += """
+            ORDER BY
+                CASE WHEN s.scheduled_date IS NULL OR s.scheduled_date = '' THEN 1 ELSE 0 END,
+                s.scheduled_date DESC,
+                a.updated_at DESC
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
     def delete_attendance(self, session_id: str, client_id: str) -> bool:
         with self._connect() as conn:
             cur = conn.execute(

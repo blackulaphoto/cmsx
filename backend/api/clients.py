@@ -439,12 +439,24 @@ def build_client_operational_context(
     legal_summary: Optional[Dict[str, Any]] = None,
     services_summary: Optional[Dict[str, Any]] = None,
     admissions_context: Optional[Dict[str, Any]] = None,
+    groups_summary: Optional[Dict[str, Any]] = None,
+    fmla_summary: Optional[Dict[str, Any]] = None,
+    ur_summary: Optional[Dict[str, Any]] = None,
+    saved_jobs: Optional[List[Dict[str, Any]]] = None,
+    medical_referrals: Optional[List[Dict[str, Any]]] = None,
+    appointments: Optional[List[Dict[str, Any]]] = None,
+    service_referrals: Optional[List[Dict[str, Any]]] = None,
+    documents: Optional[List[Dict[str, Any]]] = None,
+    roi_records: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Build the shared read model consumed by module dropdown workflows."""
     overview_data = overview_data or {}
-    benefits_summary = benefits_summary or get_client_benefits_summary(client["client_id"])
-    legal_summary = legal_summary or get_client_legal_summary(client["client_id"])
-    services_summary = services_summary or get_client_services_summary(client["client_id"])
+    if benefits_summary is None:
+        benefits_summary = get_client_benefits_summary(client["client_id"])
+    if legal_summary is None:
+        legal_summary = get_client_legal_summary(client["client_id"])
+    if services_summary is None:
+        services_summary = get_client_services_summary(client["client_id"])
     operational_needs = derive_operational_needs(client)
     try:
         stored_needs = workspace_store.list_client_operational_needs(client["client_id"])
@@ -490,6 +502,8 @@ def build_client_operational_context(
                 "special_needs": client.get("special_needs", ""),
                 "needs": [need for need in operational_needs if need["domain"] == "medical"],
                 "active_needs": [need for need in operational_needs if need["domain"] == "medical"],
+                "referrals": medical_referrals or [],
+                "appointments": appointments or [],
             },
             "benefits": {
                 "status": client.get("benefits_status", "Not Applied"),
@@ -518,6 +532,7 @@ def build_client_operational_context(
                 "status": client.get("employment_status", "Unknown"),
                 "goals": client.get("goals", ""),
                 "barriers": client.get("barriers", ""),
+                "saved_jobs": saved_jobs or [],
                 "needs": [need for need in operational_needs if need["domain"] == "employment"],
                 "active_needs": [need for need in operational_needs if need["domain"] == "employment"],
             },
@@ -534,12 +549,23 @@ def build_client_operational_context(
                 "goals": client.get("goals", ""),
                 "barriers": client.get("barriers", ""),
                 "treatment_plan_available": treatment_plan_context.get("status") in {"draft", "active", "review_due", "completed"},
+                "documents": documents or [],
+                "roi_records": roi_records or [],
+            },
+            "services": {
+                "summary": services_summary,
+                "referrals": service_referrals or [],
+                "needs": [need for need in operational_needs if need["domain"] == "services"],
+                "active_needs": [need for need in operational_needs if need["domain"] == "services"],
             },
             "reminders": {
                 "open_tasks": open_tasks,
                 "suggested_needs": operational_needs,
             },
             "admissions": admissions_context or {},
+            "groups": groups_summary or {},
+            "fmla": fmla_summary or {},
+            "ur": ur_summary or {},
         },
         "operational_needs": operational_needs,
         "open_tasks": open_tasks,
@@ -568,14 +594,179 @@ def build_client_operational_context(
     }
 
 
+def load_client_operational_context(client_id: str, org_id: Optional[str] = None) -> Dict[str, Any]:
+    """Load the shared client truth model with isolated optional module failures."""
+    with get_database_connection("core_clients", "READ_ONLY") as conn:
+        ensure_core_clients_schema(conn)
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,)).fetchone()
+    if not row:
+        raise KeyError("Client not found")
+    client = normalize_client_record(row)
+
+    unavailable_sources: List[str] = []
+
+    def safe_load(source: str, loader, fallback):
+        try:
+            result = loader()
+            if getattr(result, "available", True) is False:
+                unavailable_sources.append(source)
+            return result
+        except Exception as exc:
+            unavailable_sources.append(source)
+            logger.warning("Operational context %s unavailable for %s: %s", source, client_id, exc)
+            return fallback
+
+    overview_data = safe_load(
+        "overview",
+        lambda: get_client_data_integrator().get_client_overview_data(client_id),
+        {},
+    )
+    admissions_context = safe_load(
+        "admissions",
+        lambda: __import__(
+            "backend.modules.admissions.summary",
+            fromlist=["build_admissions_context_for_operational"],
+        ).build_admissions_context_for_operational(client_id),
+        {},
+    )
+    saved_jobs = safe_load(
+        "saved_jobs",
+        lambda: __import__(
+            "backend.modules.jobs.routes",
+            fromlist=["list_saved_jobs_for_client"],
+        ).list_saved_jobs_for_client(client_id),
+        [],
+    )
+    benefits_summary = safe_load("benefits", lambda: get_client_benefits_summary(client_id), {})
+    legal_summary = safe_load("legal", lambda: get_client_legal_summary(client_id), {})
+    services_summary = safe_load("services", lambda: get_client_services_summary(client_id), {})
+    groups_summary = safe_load(
+        "groups",
+        lambda: get_client_groups_summary(client_id, org_id=org_id),
+        {},
+    )
+    fmla_summary = safe_load(
+        "fmla",
+        lambda: get_client_fmla_summary(client_id, org_id=org_id),
+        {},
+    )
+    ur_summary = safe_load(
+        "ur",
+        lambda: get_client_ur_summary(client_id, org_id=org_id),
+        {},
+    )
+    medical_referrals_raw = safe_load(
+        "medical_referrals",
+        lambda: get_client_medical_referrals_summary(client_id),
+        [],
+    )
+    medical_referrals = [
+        {
+            "provider_name": item.get("provider_name"),
+            "service_name": item.get("service_name"),
+            "service_type": item.get("service_type"),
+            "status": item.get("status"),
+            "referral_date": item.get("referral_date"),
+        }
+        for item in medical_referrals_raw[:10]
+    ]
+    appointments_raw = safe_load(
+        "appointments",
+        lambda: workspace_store.list_client_appointments(client_id),
+        [],
+    )
+    appointments = [
+        {
+            "title": item.get("title"),
+            "appointment_date": item.get("appointment_date"),
+            "appointment_time": item.get("appointment_time"),
+            "service_type": item.get("service_type"),
+            "status": item.get("status"),
+        }
+        for item in appointments_raw[:10]
+    ]
+    service_referrals_raw = safe_load(
+        "service_referrals",
+        lambda: workspace_store.list_client_service_referrals(client_id),
+        [],
+    )
+    service_referrals = [
+        {
+            "service_name": item.get("service_name"),
+            "service_type": item.get("service_type"),
+            "provider_name": item.get("provider_name"),
+            "status": item.get("status"),
+            "referral_date": item.get("referral_date"),
+        }
+        for item in service_referrals_raw[:10]
+    ]
+    documents_raw = safe_load(
+        "documents",
+        lambda: workspace_store.list_client_documents(client_id),
+        [],
+    )
+    documents = [
+        {
+            "title": item.get("title"),
+            "doc_type": item.get("doc_type"),
+            "created_at": item.get("created_at"),
+        }
+        for item in documents_raw[:10]
+    ]
+    roi_records_raw = safe_load(
+        "roi_records",
+        lambda: workspace_store.list_client_roi_records(client_id),
+        [],
+    )
+    roi_records = [
+        {
+            "authorized_party": item.get("authorized_party"),
+            "status": item.get("status"),
+            "effective_date": item.get("effective_date"),
+            "expiration_date": item.get("expiration_date"),
+        }
+        for item in roi_records_raw[:10]
+    ]
+
+    context = build_client_operational_context(
+        client,
+        overview_data=overview_data,
+        benefits_summary=benefits_summary,
+        legal_summary=legal_summary,
+        services_summary=services_summary,
+        admissions_context=admissions_context,
+        groups_summary=groups_summary,
+        fmla_summary=fmla_summary,
+        ur_summary=ur_summary,
+        saved_jobs=saved_jobs,
+        medical_referrals=medical_referrals,
+        appointments=appointments,
+        service_referrals=service_referrals,
+        documents=documents,
+        roi_records=roi_records,
+    )
+    context["metadata"]["unavailable_sources"] = unavailable_sources
+    context["metadata"]["complete"] = not unavailable_sources
+    return context
+
+
+class _SummaryResult(dict):
+    """Dict-compatible summary carrying non-serialized source availability."""
+
+    def __init__(self, *args, available: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.available = available
+
+
 def get_client_benefits_summary(client_id: str) -> Dict[str, Any]:
     """Get benefits application summary for unified client view."""
-    summary = {
+    summary = _SummaryResult({
         "applications": [],
         "total_applications": 0,
         "active_applications": 0,
         "latest_application": None,
-    }
+    })
     try:
         with get_database_connection("unified_platform", "READ_ONLY") as conn:
             cursor = conn.cursor()
@@ -616,21 +807,23 @@ def get_client_benefits_summary(client_id: str) -> Dict[str, Any]:
         summary["latest_application"] = applications[0] if applications else None
         return summary
     except sqlite3.OperationalError:
+        summary.available = False
         return summary
     except Exception as e:
         logger.error("Error getting benefits summary for %s: %s", client_id, e)
+        summary.available = False
         return summary
 
 
 def get_client_legal_summary(client_id: str) -> Dict[str, Any]:
     """Get legal case and court-date summary for unified client view."""
-    summary = {
+    summary = _SummaryResult({
         "cases": [],
         "upcoming_court_dates": [],
         "total_cases": 0,
         "active_cases": 0,
         "next_court_date": None,
-    }
+    })
     try:
         with get_database_connection("legal_cases", "READ_ONLY") as conn:
             conn.row_factory = sqlite3.Row
@@ -706,21 +899,23 @@ def get_client_legal_summary(client_id: str) -> Dict[str, Any]:
         summary["next_court_date"] = next_court_date
         return summary
     except sqlite3.OperationalError:
+        summary.available = False
         return summary
     except Exception as e:
         logger.error("Error getting legal summary for %s: %s", client_id, e)
+        summary.available = False
         return summary
 
 
 def get_client_services_summary(client_id: str) -> Dict[str, Any]:
     """Get services referral/task summary for unified client view."""
-    summary = {
+    summary = _SummaryResult({
         "referrals": [],
         "tasks": [],
         "total_referrals": 0,
         "active_referrals": 0,
         "open_tasks": 0,
-    }
+    })
     try:
         with get_database_connection("social_services", "READ_ONLY") as conn:
             conn.row_factory = sqlite3.Row
@@ -797,9 +992,11 @@ def get_client_services_summary(client_id: str) -> Dict[str, Any]:
         )
         return summary
     except sqlite3.OperationalError:
+        summary.available = False
         return summary
     except Exception as e:
         logger.error("Error getting services summary for %s: %s", client_id, e)
+        summary.available = False
         return summary
 
 
@@ -840,6 +1037,192 @@ def get_client_medical_referrals_summary(client_id: str) -> List[Dict[str, Any]]
             "source_module": "medical_access",
         })
     return normalized
+
+
+def get_client_groups_summary(
+    client_id: str, org_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Return a compact, read-only summary of persisted group participation."""
+    summary = _SummaryResult({
+        "sessions": [],
+        "total_sessions": 0,
+        "attended_sessions": 0,
+        "documented_sessions": 0,
+        "latest_session": None,
+    })
+    try:
+        from backend.modules.groups.database import groups_db
+
+        participation = groups_db.list_client_participation(client_id, org_id=org_id)
+        sessions = [
+            {
+                "session_id": row.get("session_id"),
+                "title": row.get("title") or "Group session",
+                "scheduled_date": row.get("scheduled_date"),
+                "scheduled_time": row.get("scheduled_time"),
+                "group_type": row.get("group_type"),
+                "session_status": row.get("session_status"),
+                "attendance_status": row.get("attendance_status") or "unknown",
+                "participation_level": row.get("participation_level"),
+                "note_count": int(row.get("note_count") or 0),
+            }
+            for row in participation
+        ]
+        attended_statuses = {"present", "attended", "late"}
+        summary.update({
+            "sessions": sessions[:10],
+            "total_sessions": len(sessions),
+            "attended_sessions": sum(
+                1
+                for session in sessions
+                if str(session["attendance_status"]).strip().lower() in attended_statuses
+            ),
+            "documented_sessions": sum(1 for session in sessions if session["note_count"] > 0),
+            "latest_session": sessions[0] if sessions else None,
+        })
+    except Exception as exc:
+        logger.warning("Group participation summary unavailable for %s: %s", client_id, exc)
+        summary.available = False
+    return summary
+
+
+def get_client_fmla_summary(
+    client_id: str, org_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Return client-linked FMLA cases and the nearest persisted deadline."""
+    summary = _SummaryResult({
+        "cases": [],
+        "total_cases": 0,
+        "active_cases": 0,
+        "next_deadline": None,
+    })
+    try:
+        from backend.modules.fmla.store_factory import get_fmla_store
+
+        filters: Dict[str, Any] = {
+            "client_id": client_id,
+            "case_subject_type": "client",
+        }
+        if org_id is not None:
+            filters["org_id"] = org_id
+        cases = get_fmla_store().list_cases(filters)
+        deadline_fields = (
+            ("paperwork_deadline", "Paperwork due"),
+            ("employer_response_deadline", "Employer response"),
+            ("certification_expiration_date", "Certification expires"),
+            ("return_to_work_date", "Return to work"),
+        )
+        deadlines = []
+        normalized_cases = []
+        closed_statuses = {"closed", "cancelled", "canceled", "completed", "denied"}
+        for case in cases:
+            normalized = {
+                "case_id": case.get("case_id"),
+                "status": case.get("status") or "draft",
+                "approval_status": case.get("approval_status") or "pending",
+                "employer_name": case.get("employer_name") or "",
+                "leave_type": case.get("leave_type") or "",
+                "paperwork_deadline": case.get("paperwork_deadline"),
+                "employer_response_deadline": case.get("employer_response_deadline"),
+                "certification_expiration_date": case.get("certification_expiration_date"),
+                "return_to_work_date": case.get("return_to_work_date"),
+            }
+            normalized_cases.append(normalized)
+            for field, label in deadline_fields:
+                value = case.get(field)
+                if value:
+                    deadlines.append({
+                        "case_id": case.get("case_id"),
+                        "field": field,
+                        "label": label,
+                        "date": value,
+                    })
+        deadlines.sort(key=lambda item: item["date"])
+        today = datetime.now().date().isoformat()
+        upcoming = [item for item in deadlines if item["date"] >= today]
+        summary.update({
+            "cases": normalized_cases[:10],
+            "total_cases": len(normalized_cases),
+            "active_cases": sum(
+                1
+                for case in normalized_cases
+                if str(case["status"]).strip().lower() not in closed_statuses
+            ),
+            "next_deadline": upcoming[0] if upcoming else (deadlines[-1] if deadlines else None),
+        })
+    except Exception as exc:
+        logger.warning("FMLA summary unavailable for %s: %s", client_id, exc)
+        summary.available = False
+    return summary
+
+
+def get_client_ur_summary(
+    client_id: str, org_id: Optional[str] = None
+) -> Dict[str, Any]:
+    """Return client-linked utilization review status and nearest deadline."""
+    summary = _SummaryResult({
+        "cases": [],
+        "total_cases": 0,
+        "active_cases": 0,
+        "next_deadline": None,
+    })
+    try:
+        from backend.modules.ur.store_factory import get_ur_store
+
+        filters: Dict[str, Any] = {"client_id": client_id}
+        if org_id is not None:
+            filters["org_id"] = org_id
+        cases = get_ur_store().list_cases(filters)
+        deadline_fields = (
+            ("next_review_date", "Next review"),
+            ("approved_end_date", "Authorization ends"),
+            ("peer_review_deadline", "Peer review due"),
+            ("appeal_deadline", "Appeal due"),
+        )
+        deadlines = []
+        normalized_cases = []
+        closed_statuses = {"closed", "cancelled", "canceled", "completed"}
+        for case in cases:
+            normalized = {
+                "case_id": case.get("case_id"),
+                "status": case.get("status") or "draft",
+                "payer": case.get("payer") or "",
+                "program": case.get("program") or "",
+                "current_level_of_care": case.get("current_level_of_care") or "",
+                "approved_level_of_care": case.get("approved_level_of_care") or "",
+                "next_review_date": case.get("next_review_date"),
+                "approved_end_date": case.get("approved_end_date"),
+                "peer_review_deadline": case.get("peer_review_deadline"),
+                "appeal_deadline": case.get("appeal_deadline"),
+            }
+            normalized_cases.append(normalized)
+            for field, label in deadline_fields:
+                value = case.get(field)
+                if value:
+                    deadlines.append({
+                        "case_id": case.get("case_id"),
+                        "field": field,
+                        "label": label,
+                        "date": value,
+                    })
+        deadlines.sort(key=lambda item: item["date"])
+        today = datetime.now().date().isoformat()
+        upcoming = [item for item in deadlines if item["date"] >= today]
+        summary.update({
+            "cases": normalized_cases[:10],
+            "total_cases": len(normalized_cases),
+            "active_cases": sum(
+                1
+                for case in normalized_cases
+                if str(case["status"]).strip().lower() not in closed_statuses
+            ),
+            "next_deadline": upcoming[0] if upcoming else (deadlines[-1] if deadlines else None),
+        })
+    except Exception as exc:
+        logger.warning("UR summary unavailable for %s: %s", client_id, exc)
+        summary.available = False
+    return summary
+
 
 class ClientCreateRequest(BaseModel):
     """Client creation schema - must match dependency map requirements"""
@@ -1350,6 +1733,18 @@ async def get_client_unified_view(client_id: str, request: Request):
         benefits_summary = get_client_benefits_summary(client_id)
         legal_summary = get_client_legal_summary(client_id)
         services_summary = get_client_services_summary(client_id)
+        groups_summary = get_client_groups_summary(
+            client_id,
+            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+        )
+        fmla_summary = get_client_fmla_summary(
+            client_id,
+            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+        )
+        ur_summary = get_client_ur_summary(
+            client_id,
+            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+        )
 
         # Augment services summary with workspace-stored referrals
         ws_referrals = workspace_store.list_client_service_referrals(client_id)
@@ -1403,6 +1798,14 @@ async def get_client_unified_view(client_id: str, request: Request):
         except Exception as emp_exc:
             logger.warning("Employment resumes unavailable for %s: %s", client_id, emp_exc)
 
+        employment_saved_jobs = []
+        try:
+            from backend.modules.jobs.routes import list_saved_jobs_for_client
+
+            employment_saved_jobs = list_saved_jobs_for_client(client_id)
+        except Exception as jobs_exc:
+            logger.warning("Saved jobs unavailable for %s: %s", client_id, jobs_exc)
+
         return {
             "success": True,
             "client_data": {
@@ -1412,6 +1815,7 @@ async def get_client_unified_view(client_id: str, request: Request):
                 },
                 "employment": {
                     "status": core_client.get("employment_status", "unknown"),
+                    "saved_jobs": employment_saved_jobs,
                     # Only include the key when resumes exist so the dashboard's
                     # conditional "Resumes" section keeps its prior empty-state.
                     **({"resumes": employment_resumes} if employment_resumes else {}),
@@ -1419,6 +1823,9 @@ async def get_client_unified_view(client_id: str, request: Request):
                 "benefits": benefits_summary or {"status": core_client.get("benefits_status", "unknown")},
                 "legal": legal_summary or {"status": core_client.get("legal_status", "No active cases")},
                 "services": services_summary,
+                "groups": groups_summary,
+                "fmla": fmla_summary,
+                "ur": ur_summary,
                 "tasks": overview_data.get("tasks", []),
                 "notes": overview_data.get("case_notes", []),
                 "appointments": ws_appointments + overview_data.get("appointments", []),
@@ -1437,6 +1844,9 @@ async def get_client_unified_view(client_id: str, request: Request):
                 "benefits": "unified_platform.db",
                 "legal": "legal_cases.db",
                 "services": "social_services.db",
+                "groups": "groups.db",
+                "fmla": "fmla.db",
+                "ur": "ur.db",
             },
         }
     except HTTPException:
@@ -1452,39 +1862,13 @@ async def get_client_operational_context(client_id: str, request: Request):
     try:
         current_user = require_authenticated_user(request)
         assert_client_access(current_user, client_id)
-        with get_database_connection("core_clients", "READ_ONLY") as conn:
-            ensure_core_clients_schema(conn)
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM clients WHERE client_id = ?", (client_id,))
-            row = cursor.fetchone()
-
-        if not row:
+        try:
+            operational_context = load_client_operational_context(
+                client_id,
+                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+            )
+        except KeyError:
             raise HTTPException(status_code=404, detail="Client not found")
-
-        client = normalize_client_record(row)
-
-        try:
-            overview_data = get_client_data_integrator().get_client_overview_data(client_id)
-        except Exception as exc:
-            logger.warning("Operational context overview unavailable for %s: %s", client_id, exc)
-            overview_data = {}
-
-        try:
-            from backend.modules.admissions.summary import build_admissions_context_for_operational
-            admissions_ctx = build_admissions_context_for_operational(client_id)
-        except Exception as _adm_exc:
-            logger.warning("Admissions context unavailable for %s: %s", client_id, _adm_exc)
-            admissions_ctx = {}
-
-        operational_context = build_client_operational_context(
-            client,
-            overview_data=overview_data,
-            benefits_summary=get_client_benefits_summary(client_id),
-            legal_summary=get_client_legal_summary(client_id),
-            services_summary=get_client_services_summary(client_id),
-            admissions_context=admissions_ctx,
-        )
 
         return {
             "success": True,
@@ -1603,6 +1987,24 @@ async def update_client_treatment_plan(
             plan_id,
             {key: value for key, value in payload.model_dump().items() if value is not None},
         )
+        from backend.modules.treatment_plan.work_items import (
+            sync_treatment_plan_review_reminder,
+        )
+
+        client = _get_normalized_client_or_404(client_id)
+        try:
+            sync_treatment_plan_review_reminder(
+                updated,
+                case_manager_id=current_user.case_manager_id,
+                client_name=client.get("full_name") or "",
+                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Treatment plan review reminder sync deferred for %s: %s",
+                plan_id,
+                exc,
+            )
         return {
             "success": True,
             "plan": updated,
@@ -1639,6 +2041,24 @@ async def approve_client_treatment_plan(client_id: str, plan_id: str, request: R
             source_id=plan_id,
             assigned_to=current_user.full_name,
         )
+        from backend.modules.treatment_plan.work_items import (
+            sync_client_treatment_plan_review_reminders,
+        )
+
+        client = _get_normalized_client_or_404(client_id)
+        try:
+            sync_client_treatment_plan_review_reminders(
+                client_id,
+                case_manager_id=current_user.case_manager_id,
+                client_name=client.get("full_name") or "",
+                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Treatment plan review reminder reconciliation deferred for %s: %s",
+                client_id,
+                exc,
+            )
         return {
             "success": True,
             "plan": approved,
@@ -2130,35 +2550,21 @@ async def create_client_appointment(client_id: str, payload: AppointmentPayload,
     user = require_authenticated_user(request)
     assert_client_access(user, client_id)
     apt = workspace_store.create_client_appointment(client_id, payload.dict())
-    # Create a reminder for this appointment
+    from backend.modules.medical.work_items import sync_medical_appointment_reminder
+
     try:
-        description = f"Appointment: {apt['title']}"
-        if apt.get("doctor_name"):
-            description += f" with {apt['doctor_name']}"
-        if apt.get("location"):
-            description += f" at {apt['location']}"
-        with get_database_connection("reminders", "READ_WRITE") as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            reminder_id = str(uuid.uuid4())
-            cursor.execute(
-                """INSERT OR IGNORE INTO reminders
-                   (reminder_id, client_id, module_source, task_type, description, due_date, priority_score, status, assigned_to, created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (
-                    reminder_id, client_id,
-                    "appointments", "appointment",
-                    description, apt["appointment_date"],
-                    50, "pending",
-                    getattr(user, "case_manager_id", "system"),
-                    datetime.now().isoformat(),
-                ),
-            )
-            conn.commit()
-        workspace_store.update_client_appointment(apt["apt_id"], {"reminder_id": reminder_id})
-        apt["reminder_id"] = reminder_id
-    except Exception as e:
-        logger.warning("Could not create reminder for appointment %s: %s", apt["apt_id"], e)
+        apt["reminder_id"] = sync_medical_appointment_reminder(
+            apt,
+            source="workspace",
+            case_manager_id=user.case_manager_id,
+            org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Workspace appointment reminder sync deferred for %s: %s",
+            apt["apt_id"],
+            exc,
+        )
     return {"success": True, "appointment": apt}
 
 
@@ -2169,6 +2575,21 @@ async def update_client_appointment(client_id: str, apt_id: str, payload: Appoin
     updated = workspace_store.update_client_appointment(apt_id, payload.dict(exclude_none=True))
     if not updated:
         raise HTTPException(status_code=404, detail="Appointment not found")
+    from backend.modules.medical.work_items import sync_medical_appointment_reminder
+
+    try:
+        sync_medical_appointment_reminder(
+            updated,
+            source="workspace",
+            case_manager_id=user.case_manager_id,
+            org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Workspace appointment reminder sync deferred for %s: %s",
+            apt_id,
+            exc,
+        )
     return {"success": True, "appointment": updated}
 
 
@@ -2176,6 +2597,25 @@ async def update_client_appointment(client_id: str, apt_id: str, payload: Appoin
 async def delete_client_appointment(client_id: str, apt_id: str, request: Request):
     user = require_authenticated_user(request)
     assert_client_access(user, client_id)
+    existing = next(
+        (
+            appointment
+            for appointment in workspace_store.list_client_appointments(client_id)
+            if appointment.get("apt_id") == apt_id
+        ),
+        None,
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    from backend.modules.medical.work_items import remove_medical_appointment_reminder
+
+    remove_medical_appointment_reminder(
+        apt_id,
+        source="workspace",
+        client_id=client_id,
+        case_manager_id=user.case_manager_id,
+        org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
+    )
     deleted = workspace_store.delete_client_appointment(apt_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Appointment not found")

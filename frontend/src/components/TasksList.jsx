@@ -74,7 +74,7 @@ const TasksList = ({ tasks, onEdit, onDelete, onComplete, onView, loading }) => 
   const formatDate = (dateString) => {
     if (!dateString) return 'No due date'
     
-    const date = new Date(dateString)
+    const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(dateString)) ? `${dateString}T00:00:00` : dateString)
     const today = new Date()
     const tomorrow = new Date(today)
     tomorrow.setDate(tomorrow.getDate() + 1)
@@ -99,7 +99,7 @@ const TasksList = ({ tasks, onEdit, onDelete, onComplete, onView, loading }) => 
     if (status === 'completed') return false
     if (!dueDate) return false
     
-    const due = new Date(dueDate)
+    const due = new Date(/^\d{4}-\d{2}-\d{2}$/.test(String(dueDate)) ? `${dueDate}T00:00:00` : dueDate)
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     due.setHours(0, 0, 0, 0)

@@ -106,6 +106,14 @@ class URModuleTests(unittest.TestCase):
         self.assertEqual(updated["reviewer_company"], "Aetna UM")
         self.assertEqual(updated["denied_days"], 4)
 
+    def test_list_cases_filters_exact_client_id(self):
+        first = self._create_case(client_id="client-a", client_name="Client A")
+        self._create_case(client_id="client-b", client_name="Client B")
+
+        cases = self.store.list_cases({"client_id": "client-a"})
+
+        self.assertEqual([case["case_id"] for case in cases], [first["case_id"]])
+
     def test_route_create_detail_and_events(self):
         response = self.client.post(
             "/api/ur",
@@ -197,30 +205,33 @@ class URModuleTests(unittest.TestCase):
 
     def test_route_update_case(self):
         created = self._create_case()
-        response = self.client.put(
-            f"/api/ur/{created['case_id']}",
-            json={
-                "client_id": "",
-                "client_name": "Taylor Jones",
-                "payer": "Health Net",
-                "facility": "Main Campus",
-                "program": "Residential",
-                "current_level_of_care": "Residential",
-                "requested_level_of_care": "PHP",
-                "approved_level_of_care": "PHP",
-                "admit_date": "2030-01-01",
-                "requested_days": 14,
-                "approved_days": 9,
-                "denied_days": 5,
-                "reviewer_company": "Health Net UM",
-                "clinical_justification_summary": "Improving but still unstable.",
-                "status": "approved",
-            },
-        )
+        with patch.object(ur_routes, "sync_ur_deadline_reminders") as sync_mock:
+            response = self.client.put(
+                f"/api/ur/{created['case_id']}",
+                json={
+                    "client_id": "",
+                    "client_name": "Taylor Jones",
+                    "payer": "Health Net",
+                    "facility": "Main Campus",
+                    "program": "Residential",
+                    "current_level_of_care": "Residential",
+                    "requested_level_of_care": "PHP",
+                    "approved_level_of_care": "PHP",
+                    "admit_date": "2030-01-01",
+                    "requested_days": 14,
+                    "approved_days": 9,
+                    "denied_days": 5,
+                    "reviewer_company": "Health Net UM",
+                    "clinical_justification_summary": "Improving but still unstable.",
+                    "status": "approved",
+                },
+            )
         self.assertEqual(response.status_code, 200)
         payload = response.json()["case"]
         self.assertEqual(payload["approved_days"], 9)
         self.assertEqual(payload["denied_days"], 5)
+        sync_mock.assert_called_once()
+        self.assertEqual(sync_mock.call_args.args[0]["case_id"], created["case_id"])
         self.assertEqual(payload["reviewer_company"], "Health Net UM")
 
     def test_route_validation_rejects_missing_required_fields_and_negative_days(self):

@@ -519,8 +519,7 @@ function UR() {
                 <div className="space-y-6">
                   <SectionHeading title="Coverage & Placement" helper="Keep facility, program, and all level-of-care distinctions explicit." />
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <Field label="Client"><Input value={caseForm.client_name} onChange={(e) => handleCaseFieldChange('client_name', e.target.value)} /></Field>
-                    <Field label="Client ID"><Input value={caseForm.client_id} onChange={(e) => handleCaseFieldChange('client_id', e.target.value)} /></Field>
+                    <Field label="Client"><Input value={caseForm.client_name} readOnly /></Field>
                     <Field label="Payer"><Input value={caseForm.payer} onChange={(e) => handleCaseFieldChange('payer', e.target.value)} /></Field>
                     <Field label="Member ID"><Input value={caseForm.member_id} onChange={(e) => handleCaseFieldChange('member_id', e.target.value)} /></Field>
                     <Field label="Policy / Group"><Input value={caseForm.policy_group_number} onChange={(e) => handleCaseFieldChange('policy_group_number', e.target.value)} /></Field>

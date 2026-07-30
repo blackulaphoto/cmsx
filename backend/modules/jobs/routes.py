@@ -20,9 +20,15 @@ from .scraper_search_manager import scraper_search_manager
 from .simple_job_tools import get_job_search_resources
 from backend.auth.service import require_user
 from backend.auth.authorization import assert_client_access
+from backend.shared.database.railway_postgres import (
+    _engine as _postgres_engine,
+    is_postgres_configured,
+)
+from sqlalchemy import text
 # from ai_search_coordinator import get_ai_coordinator  # COMMENTED OUT - Using simple search
 
 logger = logging.getLogger(__name__)
+SAVED_JOBS_DB_PATH = os.path.join(os.path.dirname(__file__), "saved_jobs", "saved_jobs.db")
 
 # Create FastAPI router
 router = APIRouter(tags=["jobs"])
@@ -761,28 +767,147 @@ class SaveJobRequest(BaseModel):
     salary: Optional[str] = ""
     url: Optional[str] = ""
 
-@router.post("/save")
-async def save_job(request: SaveJobRequest, http_request: Request):
-    """Save a job for a client"""
-    # Phase 2 guard (before try so it isn't swallowed): client-data write scoped
-    # to the client. The FastAPI Request is http_request because `request` is the
-    # body model.
-    assert_client_access(require_user(http_request), request.client_id)
-    try:
-        # Create saved_jobs directory if it doesn't exist
-        saved_jobs_dir = os.path.join(os.path.dirname(__file__), "saved_jobs")
-        os.makedirs(saved_jobs_dir, exist_ok=True)
-        
-        # Create SQLite database for saved jobs
-        db_path = os.path.join(saved_jobs_dir, "saved_jobs.db")
-        
-        # Initialize database
-        import sqlite3
-        conn = sqlite3.connect(db_path)
+
+def list_saved_jobs_for_client(client_id: str) -> List[Dict[str, Any]]:
+    """Read one client's saved postings without creating or mutating storage."""
+    if is_postgres_configured():
+        _ensure_postgres_saved_jobs_table()
+        with _postgres_engine().connect() as conn:
+            rows = conn.execute(
+                text(
+                    """
+                    SELECT job_id, client_id, title, company, location, salary,
+                           url, notes, saved_date
+                    FROM railway_saved_jobs
+                    WHERE client_id = :client_id
+                    ORDER BY saved_date DESC
+                    """
+                ),
+                {"client_id": client_id},
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
+    if not os.path.exists(SAVED_JOBS_DB_PATH):
+        return []
+
+    import sqlite3
+
+    with sqlite3.connect(SAVED_JOBS_DB_PATH) as conn:
+        columns = {
+            row[1]
+            for row in conn.execute("PRAGMA table_info(saved_jobs)").fetchall()
+        }
+        if not {"job_id", "client_id", "saved_date"}.issubset(columns):
+            return []
+        optional_columns = ("title", "company", "location", "salary", "url", "notes")
+        select_optional = [
+            column if column in columns else f"NULL AS {column}"
+            for column in optional_columns
+        ]
+        rows = conn.execute(
+            f"""
+            SELECT job_id, client_id, {", ".join(select_optional)}, saved_date
+            FROM saved_jobs
+            WHERE client_id = ?
+            ORDER BY saved_date DESC
+            """,
+            (client_id,),
+        ).fetchall()
+    return [
+        {
+            "job_id": row[0],
+            "client_id": row[1],
+            "title": row[2],
+            "company": row[3],
+            "location": row[4],
+            "salary": row[5],
+            "url": row[6],
+            "notes": row[7],
+            "saved_date": row[8],
+        }
+        for row in rows
+    ]
+
+
+def _ensure_postgres_saved_jobs_table() -> None:
+    """Create the durable saved-job store when Railway Postgres is active."""
+    with _postgres_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS railway_saved_jobs (
+                    job_id TEXT NOT NULL,
+                    client_id TEXT NOT NULL,
+                    title TEXT,
+                    company TEXT,
+                    location TEXT,
+                    salary TEXT,
+                    url TEXT,
+                    notes TEXT,
+                    saved_date TEXT NOT NULL,
+                    PRIMARY KEY (job_id, client_id)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_railway_saved_jobs_client_date
+                ON railway_saved_jobs(client_id, saved_date)
+                """
+            )
+        )
+
+
+def _save_job_to_postgres(request: SaveJobRequest, saved_date: str) -> None:
+    _ensure_postgres_saved_jobs_table()
+    with _postgres_engine().begin() as conn:
+        conn.execute(
+            text(
+                """
+                INSERT INTO railway_saved_jobs (
+                    job_id, client_id, title, company, location, salary,
+                    url, notes, saved_date
+                )
+                VALUES (
+                    :job_id, :client_id, :title, :company, :location, :salary,
+                    :url, :notes, :saved_date
+                )
+                ON CONFLICT (job_id, client_id) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    company = EXCLUDED.company,
+                    location = EXCLUDED.location,
+                    salary = EXCLUDED.salary,
+                    url = EXCLUDED.url,
+                    notes = EXCLUDED.notes,
+                    saved_date = EXCLUDED.saved_date
+                """
+            ),
+            {
+                "job_id": request.job_id,
+                "client_id": request.client_id,
+                "title": request.title,
+                "company": request.company,
+                "location": request.location,
+                "salary": request.salary,
+                "url": request.url,
+                "notes": request.notes,
+                "saved_date": saved_date,
+            },
+        )
+
+
+def _save_job_to_sqlite(request: SaveJobRequest, saved_date: str) -> None:
+    """Local-development fallback matching the production record shape."""
+    import sqlite3
+
+    saved_jobs_dir = os.path.dirname(SAVED_JOBS_DB_PATH)
+    os.makedirs(saved_jobs_dir, exist_ok=True)
+    with sqlite3.connect(SAVED_JOBS_DB_PATH) as conn:
         cursor = conn.cursor()
-        
-        # Create table if it doesn't exist
-        cursor.execute('''
+        cursor.execute(
+            """
             CREATE TABLE IF NOT EXISTS saved_jobs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 job_id TEXT NOT NULL,
@@ -796,41 +921,47 @@ async def save_job(request: SaveJobRequest, http_request: Request):
                 saved_date TEXT NOT NULL,
                 UNIQUE(job_id, client_id)
             )
-        ''')
-
+            """
+        )
         cursor.execute("PRAGMA table_info(saved_jobs)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        columns_to_add = {
-            "title": "TEXT",
-            "company": "TEXT",
-            "location": "TEXT",
-            "salary": "TEXT",
-            "url": "TEXT",
-        }
-        for column_name, column_type in columns_to_add.items():
+        for column_name in ("title", "company", "location", "salary", "url"):
             if column_name not in existing_columns:
-                cursor.execute(f"ALTER TABLE saved_jobs ADD COLUMN {column_name} {column_type}")
-        
-        # Insert or update the saved job
-        cursor.execute('''
+                cursor.execute(f"ALTER TABLE saved_jobs ADD COLUMN {column_name} TEXT")
+        cursor.execute(
+            """
             INSERT OR REPLACE INTO saved_jobs (
                 job_id, client_id, title, company, location, salary, url, notes, saved_date
             )
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            request.job_id,
-            request.client_id,
-            request.title,
-            request.company,
-            request.location,
-            request.salary,
-            request.url,
-            request.notes,
-            datetime.now().isoformat()
-        ))
-        
-        conn.commit()
-        conn.close()
+            """,
+            (
+                request.job_id,
+                request.client_id,
+                request.title,
+                request.company,
+                request.location,
+                request.salary,
+                request.url,
+                request.notes,
+                saved_date,
+            ),
+        )
+
+
+@router.post("/save")
+async def save_job(request: SaveJobRequest, http_request: Request):
+    """Save a job for a client"""
+    # Phase 2 guard (before try so it isn't swallowed): client-data write scoped
+    # to the client. The FastAPI Request is http_request because `request` is the
+    # body model.
+    assert_client_access(require_user(http_request), request.client_id)
+    try:
+        saved_date = datetime.now().isoformat()
+        if is_postgres_configured():
+            _save_job_to_postgres(request, saved_date)
+        else:
+            _save_job_to_sqlite(request, saved_date)
         
         logger.info(f"Job {request.job_id} saved for client {request.client_id}")
         
@@ -839,7 +970,7 @@ async def save_job(request: SaveJobRequest, http_request: Request):
             "message": "Job saved successfully",
             "job_id": request.job_id,
             "client_id": request.client_id,
-            "saved_date": datetime.now().isoformat()
+            "saved_date": saved_date
         }
         
     except Exception as e:
@@ -856,42 +987,7 @@ async def get_saved_jobs(client_id: str, request: Request):
     # to the client.
     assert_client_access(require_user(request), client_id)
     try:
-        db_path = os.path.join(os.path.dirname(__file__), "saved_jobs", "saved_jobs.db")
-        
-        if not os.path.exists(db_path):
-            return {
-                "success": True,
-                "saved_jobs": [],
-                "total_count": 0
-            }
-        
-        import sqlite3
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT job_id, client_id, title, company, location, salary, url, notes, saved_date
-            FROM saved_jobs
-            WHERE client_id = ?
-            ORDER BY saved_date DESC
-        ''', (client_id,))
-        
-        rows = cursor.fetchall()
-        conn.close()
-        
-        saved_jobs = []
-        for row in rows:
-            saved_jobs.append({
-                "job_id": row[0],
-                "client_id": row[1],
-                "title": row[2],
-                "company": row[3],
-                "location": row[4],
-                "salary": row[5],
-                "url": row[6],
-                "notes": row[7],
-                "saved_date": row[8]
-            })
+        saved_jobs = list_saved_jobs_for_client(client_id)
         
         return {
             "success": True,

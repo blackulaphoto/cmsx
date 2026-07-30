@@ -331,7 +331,7 @@ function Benefits() {
 
   const createBenefitReminder = async (application) => {
     if (!application?.client_id) {
-      toast.error('This application is missing a client ID')
+      toast.error('This application is not linked to a client')
       return
     }
 
@@ -592,11 +592,20 @@ function Benefits() {
     { name: 'LIHEAP', description: 'Low-income home energy assistance program', icon: '⚡', gradient: 'from-indigo-500 to-blue-500' }
   ]
 
+  const approvedMonthlyBenefits = applications
+    .filter((app) => app.application_status === 'approved')
+    .reduce((total, app) => total + (Number(app.monthly_benefit_amount) || 0), 0)
+
   const stats = [
     { icon: FileText, label: 'Active Applications', value: applications.length.toString(), variant: 'primary' },
     { icon: CheckCircle, label: 'Approved', value: applications.filter(app => app.application_status === 'approved').length.toString(), variant: 'success' },
     { icon: Clock, label: 'Pending', value: applications.filter(app => app.application_status === 'pending').length.toString(), variant: 'warning' },
-    { icon: DollarSign, label: 'Monthly Benefits', value: '$1,240', variant: 'secondary' },
+    {
+      icon: DollarSign,
+      label: 'Monthly Benefits',
+      value: selectedClient ? approvedMonthlyBenefits.toLocaleString('en-US', { style: 'currency', currency: 'USD' }) : '—',
+      variant: 'secondary'
+    },
   ]
 
   return (

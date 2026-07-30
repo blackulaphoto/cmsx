@@ -116,6 +116,39 @@ def test_operational_context_routes_intake_to_module_needs(tmp_path, monkeypatch
         "get_client_services_summary",
         lambda client_id: {"referrals": [], "tasks": [], "open_tasks": 0},
     )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_groups_summary",
+        lambda client_id, org_id=None: {
+            "total_sessions": 2,
+            "attended_sessions": 2,
+            "latest_session": {"title": "Coping Skills", "scheduled_date": "2026-07-27"},
+        },
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_fmla_summary",
+        lambda client_id, org_id=None: {
+            "total_cases": 1,
+            "active_cases": 1,
+            "next_deadline": {"label": "Paperwork due", "date": "2026-08-04"},
+        },
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_ur_summary",
+        lambda client_id, org_id=None: {
+            "total_cases": 1,
+            "active_cases": 1,
+            "next_deadline": {"label": "Next review", "date": "2026-08-02"},
+        },
+    )
+    from backend.modules.jobs import routes as jobs_routes
+    monkeypatch.setattr(
+        jobs_routes,
+        "list_saved_jobs_for_client",
+        lambda client_id: [{"job_id": "job-1", "title": "Warehouse Associate"}],
+    )
     client_id = _seed_core_client()
     client = TestClient(_test_app(tmp_path))
 
@@ -155,6 +188,10 @@ def test_operational_context_routes_intake_to_module_needs(tmp_path, monkeypatch
     }.issubset(need_keys)
 
     assert context["module_context"]["resume"]["contact"]["email"] == "operational.client@example.test"
+    assert context["module_context"]["groups"]["latest_session"]["title"] == "Coping Skills"
+    assert context["module_context"]["fmla"]["next_deadline"]["label"] == "Paperwork due"
+    assert context["module_context"]["ur"]["next_deadline"]["label"] == "Next review"
+    assert context["module_context"]["employment"]["saved_jobs"][0]["title"] == "Warehouse Associate"
     assert {need["need_key"] for need in context["module_context"]["medical"]["active_needs"]} >= {
         "dental",
         "primary_care",
@@ -177,6 +214,50 @@ def test_operational_context_enforces_case_manager_access(tmp_path, monkeypatch)
     )
 
     assert response.status_code == 403
+
+
+def test_operational_context_isolates_optional_source_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-partial-context")
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_benefits_summary",
+        lambda _client_id: {"total_applications": 2, "active_applications": 1},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_legal_summary",
+        lambda _client_id: {"total_cases": 1, "active_cases": 1},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_services_summary",
+        lambda _client_id: {"total_referrals": 1, "active_referrals": 1},
+    )
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_groups_summary",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("groups offline")),
+    )
+    monkeypatch.setattr(clients_api, "get_client_fmla_summary", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(clients_api, "get_client_ur_summary", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(clients_api, "get_client_medical_referrals_summary", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_service_referrals", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_roi_records", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_notes", lambda _client_id: [])
+    from backend.modules.jobs import routes as jobs_routes
+    monkeypatch.setattr(jobs_routes, "list_saved_jobs_for_client", lambda _client_id: [])
+
+    context = clients_api.load_client_operational_context(client_id)
+
+    assert context["module_context"]["benefits"]["summary"]["total_applications"] == 2
+    assert context["module_context"]["legal"]["summary"]["total_cases"] == 1
+    assert context["module_context"]["groups"] == {}
+    assert context["metadata"]["complete"] is False
+    assert context["metadata"]["unavailable_sources"] == ["groups"]
 
 
 def test_unified_view_merges_medical_referrals_into_existing_services_path(tmp_path, monkeypatch):
@@ -269,6 +350,280 @@ def test_unified_view_merges_medical_referrals_into_existing_services_path(tmp_p
     assert referrals[0]["provider_name"] == "Sunrise Health Clinic"
     assert any(ref.get("provider_name") == "Community Dental Partners" for ref in referrals)
     assert payload["client_data"]["services"]["total_referrals"] == 3
+
+
+def test_unified_view_surfaces_saved_jobs_in_employment(tmp_path, monkeypatch):
+    from backend.modules.jobs import routes as jobs_routes
+
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-saved-jobs")
+    client = TestClient(_test_app(tmp_path))
+
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(clients_api, "get_client_benefits_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_legal_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_services_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_medical_referrals_summary", lambda _client_id: [])
+    monkeypatch.setattr(clients_api, "get_client_groups_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(clients_api, "get_client_fmla_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(clients_api, "get_client_ur_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(
+        jobs_routes,
+        "list_saved_jobs_for_client",
+        lambda resolved_client_id: [
+            {
+                "job_id": "job-1",
+                "client_id": resolved_client_id,
+                "title": "Warehouse Associate",
+                "company": "Example Logistics",
+                "location": "Los Angeles, CA",
+                "notes": "Call before applying.",
+                "saved_date": "2026-07-28T09:00:00",
+            }
+        ],
+    )
+    monkeypatch.setattr(workspace_store, "list_client_service_referrals", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+
+    response = client.get(
+        f"/api/clients/{client_id}/unified-view",
+        headers={
+            "X-Test-Auth-Email": "case.manager@example.test",
+            "X-Test-Auth-Case-Manager-Id": "cm_test",
+            "X-Test-Auth-Role": "case_manager",
+        },
+    )
+
+    assert response.status_code == 200
+    saved_jobs = response.json()["client_data"]["employment"]["saved_jobs"]
+    assert len(saved_jobs) == 1
+    assert saved_jobs[0]["client_id"] == client_id
+    assert saved_jobs[0]["title"] == "Warehouse Associate"
+
+
+def test_unified_view_surfaces_client_group_participation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-groups-summary")
+    client = TestClient(_test_app(tmp_path))
+
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(clients_api, "get_client_benefits_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_legal_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_services_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_medical_referrals_summary", lambda _client_id: [])
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_groups_summary",
+        lambda resolved_client_id, org_id=None: {
+            "sessions": [
+                {
+                    "session_id": "sess-1",
+                    "title": "Relapse Prevention",
+                    "scheduled_date": "2026-07-27",
+                    "attendance_status": "present",
+                    "note_count": 1,
+                }
+            ],
+            "total_sessions": 1,
+            "attended_sessions": 1,
+            "documented_sessions": 1,
+            "latest_session": {
+                "session_id": "sess-1",
+                "title": "Relapse Prevention",
+                "scheduled_date": "2026-07-27",
+                "attendance_status": "present",
+                "note_count": 1,
+            },
+        },
+    )
+    monkeypatch.setattr(workspace_store, "list_client_service_referrals", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+
+    response = client.get(
+        f"/api/clients/{client_id}/unified-view",
+        headers={
+            "X-Test-Auth-Email": "case.manager@example.test",
+            "X-Test-Auth-Case-Manager-Id": "cm_test",
+            "X-Test-Auth-Role": "case_manager",
+        },
+    )
+
+    assert response.status_code == 200
+    groups = response.json()["client_data"]["groups"]
+    assert groups["total_sessions"] == 1
+    assert groups["attended_sessions"] == 1
+    assert groups["documented_sessions"] == 1
+    assert groups["latest_session"]["title"] == "Relapse Prevention"
+
+
+def test_unified_view_surfaces_client_fmla_deadline(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-fmla-summary")
+    client = TestClient(_test_app(tmp_path))
+
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(clients_api, "get_client_benefits_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_legal_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_services_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_medical_referrals_summary", lambda _client_id: [])
+    monkeypatch.setattr(clients_api, "get_client_groups_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_fmla_summary",
+        lambda resolved_client_id, org_id=None: {
+            "cases": [],
+            "total_cases": 1,
+            "active_cases": 1,
+            "next_deadline": {
+                "case_id": "fmla-1",
+                "field": "paperwork_deadline",
+                "label": "Paperwork due",
+                "date": "2026-08-04",
+            },
+        },
+    )
+    monkeypatch.setattr(workspace_store, "list_client_service_referrals", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+
+    response = client.get(
+        f"/api/clients/{client_id}/unified-view",
+        headers={
+            "X-Test-Auth-Email": "case.manager@example.test",
+            "X-Test-Auth-Case-Manager-Id": "cm_test",
+            "X-Test-Auth-Role": "case_manager",
+        },
+    )
+
+    assert response.status_code == 200
+    fmla = response.json()["client_data"]["fmla"]
+    assert fmla["total_cases"] == 1
+    assert fmla["active_cases"] == 1
+    assert fmla["next_deadline"]["label"] == "Paperwork due"
+    assert fmla["next_deadline"]["date"] == "2026-08-04"
+
+
+def test_unified_view_surfaces_client_ur_deadline(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    client_id = _seed_core_client("client-ur-summary")
+    client = TestClient(_test_app(tmp_path))
+
+    monkeypatch.setattr(clients_api, "get_client_data_integrator", lambda: _StubClientDataIntegrator())
+    monkeypatch.setattr(clients_api, "get_client_benefits_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_legal_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_services_summary", lambda _client_id: {})
+    monkeypatch.setattr(clients_api, "get_client_medical_referrals_summary", lambda _client_id: [])
+    monkeypatch.setattr(clients_api, "get_client_groups_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(clients_api, "get_client_fmla_summary", lambda _client_id, org_id=None: {})
+    monkeypatch.setattr(
+        clients_api,
+        "get_client_ur_summary",
+        lambda resolved_client_id, org_id=None: {
+            "cases": [],
+            "total_cases": 1,
+            "active_cases": 1,
+            "next_deadline": {
+                "case_id": "ur-1",
+                "field": "next_review_date",
+                "label": "Next review",
+                "date": "2026-08-02",
+            },
+        },
+    )
+    monkeypatch.setattr(workspace_store, "list_client_service_referrals", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_appointments", lambda _client_id: [])
+    monkeypatch.setattr(workspace_store, "list_client_documents", lambda _client_id: [])
+
+    response = client.get(
+        f"/api/clients/{client_id}/unified-view",
+        headers={
+            "X-Test-Auth-Email": "case.manager@example.test",
+            "X-Test-Auth-Case-Manager-Id": "cm_test",
+            "X-Test-Auth-Role": "case_manager",
+        },
+    )
+
+    assert response.status_code == 200
+    ur = response.json()["client_data"]["ur"]
+    assert ur["total_cases"] == 1
+    assert ur["active_cases"] == 1
+    assert ur["next_deadline"]["label"] == "Next review"
+    assert ur["next_deadline"]["date"] == "2026-08-02"
+
+
+def test_client_fmla_summary_uses_client_org_filter_and_nearest_deadline(monkeypatch):
+    from backend.modules.fmla import store_factory
+
+    class _StubFMLAStore:
+        def list_cases(self, filters):
+            assert filters == {
+                "client_id": "client-fmla",
+                "case_subject_type": "client",
+                "org_id": "org-test",
+            }
+            return [
+                {
+                    "case_id": "fmla-active",
+                    "status": "submitted",
+                    "paperwork_deadline": "2099-08-04",
+                    "return_to_work_date": "2099-09-01",
+                },
+                {
+                    "case_id": "fmla-closed",
+                    "status": "closed",
+                    "paperwork_deadline": "2099-08-15",
+                },
+            ]
+
+    monkeypatch.setattr(store_factory, "get_fmla_store", lambda: _StubFMLAStore())
+
+    summary = clients_api.get_client_fmla_summary("client-fmla", org_id="org-test")
+
+    assert summary["total_cases"] == 2
+    assert summary["active_cases"] == 1
+    assert summary["next_deadline"] == {
+        "case_id": "fmla-active",
+        "field": "paperwork_deadline",
+        "label": "Paperwork due",
+        "date": "2099-08-04",
+    }
+
+
+def test_client_ur_summary_uses_client_org_filter_and_nearest_deadline(monkeypatch):
+    from backend.modules.ur import store_factory
+
+    class _StubURStore:
+        def list_cases(self, filters):
+            assert filters == {"client_id": "client-ur", "org_id": "org-test"}
+            return [
+                {
+                    "case_id": "ur-active",
+                    "status": "submitted",
+                    "payer": "Health Net",
+                    "next_review_date": "2099-08-02",
+                    "approved_end_date": "2099-08-10",
+                },
+                {
+                    "case_id": "ur-closed",
+                    "status": "closed",
+                    "appeal_deadline": "2099-08-20",
+                },
+            ]
+
+    monkeypatch.setattr(store_factory, "get_ur_store", lambda: _StubURStore())
+
+    summary = clients_api.get_client_ur_summary("client-ur", org_id="org-test")
+
+    assert summary["total_cases"] == 2
+    assert summary["active_cases"] == 1
+    assert summary["next_deadline"] == {
+        "case_id": "ur-active",
+        "field": "next_review_date",
+        "label": "Next review",
+        "date": "2099-08-02",
+    }
 
 
 def test_client_work_items_route_returns_canonical_items(tmp_path, monkeypatch):

@@ -113,11 +113,19 @@ def _ensure_case_management_appointments_table() -> None:
                 location TEXT,
                 notes TEXT,
                 status TEXT DEFAULT 'scheduled',
+                reminder_enabled INTEGER NOT NULL DEFAULT 1,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(appointments)").fetchall()
+        }
+        if "reminder_enabled" not in columns:
+            conn.execute(
+                "ALTER TABLE appointments ADD COLUMN reminder_enabled INTEGER NOT NULL DEFAULT 1"
+            )
         conn.commit()
 
 
@@ -909,7 +917,6 @@ async def create_medical_appointment(payload: MedicalAppointmentCreate, request:
     current_user = require_authenticated_user(request)
     assert_client_access(current_user, payload.client_id)
     _ensure_case_management_appointments_table()
-    _ensure_reminders_table()
 
     appointment_id = str(uuid4())
     case_manager_id = current_user.case_manager_id if not current_user.is_admin else (payload.case_manager_id or _get_client_case_manager(payload.client_id))
@@ -921,8 +928,9 @@ async def create_medical_appointment(payload: MedicalAppointmentCreate, request:
                 """
                 INSERT INTO appointments (
                     id, client_id, case_manager_id, appointment_type, provider_name,
-                    appointment_date, appointment_time, location, notes, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    appointment_date, appointment_time, location, notes, status,
+                    reminder_enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     appointment_id,
@@ -935,37 +943,36 @@ async def create_medical_appointment(payload: MedicalAppointmentCreate, request:
                     payload.location,
                     payload.notes,
                     "scheduled",
+                    1 if payload.create_reminder else 0,
                     created_at,
                     created_at,
                 ),
             )
             conn.commit()
 
-        if payload.create_reminder:
-            due_date = (
-                datetime.fromisoformat(payload.appointment_date) - timedelta(days=1)
-            ).date().isoformat()
-            with _connect(REMINDERS_DB_PATH) as conn:
-                conn.execute(
-                    """
-                    INSERT INTO active_reminders (
-                        reminder_id, client_id, case_manager_id, reminder_type,
-                        message, priority, due_date, status, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        str(uuid4()),
-                        payload.client_id,
-                        case_manager_id,
-                        "Medical Appointment",
-                        f"Medical appointment: {payload.provider_name} on {payload.appointment_date} at {payload.appointment_time}",
-                        "High",
-                        due_date,
-                        "Active",
-                        created_at,
-                    ),
-                )
-                conn.commit()
+        from backend.modules.medical.work_items import sync_medical_appointment_reminder
+
+        try:
+            sync_medical_appointment_reminder(
+                {
+                    "id": appointment_id,
+                    "client_id": payload.client_id,
+                    "case_manager_id": case_manager_id,
+                    "appointment_type": payload.appointment_type,
+                    "provider_name": payload.provider_name,
+                    "appointment_date": payload.appointment_date,
+                    "appointment_time": payload.appointment_time,
+                    "status": "scheduled",
+                    "reminder_enabled": 1 if payload.create_reminder else 0,
+                },
+                source="medical",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Medical appointment reminder sync deferred for %s: %s",
+                appointment_id,
+                exc,
+            )
 
         return {
             "success": True,
@@ -983,7 +990,9 @@ async def update_medical_appointment(appointment_id: str, payload: MedicalAppoin
     _ensure_case_management_appointments_table()
     try:
         with _connect(CASE_MGMT_DB_PATH) as conn:
-            existing = conn.execute("SELECT client_id FROM appointments WHERE id = ?", (appointment_id,)).fetchone()
+            existing = conn.execute(
+                "SELECT * FROM appointments WHERE id = ?", (appointment_id,)
+            ).fetchone()
             if not existing:
                 raise HTTPException(status_code=404, detail="Appointment not found")
             assert_client_access(current_user, existing["client_id"])
@@ -996,11 +1005,55 @@ async def update_medical_appointment(appointment_id: str, payload: MedicalAppoin
                 (payload.status, payload.notes, datetime.now().isoformat(), appointment_id),
             )
             conn.commit()
+            updated = conn.execute(
+                "SELECT * FROM appointments WHERE id = ?", (appointment_id,)
+            ).fetchone()
+        from backend.modules.medical.work_items import sync_medical_appointment_reminder
+
+        try:
+            sync_medical_appointment_reminder(dict(updated), source="medical")
+        except Exception as exc:
+            logger.warning(
+                "Medical appointment reminder sync deferred for %s: %s",
+                appointment_id,
+                exc,
+            )
         return {"success": True, "message": "Appointment updated successfully"}
     except HTTPException:
         raise
     except Exception as exc:
         logger.error("Update medical appointment failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/appointments/{appointment_id}")
+async def delete_medical_appointment(appointment_id: str, request: Request):
+    current_user = require_authenticated_user(request)
+    _ensure_case_management_appointments_table()
+    try:
+        with _connect(CASE_MGMT_DB_PATH) as conn:
+            existing = conn.execute(
+                "SELECT * FROM appointments WHERE id = ?", (appointment_id,)
+            ).fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Appointment not found")
+            assert_client_access(current_user, existing["client_id"])
+        from backend.modules.medical.work_items import remove_medical_appointment_reminder
+
+        remove_medical_appointment_reminder(
+            appointment_id,
+            source="medical",
+            client_id=existing["client_id"],
+            case_manager_id=existing["case_manager_id"],
+        )
+        with _connect(CASE_MGMT_DB_PATH) as conn:
+            conn.execute("DELETE FROM appointments WHERE id = ?", (appointment_id,))
+            conn.commit()
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Delete medical appointment failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
 
 

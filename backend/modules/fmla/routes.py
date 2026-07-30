@@ -14,6 +14,7 @@ from backend.shared.tenancy import multi_tenant_enabled, resolve_org_id
 
 from .export_service import build_packet_pdf, generate_employer_safe_packet
 from .store_factory import get_fmla_store
+from .work_items import sync_fmla_deadline_reminders
 
 
 router = APIRouter(tags=["fmla"])
@@ -232,6 +233,7 @@ async def create_fmla_case(payload: FMLACasePayload, request: Request):
     )
     data["org_id"] = _org_for_new_case(current_user, data)
     record = store.create_case(data)
+    sync_fmla_deadline_reminders(record)
     _audit(record["case_id"], "case_created", current_user, {"case_subject_type": record.get("case_subject_type"), "status": record.get("status")})
     return {"success": True, "case": record}
 
@@ -279,6 +281,7 @@ async def update_fmla_case(case_id: str, payload: FMLACasePayload, request: Requ
     record = store.update_case(case_id, data)
     if not record:
         raise HTTPException(status_code=404, detail="FMLA case not found")
+    sync_fmla_deadline_reminders(record)
     _audit(case_id, "case_updated", current_user, {"case_subject_type": record.get("case_subject_type"), "status": record.get("status")})
     return {"success": True, "case": record}
 

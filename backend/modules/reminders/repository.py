@@ -301,6 +301,32 @@ _PG_ALTER_STATEMENTS = [
 _sqlite_tenancy_ready = False
 
 
+def _ensure_sqlite_active_reminders_table() -> None:
+    """Make canonical reminder writes safe in a brand-new workspace."""
+    Path(_SQLITE_REMINDERS_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS active_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reminder_id TEXT UNIQUE NOT NULL,
+                client_id TEXT NOT NULL,
+                case_manager_id TEXT NOT NULL,
+                reminder_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                priority TEXT DEFAULT 'Medium',
+                due_date TEXT,
+                status TEXT DEFAULT 'Active',
+                created_at TEXT,
+                org_id TEXT
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_active_reminders_org ON active_reminders(org_id)"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Ensure tables exist
 # ---------------------------------------------------------------------------
@@ -771,6 +797,7 @@ def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = Non
     Pass client_date (YYYY-MM-DD) to use the client's local date for bucketing
     instead of the server's UTC date.today().
     """
+    reconcile_operational_deadlines(case_manager_id, org_id=org_id)
     all_tasks = list_tasks_for_case_manager(case_manager_id, org_id=org_id)
 
     if client_date:
@@ -894,6 +921,60 @@ def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = Non
             "later": len(buckets["later"]),
         },
     }
+
+
+def reconcile_operational_deadlines(case_manager_id: str, org_id: Optional[str] = None) -> None:
+    """Project existing assigned module deadlines before Smart Daily reads them."""
+    try:
+        from backend.modules.medical.work_items import reconcile_medical_appointment_reminders
+
+        client_ids, _ = get_clients_for_case_manager(case_manager_id)
+        reconcile_medical_appointment_reminders(
+            case_manager_id,
+            client_ids,
+            org_id=org_id,
+        )
+    except Exception as exc:
+        logger.warning("Medical appointment reconciliation failed: %s", exc)
+
+    try:
+        from backend.modules.treatment_plan.work_items import (
+            reconcile_treatment_plan_review_reminders,
+        )
+
+        client_ids, client_names = get_clients_for_case_manager(case_manager_id)
+        reconcile_treatment_plan_review_reminders(
+            case_manager_id,
+            client_ids,
+            client_names,
+            org_id=org_id,
+        )
+    except Exception as exc:
+        logger.warning("Treatment plan review reconciliation failed: %s", exc)
+
+    try:
+        from backend.modules.ur.store_factory import get_ur_store
+        from backend.modules.ur.work_items import sync_ur_deadline_reminders
+
+        filters: Dict[str, Any] = {"case_manager": case_manager_id}
+        if org_id is not None:
+            filters["org_id"] = org_id
+        for case_record in get_ur_store().list_cases(filters):
+            sync_ur_deadline_reminders(case_record)
+    except Exception as exc:
+        logger.warning("UR deadline reconciliation failed: %s", exc)
+
+    try:
+        from backend.modules.fmla.store_factory import get_fmla_store
+        from backend.modules.fmla.work_items import sync_fmla_deadline_reminders
+
+        filters = {"case_manager": case_manager_id}
+        if org_id is not None:
+            filters["org_id"] = org_id
+        for case_record in get_fmla_store().list_cases(filters):
+            sync_fmla_deadline_reminders(case_record)
+    except Exception as exc:
+        logger.warning("FMLA deadline reconciliation failed: %s", exc)
 
 
 def get_client_work_items(
@@ -1301,6 +1382,7 @@ def create_active_reminder(
     priority: str = "Medium",
     due_date: Optional[str] = None,
     org_id: Optional[str] = None,
+    allow_sqlite_fallback: bool = True,
 ) -> str:
     """Persist a new active reminder. Returns the reminder_id."""
     reminder_id = str(uuid.uuid4())
@@ -1335,8 +1417,11 @@ def create_active_reminder(
                 )
             return reminder_id
         except Exception as exc:
+            if not allow_sqlite_fallback:
+                raise RuntimeError("Postgres reminder persistence failed") from exc
             logger.warning("Postgres create_active_reminder failed (%s), using SQLite", exc)
 
+    _ensure_sqlite_active_reminders_table()
     _ensure_sqlite_tenancy_schema()
     with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
         conn.execute(
@@ -1352,12 +1437,114 @@ def create_active_reminder(
     return reminder_id
 
 
+def sync_active_reminder(
+    reminder_id: str,
+    client_id: str,
+    case_manager_id: str,
+    reminder_type: str,
+    message: str,
+    priority: str,
+    due_date: Optional[str],
+    active: bool = True,
+    org_id: Optional[str] = None,
+) -> str:
+    """Idempotently project an operational deadline into active reminders."""
+    if not use_postgres():
+        _ensure_sqlite_active_reminders_table()
+    existing = get_active_reminder(reminder_id)
+    if existing:
+        if not active or not due_date:
+            delete_active_reminder(reminder_id, org_id=org_id)
+            return reminder_id
+        content_changed = (
+            existing.get("message") != message
+            or existing.get("due_date") != due_date
+            or existing.get("priority") != priority
+            or existing.get("reminder_type") != reminder_type
+        )
+        ownership_changed = (
+            ("client_id" in existing and existing.get("client_id") != client_id)
+            or (
+                "case_manager_id" in existing
+                and existing.get("case_manager_id") != case_manager_id
+            )
+        )
+        if content_changed or ownership_changed:
+            update_active_reminder(
+                reminder_id,
+                message=message,
+                due_date=due_date,
+                priority=priority,
+                reminder_type=reminder_type,
+                client_id=client_id,
+                case_manager_id=case_manager_id,
+                org_id=org_id,
+            )
+        if active and content_changed and existing.get("status") != "Active":
+            reopen_active_reminder(reminder_id, org_id=org_id)
+        return reminder_id
+
+    if not active or not due_date:
+        return reminder_id
+
+    created_at = datetime.now().isoformat()
+    record_org_id = org_id or _resolve_org_for_record(client_id, case_manager_id)
+    if use_postgres():
+        from sqlalchemy import text
+        with _pg_conn() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO railway_active_reminders (
+                        reminder_id, client_id, case_manager_id, reminder_type,
+                        message, priority, due_date, status, created_at, org_id
+                    ) VALUES (
+                        :reminder_id, :client_id, :case_manager_id, :reminder_type,
+                        :message, :priority, :due_date, 'Active', :created_at, :org_id
+                    )
+                    ON CONFLICT (reminder_id) DO NOTHING
+                    """
+                ),
+                {
+                    "reminder_id": reminder_id,
+                    "client_id": client_id,
+                    "case_manager_id": case_manager_id,
+                    "reminder_type": reminder_type,
+                    "message": message,
+                    "priority": priority,
+                    "due_date": due_date,
+                    "created_at": created_at,
+                    "org_id": record_org_id,
+                },
+            )
+        return reminder_id
+
+    _ensure_sqlite_active_reminders_table()
+    _ensure_sqlite_tenancy_schema()
+    with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO active_reminders (
+                reminder_id, client_id, case_manager_id, reminder_type,
+                message, priority, due_date, status, created_at, org_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Active', ?, ?)
+            """,
+            (
+                reminder_id, client_id, case_manager_id, reminder_type,
+                message, priority, due_date, created_at, record_org_id,
+            ),
+        )
+    return reminder_id
+
+
 def update_active_reminder(
     reminder_id: str,
     message: Optional[str] = None,
     due_date: Optional[str] = None,
     priority: Optional[str] = None,
     reminder_type: Optional[str] = None,
+    client_id: Optional[str] = None,
+    case_manager_id: Optional[str] = None,
     org_id: Optional[str] = None,
 ) -> bool:
     """Update editable fields on an active reminder. Returns True if a row was changed."""
@@ -1370,6 +1557,10 @@ def update_active_reminder(
         updates["priority"] = priority
     if reminder_type is not None:
         updates["reminder_type"] = reminder_type
+    if client_id is not None:
+        updates["client_id"] = client_id
+    if case_manager_id is not None:
+        updates["case_manager_id"] = case_manager_id
     if not updates:
         return True
 
@@ -1603,6 +1794,7 @@ class _Repo:
     list_tasks_for_case_manager = staticmethod(list_tasks_for_case_manager)
     get_today_tasks = staticmethod(get_today_tasks)
     get_prioritized_tasks = staticmethod(get_prioritized_tasks)
+    reconcile_operational_deadlines = staticmethod(reconcile_operational_deadlines)
     get_client_work_items = staticmethod(get_client_work_items)
     get_active_reminders_for_case_manager = staticmethod(get_active_reminders_for_case_manager)
     get_active_reminder = staticmethod(get_active_reminder)
@@ -1610,6 +1802,7 @@ class _Repo:
     create_intelligent_tasks = staticmethod(create_intelligent_tasks)
     update_task_status = staticmethod(update_task_status)
     create_active_reminder = staticmethod(create_active_reminder)
+    sync_active_reminder = staticmethod(sync_active_reminder)
     update_active_reminder = staticmethod(update_active_reminder)
     delete_active_reminder = staticmethod(delete_active_reminder)
     reopen_active_reminder = staticmethod(reopen_active_reminder)

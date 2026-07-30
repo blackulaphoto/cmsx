@@ -1,4 +1,4 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -35,7 +35,8 @@ import {
   Download,
   X,
   ClipboardList,
-  Copy
+  Users,
+  HeartHandshake
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import useNotes from '../hooks/useNotes'
@@ -433,18 +434,10 @@ const ClientDashboard = () => {
 
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A'
-    return new Date(dateString).toLocaleDateString()
-  }
-
-  const shortClientRef = (id) => String(id || '').slice(0, 8)
-
-  const copyClientId = async (id) => {
-    try {
-      await navigator.clipboard.writeText(id)
-      toast.success('Client ID copied')
-    } catch (error) {
-      toast.error('Could not copy client ID')
-    }
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(String(dateString))
+      ? `${dateString}T00:00:00`
+      : dateString
+    return new Date(normalized).toLocaleDateString()
   }
 
   const formatDateTime = (dateString) => {
@@ -1112,17 +1105,6 @@ const ClientDashboard = () => {
                   <h1 className="text-3xl font-bold bg-gradient-to-r from-white via-blue-200 to-purple-200 bg-clip-text text-transparent">
                     {client.first_name} {client.last_name}
                   </h1>
-                  <div className="flex items-center gap-1.5 text-gray-400">
-                    <span title={client.client_id}>Ref: {shortClientRef(client.client_id)}</span>
-                    <button
-                      type="button"
-                      onClick={() => copyClientId(client.client_id)}
-                      className="p-1 text-gray-500 hover:text-gray-300 transition-colors rounded"
-                      title="Copy full client ID"
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
                 </div>
               </div>
               <div className="flex items-center space-x-4">
@@ -1314,6 +1296,87 @@ const ClientDashboard = () => {
                         </div>
                       </div>
                     </div>
+                    <Link
+                      to={`/groups?client=${clientId}`}
+                      className="group p-6 bg-gradient-to-br from-cyan-500/20 to-teal-500/20 backdrop-blur-sm rounded-xl border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-300 hover:scale-105 md:col-span-2"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2 bg-gradient-to-r from-cyan-500 to-teal-500 rounded-lg">
+                            <Users className="h-6 w-6 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-cyan-200">Group Participation</p>
+                            <p className="text-sm text-white font-semibold">
+                              {clientData.groups?.total_sessions
+                                ? `${clientData.groups.attended_sessions} attended of ${clientData.groups.total_sessions} recorded`
+                                : 'No recorded group sessions'}
+                            </p>
+                            {clientData.groups?.latest_session && (
+                              <p className="mt-1 text-xs text-cyan-100/80">
+                                Latest: {clientData.groups.latest_session.title}
+                                {clientData.groups.latest_session.scheduled_date
+                                  ? ` · ${formatDate(clientData.groups.latest_session.scheduled_date)}`
+                                  : ''}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <ExternalLink className="h-4 w-4 shrink-0 text-cyan-300 group-hover:text-white transition-colors" />
+                      </div>
+                    </Link>
+                    <Link
+                      to={`/fmla?client=${clientId}`}
+                      className="group p-6 bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 backdrop-blur-sm rounded-xl border border-violet-500/30 hover:border-violet-400/50 transition-all duration-300 hover:scale-105 md:col-span-2"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2 bg-gradient-to-r from-violet-500 to-fuchsia-500 rounded-lg">
+                            <HeartHandshake className="h-6 w-6 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-violet-200">FMLA</p>
+                            <p className="text-sm text-white font-semibold">
+                              {clientData.fmla?.total_cases
+                                ? `${clientData.fmla.active_cases} active of ${clientData.fmla.total_cases} recorded`
+                                : 'No client-linked FMLA cases'}
+                            </p>
+                            {clientData.fmla?.next_deadline && (
+                              <p className="mt-1 text-xs text-violet-100/80">
+                                {clientData.fmla.next_deadline.label}: {formatDate(clientData.fmla.next_deadline.date)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <ExternalLink className="h-4 w-4 shrink-0 text-violet-300 group-hover:text-white transition-colors" />
+                      </div>
+                    </Link>
+                    <Link
+                      to={`/ur?client=${clientId}`}
+                      className="group p-6 bg-gradient-to-br from-amber-500/20 to-yellow-500/20 backdrop-blur-sm rounded-xl border border-amber-500/30 hover:border-amber-400/50 transition-all duration-300 hover:scale-105 md:col-span-2"
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center space-x-3">
+                          <div className="p-2 bg-gradient-to-r from-amber-500 to-yellow-500 rounded-lg">
+                            <ShieldCheck className="h-6 w-6 text-white" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-amber-200">Utilization Review</p>
+                            <p className="text-sm text-white font-semibold">
+                              {clientData.ur?.total_cases
+                                ? `${clientData.ur.active_cases} active of ${clientData.ur.total_cases} recorded`
+                                : 'No client-linked UR cases'}
+                            </p>
+                            {clientData.ur?.next_deadline && (
+                              <p className="mt-1 text-xs text-amber-100/80">
+                                {clientData.ur.next_deadline.label}: {formatDate(clientData.ur.next_deadline.date)}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <ExternalLink className="h-4 w-4 shrink-0 text-amber-300 group-hover:text-white transition-colors" />
+                      </div>
+                    </Link>
                   </div>
                 </div>
 
@@ -1991,6 +2054,35 @@ const ClientDashboard = () => {
                         <p className="text-sm font-medium text-white mb-1">Career Objective</p>
                         <p className="text-sm text-gray-300">{employmentProfile.career_objective}</p>
                       </div>
+                    )}
+                  </div>
+
+                  {/* Saved job postings — distinct from applications. */}
+                  <div>
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                      <h4 className="font-medium text-white">Saved Jobs</h4>
+                      <Link
+                        to={`/jobs?client=${clientId}`}
+                        className="text-sm font-medium text-green-300 hover:text-green-200"
+                      >
+                        Open Job Search
+                      </Link>
+                    </div>
+                    {clientData.employment?.saved_jobs?.length > 0 ? (
+                      <div className="space-y-3">
+                        {clientData.employment.saved_jobs.map((job) => (
+                          <div key={job.job_id} className="p-4 bg-gradient-to-br from-green-500/20 to-emerald-500/20 backdrop-blur-sm rounded-xl border border-green-500/30">
+                            <p className="font-medium text-white">{job.title || 'Saved job'}</p>
+                            <p className="text-sm text-green-200">
+                              {[job.company, job.location].filter(Boolean).join(' · ') || 'Employer details not recorded'}
+                            </p>
+                            <p className="mt-1 text-xs text-gray-300">Saved: {formatDate(job.saved_date)}</p>
+                            {job.notes && <p className="mt-2 text-sm text-gray-300">{job.notes}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-gray-400">No saved job postings yet.</p>
                     )}
                   </div>
 

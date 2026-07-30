@@ -87,6 +87,25 @@ class FMLAStoreTests(unittest.TestCase):
         self.assertEqual(reloaded["status"], "submitted")
         self.assertEqual(reloaded["confirmation_received"], 1)
 
+    def test_route_update_syncs_operational_deadlines(self):
+        created = self._create_case()
+        with patch.object(fmla_routes, "sync_fmla_deadline_reminders") as sync_mock:
+            response = self.client.put(
+                f"/api/fmla/{created['case_id']}",
+                json={
+                    "client_name": "Taylor Jones",
+                    "paperwork_deadline": "2030-01-20",
+                    "status": "submitted",
+                    "approval_status": "pending",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        sync_mock.assert_called_once()
+        synced_case = sync_mock.call_args.args[0]
+        self.assertEqual(synced_case["case_id"], created["case_id"])
+        self.assertEqual(synced_case["paperwork_deadline"], "2030-01-20")
+
     def test_add_document_and_correspondence(self):
         created = self._create_case()
         document = self.store.create_document(
@@ -170,6 +189,14 @@ class FMLAStoreTests(unittest.TestCase):
         self.assertEqual(row[0], "fmla")
         self.assertEqual(row[1], "High")
         self.assertEqual(row[2], "2030-01-12")
+
+    def test_list_cases_filters_exact_client_id(self):
+        first = self._create_case(client_id="client-a", client_name="Client A")
+        self._create_case(client_id="client-b", client_name="Client B")
+
+        cases = self.store.list_cases({"client_id": "client-a"})
+
+        self.assertEqual([case["case_id"] for case in cases], [first["case_id"]])
 
     def test_leave_usage_and_exports_persist(self):
         created = self._create_case(leave_type="intermittent", certification_expiration_date="2030-02-01")

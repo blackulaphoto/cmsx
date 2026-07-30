@@ -267,6 +267,10 @@ class URStore:
         if case_manager:
             query += " AND assigned_case_manager = ?"
             params.append(case_manager)
+        client_id = _normalize_text(filters.get("client_id"))
+        if client_id:
+            query += " AND client_id = ?"
+            params.append(client_id)
         org_id = filters.get("org_id")
         if org_id is not None:
             query += " AND org_id = ?"
