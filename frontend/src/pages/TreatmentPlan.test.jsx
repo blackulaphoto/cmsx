@@ -13,14 +13,18 @@ vi.mock('../utils/clientOperationalContext', () => ({
 }))
 // Stub ClientSelector with a button that selects a client on click.
 vi.mock('../components/ClientSelector', () => ({
-  default: ({ onClientSelect }) => (
-    <button onClick={() => onClientSelect({ client_id: 'client-1', full_name: 'Test Client' })}>
+  default: ({ onClientSelect, selectedClientId }) => (
+    <button
+      data-selected-client-id={selectedClientId || ''}
+      onClick={() => onClientSelect({ client_id: 'client-1', full_name: 'Test Client' })}
+    >
       SELECT_CLIENT
     </button>
   ),
 }))
 
 import { apiFetch } from '../api/config'
+import { fetchClientWithOperationalContext } from '../utils/clientOperationalContext'
 import TreatmentPlan from './TreatmentPlan'
 
 const draftPlan = {
@@ -36,18 +40,31 @@ const draftPlan = {
   aftercare_plan: {},
 }
 
-const renderPage = () =>
+const renderPage = (initialEntry = '/treatment-plan') =>
   render(
-    <MemoryRouter initialEntries={['/treatment-plan']}>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <TreatmentPlan />
     </MemoryRouter>,
   )
 
 beforeEach(() => {
   vi.clearAllMocks()
+  fetchClientWithOperationalContext.mockResolvedValue({
+    client_id: 'client-1',
+    full_name: 'Test Client',
+  })
 })
 
 describe('TreatmentPlan draft edit mode', () => {
+  it('passes dashboard client context into the selector', () => {
+    renderPage('/treatment-plan?client=client-1')
+
+    expect(screen.getByText('SELECT_CLIENT')).toHaveAttribute(
+      'data-selected-client-id',
+      'client-1',
+    )
+  })
+
   it('edits a draft and saves via the PATCH endpoint', async () => {
     apiFetch.mockImplementation((url, opts) => {
       if (opts?.method === 'PATCH') {

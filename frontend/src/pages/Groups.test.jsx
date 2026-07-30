@@ -145,4 +145,19 @@ describe('Groups topics template layout', () => {
     })
     expect(apiCall).not.toHaveBeenCalledWith(expect.stringContaining('/api/groups/topics/categories'))
   })
+
+  it('explains how to configure Groups when the topic library is empty', async () => {
+    apiCall.mockImplementation((url) => {
+      if (url === '/api/groups/topics') return Promise.resolve({ topics: [] })
+      if (url === '/api/groups/curriculum-packs') return Promise.resolve({ packs: [] })
+      if (url === '/api/groups/sessions') return Promise.resolve({ sessions: [] })
+      return Promise.resolve({})
+    })
+
+    renderGroups()
+
+    expect(
+      await screen.findByText(/No group topics are configured yet/i),
+    ).toBeInTheDocument()
+  })
 })

@@ -167,6 +167,14 @@ describe('ClientDashboard treatment plan snapshot', () => {
 
     const treatmentPlanLink = screen.getByRole('link', { name: /open treatment plan/i })
     expect(treatmentPlanLink).toHaveAttribute('href', '/treatment-plan?client=client-1')
+    expect(screen.getByRole('link', { name: /documentation/i })).toHaveAttribute(
+      'href',
+      '/documentation?client=client-1',
+    )
+    expect(screen.getByRole('link', { name: /^medical$/i })).toHaveAttribute(
+      'href',
+      '/medical?client=client-1',
+    )
 
     await waitFor(() => {
       expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/treatment-plan')
@@ -1199,6 +1207,7 @@ describe('ClientDashboard - Employment tab resume surfacing', () => {
     title: 'Letter of Presence Template - Casey Jones',
     doc_type: 'presence_letter',
     file_name: 'resume-casey-jones.docx',
+    download_url: '/api/clients/client-1/documents/doc-resume-1/view',
     created_at: '2026-07-10T02:00:00',
   }
   const NON_RESUME_DOC = {
@@ -1221,6 +1230,10 @@ describe('ClientDashboard - Employment tab resume surfacing', () => {
     expect(await screen.findByText('Saved Resumes')).toBeInTheDocument()
     expect(screen.getByText('Letter of Presence Template - Casey Jones')).toBeInTheDocument()
     expect(screen.queryByText('No saved resume files yet.')).toBeNull()
+    expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute(
+      'href',
+      '/resume?client=client-1',
+    )
 
     // Still reachable from the Documents vault — nothing was moved or duplicated.
     fireEvent.click(screen.getByRole('button', { name: 'Documents' }))

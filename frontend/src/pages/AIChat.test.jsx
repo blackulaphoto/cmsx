@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -78,5 +78,57 @@ describe('AIChat', () => {
     expect(body.client_name).toBe('Casey Jones')
     expect(body.current_route).toBe('/ai-chat')
     expect(body.message).toBe('Does this client have overdue tasks?')
+    expect(await screen.findByText('Client has 1 overdue task.')).toBeInTheDocument()
+    expect(screen.queryByText('AI is thinking...')).not.toBeInTheDocument()
+  })
+
+  it('clears loading and shows the backend error when the AI request fails', async () => {
+    apiFetch.mockResolvedValue({
+      ok: false,
+      json: async () => ({ detail: 'AI provider is unavailable.' }),
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/ai-chat']}>
+        <AIChat />
+      </MemoryRouter>,
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('Type your message to the AI assistant...'), {
+      target: { value: 'What should I follow up on?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    expect(await screen.findByText(/AI provider is unavailable/)).toBeInTheDocument()
+    expect(screen.queryByText('AI is thinking...')).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Type your message to the AI assistant...')).not.toBeDisabled()
+  })
+
+  it('stops loading and shows a friendly error when the response body never completes', async () => {
+    vi.useFakeTimers()
+    apiFetch.mockResolvedValue({
+      ok: true,
+      json: () => new Promise(() => {}),
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/ai-chat']}>
+        <AIChat />
+      </MemoryRouter>,
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('Type your message to the AI assistant...'), {
+      target: { value: 'What overdue reminders do I have?' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20000)
+    })
+
+    expect(screen.getByText(/AI response timed out/)).toBeInTheDocument()
+    expect(screen.queryByText('AI is thinking...')).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Type your message to the AI assistant...')).not.toBeDisabled()
+    vi.useRealTimers()
   })
 })

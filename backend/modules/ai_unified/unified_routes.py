@@ -3,6 +3,7 @@ Unified AI Routes
 FastAPI router for GPT-4o + SQLite memory.
 """
 
+import asyncio
 import logging
 import re
 import sqlite3
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 unified_ai = UnifiedAIService()
+AI_CHAT_TIMEOUT_SECONDS = 18
 
 
 def _build_documentation_context(message: str) -> Optional[str]:
@@ -71,19 +73,27 @@ async def chat(request: Request, body: ChatRequest) -> Dict[str, Any]:
     try:
         message = body.message
         _cleanup_tool_messages(case_manager_id)
-        return await unified_ai.process_message(
-            message=message,
-            case_manager_id=case_manager_id,
-            mode="central",
-            injected_context=_build_chat_context(
-                message,
-                current_user=current_user,
-                client_id=body.client_id,
-                client_name=body.client_name,
+        return await asyncio.wait_for(
+            unified_ai.process_message(
+                message=message,
+                case_manager_id=case_manager_id,
+                mode="central",
+                injected_context=_build_chat_context(
+                    message,
+                    current_user=current_user,
+                    client_id=body.client_id,
+                    client_name=body.client_name,
+                ),
+                injected_context_role="user",
+                org_id=org_id,
             ),
-            injected_context_role="user",
-            org_id=org_id,
+            timeout=AI_CHAT_TIMEOUT_SECONDS,
         )
+    except asyncio.TimeoutError:
+        logger.warning("Unified AI chat timed out for case manager %s", case_manager_id)
+        raise HTTPException(status_code=504, detail="AI response timed out. Please try again.")
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error(f"Unified AI chat error: {exc}")
         raise HTTPException(status_code=500, detail=str(exc))

@@ -315,6 +315,55 @@ def test_uploaded_text_document_views_from_runtime_uploads_root(tmp_path, monkey
         workspace_store._initialize()
 
 
+def test_client_documents_are_isolated_by_client_for_list_view_and_delete(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    original = _use_temp_workspace_store(tmp_path)
+    monkeypatch.setattr(clients_api, "CLIENT_UPLOADS_ROOT", tmp_path / "runtime-volume" / "uploads")
+    monkeypatch.setattr(clients_api, "CLIENT_UPLOADS_DIR", tmp_path / "runtime-volume" / "uploads" / "clients")
+    clients_api.CLIENT_UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    client_a = _seed_core_client(client_id="client-doc-a")
+    client_b = _seed_core_client(client_id="client-doc-b")
+    api = TestClient(_test_app(tmp_path))
+    try:
+        upload = api.post(
+            f"/api/clients/{client_a}/documents",
+            headers=_headers(),
+            data={"title": "Client A Resume", "doc_type": "resume"},
+            files={"file": ("client-a-resume.txt", BytesIO(b"Client A resume"), "text/plain")},
+        )
+        assert upload.status_code == 200, upload.text
+        doc = upload.json()["document"]
+
+        list_a = api.get(f"/api/clients/{client_a}/documents", headers=_headers())
+        list_b = api.get(f"/api/clients/{client_b}/documents", headers=_headers())
+        assert [item["doc_id"] for item in list_a.json()["documents"]] == [doc["doc_id"]]
+        assert list_b.json()["documents"] == []
+
+        wrong_client_view = api.get(
+            f"/api/clients/{client_b}/documents/{doc['doc_id']}/view",
+            headers=_headers(),
+        )
+        assert wrong_client_view.status_code == 404
+        assert wrong_client_view.json() == {"detail": "Document not found"}
+
+        wrong_client_delete = api.delete(
+            f"/api/clients/{client_b}/documents/{doc['doc_id']}",
+            headers=_headers(),
+        )
+        assert wrong_client_delete.status_code == 404
+        assert workspace_store.get_client_document(client_a, doc["doc_id"]) is not None
+
+        correct_client_view = api.get(
+            f"/api/clients/{client_a}/documents/{doc['doc_id']}/view",
+            headers=_headers(),
+        )
+        assert correct_client_view.status_code == 200
+        assert correct_client_view.text == "Client A resume"
+    finally:
+        workspace_store.db_path = original
+        workspace_store._initialize()
+
+
 def test_view_client_document_returns_404_when_record_points_to_missing_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     original = _use_temp_workspace_store(tmp_path)

@@ -2747,7 +2747,7 @@ async def upload_client_document(
 async def view_client_document(client_id: str, doc_id: str, request: Request):
     user = require_authenticated_user(request)
     assert_client_access(user, client_id)
-    doc = workspace_store.get_client_document(doc_id)
+    doc = workspace_store.get_client_document(client_id, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     if doc.get("file_path"):
@@ -2771,7 +2771,7 @@ async def view_client_document(client_id: str, doc_id: str, request: Request):
 async def delete_client_document(client_id: str, doc_id: str, request: Request):
     user = require_authenticated_user(request)
     assert_client_access(user, client_id)
-    doc = workspace_store.get_client_document(doc_id)
+    doc = workspace_store.get_client_document(client_id, doc_id)
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     if doc.get("file_path"):
@@ -2781,7 +2781,7 @@ async def delete_client_document(client_id: str, doc_id: str, request: Request):
                 fp.unlink()
         except Exception as e:
             logger.warning("Could not delete file for doc %s: %s", doc_id, e)
-    workspace_store.delete_client_document(doc_id)
+    workspace_store.delete_client_document(client_id, doc_id)
     return {"success": True}
 
 

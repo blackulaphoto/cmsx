@@ -239,7 +239,7 @@ const Dashboard = () => {
                   <Users className="h-7 w-7 text-white" />
                 </div>
                 <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-400">Total Clients</p>
+                  <p className="text-sm font-medium text-gray-400">My Caseload</p>
                   <p className="text-3xl font-bold text-white">
                     {loading ? (
                       <div className="animate-pulse bg-gray-700 h-8 w-12 rounded"></div>

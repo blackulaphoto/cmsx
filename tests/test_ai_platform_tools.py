@@ -733,6 +733,27 @@ def test_chat_resolves_uniquely_named_client_from_message(ctx, monkeypatch):
     assert "Pay rent" in captured["injected_context"]
 
 
+def test_full_page_chat_returns_504_when_ai_processing_times_out(ctx, monkeypatch):
+    user = _user(org_id="org_a", case_manager_id="cm_a1", role="case_manager")
+
+    async def stalled_process_message(**_kwargs):
+        await asyncio.sleep(1)
+
+    client = _make_route_app(user, ctx["tmp_path"], monkeypatch)
+    from backend.modules.ai_unified import unified_routes as ur_mod
+
+    monkeypatch.setattr(ur_mod.unified_ai, "process_message", stalled_process_message)
+    monkeypatch.setattr(ur_mod, "AI_CHAT_TIMEOUT_SECONDS", 0.01)
+
+    response = client.post(
+        "/api/ai/chat",
+        json={"message": "What overdue reminders/tasks do I have for Alice Alpha?"},
+    )
+
+    assert response.status_code == 504
+    assert response.json() == {"detail": "AI response timed out. Please try again."}
+
+
 # ---------------------------------------------------------------------------
 # Test 2: list_current_clients returns the seeded clients for cm_a1
 # ---------------------------------------------------------------------------

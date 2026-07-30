@@ -8,9 +8,10 @@ import toast from 'react-hot-toast'
 vi.mock('../api/config', () => ({ apiFetch: vi.fn() }))
 vi.mock('react-hot-toast', () => ({ default: { success: vi.fn(), error: vi.fn() } }))
 vi.mock('../components/ClientSelector', () => ({
-  default: ({ onClientSelect }) => (
+  default: ({ onClientSelect, selectedClientId }) => (
     <button
       type="button"
+      data-selected-client-id={selectedClientId || ''}
       onClick={() =>
         onClientSelect?.({
           client_id: 'client-1',
@@ -88,9 +89,9 @@ const templateMetadataExpectations = [
   ['LOC Transition Note', { note_kind: 'loc_transition', mode: 'note', category: 'planning' }],
 ]
 
-const renderPage = () =>
+const renderPage = (initialEntry = '/') =>
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <DocumentationCenter />
     </MemoryRouter>,
   )
@@ -100,6 +101,15 @@ beforeEach(() => {
 })
 
 describe('DocumentationCenter client-linked saves', () => {
+  it('preserves client context from the dashboard URL', () => {
+    renderPage('/documentation?client=client-1')
+
+    expect(screen.getByText('SELECT_CLIENT')).toHaveAttribute(
+      'data-selected-client-id',
+      'client-1',
+    )
+  })
+
   it.each(templateMetadataExpectations)(
     'sends the correct metadata for %s',
     async (templateLabel, expected) => {

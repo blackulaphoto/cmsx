@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   FileText,
   FolderOpen,
@@ -312,6 +313,8 @@ const buildGenerationStatus = (data) => {
 }
 
 function DocumentationCenter() {
+  const [searchParams] = useSearchParams()
+  const clientIdFromUrl = searchParams.get('client')
   const [mode, setMode] = useState('note')
   const [inputMode, setInputMode] = useState('type')
   const [selectedClient, setSelectedClient] = useState(null)
@@ -1133,7 +1136,7 @@ function DocumentationCenter() {
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-300">Linked Client</label>
               <ClientSelector
-                selectedClientId={selectedClient?.client_id || null}
+                selectedClientId={selectedClient?.client_id || clientIdFromUrl || null}
                 onClientSelect={setSelectedClient}
                 placeholder={mode === 'note' ? 'Select a client for this note' : 'Optional client context'}
                 className="max-w-xl"
