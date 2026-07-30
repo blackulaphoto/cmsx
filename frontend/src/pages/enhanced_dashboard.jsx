@@ -700,14 +700,14 @@ const EnhancedDashboard = () => {
         {/* Stats Overview */}
         <div className="max-w-[96rem] mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8">
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-6 mb-12">
-            {/* Total Clients */}
+            {/* Case-manager caseload */}
             <div className="group bg-gradient-to-br from-blue-500/10 to-purple-500/10 backdrop-blur-xl p-6 rounded-2xl border border-blue-500/20 hover:border-blue-400/40 transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-blue-500/20">
               <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
                 <div className="p-4 bg-gradient-to-r from-blue-500 to-blue-600 rounded-xl shadow-lg">
                   <Users className="h-7 w-7 text-white" />
                 </div>
                 <div className="sm:ml-4">
-                  <p className="text-sm font-medium text-gray-400">Total Clients</p>
+                  <p className="text-sm font-medium text-gray-400">My Caseload</p>
                   <p className="text-3xl font-bold text-white">
                     {loading ? (
                       <span className="inline-block animate-pulse bg-gray-700 h-8 w-12 rounded"></span>
