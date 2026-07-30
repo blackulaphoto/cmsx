@@ -633,6 +633,67 @@ def list_workspace_tasks_for_case_manager(case_manager_id: str, org_id: Optional
     return tasks
 
 
+def list_workspace_appointment_tasks_for_case_manager(
+    case_manager_id: str,
+    org_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Project persisted client appointments directly into prioritized work."""
+    client_ids, name_map = get_clients_for_case_manager(case_manager_id)
+    if org_id:
+        allowed_client_ids = set(get_client_ids_for_org(org_id))
+        client_ids = [client_id for client_id in client_ids if client_id in allowed_client_ids]
+    if not client_ids:
+        return []
+
+    tasks: List[Dict[str, Any]] = []
+    for client_id in client_ids:
+        try:
+            for appointment in workspace_store.list_client_appointments(client_id):
+                if _normalise_status(appointment.get("status")) in {
+                    "completed", "done", "cancelled", "canceled", "missed",
+                    "no show", "no-show", "no_show",
+                }:
+                    continue
+                appointment_id = str(appointment.get("apt_id") or "")
+                if not appointment_id:
+                    continue
+                provider = str(appointment.get("doctor_name") or "").strip()
+                location = str(appointment.get("location") or "").strip()
+                description_parts = [
+                    part for part in [
+                        f"Provider: {provider}" if provider else "",
+                        f"Location: {location}" if location else "",
+                        str(appointment.get("notes") or "").strip(),
+                    ]
+                    if part
+                ]
+                tasks.append({
+                    **dict(appointment),
+                    "id": str(uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"cmsx:medical-appointment:workspace:{appointment_id}",
+                    )),
+                    "task_id": str(uuid.uuid5(
+                        uuid.NAMESPACE_URL,
+                        f"cmsx:medical-appointment:workspace:{appointment_id}",
+                    )),
+                    "client_id": client_id,
+                    "client_name": name_map.get(client_id, "Unknown Client"),
+                    "title": appointment.get("title") or "Medical appointment",
+                    "description": " · ".join(description_parts),
+                    "due_date": appointment.get("appointment_date"),
+                    "priority": "High",
+                    "status": "pending",
+                    "task_type": "medical_appointment",
+                    "source": "workspace_appointment",
+                    "source_label": "Appointment",
+                    "appointment_id": appointment_id,
+                })
+        except Exception as exc:
+            logger.warning("Workspace appointment lookup failed for client %s: %s", client_id, exc)
+    return tasks
+
+
 def list_tasks_for_client(client_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return all non-completed intelligent_tasks for a single client."""
     if use_postgres():
@@ -711,6 +772,7 @@ def list_tasks_for_case_manager(case_manager_id: str, org_id: Optional[str] = No
                 t["client_name"] = name_map.get(t.get("client_id", ""), "Unknown Client")
                 tasks.append(t)
             tasks.extend(list_workspace_tasks_for_case_manager(case_manager_id, org_id=org_id))
+            tasks.extend(list_workspace_appointment_tasks_for_case_manager(case_manager_id, org_id=org_id))
             return tasks
         except Exception as exc:
             logger.warning("Postgres list_tasks_for_case_manager failed (%s), using SQLite", exc)
@@ -740,6 +802,7 @@ def list_tasks_for_case_manager(case_manager_id: str, org_id: Optional[str] = No
         logger.warning("SQLite intelligent_tasks lookup failed (%s); continuing with workspace tasks", exc)
 
     tasks.extend(list_workspace_tasks_for_case_manager(case_manager_id, org_id=org_id))
+    tasks.extend(list_workspace_appointment_tasks_for_case_manager(case_manager_id, org_id=org_id))
     return tasks
 
 
@@ -871,8 +934,16 @@ def get_prioritized_tasks(case_manager_id: str, client_date: Optional[str] = Non
 
     # Also pull active_reminders into buckets
     active_reminders = get_active_reminders_for_case_manager(case_manager_id, org_id=org_id)
+    appointment_task_ids = {
+        str(task.get("task_id") or "")
+        for bucket_tasks in buckets.values()
+        for task in bucket_tasks
+        if task.get("source") == "workspace_appointment"
+    }
     _, name_map = get_clients_for_case_manager(case_manager_id)
     for r in active_reminders:
+        if str(r.get("reminder_id") or "") in appointment_task_ids:
+            continue
         due = _parse_due_date(r.get("due_date"))
         r.setdefault("client_name", name_map.get(r.get("client_id", ""), "Unknown"))
         r.setdefault("source", "active_reminder")
@@ -1039,6 +1110,10 @@ def get_client_work_items(
                 normalized_source = "treatment_plan_task"
             else:
                 source_label = "Client Task"
+        elif source == "workspace_appointment":
+            source_kind = "appointment"
+            source_label = "Appointment"
+            normalized_source = "appointment"
 
         item_id = item.get("task_id") or item.get("reminder_id") or item.get("id") or ""
         dedupe_key = (source_kind, str(item_id))
@@ -1064,7 +1139,7 @@ def get_client_work_items(
             "is_overdue": bucket_key == "overdue",
             "can_edit": source_kind in {"reminder", "workspace_task"},
             "can_delete": source_kind in {"reminder", "workspace_task"},
-            "can_complete": True,
+            "can_complete": source_kind != "appointment",
         })
 
     for bucket_key, bucket_items in buckets.items():
