@@ -39,6 +39,46 @@ def test_postgres_schema_readiness_runs_once_before_repository_queries(monkeypat
     assert len(statements) == first_run_count
 
 
+def test_new_reminder_falls_back_to_sqlite_when_postgres_write_fails(monkeypatch, tmp_path):
+    class _FailedTransaction:
+        def __enter__(self):
+            raise RuntimeError("postgres unavailable")
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    sqlite_path = tmp_path / "reminders.db"
+    monkeypatch.setattr(repository, "use_postgres", lambda: True)
+    monkeypatch.setattr(repository, "get_active_reminder", lambda _reminder_id: None)
+    monkeypatch.setattr(repository, "_pg_conn", lambda: _FailedTransaction())
+    monkeypatch.setattr(repository, "_SQLITE_REMINDERS_PATH", str(sqlite_path))
+    monkeypatch.setattr(repository, "_sqlite_tenancy_ready", False)
+
+    reminder_id = repository.sync_active_reminder(
+        reminder_id="fallback-reminder",
+        client_id="client-1",
+        case_manager_id="case-manager-1",
+        reminder_type="Medical Appointment",
+        message="Primary care on 2026-08-04",
+        priority="High",
+        due_date="2026-08-04",
+        org_id="org-test",
+    )
+
+    with sqlite3.connect(sqlite_path) as conn:
+        stored = conn.execute(
+            "SELECT reminder_id, client_id, case_manager_id, org_id FROM active_reminders"
+        ).fetchone()
+
+    assert reminder_id == "fallback-reminder"
+    assert stored == (
+        "fallback-reminder",
+        "client-1",
+        "case-manager-1",
+        "org-test",
+    )
+
+
 def test_medical_appointment_projection_is_stable_and_uses_reminder_lead_day(monkeypatch):
     calls = []
     monkeypatch.setattr(
