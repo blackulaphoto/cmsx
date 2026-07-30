@@ -134,6 +134,87 @@ def test_workspace_appointment_is_canonical_work_item_and_dedupes_reminder(monke
     assert result["items"][0]["can_complete"] is False
 
 
+def test_active_reminder_reads_merge_unique_volume_rows_and_respect_pg_tombstones(
+    monkeypatch,
+    tmp_path,
+):
+    sqlite_path = tmp_path / "reminders.db"
+    monkeypatch.setattr(repository, "use_postgres", lambda: True)
+    monkeypatch.setattr(repository, "_SQLITE_REMINDERS_PATH", str(sqlite_path))
+    monkeypatch.setattr(repository, "_sqlite_tenancy_ready", False)
+    repository._ensure_sqlite_active_reminders_table()
+    with sqlite3.connect(sqlite_path) as conn:
+        conn.executemany(
+            """
+            INSERT INTO active_reminders (
+                reminder_id, client_id, case_manager_id, reminder_type,
+                message, priority, due_date, status, created_at, org_id
+            ) VALUES (?, 'client-1', 'case-manager-1', 'Manual', ?, 'High',
+                      '2026-08-04', 'Active', '2026-07-30', 'org-test')
+            """,
+            [
+                ("volume-only", "Volume reminder"),
+                ("pg-tombstone", "Stale volume reminder"),
+            ],
+        )
+
+    class _PgRow:
+        def __init__(self, mapping):
+            self._mapping = mapping
+
+    class _PgResult:
+        def fetchall(self):
+            return [
+                _PgRow({
+                    "reminder_id": "pg-active",
+                    "client_id": "client-1",
+                    "case_manager_id": "case-manager-1",
+                    "reminder_type": "Manual",
+                    "message": "Postgres reminder",
+                    "priority": "Medium",
+                    "due_date": "2026-08-05",
+                    "status": "Active",
+                    "created_at": "2026-07-30",
+                    "org_id": "org-test",
+                }),
+                _PgRow({
+                    "reminder_id": "pg-tombstone",
+                    "client_id": "client-1",
+                    "case_manager_id": "case-manager-1",
+                    "reminder_type": "Manual",
+                    "message": "Completed in Postgres",
+                    "priority": "High",
+                    "due_date": "2026-08-04",
+                    "status": "Completed",
+                    "created_at": "2026-07-30",
+                    "org_id": "org-test",
+                }),
+            ]
+
+    class _PgConnection:
+        def execute(self, *_args, **_kwargs):
+            return _PgResult()
+
+    class _PgTransaction:
+        def __enter__(self):
+            return _PgConnection()
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+    monkeypatch.setattr(repository, "_pg_conn", lambda: _PgTransaction())
+
+    reminders = repository.get_active_reminders_for_case_manager(
+        "case-manager-1",
+        org_id="org-test",
+    )
+
+    assert {row["reminder_id"] for row in reminders} == {
+        "pg-active",
+        "volume-only",
+    }
+
+
 def test_medical_appointment_projection_is_stable_and_uses_reminder_lead_day(monkeypatch):
     calls = []
     monkeypatch.setattr(

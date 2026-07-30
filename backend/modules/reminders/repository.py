@@ -1206,6 +1206,8 @@ def get_client_work_items(
 
 def get_active_reminders_for_case_manager(case_manager_id: str, org_id: Optional[str] = None) -> List[Dict[str, Any]]:
     """Return Active reminders for the given case manager."""
+    postgres_rows: List[Dict[str, Any]] = []
+    postgres_ids = set()
     if use_postgres():
         try:
             from sqlalchemy import text
@@ -1215,7 +1217,7 @@ def get_active_reminders_for_case_manager(case_manager_id: str, org_id: Optional
                         SELECT reminder_id, client_id, case_manager_id, reminder_type,
                                message, priority, due_date, status, created_at, org_id
                         FROM railway_active_reminders
-                        WHERE case_manager_id = :cm AND status = 'Active'
+                        WHERE case_manager_id = :cm
                           AND (:org_id IS NULL OR org_id = :org_id)
                         ORDER BY
                             CASE priority
@@ -1226,7 +1228,14 @@ def get_active_reminders_for_case_manager(case_manager_id: str, org_id: Optional
                     """),
                     {"cm": case_manager_id, "org_id": org_id},
                 ).fetchall()
-            return [dict(r._mapping) for r in rows]
+            all_postgres_rows = [dict(r._mapping) for r in rows]
+            postgres_ids = {
+                str(row.get("reminder_id") or "") for row in all_postgres_rows
+            }
+            postgres_rows = [
+                row for row in all_postgres_rows
+                if str(row.get("status") or "").lower() == "active"
+            ]
         except Exception as exc:
             logger.warning("Postgres get_active_reminders failed (%s), using SQLite", exc)
 
@@ -1249,10 +1258,22 @@ def get_active_reminders_for_case_manager(case_manager_id: str, org_id: Optional
                 """,
                 (case_manager_id, org_id, org_id),
             )
-            return [dict(r) for r in cur.fetchall()]
+            sqlite_rows = [
+                dict(row) for row in cur.fetchall()
+                if str(row["reminder_id"] or "") not in postgres_ids
+            ]
+        merged = postgres_rows + sqlite_rows
+        priority_order = {"critical": 1, "high": 2, "medium": 3}
+        return sorted(
+            merged,
+            key=lambda row: (
+                priority_order.get(str(row.get("priority") or "").lower(), 4),
+                str(row.get("due_date") or "9999-12-31"),
+            ),
+        )
     except sqlite3.OperationalError as exc:
-        logger.warning("SQLite active_reminders lookup failed (%s); returning none", exc)
-        return []
+        logger.warning("SQLite active_reminders lookup failed (%s); returning Postgres rows", exc)
+        return postgres_rows
 
 
 def get_active_reminder(reminder_id: str) -> Optional[Dict[str, Any]]:
@@ -1270,7 +1291,8 @@ def get_active_reminder(reminder_id: str) -> Optional[Dict[str, Any]]:
                     """),
                     {"rid": reminder_id},
                 ).fetchone()
-            return dict(row._mapping) if row else None
+            if row:
+                return dict(row._mapping)
         except Exception as exc:
             logger.warning("Postgres get_active_reminder failed (%s), using SQLite", exc)
 
