@@ -301,6 +301,32 @@ _PG_ALTER_STATEMENTS = [
 _sqlite_tenancy_ready = False
 
 
+def _ensure_sqlite_active_reminders_table() -> None:
+    """Make canonical reminder writes safe in a brand-new workspace."""
+    Path(_SQLITE_REMINDERS_PATH).parent.mkdir(parents=True, exist_ok=True)
+    with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS active_reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                reminder_id TEXT UNIQUE NOT NULL,
+                client_id TEXT NOT NULL,
+                case_manager_id TEXT NOT NULL,
+                reminder_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                priority TEXT DEFAULT 'Medium',
+                due_date TEXT,
+                status TEXT DEFAULT 'Active',
+                created_at TEXT,
+                org_id TEXT
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_active_reminders_org ON active_reminders(org_id)"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Ensure tables exist
 # ---------------------------------------------------------------------------
@@ -912,6 +938,21 @@ def reconcile_operational_deadlines(case_manager_id: str, org_id: Optional[str] 
         logger.warning("Medical appointment reconciliation failed: %s", exc)
 
     try:
+        from backend.modules.treatment_plan.work_items import (
+            reconcile_treatment_plan_review_reminders,
+        )
+
+        client_ids, client_names = get_clients_for_case_manager(case_manager_id)
+        reconcile_treatment_plan_review_reminders(
+            case_manager_id,
+            client_ids,
+            client_names,
+            org_id=org_id,
+        )
+    except Exception as exc:
+        logger.warning("Treatment plan review reconciliation failed: %s", exc)
+
+    try:
         from backend.modules.ur.store_factory import get_ur_store
         from backend.modules.ur.work_items import sync_ur_deadline_reminders
 
@@ -1380,6 +1421,7 @@ def create_active_reminder(
                 raise RuntimeError("Postgres reminder persistence failed") from exc
             logger.warning("Postgres create_active_reminder failed (%s), using SQLite", exc)
 
+    _ensure_sqlite_active_reminders_table()
     _ensure_sqlite_tenancy_schema()
     with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
         conn.execute(
@@ -1407,6 +1449,8 @@ def sync_active_reminder(
     org_id: Optional[str] = None,
 ) -> str:
     """Idempotently project an operational deadline into active reminders."""
+    if not use_postgres():
+        _ensure_sqlite_active_reminders_table()
     existing = get_active_reminder(reminder_id)
     if existing:
         if not active or not due_date:
@@ -1475,6 +1519,7 @@ def sync_active_reminder(
             )
         return reminder_id
 
+    _ensure_sqlite_active_reminders_table()
     _ensure_sqlite_tenancy_schema()
     with _sqlite_conn(_SQLITE_REMINDERS_PATH) as conn:
         conn.execute(

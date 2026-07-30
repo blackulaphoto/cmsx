@@ -1987,6 +1987,17 @@ async def update_client_treatment_plan(
             plan_id,
             {key: value for key, value in payload.model_dump().items() if value is not None},
         )
+        from backend.modules.treatment_plan.work_items import (
+            sync_treatment_plan_review_reminder,
+        )
+
+        client = _get_normalized_client_or_404(client_id)
+        sync_treatment_plan_review_reminder(
+            updated,
+            case_manager_id=current_user.case_manager_id,
+            client_name=client.get("full_name") or "",
+            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+        )
         return {
             "success": True,
             "plan": updated,
@@ -2022,6 +2033,17 @@ async def approve_client_treatment_plan(client_id: str, plan_id: str, request: R
             source="treatment_plan",
             source_id=plan_id,
             assigned_to=current_user.full_name,
+        )
+        from backend.modules.treatment_plan.work_items import (
+            sync_client_treatment_plan_review_reminders,
+        )
+
+        client = _get_normalized_client_or_404(client_id)
+        sync_client_treatment_plan_review_reminders(
+            client_id,
+            case_manager_id=current_user.case_manager_id,
+            client_name=client.get("full_name") or "",
+            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
         )
         return {
             "success": True,
