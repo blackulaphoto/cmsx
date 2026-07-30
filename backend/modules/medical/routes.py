@@ -952,20 +952,27 @@ async def create_medical_appointment(payload: MedicalAppointmentCreate, request:
 
         from backend.modules.medical.work_items import sync_medical_appointment_reminder
 
-        sync_medical_appointment_reminder(
-            {
-                "id": appointment_id,
-                "client_id": payload.client_id,
-                "case_manager_id": case_manager_id,
-                "appointment_type": payload.appointment_type,
-                "provider_name": payload.provider_name,
-                "appointment_date": payload.appointment_date,
-                "appointment_time": payload.appointment_time,
-                "status": "scheduled",
-                "reminder_enabled": 1 if payload.create_reminder else 0,
-            },
-            source="medical",
-        )
+        try:
+            sync_medical_appointment_reminder(
+                {
+                    "id": appointment_id,
+                    "client_id": payload.client_id,
+                    "case_manager_id": case_manager_id,
+                    "appointment_type": payload.appointment_type,
+                    "provider_name": payload.provider_name,
+                    "appointment_date": payload.appointment_date,
+                    "appointment_time": payload.appointment_time,
+                    "status": "scheduled",
+                    "reminder_enabled": 1 if payload.create_reminder else 0,
+                },
+                source="medical",
+            )
+        except Exception as exc:
+            logger.warning(
+                "Medical appointment reminder sync deferred for %s: %s",
+                appointment_id,
+                exc,
+            )
 
         return {
             "success": True,
@@ -1003,7 +1010,14 @@ async def update_medical_appointment(appointment_id: str, payload: MedicalAppoin
             ).fetchone()
         from backend.modules.medical.work_items import sync_medical_appointment_reminder
 
-        sync_medical_appointment_reminder(dict(updated), source="medical")
+        try:
+            sync_medical_appointment_reminder(dict(updated), source="medical")
+        except Exception as exc:
+            logger.warning(
+                "Medical appointment reminder sync deferred for %s: %s",
+                appointment_id,
+                exc,
+            )
         return {"success": True, "message": "Appointment updated successfully"}
     except HTTPException:
         raise
@@ -1024,9 +1038,6 @@ async def delete_medical_appointment(appointment_id: str, request: Request):
             if not existing:
                 raise HTTPException(status_code=404, detail="Appointment not found")
             assert_client_access(current_user, existing["client_id"])
-            conn.execute("DELETE FROM appointments WHERE id = ?", (appointment_id,))
-            conn.commit()
-
         from backend.modules.medical.work_items import remove_medical_appointment_reminder
 
         remove_medical_appointment_reminder(
@@ -1035,6 +1046,9 @@ async def delete_medical_appointment(appointment_id: str, request: Request):
             client_id=existing["client_id"],
             case_manager_id=existing["case_manager_id"],
         )
+        with _connect(CASE_MGMT_DB_PATH) as conn:
+            conn.execute("DELETE FROM appointments WHERE id = ?", (appointment_id,))
+            conn.commit()
         return {"success": True}
     except HTTPException:
         raise

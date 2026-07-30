@@ -1992,12 +1992,19 @@ async def update_client_treatment_plan(
         )
 
         client = _get_normalized_client_or_404(client_id)
-        sync_treatment_plan_review_reminder(
-            updated,
-            case_manager_id=current_user.case_manager_id,
-            client_name=client.get("full_name") or "",
-            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
-        )
+        try:
+            sync_treatment_plan_review_reminder(
+                updated,
+                case_manager_id=current_user.case_manager_id,
+                client_name=client.get("full_name") or "",
+                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Treatment plan review reminder sync deferred for %s: %s",
+                plan_id,
+                exc,
+            )
         return {
             "success": True,
             "plan": updated,
@@ -2039,12 +2046,19 @@ async def approve_client_treatment_plan(client_id: str, plan_id: str, request: R
         )
 
         client = _get_normalized_client_or_404(client_id)
-        sync_client_treatment_plan_review_reminders(
-            client_id,
-            case_manager_id=current_user.case_manager_id,
-            client_name=client.get("full_name") or "",
-            org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
-        )
+        try:
+            sync_client_treatment_plan_review_reminders(
+                client_id,
+                case_manager_id=current_user.case_manager_id,
+                client_name=client.get("full_name") or "",
+                org_id=resolve_org_id(current_user) if multi_tenant_enabled() else None,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Treatment plan review reminder reconciliation deferred for %s: %s",
+                client_id,
+                exc,
+            )
         return {
             "success": True,
             "plan": approved,
@@ -2538,13 +2552,19 @@ async def create_client_appointment(client_id: str, payload: AppointmentPayload,
     apt = workspace_store.create_client_appointment(client_id, payload.dict())
     from backend.modules.medical.work_items import sync_medical_appointment_reminder
 
-    reminder_id = sync_medical_appointment_reminder(
-        apt,
-        source="workspace",
-        case_manager_id=user.case_manager_id,
-        org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
-    )
-    apt["reminder_id"] = reminder_id
+    try:
+        apt["reminder_id"] = sync_medical_appointment_reminder(
+            apt,
+            source="workspace",
+            case_manager_id=user.case_manager_id,
+            org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Workspace appointment reminder sync deferred for %s: %s",
+            apt["apt_id"],
+            exc,
+        )
     return {"success": True, "appointment": apt}
 
 
@@ -2557,12 +2577,19 @@ async def update_client_appointment(client_id: str, apt_id: str, payload: Appoin
         raise HTTPException(status_code=404, detail="Appointment not found")
     from backend.modules.medical.work_items import sync_medical_appointment_reminder
 
-    sync_medical_appointment_reminder(
-        updated,
-        source="workspace",
-        case_manager_id=user.case_manager_id,
-        org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
-    )
+    try:
+        sync_medical_appointment_reminder(
+            updated,
+            source="workspace",
+            case_manager_id=user.case_manager_id,
+            org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Workspace appointment reminder sync deferred for %s: %s",
+            apt_id,
+            exc,
+        )
     return {"success": True, "appointment": updated}
 
 
@@ -2580,9 +2607,6 @@ async def delete_client_appointment(client_id: str, apt_id: str, request: Reques
     )
     if not existing:
         raise HTTPException(status_code=404, detail="Appointment not found")
-    deleted = workspace_store.delete_client_appointment(apt_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Appointment not found")
     from backend.modules.medical.work_items import remove_medical_appointment_reminder
 
     remove_medical_appointment_reminder(
@@ -2592,6 +2616,9 @@ async def delete_client_appointment(client_id: str, apt_id: str, request: Reques
         case_manager_id=user.case_manager_id,
         org_id=resolve_org_id(user) if multi_tenant_enabled() else None,
     )
+    deleted = workspace_store.delete_client_appointment(apt_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Appointment not found")
     return {"success": True}
 
 
