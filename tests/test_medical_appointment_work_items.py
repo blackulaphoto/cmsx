@@ -79,6 +79,61 @@ def test_new_reminder_falls_back_to_sqlite_when_postgres_write_fails(monkeypatch
     )
 
 
+def test_workspace_appointment_is_canonical_work_item_and_dedupes_reminder(monkeypatch):
+    appointment = {
+        "apt_id": "workspace-appointment-1",
+        "client_id": "client-1",
+        "title": "Primary care follow-up",
+        "appointment_date": "2026-08-04",
+        "doctor_name": "Dr. Rivera",
+        "status": "scheduled",
+    }
+    monkeypatch.setattr(
+        repository,
+        "get_clients_for_case_manager",
+        lambda _case_manager_id: (["client-1"], {"client-1": "Casey Jones"}),
+    )
+    monkeypatch.setattr(
+        repository.workspace_store,
+        "list_client_appointments",
+        lambda _client_id: [appointment],
+    )
+
+    projected = repository.list_workspace_appointment_tasks_for_case_manager("case-manager-1")
+    assert len(projected) == 1
+    assert projected[0]["source"] == "workspace_appointment"
+    assert projected[0]["task_id"] == work_items.medical_appointment_reminder_id(
+        "workspace",
+        appointment["apt_id"],
+    )
+
+    monkeypatch.setattr(repository, "reconcile_operational_deadlines", lambda *args, **kwargs: None)
+    monkeypatch.setattr(repository, "list_tasks_for_case_manager", lambda *args, **kwargs: projected)
+    monkeypatch.setattr(
+        repository,
+        "get_active_reminders_for_case_manager",
+        lambda *args, **kwargs: [{
+            "reminder_id": projected[0]["task_id"],
+            "client_id": "client-1",
+            "message": "Primary care follow-up with Dr. Rivera on 2026-08-04",
+            "due_date": "2026-08-04",
+            "priority": "High",
+            "status": "Active",
+        }],
+    )
+
+    result = repository.get_client_work_items(
+        "case-manager-1",
+        "client-1",
+        client_date="2026-07-30",
+    )
+
+    assert len(result["items"]) == 1
+    assert result["items"][0]["source_kind"] == "appointment"
+    assert result["items"][0]["source_label"] == "Appointment"
+    assert result["items"][0]["can_complete"] is False
+
+
 def test_medical_appointment_projection_is_stable_and_uses_reminder_lead_day(monkeypatch):
     calls = []
     monkeypatch.setattr(
