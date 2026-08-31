@@ -43,6 +43,7 @@ vi.mock('../components/TasksList', () => ({
 vi.mock('../components/TaskViewModal', () => ({ default: () => <div>TASK_VIEW</div> }))
 
 import { apiFetch } from '../api/config'
+import toast from 'react-hot-toast'
 import ClientDashboard from './ClientDashboard'
 
 const baseClientData = {
@@ -272,6 +273,128 @@ describe('ClientDashboard task pipeline truthfulness', () => {
     expect(screen.getByText('Client Task')).toBeInTheDocument()
     expect(screen.getByText('Smart Daily Task')).toBeInTheDocument()
     expect(screen.getByText('Reminder')).toBeInTheDocument()
+  })
+
+  it('still shows a completed task even though /work-items (Smart-Daily-aligned) omits completed items', async () => {
+    // Regression test for the production P1 where marking a client task
+    // complete made it vanish from the Tasks tab entirely, including under
+    // the "Completed" filter. Root cause: /api/clients/{id}/work-items
+    // deliberately excludes completed/cancelled tasks (it's a "what needs
+    // attention" feed), but the Tasks tab used it as its only data source.
+    // The fix merges in useTasks' full task list (which does include
+    // completed tasks) alongside work-items.
+    useTasksMock.mockReturnValue({
+      tasks: [
+        {
+          task_id: 'cm-task-completed-1',
+          client_id: 'client-1',
+          title: 'Dental Appointment',
+          description: 'Follow-up dental visit',
+          priority: 'medium',
+          status: 'completed',
+          task_type: 'medical',
+          due_date: '2026-06-17T00:00:00.000Z',
+          assigned_to: 'Brandon Vasquez',
+          completed_at: '2026-06-18T00:00:00.000Z',
+        },
+      ],
+      loading: false,
+      syncing: false,
+      addTask: vi.fn(),
+      updateTask: vi.fn(),
+      deleteTask: vi.fn(),
+      completeTask: vi.fn(),
+      syncAllTasks: vi.fn(),
+      getFilteredTasks: vi.fn(() => []),
+      getTasksStats: vi.fn(() => ({})),
+      getTaskById: vi.fn(),
+    })
+
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/work-items')) {
+        // The real backend never returns completed tasks here - simulate
+        // that faithfully rather than including one, so this test actually
+        // exercises the merge rather than trivially passing.
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, items: [] }) })
+      }
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Tasks' }))
+
+    expect(await screen.findByText('Dental Appointment')).toBeInTheDocument()
+  })
+
+  it('does not duplicate a task that appears in both /work-items and the case-management task list', async () => {
+    useTasksMock.mockReturnValue({
+      tasks: [
+        {
+          task_id: 'shared-task-1',
+          client_id: 'client-1',
+          title: 'Upload ID documents',
+          description: 'Client task from dashboard',
+          priority: 'medium',
+          status: 'pending',
+          task_type: 'documentation',
+          due_date: '2026-07-01T00:00:00.000Z',
+          assigned_to: 'Brandon Vasquez',
+        },
+      ],
+      loading: false,
+      syncing: false,
+      addTask: vi.fn(),
+      updateTask: vi.fn(),
+      deleteTask: vi.fn(),
+      completeTask: vi.fn(),
+      syncAllTasks: vi.fn(),
+      getFilteredTasks: vi.fn(() => []),
+      getTasksStats: vi.fn(() => ({})),
+      getTaskById: vi.fn(),
+    })
+
+    apiFetch.mockImplementation((url) => {
+      if (url.includes('/work-items')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            success: true,
+            items: [
+              {
+                task_id: 'shared-task-1',
+                title: 'Upload ID documents',
+                description: 'Client task from dashboard',
+                priority: 'medium',
+                status: 'pending',
+                task_type: 'documentation',
+                due_date: '2026-07-01T00:00:00.000Z',
+                client_id: 'client-1',
+                source_kind: 'workspace_task',
+                source_label: 'Client Task',
+              },
+            ],
+          }),
+        })
+      }
+      if (url.includes('/unified-view')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, client_data: baseClientData }) })
+      }
+      if (url.includes('/treatment-plan')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, current_plan: null, plans: [] }) })
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ success: true, recommendations: [] }) })
+    })
+
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Tasks' }))
+
+    expect(await screen.findAllByText('Upload ID documents')).toHaveLength(1)
   })
 })
 
@@ -648,20 +771,36 @@ describe('ClientDashboard - authenticated document view/download', () => {
     await waitFor(() => expect(downloadedName).toBe('license.png'))
   })
 
-  it('Open in new tab fetches with auth and opens the blob URL, not the raw API path', async () => {
+  it('Open in new tab opens a blank tab synchronously (before the fetch), then navigates it to the blob URL', async () => {
+    // Regression test for the production P1 where "View"/"Open in new tab"
+    // on a generated document failed with "Could not open document" despite
+    // the fetch returning 200. Root cause: window.open(objectUrl, ...) was
+    // called *after* `await`ing the document fetch, so real browsers no
+    // longer treated it as a direct result of the click and silently
+    // blocked it (window.open returned null). A plain `{}` mock (as the old
+    // test below used) can't detect this - it "succeeds" unconditionally
+    // regardless of call order - so this test asserts the actual call order
+    // and that the tab is navigated via `.location.href`, not via a second
+    // `window.open(url, ...)` call.
     apiFetch.mockImplementation(routeDocs([FILE_DOC], successView))
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+    const fakeWindow = { closed: false, location: { href: '' } }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWindow)
     await openDocumentsTab()
 
     expect(await screen.findByText('Driver License')).toBeInTheDocument()
     fireEvent.click(screen.getByTitle('Open in new tab'))
 
+    // The blank tab must open immediately, synchronously with the click -
+    // not after the document fetch resolves.
+    expect(openSpy).toHaveBeenCalledWith('', '_blank', 'noopener,noreferrer')
+
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-1/view'),
     )
-    await waitFor(() =>
-      expect(openSpy).toHaveBeenCalledWith('blob:mock-url', '_blank', 'noopener,noreferrer'),
-    )
+    // window.open must be called exactly once (the blank tab); the fetched
+    // document reaches the tab via navigation, not a second window.open call.
+    expect(openSpy).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(fakeWindow.location.href).toBe('blob:mock-url'))
   })
 
   it('still treats a generated doc as protected when the record is missing file_path metadata', async () => {
@@ -674,7 +813,8 @@ describe('ClientDashboard - authenticated document view/download', () => {
       created_at: '2026-06-26',
     }
     apiFetch.mockImplementation(routeDocs([GENERATED_DOC], successView))
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+    const fakeWindow = { closed: false, location: { href: '' } }
+    vi.spyOn(window, 'open').mockReturnValue(fakeWindow)
     await openDocumentsTab()
 
     expect(await screen.findByText('Letter of Presence')).toBeInTheDocument()
@@ -683,8 +823,23 @@ describe('ClientDashboard - authenticated document view/download', () => {
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-generated-1/view'),
     )
+    await waitFor(() => expect(fakeWindow.location.href).toBe('blob:mock-url'))
+  })
+
+  it('shows a friendly error (not a false "opened" state) when the browser actually blocks the popup', async () => {
+    // If the browser blocks even the synchronous blank-tab open (e.g. a
+    // strict "never allow popups" site setting), window.open returns null
+    // and the user must see the real error rather than a silently "opened"
+    // empty tab.
+    apiFetch.mockImplementation(routeDocs([FILE_DOC], successView))
+    vi.spyOn(window, 'open').mockReturnValue(null)
+    await openDocumentsTab()
+
+    expect(await screen.findByText('Driver License')).toBeInTheDocument()
+    fireEvent.click(screen.getByTitle('Open in new tab'))
+
     await waitFor(() =>
-      expect(openSpy).toHaveBeenCalledWith('blob:mock-url', '_blank', 'noopener,noreferrer'),
+      expect(toast.error).toHaveBeenCalledWith('Could not open document. Please try again.'),
     )
   })
 

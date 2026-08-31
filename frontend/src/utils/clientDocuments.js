@@ -52,17 +52,38 @@ export const isProtectedClientDocument = (doc) =>
  * Open a protected document in a new tab using an authenticated blob URL.
  * Returns true when a window was opened. The object URL is revoked after a
  * delay so the new tab has time to load it.
+ *
+ * Browsers only honor `window.open()` as a direct result of a user gesture
+ * (a click) when it runs *before* the call stack yields - once an `await`
+ * happens first, the browser can no longer tell the popup was requested by
+ * the click that's still on screen, and silently blocks it (`window.open`
+ * then returns `null`). This function used to `await` the document fetch
+ * before calling `window.open(objectUrl, ...)`, so real browsers blocked
+ * every call - the fetch itself succeeded (200), which is why this looked
+ * like generation/persistence/auth all working while "View" still failed.
+ * Opening a blank tab synchronously first, then navigating it once the
+ * fetch resolves, keeps the call inside the user-gesture window.
  */
 export const openClientDocument = async (endpoint) => {
-  const { objectUrl } = await fetchClientDocumentObjectUrl(endpoint)
-  let opened = null
-  if (typeof window !== 'undefined' && typeof window.open === 'function') {
-    opened = window.open(objectUrl, '_blank', 'noopener,noreferrer')
+  const canOpenWindow = typeof window !== 'undefined' && typeof window.open === 'function'
+  // Must happen before the first `await` below - see note above.
+  const pendingWindow = canOpenWindow ? window.open('', '_blank', 'noopener,noreferrer') : null
+
+  let objectUrl
+  try {
+    ;({ objectUrl } = await fetchClientDocumentObjectUrl(endpoint))
+  } catch (error) {
+    if (pendingWindow && !pendingWindow.closed) pendingWindow.close()
+    throw error
+  }
+
+  if (pendingWindow && !pendingWindow.closed) {
+    pendingWindow.location.href = objectUrl
   }
   if (typeof URL !== 'undefined' && URL.revokeObjectURL) {
     setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
   }
-  return Boolean(opened)
+  return Boolean(pendingWindow)
 }
 
 /**

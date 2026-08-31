@@ -673,8 +673,18 @@ describe('DocumentationCenter authenticated client document view', () => {
   })
 
   it('opens a saved client document via the authenticated helper, not a raw protected href', async () => {
+    // Regression test for the production P1 (shared root cause with the ROI
+    // "View linked document" bug, fixed in utils/clientDocuments.js): this
+    // View button was reported to produce no visible result at all in
+    // production, even though the fetch succeeded. The old test here used
+    // `mockReturnValue({})` on window.open, which "succeeds" unconditionally
+    // regardless of call order/args - it could never have caught a real
+    // browser silently blocking a post-await window.open(). Asserting the
+    // actual call order (blank tab opens before the fetch resolves) closes
+    // that gap.
     apiFetch.mockImplementation(routeDocs([CLIENT_DOC], successView))
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+    const fakeWindow = { closed: false, location: { href: '' } }
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWindow)
 
     await showClientDocuments()
     expect(await screen.findByText('Court Letter Scan')).toBeInTheDocument()
@@ -685,12 +695,13 @@ describe('DocumentationCenter authenticated client document view', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'View' }))
 
+    expect(openSpy).toHaveBeenCalledWith('', '_blank', 'noopener,noreferrer')
+
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-1/view'),
     )
-    await waitFor(() =>
-      expect(openSpy).toHaveBeenCalledWith('blob:mock-url', '_blank', 'noopener,noreferrer'),
-    )
+    await waitFor(() => expect(fakeWindow.location.href).toBe('blob:mock-url'))
+    expect(screen.queryByText('Could not open document. Please try again.')).not.toBeInTheDocument()
   })
 
   it('shows a friendly error (never raw JSON) when the authenticated open fails', async () => {
@@ -700,7 +711,7 @@ describe('DocumentationCenter authenticated client document view', () => {
       json: async () => ({ detail: 'Missing Firebase bearer token' }),
     })
     apiFetch.mockImplementation(routeDocs([CLIENT_DOC], failView))
-    vi.spyOn(window, 'open').mockReturnValue({})
+    vi.spyOn(window, 'open').mockReturnValue({ closed: false, location: { href: '' }, close: vi.fn() })
 
     await showClientDocuments()
     expect(await screen.findByText('Court Letter Scan')).toBeInTheDocument()
@@ -710,6 +721,19 @@ describe('DocumentationCenter authenticated client document view', () => {
       expect(toast.error).toHaveBeenCalledWith('Could not open document. Please try again.'),
     )
     expect(screen.queryByText(/Missing Firebase bearer token/)).toBeNull()
+  })
+
+  it('shows the friendly error when the browser genuinely blocks the popup', async () => {
+    apiFetch.mockImplementation(routeDocs([CLIENT_DOC], successView))
+    vi.spyOn(window, 'open').mockReturnValue(null)
+
+    await showClientDocuments()
+    expect(await screen.findByText('Court Letter Scan')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View' }))
+
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Could not open document. Please try again.'),
+    )
   })
 
   it('opens an external-URL client document directly without an authenticated fetch', async () => {
@@ -764,7 +788,8 @@ describe('DocumentationCenter authenticated client document view', () => {
       url: null,
     }
     apiFetch.mockImplementation(routeDocs([legacyGeneratedDoc], successView))
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue({})
+    const fakeWindow = { closed: false, location: { href: '' } }
+    vi.spyOn(window, 'open').mockReturnValue(fakeWindow)
 
     await showClientDocuments()
     expect(await screen.findByText('Legacy Letter of Presence')).toBeInTheDocument()
@@ -773,9 +798,7 @@ describe('DocumentationCenter authenticated client document view', () => {
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith('/api/clients/client-1/documents/doc-generated-legacy/view'),
     )
-    await waitFor(() =>
-      expect(openSpy).toHaveBeenCalledWith('blob:mock-url', '_blank', 'noopener,noreferrer'),
-    )
+    await waitFor(() => expect(fakeWindow.location.href).toBe('blob:mock-url'))
   })
 })
 
