@@ -202,12 +202,13 @@ const ClientDashboard = () => {
   const [selectedNoteType, setSelectedNoteType] = useState('All')
   
   // Tasks functionality
-  const { 
-    loading: tasksLoading, 
-    syncing: tasksSyncing, 
-    addTask, 
-    updateTask, 
-    deleteTask, 
+  const {
+    tasks: caseManagementTasks,
+    loading: tasksLoading,
+    syncing: tasksSyncing,
+    addTask,
+    updateTask,
+    deleteTask,
     completeTask
   } = useTasks(clientId)
   
@@ -1040,7 +1041,30 @@ const ClientDashboard = () => {
     return haystack.includes('resume')
   })
 
-  const mergedTasks = clientWorkItems
+  // /api/clients/{id}/work-items is Smart-Daily-aligned and deliberately omits
+  // completed/cancelled tasks (see get_client_work_items in
+  // backend/modules/reminders/repository.py) - it's a "what needs attention"
+  // feed, not a full task history. The Tasks tab needs the full history (for
+  // the "Completed" filter and stat), so the raw case-management task list
+  // from useTasks (which the client-facing /tasks/list/{client_id} endpoint
+  // returns in full, including completed ones) is merged in here too. Both
+  // sources share the same task_id (they read the same workspace_store table),
+  // so tagging these as source_kind 'workspace_task' lets the existing
+  // dedupe below collapse the two copies of any task that appears in both -
+  // clientWorkItems' richer Smart-Daily-computed copy wins when a task is
+  // still open, and the plain copy survives on its own once a task is
+  // completed (at which point clientWorkItems stops returning it at all).
+  const caseManagementTaskEntries = caseManagementTasks.map((task) => ({
+    ...task,
+    source_kind: 'workspace_task',
+    source_label: task.source_label || (task.task_type === 'treatment_plan' ? 'Treatment Plan Task' : 'Client Task'),
+    source: task.source || 'client_task',
+    can_edit: task.can_edit !== false,
+    can_delete: task.can_delete !== false,
+    can_complete: task.status !== 'completed',
+  }))
+
+  const mergedTasks = [...clientWorkItems, ...caseManagementTaskEntries]
     .map((task) => ({
       ...task,
       priority: normalizeTaskPriority(task.priority),
